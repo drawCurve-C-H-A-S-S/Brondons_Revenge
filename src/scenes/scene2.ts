@@ -6,10 +6,13 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import comicVert from '../shaders/comic.vert.glsl?raw';
 import comicFrag from '../shaders/comic.frag.glsl?raw';
-import { createPlayer } from '../scripts/player.js';
+import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
+import { createScenePhysics, PHYSICS } from '../helpers/physics/scenePhysics.js';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 
-export function createScene({ audioManager, skipWake }: { audioManager?: unknown; skipWake?: boolean } = {}) {
+export function createScene({ audioManager, skipWake, entryState }: {
+  audioManager?: unknown; skipWake?: boolean; entryState?: PlayerTransitionState;
+} = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x000000);
 
@@ -24,9 +27,9 @@ export function createScene({ audioManager, skipWake }: { audioManager?: unknown
   const railingHeight = 1.1;
 
   // --- Physics World ---
-  const physicsWorld = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
-  physicsWorld.broadphase = new CANNON.NaiveBroadphase();
-  const walkwayPhysMat = new CANNON.Material({ friction: 0.8, restitution: 0.1 });
+  const physics = createScenePhysics();
+  const physicsWorld = physics.world;
+  const walkwayPhysMat = physics.solidMaterial;
 
   // --- Procedural tile texture ---
   const tileCanvas = document.createElement('canvas');
@@ -247,23 +250,17 @@ export function createScene({ audioManager, skipWake }: { audioManager?: unknown
   // --- Stairs ---
   const stairWidth = 2;
   const stairRun = 7;
-  const stepCount = 12;
   const stepMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.3, roughness: 0.5 });
   const totalRise = floorHeight + slabThickness;
-  const stairRampData: Array<{ minX: number; maxX: number; minZ: number; maxZ: number; startY: number; endY: number }> = [];
+  const railGlassMat = new THREE.MeshStandardMaterial({
+    color: 0x7799aa, transparent: true, opacity: 0.25, roughness: 0.3,
+  });
 
   function createStairs(xPos: number) {
-    const stairs = new THREE.Group();
-    const stepH = totalRise / stepCount;
-    const stepD = stairRun / stepCount;
-    const stairBaseZ = roomDepth / 2 - walkwayWidth - stairRun;
-    for (let i = 0; i < stepCount; i++) {
-      const step = new THREE.Mesh(mkBox(stairWidth, stepH, stepD), stepMat);
-      step.position.set(0, stepH * (i + 0.5), stepD * i);
-      step.castShadow = true; step.receiveShadow = true;
-      stairs.add(step);
-    }
-    stairRampData.push({ minX: xPos - stairWidth / 2, maxX: xPos + stairWidth / 2, minZ: stairBaseZ, maxZ: stairBaseZ + stairRun, startY: 0, endY: totalRise });
+    const { group: stairs } = physics.addStaircase({
+      width: stairWidth, run: stairRun, rise: totalRise, material: stepMat,
+      position: { x: xPos, y: 0, z: roomDepth / 2 - walkwayWidth - stairRun },
+    });
 
     const railMat = new THREE.MeshStandardMaterial({ color: 0x888899, metalness: 0.7, roughness: 0.3 });
     const slopeAngle = Math.atan2(totalRise, stairRun);
@@ -275,6 +272,12 @@ export function createScene({ audioManager, skipWake }: { audioManager?: unknown
       rail.rotation.x = -slopeAngle;
       rail.castShadow = true;
       stairs.add(rail);
+      physics.addBoxFromMesh(rail);
+      const glass = new THREE.Mesh(mkBox(0.04, railingHeight * Math.cos(slopeAngle), railLen), railGlassMat);
+      glass.position.set(xOffset, totalRise / 2 + railingHeight / 2, stairRun / 2);
+      glass.rotation.x = -slopeAngle;
+      stairs.add(glass);
+      physics.addBoxFromMesh(glass);
     }
     addHandrail(-stairWidth / 2 - 0.06);
     addHandrail(stairWidth / 2 + 0.06);
@@ -286,32 +289,11 @@ export function createScene({ audioManager, skipWake }: { audioManager?: unknown
       const postL = new THREE.Mesh(postGeo, railMat);
       postL.position.set(-stairWidth / 2 - 0.06, postY, postZ);
       postL.castShadow = true; stairs.add(postL);
+      physics.addBoxFromMesh(postL);
       const postR = new THREE.Mesh(postGeo, railMat);
       postR.position.set(stairWidth / 2 + 0.06, postY, postZ);
       postR.castShadow = true; stairs.add(postR);
-    }
-    stairs.position.set(xPos, 0, roomDepth / 2 - walkwayWidth - stairRun);
-    // Stair handrail collision
-    const stairBaseZWorld = roomDepth / 2 - walkwayWidth - stairRun;
-    for (let i = 0; i <= 3; i++) {
-      const t = i / 3;
-      const postY = t * totalRise + railingHeight;
-      const postZ = stairBaseZWorld + t * stairRun;
-      const segLen = stairRun / 3 * 0.9;
-      for (const side of [-1, 1]) {
-        const railX = xPos + side * (stairWidth / 2 + 0.06);
-        const railCol = new CANNON.Body({ mass: 0, material: walkwayPhysMat });
-        railCol.addShape(new CANNON.Box(new CANNON.Vec3(0.06, 0.06, segLen / 2)));
-        railCol.position.set(railX, postY, postZ);
-        physicsWorld.addBody(railCol);
-      }
-    }
-    for (const side of [-1, 1]) {
-      const wallX = xPos + side * (stairWidth / 2 + 0.15);
-      const sideWall = new CANNON.Body({ mass: 0, material: walkwayPhysMat });
-      sideWall.addShape(new CANNON.Box(new CANNON.Vec3(0.15, totalRise / 2, stairRun / 2 + 0.3)));
-      sideWall.position.set(wallX, totalRise / 2, stairBaseZWorld + stairRun / 2);
-      physicsWorld.addBody(sideWall);
+      physics.addBoxFromMesh(postR);
     }
     return stairs;
   }
@@ -324,12 +306,18 @@ export function createScene({ audioManager, skipWake }: { audioManager?: unknown
     const rail = new THREE.Mesh(mkBox(alongX ? length : 0.06, 0.06, alongX ? 0.06 : length), railMat);
     rail.position.set(x, floor2Y + railingHeight, z);
     rail.castShadow = true; scene.add(rail);
-    const postCount = Math.floor(length / 2.5);
+    physics.addBoxFromMesh(rail);
+    const glass = new THREE.Mesh(mkBox(alongX ? length : 0.04, railingHeight, alongX ? 0.04 : length), railGlassMat);
+    glass.position.set(x, floor2Y + railingHeight / 2, z);
+    scene.add(glass);
+    physics.addBoxFromMesh(glass);
+    const postCount = Math.max(1, Math.ceil(length / 2.5));
     for (let i = 0; i <= postCount; i++) {
       const t = (i / postCount) - 0.5;
       const post = new THREE.Mesh(mkBox(0.06, railingHeight, 0.06), railMat);
       post.position.set(alongX ? x + t * length : x, floor2Y + railingHeight / 2, alongX ? z : z + t * length);
       post.castShadow = true; scene.add(post);
+      physics.addBoxFromMesh(post);
     }
   };
   const sideRailLen = roomDepth - walkwayWidth * 2 - 1;
@@ -345,23 +333,6 @@ export function createScene({ audioManager, skipWake }: { audioManager?: unknown
   const seg2Len = (stairCenterR - gapHalf) - (stairCenterL + gapHalf);
   addRailing((stairCenterL + gapHalf + stairCenterR - gapHalf) / 2, frontRailZ, seg2Len, true);
   addRailing((roomWidth / 2 - walkwayWidth) - seg1Len / 2, frontRailZ, seg1Len, true);
-
-  // Railing collision bodies
-  const railCollisionY = floor2Y + railingHeight / 2;
-  const railHalfH = railingHeight / 2;
-  const addRailCol = (cx: number, cy: number, cz: number, hw: number, hh: number, hd: number) => {
-    const body = new CANNON.Body({ mass: 0, material: walkwayPhysMat });
-    body.addShape(new CANNON.Box(new CANNON.Vec3(hw, hh, hd)));
-    body.position.set(cx, cy, cz);
-    physicsWorld.addBody(body);
-  };
-  addRailCol(-roomWidth / 2 + walkwayWidth, railCollisionY, 0, 0.06, railHalfH, sideRailLen / 2);
-  addRailCol(roomWidth / 2 - walkwayWidth, railCollisionY, 0, 0.06, railHalfH, sideRailLen / 2);
-  const backRailLen = roomWidth - walkwayWidth * 2 - 1;
-  addRailCol(0, railCollisionY, -roomDepth / 2 + walkwayWidth, backRailLen / 2, railHalfH, 0.06);
-  addRailCol(-(roomWidth / 2 - walkwayWidth) + seg1Len / 2, railCollisionY, frontRailZ, seg1Len / 2, railHalfH, 0.06);
-  addRailCol((stairCenterL + gapHalf + stairCenterR - gapHalf) / 2, railCollisionY, frontRailZ, seg2Len / 2, railHalfH, 0.06);
-  addRailCol((roomWidth / 2 - walkwayWidth) - seg1Len / 2, railCollisionY, frontRailZ, seg1Len / 2, railHalfH, 0.06);
 
   // --- Capsules ---
   const capsuleMat = makeComicMaterial(0xcccccc);
@@ -583,21 +554,12 @@ export function createScene({ audioManager, skipWake }: { audioManager?: unknown
   camera.layers.set(0);
 
   // --- Ground floor physics ---
-  const floorBody = new CANNON.Body({ mass: 0 });
-  floorBody.addShape(new CANNON.Plane());
-  floorBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
-  floorBody.position.set(0, 0, 0); physicsWorld.addBody(floorBody);
-  const addWalkwayBody = (cx: number, cy: number, cz: number, hw: number, hh: number, hd: number) => {
-    const body = new CANNON.Body({ mass: 0, material: walkwayPhysMat });
-    body.addShape(new CANNON.Box(new CANNON.Vec3(hw, hh, hd)));
-    body.position.set(cx, cy, cz); physicsWorld.addBody(body);
-  };
-  addWalkwayBody(-roomWidth / 2 + walkwayWidth / 2, floor2Y - slabThickness / 2, 0, walkwayWidth / 2, slabThickness / 2, roomDepth / 2);
-  addWalkwayBody(roomWidth / 2 - walkwayWidth / 2, floor2Y - slabThickness / 2, 0, walkwayWidth / 2, slabThickness / 2, roomDepth / 2);
-  addWalkwayBody(0, floor2Y - slabThickness / 2, -roomDepth / 2 + walkwayWidth / 2, (roomWidth - walkwayWidth * 2) / 2, slabThickness / 2, walkwayWidth / 2);
-  addWalkwayBody(0, floor2Y - slabThickness / 2, roomDepth / 2 - walkwayWidth / 2, (roomWidth - walkwayWidth * 2) / 2, slabThickness / 2, walkwayWidth / 2);
+  physics.addBox({ x: roomWidth, y: slabThickness, z: roomDepth }, { x: 0, y: -slabThickness / 2, z: 0 });
+  // Keep the transition threshold physically supported beyond the doorway.
+  physics.addBox({ x: doorW, y: slabThickness, z: 2 }, { x: 0, y: -slabThickness / 2, z: roomDepth / 2 + 1 });
+  for (const slab of [lw2, rw2, bw2, fw2]) physics.addBoxFromMesh(slab);
   // Wall physics
-  const wallPhysMat = new CANNON.Material({ friction: 0.5, restitution: 0.3 });
+  const wallPhysMat = physics.solidMaterial;
   const wt = 0.5;
   const bw = new CANNON.Body({ mass: 0, material: wallPhysMat });
   bw.addShape(new CANNON.Box(new CANNON.Vec3(roomWidth / 2, totalHeight / 2, wt / 2)));
@@ -631,7 +593,6 @@ export function createScene({ audioManager, skipWake }: { audioManager?: unknown
   camera.position.set(capsuleX, lyingY + 0.1, capsuleZ);
   camera.rotation.set(-Math.PI / 2, 0, 0);
   const player = createPlayer({ camera, physicsWorld, spawnPosition: { x: capsuleX, y: lyingY, z: capsuleZ } });
-  for (const ramp of stairRampData) { player.addWalkableRamp(ramp); }
 
   // --- Wake-up sequence ---
   let wakePhase = 'waiting';
@@ -689,7 +650,7 @@ export function createScene({ audioManager, skipWake }: { audioManager?: unknown
         eyeOverlay = null; eyelidTop = null; eyelidBottom = null;
         const spawnX = capsuleX - 1.5;
         const spawnZ = capsuleZ;
-        const bodyY = 0.3;
+        const bodyY = PHYSICS.playerRadius;
         camera.position.set(spawnX, bodyY + 1.3, spawnZ);
         camera.rotation.order = 'YXZ';
         camera.rotation.set(0, 0, 0);
@@ -702,30 +663,37 @@ export function createScene({ audioManager, skipWake }: { audioManager?: unknown
     }
   }
 
-  if (skipWake) {
+  if (skipWake || entryState) {
     wakePhase = 'done';
     const spawnX = 0;
     const spawnZ = roomDepth / 2 - 2;
-    const bodyY = 0.3;
+    const bodyY = PHYSICS.playerRadius;
     camera.position.set(spawnX, bodyY + 1.3, spawnZ);
     camera.rotation.order = 'YXZ';
     camera.rotation.set(0, 0, 0);
     player.setRotation(0, 0);
     player.setPosition(spawnX, bodyY, spawnZ);
     player.enable();
+    if (entryState) {
+      player.restoreTransition(entryState, { x: 0, y: 0, z: roomDepth / 2 });
+      doorOpen = doorTargetOpen = 1;
+      doorLeft.position.x = -doorPanelW / 2 - doorSlideDistance;
+      doorRight.position.x = doorPanelW / 2 + doorSlideDistance;
+      doorSeam.visible = false;
+    }
   }
 
   // --- Door trigger ---
-  let onDoorTrigger: (() => void) | null = null;
+  let onDoorTrigger: ((state: PlayerTransitionState) => void) | null = null;
   let doorTriggerCooldown = false;
-  function setDoorTrigger(callback: () => void) { onDoorTrigger = callback; }
+  function setDoorTrigger(callback: (state: PlayerTransitionState) => void) { onDoorTrigger = callback; }
 
   function updatePhysics(dt: number) {
-    physicsWorld.step(1 / 60, dt, 3);
+    dt = Number.isFinite(dt) ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime)) : 0;
+    physics.step(dt, player);
     if (wakePhase !== 'done') {
       updateWakeSequence(dt);
     } else {
-      player.update(dt);
       const px = player.body.position.x;
       const pz = player.body.position.z;
       const doorZPos = roomDepth / 2;
@@ -750,7 +718,7 @@ export function createScene({ audioManager, skipWake }: { audioManager?: unknown
       if (onDoorTrigger && !doorTriggerCooldown && doorOpen > 0.9) {
         if (pz > roomDepth / 2 + 0.5 && px > -doorW / 2 && px < doorW / 2) {
           doorTriggerCooldown = true;
-          onDoorTrigger();
+          onDoorTrigger(player.captureTransition({ x: 0, y: 0, z: roomDepth / 2 }));
         }
       }
     }
@@ -777,5 +745,12 @@ export function createScene({ audioManager, skipWake }: { audioManager?: unknown
     cutsceneManager: null,
     player,
     setDoorTrigger,
+    dispose: () => {
+      player.dispose();
+      physics.dispose();
+      eyeOverlay?.remove();
+      eyelidTop?.remove();
+      eyelidBottom?.remove();
+    },
   };
 }

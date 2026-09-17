@@ -4,22 +4,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 
-interface WalkableSurface {
-  y: number;
-  minX: number;
-  maxX: number;
-  minZ: number;
-  maxZ: number;
-}
-
-interface WalkableRamp {
-  minX: number;
-  maxX: number;
-  minZ: number;
-  maxZ: number;
-  startY: number;
-  endY: number;
-}
+import { PHYSICS } from '../helpers/physics/scenePhysics.js';
 
 export interface PlayerState {
   isMoving: boolean;
@@ -27,6 +12,26 @@ export interface PlayerState {
   jumping: boolean;
   yaw: number;
   velocityY: number;
+}
+
+interface Doorway {
+  x: number;
+  y: number;
+  z: number;
+  // Heading into the room; yaw 0 points along -Z.
+  yaw?: number;
+}
+
+export interface PlayerTransitionState {
+  position: { x: number; y: number; z: number };
+  velocity: { x: number; y: number; z: number };
+  yaw: number;
+  pitch: number;
+  heldKeys: string[];
+  intentionalJump: boolean;
+  jumpQueued: boolean;
+  bobTime: number;
+  bobIntensity: number;
 }
 
 interface PlayerOptions {
@@ -37,36 +42,30 @@ interface PlayerOptions {
 
 export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOptions) {
   // --- Physics body ---
-  const playerRadius = 0.3;
+  const playerRadius = PHYSICS.playerRadius;
   const playerMass = 70;
   const eyeHeight = 1.6;
 
   const playerShape = new CANNON.Sphere(playerRadius);
   const playerBody = new CANNON.Body({ mass: playerMass });
   playerBody.addShape(playerShape);
-  playerBody.linearDamping = 0.95;
-  playerBody.angularDamping = 0.95;
+  playerBody.linearDamping = 0;
+  playerBody.fixedRotation = true;
+  playerBody.updateMassProperties();
   const playerPhysMat = new CANNON.Material({ friction: 0, restitution: 0 });
   playerBody.material = playerPhysMat;
   playerBody.position.set(spawnPosition.x, spawnPosition.y, spawnPosition.z);
   physicsWorld.addBody(playerBody);
 
-  // --- Walkable surfaces ---
-  const walkableSurfaces: WalkableSurface[] = [
-    { y: 0, minX: -10, maxX: 10, minZ: -15, maxZ: 17 },
-    { y: 4.9, minX: -10, maxX: -4.5, minZ: -15, maxZ: 15 },
-    { y: 4.9, minX: 4.5, maxX: 10, minZ: -15, maxZ: 15 },
-    { y: 4.9, minX: -4.5, maxX: 4.5, minZ: -15, maxZ: -9.5 },
-    { y: 4.9, minX: -4.5, maxX: 4.5, minZ: 9.5, maxZ: 15 },
-  ];
-  const walkableRamps: WalkableRamp[] = [];
-
   // --- Movement ---
   const keys: Record<string, boolean> = {};
-  const moveSpeed = 6;
-  const jumpForce = 7;
+  const moveSpeed = PHYSICS.moveSpeed;
   let isOnGround = false;
   let enabled = false;
+  let jumpQueued = false;
+  let intentionalJump = false;
+  const groundNormal = new CANNON.Vec3(0, 1, 0);
+  const minGroundY = Math.cos(PHYSICS.maxSlopeDegrees * Math.PI / 180);
 
   // --- Camera ---
   let yaw = 0;
@@ -81,14 +80,19 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   const bobAmplitudeHorizontal = 0.02;
   const bobAmplitudePitch = 0.008;
   const bobTransitionSpeed = 4;
-  let isPointerLocked = false;
+  let isPointerLocked = document.pointerLockElement != null;
 
   // --- Input ---
-  function onKeyDown(e: KeyboardEvent) { if (enabled) keys[e.code] = true; }
+  function onKeyDown(e: KeyboardEvent) {
+    if (!enabled) return;
+    if (e.code === 'Space' && !keys[e.code] && !e.repeat) jumpQueued = true;
+    keys[e.code] = true;
+  }
   function onKeyUp(e: KeyboardEvent) { keys[e.code] = false; }
 
   function clearInput() {
     for (const code of Object.keys(keys)) delete keys[code];
+    jumpQueued = false;
     playerBody.velocity.x = 0;
     playerBody.velocity.z = 0;
   }
@@ -101,7 +105,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   }
 
   function onPointerLockChange() {
-    isPointerLocked = document.pointerLockElement !== null;
+    isPointerLocked = document.pointerLockElement != null;
     if (!isPointerLocked) clearInput();
   }
 
@@ -129,67 +133,100 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     return { x: f * (-sinY) + r * cosY, z: f * (-cosY) + r * (-sinY) };
   }
 
-  // --- Ground detection ---
-  function getGroundHeight(px: number, pz: number, feetY: number): number | null {
-    let bestY = -Infinity;
-    let found = false;
-    const tolerance = 0.5;
-    for (const s of walkableSurfaces) {
-      if (px >= s.minX && px <= s.maxX && pz >= s.minZ && pz <= s.maxZ) {
-        if (s.y >= feetY - 0.15 && s.y <= feetY + tolerance) {
-          if (s.y > bestY) { bestY = s.y; found = true; }
+  // Support comes only from solid colliders. Solver residuals are not jump input.
+  function canSupport(body: CANNON.Body) {
+    return body !== playerBody && body.type === CANNON.Body.STATIC && body.collisionResponse &&
+      (body.collisionFilterGroup & playerBody.collisionFilterMask) !== 0 &&
+      (body.collisionFilterMask & playerBody.collisionFilterGroup) !== 0;
+  }
+
+  function updateGroundState(useContacts: boolean) {
+    const wasGrounded = isOnGround;
+    isOnGround = false;
+    if (intentionalJump && playerBody.velocity.y > 0) return;
+    let support: CANNON.Vec3 | null = null;
+    if (useContacts) {
+      for (const contact of physicsWorld.contacts) {
+        if (!contact.enabled) continue;
+        const isFirst = contact.bi === playerBody;
+        if (!isFirst && contact.bj !== playerBody) continue;
+        const other = isFirst ? contact.bj : contact.bi;
+        if (!canSupport(other)) continue;
+        const normal = contact.ni.scale(isFirst ? -1 : 1);
+        if (normal.y < minGroundY) continue;
+        const point = other.position.vadd(isFirst ? contact.rj : contact.ri);
+        const gap = playerBody.position.vsub(point).dot(normal) - playerRadius;
+        if (Math.abs(gap) <= PHYSICS.contactTolerance && (!support || normal.y > support.y)) {
+          support = normal;
         }
       }
     }
-    for (const r of walkableRamps) {
-      if (px >= r.minX && px <= r.maxX && pz >= r.minZ && pz <= r.maxZ) {
-        const t = (pz - r.minZ) / (r.maxZ - r.minZ);
-        const rampY = r.startY + (r.endY - r.startY) * t;
-        if (rampY >= feetY - 0.15 && rampY <= feetY + tolerance) {
-          if (rampY > bestY) { bestY = rampY; found = true; }
+
+    // A short center ray bridges descending slopes and initializes spawn support.
+    // Sphere clearance on a slope is radius / normal.y, not radius.
+    if (!support && (wasGrounded || playerBody.velocity.y <= 0.5)) {
+      const from = playerBody.position.clone();
+      const to = from.vadd(new CANNON.Vec3(0, -(playerRadius / minGroundY + PHYSICS.groundSnapDistance), 0));
+      const maxGap = wasGrounded ? PHYSICS.groundSnapDistance : PHYSICS.contactTolerance;
+      let bestGap = Infinity;
+      physicsWorld.raycastAll(from, to, { skipBackfaces: true, checkCollisionResponse: true }, hit => {
+        if (!hit.body || !canSupport(hit.body) || hit.hitNormalWorld.y < minGroundY) return;
+        const gap = from.y - hit.hitPointWorld.y - playerRadius / hit.hitNormalWorld.y;
+        if (gap >= -PHYSICS.contactTolerance && gap <= maxGap && gap < bestGap) {
+          bestGap = gap;
+          support = hit.hitNormalWorld.clone();
         }
+      });
+      if (support && bestGap > 0) {
+        playerBody.position.y -= bestGap;
+        playerBody.aabbNeedsUpdate = true;
       }
     }
-    return found ? bestY : null;
-  }
-
-  function updateGroundState() {
-    const feetY = playerBody.position.y - playerRadius;
-    const groundY = getGroundHeight(playerBody.position.x, playerBody.position.z, feetY);
-    isOnGround = groundY !== null && playerBody.velocity.y <= 0;
-    if (isOnGround && groundY !== null) {
-      playerBody.position.y = groundY + playerRadius;
-      playerBody.velocity.y = 0;
+    if (support) {
+      groundNormal.copy(support);
+      isOnGround = true;
+      intentionalJump = false;
+      const outwardSpeed = playerBody.velocity.dot(groundNormal);
+      if (outwardSpeed > 0) {
+        playerBody.velocity.vsub(groundNormal.scale(outwardSpeed), playerBody.velocity);
+      }
     }
   }
 
-  // --- Update ---
-  function update(dt: number) {
+  function beforePhysicsStep(_dt: number) {
     if (!enabled) return;
-
-    const safetyBound = 50;
-    playerBody.position.x = Math.max(-safetyBound, Math.min(safetyBound, playerBody.position.x));
-    playerBody.position.z = Math.max(-safetyBound, Math.min(safetyBound, playerBody.position.z));
-    // Refresh ground state before input, then preserve an airborne jump takeoff.
-    updateGroundState();
-
-    // Movement
     const moveDir = getMoveDirection();
-    if (moveDir) {
-      playerBody.velocity.x = moveDir.x * moveSpeed;
-      playerBody.velocity.z = moveDir.z * moveSpeed;
+    const desired = new CANNON.Vec3(moveDir?.x ?? 0, 0, moveDir?.z ?? 0);
+    if (isOnGround) {
+      desired.y = -(desired.x * groundNormal.x + desired.z * groundNormal.z) / groundNormal.y;
+      desired.normalize();
+      desired.scale(moveSpeed, playerBody.velocity);
     } else {
-      playerBody.velocity.x = 0;
-      playerBody.velocity.z = 0;
+      playerBody.velocity.x = desired.x * moveSpeed;
+      playerBody.velocity.z = desired.z * moveSpeed;
     }
-
-    if (keys['Space'] && isOnGround) {
-      playerBody.velocity.y = jumpForce;
+    if (jumpQueued && isOnGround) {
+      playerBody.velocity.y = PHYSICS.jumpSpeed;
       isOnGround = false;
+      intentionalJump = true;
     }
+    jumpQueued = false;
+    if (isOnGround) {
+      // Cancel gravity along the support plane so idle players do not slide.
+      const gravityNormal = groundNormal.scale(physicsWorld.gravity.dot(groundNormal));
+      const gravityTangent = physicsWorld.gravity.vsub(gravityNormal);
+      playerBody.force.vsub(gravityTangent.scale(playerMass), playerBody.force);
+    }
+  }
 
+  function afterPhysicsStep() {
+    if (enabled) updateGroundState(true);
+  }
+
+  function updateCamera(dt: number) {
+    if (!enabled) return;
     // Head bob
-    const isMoving = moveDir && isOnGround;
+    const isMoving = getMoveDirection() && isOnGround;
     if (isMoving) {
       bobIntensity = Math.min(1, bobIntensity + dt * bobTransitionSpeed);
       bobTime += dt * bobFrequency;
@@ -213,7 +250,52 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     camera.rotation.x = pitch + bobPitch;
   }
 
+  function captureTransition(doorway: Doorway): PlayerTransitionState {
+    const axis = new THREE.Vector3(0, 1, 0);
+    const rotation = -(doorway.yaw ?? 0);
+    return {
+      position: new THREE.Vector3(
+        playerBody.position.x - doorway.x, playerBody.position.y - doorway.y, playerBody.position.z - doorway.z,
+      ).applyAxisAngle(axis, rotation),
+      velocity: new THREE.Vector3(playerBody.velocity.x, playerBody.velocity.y, playerBody.velocity.z).applyAxisAngle(axis, rotation),
+      yaw: yaw + rotation,
+      pitch,
+      heldKeys: Object.keys(keys).filter(code => keys[code]),
+      intentionalJump,
+      jumpQueued,
+      bobTime,
+      bobIntensity,
+    };
+  }
+
+  function restoreTransition(state: PlayerTransitionState, doorway: Doorway) {
+    // Crossing maps the source's outward direction to the destination's inward direction.
+    const rotation = (doorway.yaw ?? 0) + Math.PI;
+    const axis = new THREE.Vector3(0, 1, 0);
+    const position = new THREE.Vector3().copy(state.position).applyAxisAngle(axis, rotation);
+    const velocity = new THREE.Vector3().copy(state.velocity).applyAxisAngle(axis, rotation);
+    clearInput();
+    for (const code of state.heldKeys) keys[code] = true;
+    playerBody.position.set(position.x + doorway.x, position.y + doorway.y, position.z + doorway.z);
+    playerBody.velocity.set(velocity.x, velocity.y, velocity.z);
+    playerBody.force.set(0, 0, 0);
+    playerBody.aabbNeedsUpdate = true;
+    playerBody.wakeUp();
+    yaw = Math.atan2(Math.sin(state.yaw + rotation), Math.cos(state.yaw + rotation));
+    pitch = state.pitch;
+    intentionalJump = state.intentionalJump;
+    jumpQueued = state.jumpQueued;
+    bobTime = state.bobTime;
+    bobIntensity = state.bobIntensity;
+    isOnGround = false;
+    updateGroundState(false);
+    isPointerLocked = document.pointerLockElement != null;
+    updateCamera(0);
+  }
+
   function dispose() {
+    enabled = false;
+    clearInput();
     window.removeEventListener('keydown', onKeyDown);
     window.removeEventListener('keyup', onKeyUp);
     window.removeEventListener('blur', clearInput);
@@ -226,17 +308,29 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   return {
     body: playerBody,
     radius: playerRadius,
-    update,
+    beforePhysicsStep,
+    afterPhysicsStep,
+    updateCamera,
+    captureTransition,
+    restoreTransition,
     dispose,
-    enable: () => { updateGroundState(); enabled = true; },
+    enable: () => {
+      isPointerLocked = document.pointerLockElement != null;
+      updateGroundState(false);
+      enabled = true;
+    },
     disable: () => { enabled = false; clearInput(); },
     isEnabled: () => enabled,
-    addWalkableSurface: (surface: WalkableSurface) => { walkableSurfaces.push(surface); },
-    addWalkableRamp: (ramp: WalkableRamp) => { walkableRamps.push(ramp); },
     setPosition: (x: number, y: number, z: number) => {
       playerBody.position.set(x, y, z);
       playerBody.velocity.set(0, 0, 0);
-      updateGroundState();
+      playerBody.force.set(0, 0, 0);
+      playerBody.aabbNeedsUpdate = true;
+      playerBody.wakeUp();
+      intentionalJump = false;
+      jumpQueued = false;
+      isOnGround = false;
+      updateGroundState(false);
     },
     setRotation: (newYaw: number, newPitch?: number) => {
       yaw = newYaw;
@@ -245,7 +339,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     getState: (): PlayerState => ({
       isMoving: enabled && getMoveDirection() !== null,
       isOnGround,
-      jumping: !isOnGround && playerBody.velocity.y > 0,
+      jumping: !isOnGround && intentionalJump && playerBody.velocity.y > 0.1,
       yaw,
       velocityY: playerBody.velocity.y,
     }),

@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { after, before, test } from 'node:test';
 import * as THREE from 'three';
-import * as CANNON from 'cannon-es';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createServer } from 'vite';
 
 let server;
 let loadCharacter;
 let createPlayer;
+let createScenePhysics;
 let modelData;
 
 before(async () => {
@@ -21,6 +21,7 @@ before(async () => {
   });
   ({ loadCharacter } = await server.ssrLoadModule('/scripts/characterManager.ts'));
   ({ createPlayer } = await server.ssrLoadModule('/scripts/player.ts'));
+  ({ createScenePhysics } = await server.ssrLoadModule('/helpers/physics/scenePhysics.ts'));
 });
 
 after(async () => { await server?.close(); });
@@ -41,10 +42,13 @@ async function fixture(t) {
   globalThis.document.pointerLockElement = null;
   globalThis.document.body = { requestPointerLock() {} };
   const camera = new THREE.PerspectiveCamera();
-  const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
+  const physics = createScenePhysics();
+  const world = physics.world;
+  physics.addBox({ x: 100, y: 0.4, z: 100 }, { x: 0, y: -0.2, z: 0 });
   const player = createPlayer({ camera, physicsWorld: world, spawnPosition: { x: 0, y: 0.3, z: 0 } });
   t.after(() => {
     player.dispose();
+    physics.dispose();
     character.dispose();
     globalThis.window = oldWindow;
     globalThis.document = oldDocument;
@@ -59,7 +63,7 @@ async function fixture(t) {
 
   function frame(frames = 1, thirdPerson = true) {
     for (let i = 0; i < frames; i++) {
-      player.update(1 / 60);
+      physics.step(1 / 60, player);
       character.update(1 / 60, player.body.position, player.getState(), thirdPerson, player.radius);
     }
   }
@@ -71,7 +75,7 @@ async function fixture(t) {
     return action?.getEffectiveWeight() ?? 0;
   }
 
-  return { player, character, camera, world, key, frame, weight };
+  return { player, character, camera, world, physics, key, frame, weight };
 }
 
 test('actual GLB binds idle/walk to the skeleton and deforms the skin', async t => {
@@ -171,11 +175,9 @@ test('jump takeoff stays airborne and landing restores locomotion', async t => {
   assert.equal(player.getState().isOnGround, false);
   assert.equal(player.getState().jumping, true);
   key('keyup', 'Space');
-  player.body.position.y = 1.5;
-  frame(45);
+  frame(60);
+  assert.equal(player.getState().isOnGround, false);
   assert.ok(weight('Jump_Loop') > 0.99);
-  player.body.position.y = 0.3;
-  player.body.velocity.y = -1;
   frame(120);
   assert.ok(weight('Idle_Loop') > 0.99);
   key('keydown', 'KeyW');
@@ -204,15 +206,7 @@ test('opposed keys, blur, and disable do not leave walking stuck', async t => {
 });
 
 test('physics stepping keeps grounded locomotion stable and recovers after a jump', async t => {
-  const { player, character, world, key, weight } = await fixture(t);
-  const floor = new CANNON.Body({ mass: 0, shape: new CANNON.Plane() });
-  floor.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
-  world.addBody(floor);
-  function physicsFrame() {
-    world.step(1 / 60);
-    player.update(1 / 60);
-    character.update(1 / 60, player.body.position, player.getState(), true, player.radius);
-  }
+  const { player, frame: physicsFrame, key, weight } = await fixture(t);
   for (const code of ['KeyW', 'KeyA', 'KeyS', 'KeyD']) {
     key('keydown', code);
     for (let i = 0; i < 45; i++) {
@@ -234,6 +228,19 @@ test('physics stepping keeps grounded locomotion stable and recovers after a jum
   key('keydown', 'KeyW');
   for (let i = 0; i < 30; i++) physicsFrame();
   assert.ok(weight('Walk_Loop') > 0.99);
+});
+
+test('doorway arrival aligns the real character before rendering without a half-turn animation', async t => {
+  const { character, player, camera } = await fixture(t);
+  for (const yaw of [0.2, Math.PI, -Math.PI / 2]) {
+    player.setRotation(yaw, 0);
+    player.updateCamera(0);
+    character.setFacing(yaw);
+    character.update(0, player.body.position, player.getState(), true, player.radius);
+    const modelForward = new THREE.Vector3(0, 0, 1).applyQuaternion(character.model.quaternion);
+    const cameraForward = camera.getWorldDirection(new THREE.Vector3());
+    assert.ok(modelForward.dot(cameraForward) > 0.999999, 'Model must face the arrival direction immediately');
+  }
 });
 
 test('view changes keep animation running while first person hides the model', async t => {

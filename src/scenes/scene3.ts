@@ -5,9 +5,12 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import comicVert from '../shaders/comic.vert.glsl?raw';
 import comicFrag from '../shaders/comic.frag.glsl?raw';
-import { createPlayer } from '../scripts/player.js';
+import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
+import { createScenePhysics, PHYSICS } from '../helpers/physics/scenePhysics.js';
 
-export function createScene({ audioManager }: { audioManager?: unknown } = {}) {
+export function createScene({ audioManager, entryState }: {
+  audioManager?: unknown; entryState?: PlayerTransitionState;
+} = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0a10);
 
@@ -17,9 +20,9 @@ export function createScene({ audioManager }: { audioManager?: unknown } = {}) {
   const roomHeight = 4.5;
 
   // --- Physics ---
-  const physicsWorld = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
-  physicsWorld.broadphase = new CANNON.NaiveBroadphase();
-  const floorPhysMat = new CANNON.Material({ friction: 0.8, restitution: 0.1 });
+  const physics = createScenePhysics();
+  const physicsWorld = physics.world;
+  const floorPhysMat = physics.solidMaterial;
 
   // --- Procedural dirty tile texture ---
   const tileCanvas = document.createElement('canvas');
@@ -107,11 +110,11 @@ export function createScene({ audioManager }: { audioManager?: unknown } = {}) {
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   scene.add(floor);
-  const floorBody = new CANNON.Body({ mass: 0, material: floorPhysMat });
-  floorBody.addShape(new CANNON.Plane());
-  floorBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
-  floorBody.position.set(0, 0, 0);
-  physicsWorld.addBody(floorBody);
+  physics.addBox({ x: roomWidth, y: 0.4, z: roomDepth }, { x: 0, y: -0.2, z: 0 });
+  // Thresholds extend through the transition trigger zones, not the entire world.
+  for (const side of [-1, 1]) {
+    physics.addBox({ x: 3, y: 0.4, z: 2 }, { x: 0, y: -0.2, z: side * (roomDepth / 2 + 1) });
+  }
 
   // --- Ceiling ---
   const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(roomWidth, roomDepth), ceilingMat);
@@ -307,29 +310,35 @@ export function createScene({ audioManager }: { audioManager?: unknown } = {}) {
 
   // --- Player ---
   const spawnZ = roomDepth / 2 - 2;
-  const spawnY = 0.3;
+  const spawnY = PHYSICS.playerRadius;
   const player = createPlayer({
     camera, physicsWorld,
     spawnPosition: { x: 0, y: spawnY, z: spawnZ },
   });
   player.setRotation(0, 0);
   player.enable();
-  player.addWalkableSurface({ y: 0, minX: -roomWidth / 2, maxX: roomWidth / 2, minZ: -roomDepth / 2 - 2, maxZ: roomDepth / 2 + 2 });
+  if (entryState) {
+    player.restoreTransition(entryState, { x: 0, y: 0, z: roomDepth / 2 });
+    doorFront.open = doorFront.targetOpen = 1;
+    doorFront.panelL.position.x = -doorPanelW / 2 - doorSlideDistance;
+    doorFront.panelR.position.x = doorPanelW / 2 + doorSlideDistance;
+    doorFront.seam.visible = false;
+  }
 
   // --- Door trigger callbacks ---
-  let onBackTrigger: (() => void) | null = null;
+  let onBackTrigger: ((state: PlayerTransitionState) => void) | null = null;
   let onForwardTrigger: (() => void) | null = null;
   let backCooldown = false;
   let forwardCooldown = false;
 
-  function setBackTrigger(callback: () => void) { onBackTrigger = callback; }
+  function setBackTrigger(callback: (state: PlayerTransitionState) => void) { onBackTrigger = callback; }
   function setForwardTrigger(callback: () => void) { onForwardTrigger = callback; }
 
   // --- Update ---
   let flickerTime = 0;
   function updatePhysics(dt: number) {
-    physicsWorld.step(1 / 60, dt, 3);
-    player.update(dt);
+    dt = Number.isFinite(dt) ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime)) : 0;
+    physics.step(dt, player);
 
     // Flicker lights
     flickerTime += dt;
@@ -379,7 +388,7 @@ export function createScene({ audioManager }: { audioManager?: unknown } = {}) {
     // Check door triggers
     if (onBackTrigger && !backCooldown && doorFront.open > 0.9 && pz > roomDepth / 2 + 0.8 && inDoorX) {
       backCooldown = true;
-      onBackTrigger();
+      onBackTrigger(player.captureTransition({ x: 0, y: 0, z: roomDepth / 2 }));
     }
     if (onForwardTrigger && !forwardCooldown && doorBack.open > 0.9 && pz < -roomDepth / 2 - 0.8 && inDoorX) {
       forwardCooldown = true;
@@ -393,5 +402,6 @@ export function createScene({ audioManager }: { audioManager?: unknown } = {}) {
     player,
     setBackTrigger,
     setForwardTrigger,
+    dispose: () => { player.dispose(); physics.dispose(); },
   };
 }

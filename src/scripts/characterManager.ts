@@ -108,7 +108,7 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     thirdPerson: boolean,
     playerRadius: number,
   ) {
-    const { yaw, isMoving, isOnGround, velocityY } = playerState;
+    const { yaw, isMoving, isOnGround, velocityY, jumping } = playerState;
     model.visible = thirdPerson;
     model.position.set(playerBodyPos.x, playerBodyPos.y - playerRadius + modelOffsetY, playerBodyPos.z);
 
@@ -127,7 +127,7 @@ export async function loadCharacter(loader = new GLTFLoader()) {
       } else if (name !== 'Jump_Land' || currentAction.paused) {
         fadeTo('Idle_Loop');
       }
-    } else if (wasOnGround === true && velocityY > 0.5) {
+    } else if (wasOnGround === true && jumping) {
       fadeTo('Jump_Start');
     } else if (name !== 'Jump_Start' || currentAction.paused || velocityY <= 0) {
       fadeTo('Jump_Loop');
@@ -136,11 +136,16 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     mixer.update(dt);
   }
 
+  function setFacing(yaw: number) {
+    // Doorway coordinate changes are instantaneous, not an in-world turn.
+    model.rotation.y = yaw + MODEL_ROT_OFFSET;
+  }
+
   function dispose() {
     mixer.stopAllAction();
     mixer.uncacheRoot(model);
     model.removeFromParent();
   }
 
-  return { model, mixer, update, dispose };
+  return { model, mixer, update, setFacing, dispose };
 }

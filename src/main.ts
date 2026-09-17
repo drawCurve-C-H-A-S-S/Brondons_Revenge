@@ -5,7 +5,7 @@ import { createScene as createScene1 } from './scenes/scene1.js';
 import { createScene as createScene2 } from './scenes/scene2.js';
 import { createScene as createScene3 } from './scenes/scene3.js';
 import { loadCharacter } from './scripts/characterManager.js';
-import type { Player } from './scripts/player.js';
+import type { Player, PlayerTransitionState } from './scripts/player.js';
 
 // --- Renderer ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -192,6 +192,7 @@ function loadScene2() {
   if (transitionTimer) { clearTimeout(transitionTimer); transitionTimer = null; }
 
   const sceneData = createScene2({ audioManager });
+  currentSceneData?.dispose?.();
   currentSceneData = sceneData;
   activeScene = currentSceneData.scene;
   activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -208,19 +209,19 @@ function loadScene2() {
 
   orbitControls!.object = activeCamera!;
   orbitControls!.enabled = false;
-  orbitControls!.update();
 
   if (currentSceneData.setDoorTrigger) {
-    currentSceneData.setDoorTrigger(() => { transitionToScene3(); });
+    currentSceneData.setDoorTrigger((state: PlayerTransitionState) => { transitionToScene3(state); });
   }
   renderer.render(activeScene!, activeCamera!);
 }
 
-function loadScene3() {
+function loadScene3(entryState: PlayerTransitionState) {
   console.log('Loading scene 3...');
   if (transitionTimer) { clearTimeout(transitionTimer); transitionTimer = null; }
 
-  const sceneData = createScene3({ audioManager });
+  const sceneData = createScene3({ audioManager, entryState });
+  currentSceneData?.dispose?.();
   currentSceneData = sceneData;
   activeScene = currentSceneData.scene;
   activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -237,10 +238,11 @@ function loadScene3() {
 
   orbitControls!.object = activeCamera!;
   orbitControls!.enabled = false;
-  orbitControls!.update();
+  globalCharacter?.setFacing(currentPlayer!.getState().yaw);
+  updatePlayerView(0);
 
   if (currentSceneData.setBackTrigger) {
-    currentSceneData.setBackTrigger(() => { transitionBackToScene2(); });
+    currentSceneData.setBackTrigger((state: PlayerTransitionState) => { transitionBackToScene2(state); });
   }
   if (currentSceneData.setForwardTrigger) {
     currentSceneData.setForwardTrigger(() => { console.log('Forward door triggered - future scene'); });
@@ -249,15 +251,16 @@ function loadScene3() {
   console.log('Scene 3 loaded - passageway');
 }
 
-function transitionToScene3() {
+function transitionToScene3(entryState: PlayerTransitionState) {
   console.log('Transitioning to scene 3');
-  try { loadScene3(); } catch (e) { console.error('Error loading scene 3:', e); }
+  try { loadScene3(entryState); } catch (e) { console.error('Error loading scene 3:', e); }
 }
 
-function transitionBackToScene2() {
+function transitionBackToScene2(entryState: PlayerTransitionState) {
   console.log('Returning to scene 2 (skip wake)');
   try {
-    const sceneData = createScene2({ audioManager, skipWake: true });
+    const sceneData = createScene2({ audioManager, skipWake: true, entryState });
+    currentSceneData?.dispose?.();
     currentSceneData = sceneData;
     activeScene = currentSceneData.scene;
     activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -274,15 +277,29 @@ function transitionBackToScene2() {
 
     orbitControls!.object = activeCamera!;
     orbitControls!.enabled = false;
-    orbitControls!.update();
+    globalCharacter?.setFacing(currentPlayer!.getState().yaw);
+    updatePlayerView(0);
 
     if (currentSceneData.setDoorTrigger) {
-      currentSceneData.setDoorTrigger(() => { transitionToScene3(); });
+      currentSceneData.setDoorTrigger((state: PlayerTransitionState) => { transitionToScene3(state); });
     }
     renderer.render(activeScene!, activeCamera!);
     console.log('Scene 2 loaded - player at door');
   } catch (e) {
     console.error('Error in transitionBackToScene2:', e);
+  }
+}
+
+function updatePlayerView(dt: number) {
+  if (!currentPlayer?.isEnabled() || !activeCamera) return;
+  // Always start from the base camera, including the first render after a scene swap.
+  currentPlayer.updateCamera(0);
+  const state = currentPlayer.getState();
+  globalCharacter?.update(dt, currentPlayer.body.position, state, isThirdPerson, currentPlayer.radius);
+  if (isThirdPerson) {
+    activeCamera.position.x += Math.sin(state.yaw) * THIRD_PERSON_DIST;
+    activeCamera.position.z += Math.cos(state.yaw) * THIRD_PERSON_DIST;
+    activeCamera.position.y += THIRD_PERSON_HEIGHT;
   }
 }
 
@@ -326,18 +343,7 @@ function animate() {
   if (cutsceneManager) cutsceneManager.update(delta);
 
   // Character animations + view
-  if (globalCharacter && currentPlayer && currentPlayer.isEnabled() && activeCamera) {
-    const baseState = currentPlayer.getState();
-    globalCharacter.update(delta, currentPlayer.body.position, baseState, isThirdPerson, currentPlayer.radius);
-
-    // Third-person camera offset (pull camera back behind player)
-    if (isThirdPerson) {
-      const yaw = baseState.yaw;
-      activeCamera.position.x += Math.sin(yaw) * THIRD_PERSON_DIST;
-      activeCamera.position.z += Math.cos(yaw) * THIRD_PERSON_DIST;
-      activeCamera.position.y += THIRD_PERSON_HEIGHT;
-    }
-  }
+  updatePlayerView(delta);
 
   // Controls
   if (orbitControls && orbitControls.enabled) orbitControls.update();
