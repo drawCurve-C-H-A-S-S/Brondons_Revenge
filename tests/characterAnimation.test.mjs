@@ -75,7 +75,14 @@ async function fixture(t) {
     return action?.getEffectiveWeight() ?? 0;
   }
 
-  return { player, character, camera, world, physics, key, frame, weight };
+  // Returns the mixer's local time for an action, or null if not found.
+  // A never-played action has time === 0; one that advanced has time > 0.
+  function actionTime(name) {
+    const action = character.mixer._actions.find(action => action.getClip().name === name);
+    return action ? action.time : null;
+  }
+
+  return { player, character, camera, world, physics, key, frame, weight, actionTime };
 }
 
 test('actual GLB binds idle/walk to the skeleton and deforms the skin', async t => {
@@ -157,7 +164,7 @@ test('grounded WASD selects Walk_Loop and release returns to Idle_Loop', async t
 test('an airborne frame cannot permanently block grounded walk or idle', async t => {
   const { player, character, frame, key, weight } = await fixture(t);
   character.update(1 / 60, player.body.position, {
-    isMoving: false, isOnGround: false, jumping: false, yaw: 0, velocityY: 0,
+    isMoving: false, isOnGround: false, jumping: false, yaw: 0, velocityY: 0, actionRequest: null,
   }, true, player.radius);
   frame(120);
   assert.ok(weight('Idle_Loop') > 0.99, 'Landing must leave airborne animation');
@@ -253,4 +260,67 @@ test('view changes keep animation running while first person hides the model', a
   frame(30, true);
   assert.equal(character.model.visible, true);
   assert.ok(weight('Idle_Loop') > 0.99);
+});
+
+for (const [code, clip] of [
+  ['Digit6', 'Sword_Attack'],
+  ['Digit7', 'Pistol_Shoot'],
+  ['Digit8', 'Pistol_Reload'],
+  ['Digit9', 'Dance_Loop'],
+]) {
+  test(`${code} plays ${clip} exactly once then returns to idle`, async t => {
+    const { frame, key, weight } = await fixture(t);
+    frame(30);
+    key('keydown', code); // deliberately no keyup: holding must not retrigger
+    let started = false;
+    for (let i = 0; i < 60 && !started; i++) {
+      frame();
+      started = weight(clip) > 0.5;
+    }
+    assert.ok(started, `${code} must start ${clip}`);
+    let returned = false;
+    for (let i = 0; i < 600 && !returned; i++) {
+      frame();
+      returned = weight('Idle_Loop') > 0.99;
+    }
+    assert.ok(returned, `${clip} must finish and return to Idle_Loop`);
+    frame(120);
+    assert.ok(weight(clip) < 0.01, `${clip} must not replay while the key stays held`);
+    assert.ok(weight('Idle_Loop') > 0.99, 'Idle must stay after the action');
+  });
+}
+
+test('a one-shot action during walking resumes Walk_Loop after finishing', async t => {
+  const { frame, key, weight } = await fixture(t);
+  key('keydown', 'KeyW');
+  frame(30);
+  assert.ok(weight('Walk_Loop') > 0.99);
+  key('keydown', 'Digit6');
+  let started = false;
+  for (let i = 0; i < 60 && !started; i++) {
+    frame();
+    started = weight('Sword_Attack') > 0.5;
+  }
+  assert.ok(started, 'Sword_Attack must play while walking');
+  let walking = false;
+  for (let i = 0; i < 600 && !walking; i++) {
+    frame();
+    walking = weight('Walk_Loop') > 0.99;
+  }
+  assert.ok(walking, 'Walk_Loop must resume after the action completes');
+  key('keyup', 'Digit6');
+  key('keyup', 'KeyW');
+});
+
+test('action keys pressed mid-air are ignored', async t => {
+  const { frame, key, actionTime } = await fixture(t);
+  frame(30);
+  key('keydown', 'Space');
+  frame(10); // rising
+  key('keydown', 'Digit6');
+  frame(240); // land and settle
+  key('keyup', 'Space');
+  // A never-played action keeps time === 0; getEffectiveWeight() reports 1
+  // by default, so we check the mixer never advanced the action.
+  assert.equal(actionTime('Sword_Attack'), 0, 'Mid-air action press must be dropped');
 });

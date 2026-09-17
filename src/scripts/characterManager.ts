@@ -15,8 +15,19 @@ import type { PlayerState } from './player.js';
 
 interface Vec3Like { x: number; y: number; z: number; }
 
-const CLIP_NAMES = ['Idle_Loop', 'Walk_Loop', 'Jump_Start', 'Jump_Loop', 'Jump_Land'] as const;
+const CLIP_NAMES = [
+  'Idle_Loop', 'Walk_Loop', 'Jump_Start', 'Jump_Loop', 'Jump_Land',
+  // One-shot action clips on number keys 6-9 (input mapping in player.ts).
+  'Sword_Attack', 'Pistol_Shoot', 'Pistol_Reload', 'Dance_Loop',
+] as const;
 type ClipName = typeof CLIP_NAMES[number];
+
+// One-shot action clips. They play once per key press, then the normal
+// locomotion state machine resumes (idle or walk, mixer-driven completion).
+const ACTION_CLIPS: ReadonlySet<string> = new Set([
+  'Sword_Attack', 'Pistol_Shoot', 'Pistol_Reload', 'Dance_Loop',
+]);
+const ONE_SHOT_CLIPS = ['Jump_Start', 'Jump_Land', ...ACTION_CLIPS];
 
 // Rotation offset: the UAL model's local forward is +Z, but the camera
 // looks toward -Z at yaw 0.  Adding PI keeps the model facing the same
@@ -81,7 +92,7 @@ export async function loadCharacter(loader = new GLTFLoader()) {
       return null;
     }
     const action = mixer.clipAction(clip);
-    const oneShot = name === 'Jump_Start' || name === 'Jump_Land';
+    const oneShot = ONE_SHOT_CLIPS.includes(name);
     action.setLoop(oneShot ? THREE.LoopOnce : THREE.LoopRepeat, oneShot ? 1 : Infinity);
     action.clampWhenFinished = oneShot;
     actions.set(name, action);
@@ -108,7 +119,7 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     thirdPerson: boolean,
     playerRadius: number,
   ) {
-    const { yaw, isMoving, isOnGround, velocityY, jumping } = playerState;
+    const { yaw, isMoving, isOnGround, velocityY, jumping, actionRequest } = playerState;
     model.visible = thirdPerson;
     model.position.set(playerBodyPos.x, playerBodyPos.y - playerRadius + modelOffsetY, playerBodyPos.z);
 
@@ -120,12 +131,19 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     // One-shot completion is driven by the mixer, never by wall-clock timers.
     const name = currentAction.getClip().name;
     if (isOnGround) {
-      if (isMoving) {
-        fadeTo('Walk_Loop');
-      } else if (wasOnGround === false) {
-        fadeTo('Jump_Land');
-      } else if (name !== 'Jump_Land' || currentAction.paused) {
-        fadeTo('Idle_Loop');
+      // One-shot action requests (keys 6-9) play once, then locomotion resumes.
+      // While one plays, idle/walk/land transitions wait for mixer completion.
+      const actionPlaying = ACTION_CLIPS.has(name) && !currentAction.paused;
+      if (actionRequest) {
+        fadeTo(actionRequest);
+      } else if (!actionPlaying) {
+        if (isMoving) {
+          fadeTo('Walk_Loop');
+        } else if (wasOnGround === false) {
+          fadeTo('Jump_Land');
+        } else if (name !== 'Jump_Land' || currentAction.paused) {
+          fadeTo('Idle_Loop');
+        }
       }
     } else if (wasOnGround === true && jumping) {
       fadeTo('Jump_Start');

@@ -36,8 +36,8 @@ let currentPlayer: Player | null = null;
 
 // --- View toggle (first-person / third-person) ---
 let isThirdPerson = true;
-const THIRD_PERSON_DIST = 3.0;
-const THIRD_PERSON_HEIGHT = 0.5;
+const THIRD_PERSON_DIST = 1.5;
+const THIRD_PERSON_HEIGHT = 0.3;
 
 // --- Controls ---
 let orbitControls: OrbitControls | null = null;

@@ -6,12 +6,27 @@ import * as CANNON from 'cannon-es';
 
 import { PHYSICS } from '../helpers/physics/scenePhysics.js';
 
+// One-shot character actions (see characterManager.ts) on number keys 6-9.
+export type PlayerActionName = 'Sword_Attack' | 'Pistol_Shoot' | 'Pistol_Reload' | 'Dance_Loop';
+
+const ACTION_KEYS: Record<string, PlayerActionName> = {
+  Digit6: 'Sword_Attack',
+  Numpad6: 'Sword_Attack',
+  Digit7: 'Pistol_Shoot',
+  Numpad7: 'Pistol_Shoot',
+  Digit8: 'Pistol_Reload',
+  Numpad8: 'Pistol_Reload',
+  Digit9: 'Dance_Loop',
+  Numpad9: 'Dance_Loop',
+};
+
 export interface PlayerState {
   isMoving: boolean;
   isOnGround: boolean;
   jumping: boolean;
   yaw: number;
   velocityY: number;
+  actionRequest: PlayerActionName | null;
 }
 
 interface Doorway {
@@ -64,6 +79,10 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   let enabled = false;
   let jumpQueued = false;
   let intentionalJump = false;
+  let actionRequest: PlayerActionName | null = null;
+  // Requests stay readable for exactly one physics+animation frame, then
+  // expire, so a held or unconsumed key can never retrigger the action.
+  let actionRequestLife = 0;
   const groundNormal = new CANNON.Vec3(0, 1, 0);
   const minGroundY = Math.cos(PHYSICS.maxSlopeDegrees * Math.PI / 180);
 
@@ -86,6 +105,13 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   function onKeyDown(e: KeyboardEvent) {
     if (!enabled) return;
     if (e.code === 'Space' && !keys[e.code] && !e.repeat) jumpQueued = true;
+    const action = ACTION_KEYS[e.code];
+    if (action && !keys[e.code] && !e.repeat && isOnGround) {
+      actionRequest = action;
+      // Life 3: survives two updateCamera calls per frame (physics.step + main.ts),
+      // giving exactly one character-update window before expiry.
+      actionRequestLife = 3;
+    }
     keys[e.code] = true;
   }
   function onKeyUp(e: KeyboardEvent) { keys[e.code] = false; }
@@ -93,6 +119,8 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   function clearInput() {
     for (const code of Object.keys(keys)) delete keys[code];
     jumpQueued = false;
+    actionRequest = null;
+    actionRequestLife = 0;
     playerBody.velocity.x = 0;
     playerBody.velocity.z = 0;
   }
@@ -225,6 +253,9 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
 
   function updateCamera(dt: number) {
     if (!enabled) return;
+    // Expire action requests after one character-update cycle (physics.step
+    // calls this once per render frame, before the character update).
+    if (actionRequestLife > 0 && --actionRequestLife === 0) actionRequest = null;
     // Head bob
     const isMoving = getMoveDirection() && isOnGround;
     if (isMoving) {
@@ -342,6 +373,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       jumping: !isOnGround && intentionalJump && playerBody.velocity.y > 0.1,
       yaw,
       velocityY: playerBody.velocity.y,
+      actionRequest,
     }),
   };
 }
