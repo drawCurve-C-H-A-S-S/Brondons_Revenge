@@ -1,4 +1,4 @@
-# Brandon's Revenge
+# Brondon's Revenge
 
 A 3D browser game built with Three.js for the COMS3006A CGV project.
 
