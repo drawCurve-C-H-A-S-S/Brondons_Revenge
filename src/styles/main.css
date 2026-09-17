@@ -4,12 +4,201 @@
   box-sizing: border-box;
 }
 
-body {
+html, body {
+  width: 100%;
+  height: 100%;
   overflow: hidden;
   background: #000;
+  font-family: monospace;
+  color: #fff;
 }
 
-#app {
-  width: 100vw;
-  height: 100vh;
+canvas {
+  display: block;
+}
+
+#hud {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  pointer-events: none;
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  z-index: 10;
+}
+
+#fps {
+  background: rgba(0, 0, 0, 0.5);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+#info {
+  background: rgba(0, 0, 0, 0.5);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+#view-toggle-btn {
+  pointer-events: auto;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-family: monospace;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+#view-toggle-btn:hover {
+  background: rgba(60, 60, 100, 0.8);
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* Credit roll */
+#credits-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.25);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 100;
+  pointer-events: none;
+}
+
+#credits-content {
+  text-align: center;
+  animation: scrollUp 12s linear forwards;
+}
+
+.credit-title {
+  font-size: 48px;
+  font-weight: bold;
+  letter-spacing: 8px;
+  margin-bottom: 60px;
+  color: #88aacc;
+  text-shadow: 0 0 20px rgba(136, 170, 204, 0.8);
+}
+
+.credit-section {
+  margin: 40px 0;
+}
+
+.credit-role {
+  font-size: 14px;
+  letter-spacing: 3px;
+  color: #888;
+  margin-bottom: 8px;
+}
+
+.credit-name {
+  font-size: 24px;
+  color: #fff;
+}
+
+@keyframes scrollUp {
+  from {
+    transform: translateY(100vh);
+  }
+  to {
+    transform: translateY(-100%);
+  }
+}
+
+/* Menu buttons */
+#menu-buttons {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  z-index: 101;
+  animation: fadeIn 1s ease-in;
+}
+
+.menu-btn {
+  padding: 16px 48px;
+  font-size: 20px;
+  font-family: monospace;
+  font-weight: bold;
+  letter-spacing: 4px;
+  background: rgba(136, 170, 204, 0.2);
+  color: #88aacc;
+  border: 2px solid #88aacc;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-transform: uppercase;
+}
+
+.menu-btn:hover {
+  background: rgba(136, 170, 204, 0.4);
+  box-shadow: 0 0 20px rgba(136, 170, 204, 0.6);
+  transform: scale(1.05);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Fade overlay for transitions */
+#fade-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: #fff;
+  z-index: 200;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 1.5s ease-in;
+}
+
+#fade-overlay.active {
+  opacity: 1;
+}
+
+/* Skip button */
+#skip-btn {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  padding: 10px 24px;
+  font-size: 14px;
+  font-family: monospace;
+  font-weight: bold;
+  letter-spacing: 2px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #aaa;
+  border: 1px solid #666;
+  cursor: pointer;
+  z-index: 50;
+  transition: all 0.2s ease;
+}
+
+#skip-btn:hover {
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  border-color: #88aacc;
 }
