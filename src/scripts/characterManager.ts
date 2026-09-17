@@ -9,7 +9,7 @@
  */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import ualModelUrl from '../assets/models/UAL1_Standard.glb';
+import ualModelUrl from '../assets/models/Subject.glb';
 
 import type { PlayerState } from './player.js';
 
