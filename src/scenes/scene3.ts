@@ -6,10 +6,10 @@ import * as CANNON from 'cannon-es';
 import comicVert from '../shaders/comic.vert.glsl?raw';
 import comicFrag from '../shaders/comic.frag.glsl?raw';
 import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
-import { createScenePhysics, PHYSICS } from '../helpers/physics/scenePhysics.js';
+import { createScenePhysics, PHYSICS, hasNearbyActor } from '../helpers/physics/scenePhysics.js';
 
 export function createScene({ audioManager, entryState, entryDoor }: {
-  audioManager?: unknown; entryState?: PlayerTransitionState; entryDoor?: 'front' | 'back';
+  audioManager?: unknown; entryState?: PlayerTransitionState; entryDoor?: 'front' | 'back' | 'left' | 'right';
 } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0a10);
@@ -114,6 +114,7 @@ export function createScene({ audioManager, entryState, entryDoor }: {
   // Thresholds extend through the transition trigger zones, not the entire world.
   for (const side of [-1, 1]) {
     physics.addBox({ x: 3, y: 0.4, z: 2 }, { x: 0, y: -0.2, z: side * (roomDepth / 2 + 1) });
+    physics.addBox({ x: 2, y: 0.4, z: 3 }, { x: side * (roomWidth / 2 + 1), y: -0.2, z: 0 });
   }
 
   // --- Ceiling ---
@@ -142,8 +143,14 @@ export function createScene({ audioManager, entryState, entryDoor }: {
   makeWall(frontWallLeftW, roomHeight, new THREE.Vector3(-roomWidth / 2 + frontWallLeftW / 2, roomHeight / 2, roomDepth / 2), Math.PI);
   makeWall(frontWallLeftW, roomHeight, new THREE.Vector3(roomWidth / 2 - frontWallLeftW / 2, roomHeight / 2, roomDepth / 2), Math.PI);
   makeWall(doorW, roomHeight - doorH, new THREE.Vector3(0, doorH + (roomHeight - doorH) / 2, roomDepth / 2), Math.PI);
-  makeWall(roomDepth, roomHeight, new THREE.Vector3(-roomWidth / 2, roomHeight / 2, 0), Math.PI / 2);
-  makeWall(roomDepth, roomHeight, new THREE.Vector3(roomWidth / 2, roomHeight / 2, 0), -Math.PI / 2);
+  // Side walls each have a doorway halfway down the passage (to scene 5 / scene 6).
+  const sideWallLen = (roomDepth - doorW) / 2;
+  makeWall(sideWallLen, roomHeight, new THREE.Vector3(-roomWidth / 2, roomHeight / 2, -roomDepth / 2 + sideWallLen / 2), Math.PI / 2);
+  makeWall(sideWallLen, roomHeight, new THREE.Vector3(-roomWidth / 2, roomHeight / 2, roomDepth / 2 - sideWallLen / 2), Math.PI / 2);
+  makeWall(doorW, roomHeight - doorH, new THREE.Vector3(-roomWidth / 2, doorH + (roomHeight - doorH) / 2, 0), Math.PI / 2);
+  makeWall(sideWallLen, roomHeight, new THREE.Vector3(roomWidth / 2, roomHeight / 2, -roomDepth / 2 + sideWallLen / 2), -Math.PI / 2);
+  makeWall(sideWallLen, roomHeight, new THREE.Vector3(roomWidth / 2, roomHeight / 2, roomDepth / 2 - sideWallLen / 2), -Math.PI / 2);
+  makeWall(doorW, roomHeight - doorH, new THREE.Vector3(roomWidth / 2, doorH + (roomHeight - doorH) / 2, 0), -Math.PI / 2);
 
   // --- Wall collision bodies ---
   const wallThickness = 0.15;
@@ -159,8 +166,12 @@ export function createScene({ audioManager, entryState, entryDoor }: {
   addWallBody(-roomWidth / 2 + frontWallLeftW / 2, roomHeight / 2, roomDepth / 2, frontWallLeftW / 2, roomHeight / 2, wallThickness);
   addWallBody(roomWidth / 2 - frontWallLeftW / 2, roomHeight / 2, roomDepth / 2, frontWallLeftW / 2, roomHeight / 2, wallThickness);
   addWallBody(0, doorH + (roomHeight - doorH) / 2, roomDepth / 2, doorW / 2, (roomHeight - doorH) / 2, wallThickness);
-  addWallBody(-roomWidth / 2, roomHeight / 2, 0, wallThickness, roomHeight / 2, roomDepth / 2);
-  addWallBody(roomWidth / 2, roomHeight / 2, 0, wallThickness, roomHeight / 2, roomDepth / 2);
+  addWallBody(-roomWidth / 2, roomHeight / 2, -roomDepth / 2 + sideWallLen / 2, wallThickness, roomHeight / 2, sideWallLen / 2);
+  addWallBody(-roomWidth / 2, roomHeight / 2, roomDepth / 2 - sideWallLen / 2, wallThickness, roomHeight / 2, sideWallLen / 2);
+  addWallBody(-roomWidth / 2, doorH + (roomHeight - doorH) / 2, 0, wallThickness, (roomHeight - doorH) / 2, doorW / 2);
+  addWallBody(roomWidth / 2, roomHeight / 2, -roomDepth / 2 + sideWallLen / 2, wallThickness, roomHeight / 2, sideWallLen / 2);
+  addWallBody(roomWidth / 2, roomHeight / 2, roomDepth / 2 - sideWallLen / 2, wallThickness, roomHeight / 2, sideWallLen / 2);
+  addWallBody(roomWidth / 2, doorH + (roomHeight - doorH) / 2, 0, wallThickness, (roomHeight - doorH) / 2, doorW / 2);
 
   // --- Door frames ---
   const frameThick = 0.12;
@@ -181,6 +192,24 @@ export function createScene({ audioManager, entryState, entryDoor }: {
   };
   addDoorFrame(roomDepth / 2);
   addDoorFrame(-roomDepth / 2);
+
+  // --- Side door frames (left/right, halfway down the passage) ---
+  const addSideDoorFrame = (x: number) => {
+    const jambF = new THREE.Mesh(new THREE.BoxGeometry(frameDepth, doorH, frameThick), doorFrameMat);
+    jambF.position.set(x, doorH / 2, -doorW / 2 - frameThick / 2);
+    jambF.castShadow = true;
+    scene.add(jambF);
+    const jambB = new THREE.Mesh(new THREE.BoxGeometry(frameDepth, doorH, frameThick), doorFrameMat);
+    jambB.position.set(x, doorH / 2, doorW / 2 + frameThick / 2);
+    jambB.castShadow = true;
+    scene.add(jambB);
+    const header = new THREE.Mesh(new THREE.BoxGeometry(frameDepth, frameThick, doorW + frameThick * 2), doorFrameMat);
+    header.position.set(x, doorH + frameThick / 2, 0);
+    header.castShadow = true;
+    scene.add(header);
+  };
+  addSideDoorFrame(-roomWidth / 2);
+  addSideDoorFrame(roomWidth / 2);
 
   // --- Sliding doors ---
   const doorComicMat = makeComicMaterial(0x8899aa);
@@ -228,18 +257,43 @@ export function createScene({ audioManager, entryState, entryDoor }: {
   const doorFront = createDoor(roomDepth / 2, 1);
   const doorBack = createDoor(-roomDepth / 2, -1);
 
-  // --- Soft glow at all doorways ---
-  const doorwayGlowMat = new THREE.MeshBasicMaterial({
-    color: 0x8899aa,
-    transparent: true,
-    opacity: 0.15,
-    side: THREE.DoubleSide,
-  });
-  for (const doorZ of [roomDepth / 2, -roomDepth / 2]) {
-    const glow = new THREE.Mesh(new THREE.PlaneGeometry(doorW, doorH), doorwayGlowMat);
-    glow.position.set(0, doorH / 2, doorZ);
-    scene.add(glow);
+  // --- Side sliding doors (left/right, same mechanics as front/back) ---
+  interface SideDoorState {
+    panelL: THREE.Mesh;
+    panelR: THREE.Mesh;
+    seam: THREE.Mesh;
+    sLightMat: THREE.MeshStandardMaterial;
+    open: number;
+    targetOpen: number;
+    x: number;
   }
+
+  function createSideDoor(x: number, faceX: number): SideDoorState {
+    const doorX = x + faceX * 0.15;
+    const panelL = new THREE.Mesh(new THREE.BoxGeometry(doorPanelD, doorH, doorPanelW), doorComicMat);
+    const panelR = new THREE.Mesh(new THREE.BoxGeometry(doorPanelD, doorH, doorPanelW), doorComicMat);
+    panelL.position.set(doorX, doorH / 2, -doorPanelW / 2);
+    panelR.position.set(doorX, doorH / 2, doorPanelW / 2);
+    panelL.castShadow = true;
+    panelR.castShadow = true;
+    scene.add(panelL);
+    scene.add(panelR);
+    const seam = new THREE.Mesh(new THREE.BoxGeometry(doorPanelD + 0.01, doorH, 0.02), doorSeamMat);
+    seam.position.set(doorX, doorH / 2, 0);
+    scene.add(seam);
+    const sBase = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 0.2),
+      new THREE.MeshStandardMaterial({ color: 0x333344, metalness: 0.7, roughness: 0.3 }));
+    sBase.position.set(x - faceX * 0.06, doorH + 0.2, 0);
+    scene.add(sBase);
+    const sLightMat = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 2.0 });
+    const sLight = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), sLightMat);
+    sLight.position.set(x + faceX * 0.02, doorH + 0.2, 0);
+    scene.add(sLight);
+    return { panelL, panelR, seam, sLightMat, open: 0, targetOpen: 0, x: doorX };
+  }
+
+  const doorLeft = createSideDoor(-roomWidth / 2, 1);
+  const doorRight = createSideDoor(roomWidth / 2, -1);
 
   // --- Lighting ---
   const lightColor = 0x8899bb;
@@ -284,28 +338,23 @@ export function createScene({ audioManager, entryState, entryDoor }: {
 
   const ambLight = new THREE.AmbientLight(0x445566, 2.8);
   scene.add(ambLight);
-  const endGlow = new THREE.PointLight(0x4466aa, 2.5, 25);
-  endGlow.position.set(0, 2, -roomDepth / 2 + 1);
-  scene.add(endGlow);
-  const entryGlow = new THREE.PointLight(0x556688, 2, 20);
-  entryGlow.position.set(0, 2, roomDepth / 2 - 1);
-  scene.add(entryGlow);
 
-  // --- Wall pipes ---
-  const pipe1 = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, roomDepth - 1, 8), pipeMat);
-  pipe1.rotation.x = Math.PI / 2;
-  pipe1.position.set(-roomWidth / 2 + 0.1, 3.2, 0);
-  pipe1.castShadow = true;
-  scene.add(pipe1);
-  const pipe2 = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, roomDepth - 1, 8), pipeMat);
-  pipe2.rotation.x = Math.PI / 2;
-  pipe2.position.set(-roomWidth / 2 + 0.08, 1.5, 0);
-  scene.add(pipe2);
-  const pipe3 = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, roomDepth * 0.6, 8), pipeMat);
-  pipe3.rotation.x = Math.PI / 2;
-  pipe3.position.set(roomWidth / 2 - 0.1, 2.8, -roomDepth * 0.2);
-  pipe3.castShadow = true;
-  scene.add(pipe3);
+  // --- Wall pipes (gapped around the side doorways at z = 0) ---
+  const pipeDoorGap = doorW / 2 + 0.4;
+  function addSplitPipe(radius: number, x: number, y: number, halfSpan: number) {
+    const segLen = halfSpan - pipeDoorGap;
+    if (segLen <= 0) return;
+    for (const side of [-1, 1]) {
+      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, segLen, 8), pipeMat);
+      pipe.rotation.x = Math.PI / 2;
+      pipe.position.set(x, y, side * (pipeDoorGap + segLen / 2));
+      pipe.castShadow = true;
+      scene.add(pipe);
+    }
+  }
+  addSplitPipe(0.06, -roomWidth / 2 + 0.1, 3.2, (roomDepth - 1) / 2);
+  addSplitPipe(0.04, -roomWidth / 2 + 0.08, 1.5, (roomDepth - 1) / 2);
+  addSplitPipe(0.05, roomWidth / 2 - 0.1, 2.8, roomDepth * 0.3);
 
   // Wall panel seams
   const seamMat = new THREE.MeshStandardMaterial({ color: 0x2a2a33, metalness: 0.2, roughness: 0.9 });
@@ -332,8 +381,9 @@ export function createScene({ audioManager, entryState, entryDoor }: {
   player.enable();
   if (entryState) {
     // Restore at the appropriate door based on entryDoor
-    const doorway = entryDoor === 'back'
-      ? { x: 0, y: 0, z: -roomDepth / 2 }
+    const doorway = entryDoor === 'back' ? { x: 0, y: 0, z: -roomDepth / 2 }
+      : entryDoor === 'left' ? { x: -roomWidth / 2, y: 0, z: 0, yaw: Math.PI / 2 }
+      : entryDoor === 'right' ? { x: roomWidth / 2, y: 0, z: 0, yaw: -Math.PI / 2 }
       : { x: 0, y: 0, z: roomDepth / 2 };
     player.restoreTransition(entryState, doorway);
     if (entryDoor === 'back') {
@@ -341,6 +391,16 @@ export function createScene({ audioManager, entryState, entryDoor }: {
       doorBack.panelL.position.x = -doorPanelW / 2 - doorSlideDistance;
       doorBack.panelR.position.x = doorPanelW / 2 + doorSlideDistance;
       doorBack.seam.visible = false;
+    } else if (entryDoor === 'left') {
+      doorLeft.open = doorLeft.targetOpen = 1;
+      doorLeft.panelL.position.z = -doorPanelW / 2 - doorSlideDistance;
+      doorLeft.panelR.position.z = doorPanelW / 2 + doorSlideDistance;
+      doorLeft.seam.visible = false;
+    } else if (entryDoor === 'right') {
+      doorRight.open = doorRight.targetOpen = 1;
+      doorRight.panelL.position.z = -doorPanelW / 2 - doorSlideDistance;
+      doorRight.panelR.position.z = doorPanelW / 2 + doorSlideDistance;
+      doorRight.seam.visible = false;
     } else {
       doorFront.open = doorFront.targetOpen = 1;
       doorFront.panelL.position.x = -doorPanelW / 2 - doorSlideDistance;
@@ -352,11 +412,17 @@ export function createScene({ audioManager, entryState, entryDoor }: {
   // --- Door trigger callbacks ---
   let onBackTrigger: ((state: PlayerTransitionState) => void) | null = null;
   let onForwardTrigger: (() => void) | null = null;
+  let onLeftTrigger: ((state: PlayerTransitionState) => void) | null = null;
+  let onRightTrigger: ((state: PlayerTransitionState) => void) | null = null;
   let backCooldown = false;
   let forwardCooldown = false;
+  let leftCooldown = false;
+  let rightCooldown = false;
 
   function setBackTrigger(callback: (state: PlayerTransitionState) => void) { onBackTrigger = callback; }
   function setForwardTrigger(callback: () => void) { onForwardTrigger = callback; }
+  function setLeftTrigger(callback: (state: PlayerTransitionState) => void) { onLeftTrigger = callback; }
+  function setRightTrigger(callback: (state: PlayerTransitionState) => void) { onRightTrigger = callback; }
 
   // --- Update ---
   let flickerTime = 0;
@@ -388,10 +454,11 @@ export function createScene({ audioManager, entryState, entryDoor }: {
     const px = player.body.position.x;
     const pz = player.body.position.z;
     const inDoorX = px > -doorW / 2 - 1 && px < doorW / 2 + 1;
+    const inDoorZ = pz > -doorW / 2 - 1 && pz < doorW / 2 + 1;
 
     for (const door of [doorFront, doorBack]) {
       const dist = Math.sqrt(px * px + (pz - door.z) * (pz - door.z));
-      const near = dist < doorSensorRange && inDoorX;
+      const near = (dist < doorSensorRange && inDoorX) || hasNearbyActor(physicsWorld, 0, door.z, doorSensorRange);
       door.targetOpen = near ? 1 : 0;
       if (near) {
         door.sLightMat.color.setHex(0x00ff44);
@@ -407,6 +474,31 @@ export function createScene({ audioManager, entryState, entryDoor }: {
       door.panelL.position.x = -doorPanelW / 2 - slideOffset;
       door.panelR.position.x = doorPanelW / 2 + slideOffset;
       door.seam.visible = door.open < 0.1;
+      // Fully open panels vanish into the wall pocket instead of floating in the doorway.
+      door.panelL.visible = door.open < 0.97;
+      door.panelR.visible = door.open < 0.97;
+    }
+
+    for (const door of [doorLeft, doorRight]) {
+      const dist = Math.sqrt((px - door.x) * (px - door.x) + pz * pz);
+      const near = (dist < doorSensorRange && inDoorZ) || hasNearbyActor(physicsWorld, door.x, 0, doorSensorRange);
+      door.targetOpen = near ? 1 : 0;
+      if (near) {
+        door.sLightMat.color.setHex(0x00ff44);
+        door.sLightMat.emissive.setHex(0x00ff44);
+      } else {
+        door.sLightMat.color.setHex(0xff0000);
+        door.sLightMat.emissive.setHex(0xff0000);
+      }
+      const slideDelta = doorSlideSpeed * dt;
+      if (door.open < door.targetOpen) door.open = Math.min(door.open + slideDelta, 1);
+      else if (door.open > door.targetOpen) door.open = Math.max(door.open - slideDelta, 0);
+      const slideOffset = door.open * doorSlideDistance;
+      door.panelL.position.z = -doorPanelW / 2 - slideOffset;
+      door.panelR.position.z = doorPanelW / 2 + slideOffset;
+      door.seam.visible = door.open < 0.1;
+      door.panelL.visible = door.open < 0.97;
+      door.panelR.visible = door.open < 0.97;
     }
 
     // Check door triggers
@@ -418,6 +510,14 @@ export function createScene({ audioManager, entryState, entryDoor }: {
       forwardCooldown = true;
       onForwardTrigger();
     }
+    if (onLeftTrigger && !leftCooldown && doorLeft.open > 0.9 && px < -roomWidth / 2 - 0.8 && inDoorZ) {
+      leftCooldown = true;
+      onLeftTrigger(player.captureTransition({ x: -roomWidth / 2, y: 0, z: 0, yaw: Math.PI / 2 }));
+    }
+    if (onRightTrigger && !rightCooldown && doorRight.open > 0.9 && px > roomWidth / 2 + 0.8 && inDoorZ) {
+      rightCooldown = true;
+      onRightTrigger(player.captureTransition({ x: roomWidth / 2, y: 0, z: 0, yaw: -Math.PI / 2 }));
+    }
   }
 
   return {
@@ -426,6 +526,8 @@ export function createScene({ audioManager, entryState, entryDoor }: {
     player,
     setBackTrigger,
     setForwardTrigger,
+    setLeftTrigger,
+    setRightTrigger,
     dispose: () => { player.dispose(); physics.dispose(); },
   };
 }

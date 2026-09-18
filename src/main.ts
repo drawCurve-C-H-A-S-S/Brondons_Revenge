@@ -1,12 +1,16 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import * as CANNON from 'cannon-es';
 import { createScene as createScene1 } from './scenes/scene1.js';
 import { createScene as createScene2 } from './scenes/scene2.js';
 import { createScene as createScene3 } from './scenes/scene3.js';
 import { createScene as createScene4 } from './scenes/scene4.js';
+import { createScene as createScene5 } from './scenes/scene5.js';
+import { createScene as createScene6 } from './scenes/scene6.js';
 import { loadCharacter } from './scripts/characterManager.js';
 import type { Player, PlayerTransitionState } from './scripts/player.js';
+import { PLAYER_MAX_HEALTH } from './scripts/player.js';
+import { NPCEnemyManager } from './scripts/npc-enemy-robots.js';
+import { PistolController } from './scripts/pistol.js';
 
 // --- Renderer ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -23,6 +27,7 @@ const audioManager = null;
 
 // --- Scene Management ---
 let currentSceneData: any = null;
+let scene1Data: any = null;
 let activeScene: THREE.Scene | null = null;
 let activeCamera: THREE.PerspectiveCamera | null = null;
 let updatePhysics: ((dt: number, thirdPerson?: boolean) => void) | null = null;
@@ -35,10 +40,24 @@ let creditsTimer: ReturnType<typeof setTimeout> | null = null;
 let globalCharacter: Awaited<ReturnType<typeof loadCharacter>> = null;
 let currentPlayer: Player | null = null;
 
+// --- NPC Enemy Manager (persists across scenes) ---
+const npcManager = new NPCEnemyManager();
+
+// --- Crowbar pickup (scene4 chest, persists once collected) ---
+let hasCrowbar = false;
+
 // --- View toggle (first-person / third-person) ---
 let isThirdPerson = true;
 const THIRD_PERSON_DIST = 1.5;
 const THIRD_PERSON_HEIGHT = 0.3;
+const THIRD_PERSON_RIGHT = 0.7;
+
+const pistol = new PistolController(() => ({
+  scene: activeScene, camera: activeCamera, world: currentSceneData?.physicsWorld ?? null,
+  player: currentPlayer, character: globalCharacter?.model ?? null,
+  thirdPerson: isThirdPerson, targets: npcManager.getDamageTargets(),
+  weaponAnimation: globalCharacter?.weapon,
+}));
 
 // --- Controls ---
 let orbitControls: OrbitControls | null = null;
@@ -87,6 +106,7 @@ function toggleView() {
 // --- Load Scene 1 ---
 function loadScene1() {
   currentSceneData = createScene1({ audioManager });
+  scene1Data = currentSceneData;
   activeScene = currentSceneData.scene;
   activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
   updatePhysics = currentSceneData.updatePhysics;
@@ -194,6 +214,7 @@ function loadScene2() {
 
   const sceneData = createScene2({ audioManager });
   currentSceneData?.dispose?.();
+  npcManager.enterScene('scene2', sceneData);
   currentSceneData = sceneData;
   activeScene = currentSceneData.scene;
   activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -222,7 +243,7 @@ function loadScene3(entryState: PlayerTransitionState) {
   if (transitionTimer) { clearTimeout(transitionTimer); transitionTimer = null; }
 
   const sceneData = createScene3({ audioManager, entryState });
-  currentSceneData?.dispose?.();
+  npcManager.enterScene('scene3', sceneData);
   currentSceneData = sceneData;
   activeScene = currentSceneData.scene;
   activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -248,6 +269,12 @@ function loadScene3(entryState: PlayerTransitionState) {
   if (currentSceneData.setForwardTrigger) {
     currentSceneData.setForwardTrigger(() => { transitionToScene4(); });
   }
+  if (currentSceneData.setLeftTrigger) {
+    currentSceneData.setLeftTrigger((state: PlayerTransitionState) => { transitionToScene5(state); });
+  }
+  if (currentSceneData.setRightTrigger) {
+    currentSceneData.setRightTrigger((state: PlayerTransitionState) => { transitionToScene6(state); });
+  }
   renderer.render(activeScene!, activeCamera!);
   console.log('Scene 3 loaded - passageway');
 }
@@ -261,14 +288,14 @@ function transitionBackToScene2(entryState: PlayerTransitionState) {
   console.log('Returning to scene 2 (skip wake)');
   try {
     const sceneData = createScene2({ audioManager, skipWake: true, entryState });
-    currentSceneData?.dispose?.();
+    npcManager.enterScene('scene2', sceneData);
     currentSceneData = sceneData;
     activeScene = currentSceneData.scene;
     activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     updatePhysics = currentSceneData.updatePhysics;
     cutsceneManager = currentSceneData.cutsceneManager;
     currentPlayer = currentSceneData.player;
-
+  
     if (globalCharacter && activeScene) {
       if (globalCharacter.model.parent !== activeScene) {
         globalCharacter.model.parent?.remove(globalCharacter.model);
@@ -295,8 +322,11 @@ function loadScene4(entryState: PlayerTransitionState) {
   console.log('Loading scene 4...');
   if (transitionTimer) { clearTimeout(transitionTimer); transitionTimer = null; }
 
-  const sceneData = createScene4({ audioManager, entryState });
-  currentSceneData?.dispose?.();
+  const sceneData = createScene4({
+    audioManager, entryState, chestOpened: hasCrowbar,
+    onChestCollected: () => { hasCrowbar = true; },
+  });
+  npcManager.enterScene('scene4', sceneData);
   currentSceneData = sceneData;
   activeScene = currentSceneData.scene;
   activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -337,7 +367,87 @@ function transitionBackToScene3(entryState: PlayerTransitionState) {
   console.log('Returning to scene 3 from scene 4');
   try {
     const sceneData = createScene3({ audioManager, entryState, entryDoor: 'back' });
-    currentSceneData?.dispose?.();
+    npcManager.enterScene('scene3', sceneData);
+    currentSceneData = sceneData;
+    activeScene = currentSceneData.scene;
+    activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    updatePhysics = currentSceneData.updatePhysics;
+    cutsceneManager = currentSceneData.cutsceneManager;
+    currentPlayer = currentSceneData.player;
+  
+    if (globalCharacter && activeScene) {
+      if (globalCharacter.model.parent !== activeScene) {
+        globalCharacter.model.parent?.remove(globalCharacter.model);
+        activeScene.add(globalCharacter.model);
+      }
+    }
+
+    orbitControls!.object = activeCamera!;
+    orbitControls!.enabled = false;
+    globalCharacter?.setFacing(currentPlayer!.getState().yaw);
+    updatePlayerView(0);
+
+    if (currentSceneData.setBackTrigger) {
+      currentSceneData.setBackTrigger((state: PlayerTransitionState) => { transitionBackToScene2(state); });
+    }
+    if (currentSceneData.setForwardTrigger) {
+      currentSceneData.setForwardTrigger(() => { transitionToScene4(); });
+    }
+    if (currentSceneData.setLeftTrigger) {
+      currentSceneData.setLeftTrigger((state: PlayerTransitionState) => { transitionToScene5(state); });
+    }
+    if (currentSceneData.setRightTrigger) {
+      currentSceneData.setRightTrigger((state: PlayerTransitionState) => { transitionToScene6(state); });
+    }
+    renderer.render(activeScene!, activeCamera!);
+    console.log('Scene 3 loaded - return from scene 4');
+  } catch (e) {
+    console.error('Error in transitionBackToScene3:', e);
+  }
+}
+
+function loadScene5(entryState: PlayerTransitionState) {
+  console.log('Loading scene 5...');
+  if (transitionTimer) { clearTimeout(transitionTimer); transitionTimer = null; }
+
+  const sceneData = createScene5({ audioManager, entryState });
+  npcManager.enterScene('scene5', sceneData);
+  currentSceneData = sceneData;
+  activeScene = currentSceneData.scene;
+  activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+  updatePhysics = currentSceneData.updatePhysics;
+  cutsceneManager = currentSceneData.cutsceneManager;
+  currentPlayer = currentSceneData.player;
+
+  if (globalCharacter && activeScene) {
+    if (globalCharacter.model.parent !== activeScene) {
+      globalCharacter.model.parent?.remove(globalCharacter.model);
+      activeScene.add(globalCharacter.model);
+    }
+  }
+
+  orbitControls!.object = activeCamera!;
+  orbitControls!.enabled = false;
+  globalCharacter?.setFacing(currentPlayer!.getState().yaw);
+  updatePlayerView(0);
+
+  if (currentSceneData.setBackTrigger) {
+    currentSceneData.setBackTrigger((state: PlayerTransitionState) => { transitionBackToScene3FromLeft(state); });
+  }
+  renderer.render(activeScene!, activeCamera!);
+  console.log('Scene 5 loaded - cargo hold');
+}
+
+function transitionToScene5(entryState: PlayerTransitionState) {
+  console.log('Transitioning to scene 5');
+  try { loadScene5(entryState); } catch (e) { console.error('Error loading scene 5:', e); }
+}
+
+function transitionBackToScene3FromLeft(entryState: PlayerTransitionState) {
+  console.log('Returning to scene 3 from scene 5');
+  try {
+    const sceneData = createScene3({ audioManager, entryState, entryDoor: 'left' });
+    npcManager.enterScene('scene3', sceneData);
     currentSceneData = sceneData;
     activeScene = currentSceneData.scene;
     activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -363,10 +473,96 @@ function transitionBackToScene3(entryState: PlayerTransitionState) {
     if (currentSceneData.setForwardTrigger) {
       currentSceneData.setForwardTrigger(() => { transitionToScene4(); });
     }
+    if (currentSceneData.setLeftTrigger) {
+      currentSceneData.setLeftTrigger((state: PlayerTransitionState) => { transitionToScene5(state); });
+    }
+    if (currentSceneData.setRightTrigger) {
+      currentSceneData.setRightTrigger((state: PlayerTransitionState) => { transitionToScene6(state); });
+    }
     renderer.render(activeScene!, activeCamera!);
-    console.log('Scene 3 loaded - return from scene 4');
+    console.log('Scene 3 loaded - return from scene 5');
   } catch (e) {
-    console.error('Error in transitionBackToScene3:', e);
+    console.error('Error in transitionBackToScene3FromLeft:', e);
+  }
+}
+
+function loadScene6(entryState: PlayerTransitionState) {
+  console.log('Loading scene 6...');
+  if (transitionTimer) { clearTimeout(transitionTimer); transitionTimer = null; }
+
+  const sceneData = createScene6({ audioManager, entryState });
+  npcManager.enterScene('scene6', sceneData);
+  currentSceneData = sceneData;
+  activeScene = currentSceneData.scene;
+  activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+  updatePhysics = currentSceneData.updatePhysics;
+  cutsceneManager = currentSceneData.cutsceneManager;
+  currentPlayer = currentSceneData.player;
+
+  if (globalCharacter && activeScene) {
+    if (globalCharacter.model.parent !== activeScene) {
+      globalCharacter.model.parent?.remove(globalCharacter.model);
+      activeScene.add(globalCharacter.model);
+    }
+  }
+
+  orbitControls!.object = activeCamera!;
+  orbitControls!.enabled = false;
+  globalCharacter?.setFacing(currentPlayer!.getState().yaw);
+  updatePlayerView(0);
+
+  if (currentSceneData.setBackTrigger) {
+    currentSceneData.setBackTrigger((state: PlayerTransitionState) => { transitionBackToScene3FromRight(state); });
+  }
+  renderer.render(activeScene!, activeCamera!);
+  console.log('Scene 6 loaded - engine room');
+}
+
+function transitionToScene6(entryState: PlayerTransitionState) {
+  console.log('Transitioning to scene 6');
+  try { loadScene6(entryState); } catch (e) { console.error('Error loading scene 6:', e); }
+}
+
+function transitionBackToScene3FromRight(entryState: PlayerTransitionState) {
+  console.log('Returning to scene 3 from scene 6');
+  try {
+    const sceneData = createScene3({ audioManager, entryState, entryDoor: 'right' });
+    npcManager.enterScene('scene3', sceneData);
+    currentSceneData = sceneData;
+    activeScene = currentSceneData.scene;
+    activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    updatePhysics = currentSceneData.updatePhysics;
+    cutsceneManager = currentSceneData.cutsceneManager;
+    currentPlayer = currentSceneData.player;
+
+    if (globalCharacter && activeScene) {
+      if (globalCharacter.model.parent !== activeScene) {
+        globalCharacter.model.parent?.remove(globalCharacter.model);
+        activeScene.add(globalCharacter.model);
+      }
+    }
+
+    orbitControls!.object = activeCamera!;
+    orbitControls!.enabled = false;
+    globalCharacter?.setFacing(currentPlayer!.getState().yaw);
+    updatePlayerView(0);
+
+    if (currentSceneData.setBackTrigger) {
+      currentSceneData.setBackTrigger((state: PlayerTransitionState) => { transitionBackToScene2(state); });
+    }
+    if (currentSceneData.setForwardTrigger) {
+      currentSceneData.setForwardTrigger(() => { transitionToScene4(); });
+    }
+    if (currentSceneData.setLeftTrigger) {
+      currentSceneData.setLeftTrigger((state: PlayerTransitionState) => { transitionToScene5(state); });
+    }
+    if (currentSceneData.setRightTrigger) {
+      currentSceneData.setRightTrigger((state: PlayerTransitionState) => { transitionToScene6(state); });
+    }
+    renderer.render(activeScene!, activeCamera!);
+    console.log('Scene 3 loaded - return from scene 6');
+  } catch (e) {
+    console.error('Error in transitionBackToScene3FromRight:', e);
   }
 }
 
@@ -377,9 +573,15 @@ function updatePlayerView(dt: number) {
   const state = currentPlayer.getState();
   globalCharacter?.update(dt, currentPlayer.body.position, state, isThirdPerson, currentPlayer.radius);
   if (isThirdPerson) {
-    activeCamera.position.x += Math.sin(state.yaw) * THIRD_PERSON_DIST;
-    activeCamera.position.z += Math.cos(state.yaw) * THIRD_PERSON_DIST;
+    // Forward is the direction the player faces (matches getMoveDirection's W vector).
+    const right = new THREE.Vector3(Math.cos(state.yaw), 0, -Math.sin(state.yaw));
+    const forward = new THREE.Vector3(-Math.sin(state.yaw), 0, -Math.cos(state.yaw));
+    // Pull the camera back behind the player (opposite of forward) and over one shoulder.
+    activeCamera.position.addScaledVector(forward, -THIRD_PERSON_DIST);
+    activeCamera.position.addScaledVector(right, THIRD_PERSON_RIGHT);
     activeCamera.position.y += THIRD_PERSON_HEIGHT;
+    // Keep the same look rotation as first-person (yaw/pitch from updateCamera) so the
+    // crosshair stays centered on the aim direction instead of pointing back at the player.
   }
 }
 
@@ -400,8 +602,17 @@ window.addEventListener('resize', () => {
 // --- Game loop ---
 const clock = new THREE.Clock();
 const fpsEl = document.getElementById('fps')!;
+const healthFillEl = document.getElementById('health-bar-fill');
+const healthLabelEl = document.getElementById('health-bar-label');
+const healthBarEl = document.getElementById('health-bar');
 let frameCount = 0;
 let fpsTime = 0;
+
+/** Reloads scene 2, whose wake-up sequence always spawns the player at the capsule. */
+function respawnAtCapsule() {
+  console.log('Player died - respawning at capsule');
+  try { loadScene2(); } catch (e) { console.error('Error respawning player:', e); }
+}
 
 function animate() {
   requestAnimationFrame(animate);
@@ -416,14 +627,46 @@ function animate() {
     fpsTime = 0;
   }
 
+  // Health bar + death/respawn
+  if (currentPlayer) {
+    const health = currentPlayer.getHealth();
+    const pct = Math.max(0, health / PLAYER_MAX_HEALTH);
+    if (healthFillEl) {
+      healthFillEl.style.width = `${pct * 100}%`;
+      healthFillEl.classList.toggle('low', pct <= 0.3);
+      healthFillEl.classList.toggle('mid', pct > 0.3 && pct <= 0.6);
+    }
+    if (healthLabelEl) healthLabelEl.textContent = `${Math.max(0, Math.ceil(health))} / ${PLAYER_MAX_HEALTH}`;
+    if (currentPlayer.isEnabled() && health <= 0) respawnAtCapsule();
+  }
+  if (healthBarEl) {
+    const inScene1 = currentSceneData === scene1Data && !currentPlayer?.isEnabled();
+    const inCutscene = !!cutsceneManager;
+    healthBarEl.style.display = (inScene1 || inCutscene) ? 'none' : '';
+  }
+
+  // Record pursuit before stepping the active world; retired worlds step separately.
+  npcManager.update(delta);
+
+  // Let scene4's chest know once the enemy is defeated, so it can be interacted with.
+  currentSceneData?.setEnemyDefeated?.(npcManager.getStatus().state === 'DISAPPEARED');
+
   // Physics
   if (updatePhysics) updatePhysics(delta, isThirdPerson);
 
   // Cutscenes
   if (cutsceneManager) cutsceneManager.update(delta);
+  const crosshair = document.getElementById('crosshair');
+  if (crosshair) {
+    const inScene1 = currentSceneData === scene1Data && !currentPlayer?.isEnabled();
+    const inCutscene = !!cutsceneManager;
+    crosshair.style.display = (inScene1 || inCutscene) ? 'none' : '';
+  }
 
   // Character animations + view
   updatePlayerView(delta);
+
+  pistol.update(delta);
 
   // Controls
   if (orbitControls && orbitControls.enabled) orbitControls.update();

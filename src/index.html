@@ -7,9 +7,12 @@
   <link rel="stylesheet" href="./styles/main.css" />
 </head>
 <body>
+  <div id="crosshair" aria-hidden="true"></div>
+  <div id="interact-prompt" class="hidden">Press E to open chest</div>
   <div id="hud">
     <div id="fps">FPS: --</div>
-    <div id="info">Mouse to orbit | Scroll to zoom</div>
+    <div id="info">WASD: move | Shift: sprint | V: view<br><span id="weapon-status">K: equip pistol</span></div>
+    <div id="health-bar"><div id="health-bar-fill"></div><div id="health-bar-label">100 / 100</div></div>
     <button id="view-toggle-btn">1st Person</button>
   </div>
   

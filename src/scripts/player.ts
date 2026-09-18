@@ -25,11 +25,14 @@ export interface PlayerState {
   isOnGround: boolean;
   jumping: boolean;
   yaw: number;
+  pitch: number;
   velocityY: number;
   actionRequest: PlayerActionName | null;
   crouching: boolean;
   sprinting: boolean;
 }
+
+export const PLAYER_MAX_HEALTH = 100;
 
 interface Doorway {
   x: number;
@@ -88,6 +91,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   let intentionalJump = false;
   let crouching = false;
   let sprinting = false;
+  let health = PLAYER_MAX_HEALTH;
   let actionRequest: PlayerActionName | null = null;
   // Requests stay readable for exactly one physics+animation frame, then
   // expire, so a held or unconsumed key can never retrigger the action.
@@ -400,11 +404,18 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       yaw = newYaw;
       pitch = newPitch || 0;
     },
+    // Damage is ignored once dead; the caller (main.ts) handles respawning.
+    takeDamage: (amount: number) => {
+      if (!enabled || health <= 0 || !Number.isFinite(amount) || amount <= 0) return;
+      health = Math.max(0, health - amount);
+    },
+    getHealth: () => health,
     getState: (): PlayerState => ({
       isMoving: enabled && getMoveDirection() !== null,
       isOnGround,
       jumping: !isOnGround && intentionalJump && playerBody.velocity.y > 0.1,
       yaw,
+      pitch,
       velocityY: playerBody.velocity.y,
       actionRequest,
       crouching,

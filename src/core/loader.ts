@@ -4,6 +4,35 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
 const gltfLoader = new GLTFLoader();
 
+// Only bundle the tools used by gameplay, including their external dependencies.
+const toolAssets = import.meta.glob<string>([
+  '../assets/models/Tools/Enemy_Trilobite.{gltf,bin}',
+  '../assets/models/Tools/Gun_Pistol.{gltf,bin}',
+  '../assets/models/Tools/Gun_Revolver.{gltf,bin}',
+  '../assets/models/Tools/Prop_Chest.{gltf,bin}',
+  '../assets/models/Tools/T_Enemies_Large_*.png',
+  '../assets/models/Tools/T_Guns_Batch1_*.png',
+  '../assets/models/Tools/T_Guns_Batch2_*.png',
+  '../assets/models/Tools/T_Props_Batch2_*.png',
+], { eager: true, query: '?url', import: 'default' });
+const toolUrls = new Map(Object.entries(toolAssets).map(([path, url]) => [path.split('/').pop()!, url]));
+
+/** Resolve glTF dependencies through Vite in both dev and hashed production builds. */
+export async function loadToolModel(name: 'Enemy_Trilobite' | 'Gun_Pistol' | 'Gun_Revolver' | 'Prop_Chest') {
+  const url = toolUrls.get(`${name}.gltf`);
+  if (!url) throw new Error(`Missing tool asset: ${name}`);
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Loading ${name}: HTTP ${response.status}`);
+  const json = await response.json();
+  for (const entry of [...(json.buffers ?? []), ...(json.images ?? [])]) {
+    if (!entry.uri || entry.uri.startsWith('data:')) continue;
+    const resolved = toolUrls.get(decodeURIComponent(entry.uri).split('/').pop()!);
+    if (!resolved) throw new Error(`Missing dependency for ${name}: ${entry.uri}`);
+    entry.uri = new URL(resolved, document.baseURI).href;
+  }
+  return gltfLoader.parseAsync(JSON.stringify(json), '');
+}
+
 // Set up Draco decoder for compressed models
 const dracoLoader = new DRACOLoader();
 dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');

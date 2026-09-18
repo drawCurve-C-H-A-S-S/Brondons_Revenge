@@ -7,8 +7,8 @@ export const PHYSICS = Object.freeze({
   maxSubSteps: 12,
   gravity: -9.82,
   playerRadius: 0.3,
-  moveSpeed: 6,
-  jumpSpeed: 7,
+  moveSpeed: 4.2,
+  jumpSpeed: 5.5,
   maxSlopeDegrees: 50,
   contactTolerance: 0.025,
   groundSnapDistance: 0.08,
@@ -21,6 +21,93 @@ interface PhysicsPlayer {
 }
 
 type Point = { x: number; y: number; z: number };
+
+interface PhysicsActor {
+  body: CANNON.Body;
+  beforePhysicsStep(dt: number): void;
+  afterPhysicsStep(): void;
+}
+const actors = new WeakMap<CANNON.World, Set<PhysicsActor>>();
+
+export function registerPhysicsActor(world: CANNON.World, actor: PhysicsActor) {
+  let set = actors.get(world);
+  if (!set) { set = new Set(); actors.set(world, set); }
+  set.add(actor);
+  return () => { set.delete(actor); };
+}
+
+/** Also used to advance a pursuer's previous room until it reaches its doorway. */
+export function stepPhysicsWorld(world: CANNON.World, dt: number) {
+  const active = [...(actors.get(world) ?? [])];
+  for (const actor of active) actor.beforePhysicsStep(dt);
+  world.step(dt);
+  for (const actor of active) actor.afterPhysicsStep();
+}
+
+export function hasNearbyActor(world: CANNON.World, x: number, z: number, range: number) {
+  return [...(actors.get(world) ?? [])].some(({ body }) =>
+    body.world === world && body.position.y < 3 &&
+    Math.hypot(body.position.x - x, body.position.z - z) < range);
+}
+
+/** Grounded sphere steering: use real supports and preserve gravity when airborne. */
+export function createGroundMotor(body: CANNON.Body, radius: number) {
+  let grounded = false;
+  const normal = new CANNON.Vec3(0, 1, 0);
+  const minY = Math.cos(PHYSICS.maxSlopeDegrees * Math.PI / 180);
+  function readSupport() {
+    const world = body.world;
+    if (!world) return;
+    let support: CANNON.Vec3 | null = null;
+    for (const contact of world.contacts) {
+      if (!contact.enabled) continue;
+      const first = contact.bi === body;
+      if (!first && contact.bj !== body) continue;
+      const other = first ? contact.bj : contact.bi;
+      if (other.type !== CANNON.Body.STATIC || !other.collisionResponse) continue;
+      const n = contact.ni.scale(first ? -1 : 1);
+      const point = other.position.vadd(first ? contact.rj : contact.ri);
+      const gap = body.position.vsub(point).dot(n) - radius;
+      if (n.y >= minY && Math.abs(gap) <= PHYSICS.contactTolerance && (!support || n.y > support.y)) support = n;
+    }
+    if (!support && (grounded || body.velocity.y <= 0.5)) {
+      const from = body.position.clone();
+      const to = from.vadd(new CANNON.Vec3(0, -(radius / minY + PHYSICS.groundSnapDistance), 0));
+      let bestGap = Infinity;
+      world.raycastAll(from, to, { skipBackfaces: true, checkCollisionResponse: true }, hit => {
+        if (hit.body?.type !== CANNON.Body.STATIC || hit.hitNormalWorld.y < minY) return;
+        const gap = from.y - hit.hitPointWorld.y - radius / hit.hitNormalWorld.y;
+        if (gap >= -PHYSICS.contactTolerance && gap <= (grounded ? PHYSICS.groundSnapDistance : PHYSICS.contactTolerance) && gap < bestGap) {
+          bestGap = gap;
+          support = hit.hitNormalWorld.clone();
+        }
+      });
+      if (support && bestGap > 0) { body.position.y -= bestGap; body.aabbNeedsUpdate = true; }
+    }
+    grounded = support !== null;
+    if (support) {
+      normal.copy(support);
+      const outward = body.velocity.dot(normal);
+      if (outward > 0) body.velocity.vsub(normal.scale(outward), body.velocity);
+    }
+  }
+  function drive(x: number, z: number, speed: number) {
+    readSupport();
+    const desired = new CANNON.Vec3(x, 0, z);
+    if (grounded) desired.y = -(x * normal.x + z * normal.z) / normal.y;
+    desired.normalize();
+    if (grounded) {
+      desired.scale(speed, body.velocity);
+      const gravity = body.world!.gravity;
+      const tangent = gravity.vsub(normal.scale(gravity.dot(normal)));
+      body.force.vsub(tangent.scale(body.mass), body.force);
+    } else {
+      body.velocity.x = desired.x * speed;
+      body.velocity.z = desired.z * speed;
+    }
+  }
+  return { drive, readSupport, reset: () => { grounded = false; } };
+}
 
 function positiveDimensions(...values: number[]) {
   if (values.some(value => !Number.isFinite(value) || value <= 0)) {
@@ -129,7 +216,7 @@ export function createScenePhysics() {
     let steps = 0;
     while (accumulator + 1e-10 >= PHYSICS.fixedStep && steps < PHYSICS.maxSubSteps) {
       player.beforePhysicsStep(PHYSICS.fixedStep);
-      world.step(PHYSICS.fixedStep);
+      stepPhysicsWorld(world, PHYSICS.fixedStep);
       player.afterPhysicsStep();
       accumulator = Math.max(0, accumulator - PHYSICS.fixedStep);
       steps++;
@@ -139,6 +226,7 @@ export function createScenePhysics() {
 
   function dispose() {
     for (const body of [...world.bodies]) world.removeBody(body);
+    actors.delete(world);
     accumulator = 0;
   }
 

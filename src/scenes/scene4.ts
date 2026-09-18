@@ -4,11 +4,11 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import comicVert from '../shaders/comic.vert.glsl?raw';
 import comicFrag from '../shaders/comic.frag.glsl?raw';
 import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
-import { createScenePhysics, PHYSICS } from '../helpers/physics/scenePhysics.js';
+import { createScenePhysics, PHYSICS, hasNearbyActor } from '../helpers/physics/scenePhysics.js';
+import { loadToolModel } from '../core/loader.js';
 
 // Computer model imports (FBX for 1-2, OBJ for 3-8)
 import computer1Url from '../assets/models/Retro computers/models/Computer1.fbx';
@@ -45,6 +45,7 @@ import tex7SpecUrl from '../assets/models/Retro computers/textures/MachineTextur
 import tex8Url from '../assets/models/Retro computers/textures/MachineTexture8.png';
 
 const COMPUTER_URLS = [computer1Url, computer2Url, computer3Url, computer4Url, computer5Url, computer6Url, computer7Url, computer8Url];
+
 const TEXTURE_SETS = [
   { diffuse: tex1Url, normal: tex1NormalUrl, specular: tex1SpecUrl },
   { diffuse: tex2Url, normal: tex2NormalUrl, specular: tex2SpecUrl },
@@ -56,8 +57,8 @@ const TEXTURE_SETS = [
   { diffuse: tex8Url, normal: null, specular: null }, // Texture 8 has no normal/specular maps
 ];
 
-export function createScene({ audioManager, entryState }: {
-  audioManager?: unknown; entryState?: PlayerTransitionState;
+export function createScene({ audioManager, entryState, chestOpened, onChestCollected }: {
+  audioManager?: unknown; entryState?: PlayerTransitionState; chestOpened?: boolean; onChestCollected?: () => void;
 } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0a10);
@@ -221,17 +222,6 @@ export function createScene({ audioManager, entryState }: {
   header.castShadow = true;
   scene.add(header);
 
-  // --- Soft glow at doorway ---
-  const doorwayGlowMat = new THREE.MeshBasicMaterial({
-    color: 0x8899aa,
-    transparent: true,
-    opacity: 0.15,
-    side: THREE.DoubleSide,
-  });
-  const doorwayGlow = new THREE.Mesh(new THREE.PlaneGeometry(doorW, doorH), doorwayGlowMat);
-  doorwayGlow.position.set(0, doorH / 2, -roomDepth / 2);
-  scene.add(doorwayGlow);
-
   // --- Sliding door (entry) ---
   const doorComicMat = makeComicMaterial(0x8899aa);
   const doorPanelW = doorW / 2 + 0.1;
@@ -346,114 +336,145 @@ export function createScene({ audioManager, entryState }: {
     scene.add(seamR);
   }
 
-  // --- Computer consoles (ship-style arrangement) ---
+  // --- Computer consoles (single model repeated across walls) ---
   const objLoader = new OBJLoader();
-  const fbxLoader = new FBXLoader();
   const computerModels: THREE.Group[] = [];
-  const computerColliders: Array<{ min: THREE.Vector3; max: THREE.Vector3 }> = [];
 
-  // Console desk material
-  const consoleMat = new THREE.MeshStandardMaterial({ color: 0x3a3a44, metalness: 0.6, roughness: 0.4 });
-  const screenMat = new THREE.MeshStandardMaterial({
-    color: 0x112233, emissive: 0x2244aa, emissiveIntensity: 0.8,
-    metalness: 0.3, roughness: 0.2,
-  });
-
-  // Create materials with textures for each computer
+  // Use one textured material for all wall computers
   const textureLoader = new THREE.TextureLoader();
-  function createComputerMaterial(texSetIdx: number): THREE.MeshStandardMaterial {
-    const texSet = TEXTURE_SETS[texSetIdx % TEXTURE_SETS.length];
-    const diffuse = textureLoader.load(texSet.diffuse);
+  const wallComputerMat = (() => {
+    const diffuse = textureLoader.load(TEXTURE_SETS[0].diffuse);
     diffuse.colorSpace = THREE.SRGBColorSpace;
-    diffuse.wrapS = diffuse.wrapT = THREE.RepeatWrapping;
-
-    const matParams: THREE.MeshStandardMaterialParameters = {
-      map: diffuse,
-      metalness: 0.3,
-      roughness: 0.6,
-    };
-
-    if (texSet.normal) {
-      const normal = textureLoader.load(texSet.normal);
-      normal.wrapS = normal.wrapT = THREE.RepeatWrapping;
-      matParams.normalMap = normal;
-      matParams.normalScale = new THREE.Vector2(0.8, 0.8);
+    const params: THREE.MeshStandardMaterialParameters = { map: diffuse, metalness: 0.3, roughness: 0.6 };
+    if (TEXTURE_SETS[0].normal) {
+      const n = textureLoader.load(TEXTURE_SETS[0].normal);
+      n.wrapS = n.wrapT = THREE.RepeatWrapping;
+      params.normalMap = n;
+      params.normalScale = new THREE.Vector2(0.8, 0.8);
     }
-
-    if (texSet.specular) {
-      const roughness = textureLoader.load(texSet.specular); // Use specular as roughness
-      roughness.wrapS = roughness.wrapT = THREE.RepeatWrapping;
-      matParams.roughnessMap = roughness;
+    if (TEXTURE_SETS[0].specular) {
+      const r = textureLoader.load(TEXTURE_SETS[0].specular);
+      r.wrapS = r.wrapT = THREE.RepeatWrapping;
+      params.roughnessMap = r;
     }
+    return new THREE.MeshStandardMaterial(params);
+  })();
 
-    return new THREE.MeshStandardMaterial(matParams);
-  }
-
-  // Computer placement positions (ship bridge style)
-  const computerPlacements = [
-    // Left wall consoles
-    { x: -roomWidth / 2 + 0.8, z: -2, rotY: Math.PI / 2, modelIdx: 0 },
-    { x: -roomWidth / 2 + 0.8, z: 1, rotY: Math.PI / 2, modelIdx: 1 },
-    { x: -roomWidth / 2 + 0.8, z: 4, rotY: Math.PI / 2, modelIdx: 2 },
-    // Right wall consoles
-    { x: roomWidth / 2 - 0.8, z: -2, rotY: -Math.PI / 2, modelIdx: 3 },
-    { x: roomWidth / 2 - 0.8, z: 1, rotY: -Math.PI / 2, modelIdx: 4 },
-    { x: roomWidth / 2 - 0.8, z: 4, rotY: -Math.PI / 2, modelIdx: 5 },
-    // Center consoles (facing back wall)
-    { x: -2, z: 2, rotY: 0, modelIdx: 6 },
-    { x: 2, z: 2, rotY: 0, modelIdx: 7 },
+  // Place one computer model many times, restricted to the left and right walls.
+  const wallComputerPlacements: Array<{ x: number; z: number; rotY: number }> = [
+    // Left wall (facing right)
+    { x: -roomWidth / 2 + 0.6, z: -4, rotY: Math.PI / 2 },
+    { x: -roomWidth / 2 + 0.6, z: -2, rotY: Math.PI / 2 },
+    { x: -roomWidth / 2 + 0.6, z: 0, rotY: Math.PI / 2 },
+    { x: -roomWidth / 2 + 0.6, z: 2, rotY: Math.PI / 2 },
+    { x: -roomWidth / 2 + 0.6, z: 4, rotY: Math.PI / 2 },
+    // Right wall (facing left)
+    { x: roomWidth / 2 - 0.6, z: -4, rotY: -Math.PI / 2 },
+    { x: roomWidth / 2 - 0.6, z: -2, rotY: -Math.PI / 2 },
+    { x: roomWidth / 2 - 0.6, z: 0, rotY: -Math.PI / 2 },
+    { x: roomWidth / 2 - 0.6, z: 2, rotY: -Math.PI / 2 },
+    { x: roomWidth / 2 - 0.6, z: 4, rotY: -Math.PI / 2 },
   ];
 
-  // Desk height - computers sit on top of this
-  const deskHeight = 0.8;
+  for (const placement of wallComputerPlacements) {
+    // Static collider so the player can't walk through the wall-mounted consoles.
+    const body = new CANNON.Body({ mass: 0, material: floorPhysMat });
+    body.addShape(new CANNON.Box(new CANNON.Vec3(0.25, 0.35, 0.35)));
+    body.position.set(placement.x, 0.8, placement.z);
+    physicsWorld.addBody(body);
 
-  // Load and place computers
-  let loadedCount = 0;
-  for (const placement of computerPlacements) {
-    const url = COMPUTER_URLS[placement.modelIdx % COMPUTER_URLS.length];
-    const material = createComputerMaterial(placement.modelIdx);
-    const isFBX = placement.modelIdx < 2; // Computer1 and Computer2 are FBX
-
-    const onLoad = (obj: THREE.Group) => {
-      // Scale to reasonable size (models are roughly 1-2 units, scale to ~0.6-0.8)
+    objLoader.load(COMPUTER_URLS[4], (obj) => { // computer5.obj
       const box = new THREE.Box3().setFromObject(obj);
       const size = box.getSize(new THREE.Vector3());
       const targetHeight = 0.7;
       const scale = targetHeight / size.y;
       obj.scale.set(scale, scale, scale);
-
-      // Position on top of desk
-      obj.position.set(placement.x, deskHeight, placement.z);
+      obj.position.set(placement.x, 0.8, placement.z);
       obj.rotation.y = placement.rotY;
-
-      // Apply material and enable shadows
       obj.traverse((child) => {
         if (child instanceof THREE.Mesh) {
-          child.material = material;
+          child.material = wallComputerMat;
           child.castShadow = true;
           child.receiveShadow = true;
         }
       });
-
       scene.add(obj);
       computerModels.push(obj);
-
-      // Add collider for the computer
-      const scaledSize = size.clone().multiplyScalar(scale);
-      computerColliders.push({
-        min: new THREE.Vector3(placement.x - scaledSize.x / 2 - 0.1, 0, placement.z - scaledSize.z / 2 - 0.1),
-        max: new THREE.Vector3(placement.x + scaledSize.x / 2 + 0.1, deskHeight + scaledSize.y, placement.z + scaledSize.z / 2 + 0.1),
-      });
-
-      loadedCount++;
-    };
-
-    if (isFBX) {
-      fbxLoader.load(url, onLoad);
-    } else {
-      objLoader.load(url, onLoad);
-    }
+    });
   }
+
+  // --- Treasure chest (behind the enemy's pacing spot, against the front wall) ---
+  const chestPosition = new THREE.Vector3(0, 0, roomDepth / 2 - 1.5);
+  let chestMixer: THREE.AnimationMixer | null = null;
+  let chestOpenAction: THREE.AnimationAction | null = null;
+  let chestIdleOpenAction: THREE.AnimationAction | null = null;
+  let chestReady = false;
+  let chestLooted = !!chestOpened;
+  const interactPrompt = document.getElementById('interact-prompt');
+  const interactRange = 1.8;
+
+  loadToolModel('Prop_Chest').then(gltf => {
+    const box = new THREE.Box3().setFromObject(gltf.scene);
+    gltf.scene.position.y -= box.min.y;
+    gltf.scene.position.add(chestPosition);
+    gltf.scene.rotation.y = Math.PI;
+    gltf.scene.traverse(child => {
+      if (child instanceof THREE.Mesh) { child.castShadow = true; child.receiveShadow = true; }
+    });
+    scene.add(gltf.scene);
+
+    const size = box.getSize(new THREE.Vector3());
+    const chestBody = new CANNON.Body({ mass: 0, material: floorPhysMat });
+    chestBody.addShape(new CANNON.Box(new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)));
+    chestBody.position.set(chestPosition.x, size.y / 2, chestPosition.z);
+    physicsWorld.addBody(chestBody);
+
+    chestMixer = new THREE.AnimationMixer(gltf.scene);
+    const findClip = (name: string) => THREE.AnimationClip.findByName(gltf.animations, name);
+    const idleClosed = findClip('Idle_Closed');
+    const openClip = findClip('Open');
+    const idleOpen = findClip('Idle_Open');
+    if (chestLooted && idleOpen) {
+      chestIdleOpenAction = chestMixer.clipAction(idleOpen);
+      chestIdleOpenAction.play();
+    } else if (idleClosed) {
+      chestMixer.clipAction(idleClosed).play();
+    }
+    if (openClip) {
+      chestOpenAction = chestMixer.clipAction(openClip);
+      chestOpenAction.setLoop(THREE.LoopOnce, 1);
+      chestOpenAction.clampWhenFinished = true;
+    }
+    if (idleOpen) chestIdleOpenAction = chestMixer.clipAction(idleOpen);
+    chestReady = true;
+  }).catch(error => console.error('[Scene4] Failed to load chest:', error));
+
+  // --- Enemy defeat gate + 'E' interact ---
+  let enemyDefeated = false;
+  function setEnemyDefeated(defeated: boolean) { enemyDefeated = defeated; }
+
+  function openChest() {
+    chestLooted = true;
+    if (interactPrompt) interactPrompt.classList.add('hidden');
+    if (chestOpenAction) {
+      chestOpenAction.reset().play();
+      if (chestIdleOpenAction) {
+        chestMixer?.addEventListener('finished', function onFinished() {
+          chestMixer?.removeEventListener('finished', onFinished);
+          chestIdleOpenAction?.reset().play();
+        });
+      }
+    }
+    onChestCollected?.();
+  }
+
+  function onKeyDown(e: KeyboardEvent) {
+    if (e.code !== 'KeyE' || !player.isEnabled() || chestLooted || !enemyDefeated || !chestReady) return;
+    const dx = player.body.position.x - chestPosition.x;
+    const dz = player.body.position.z - chestPosition.z;
+    if (Math.hypot(dx, dz) <= interactRange) openChest();
+  }
+  window.addEventListener('keydown', onKeyDown);
 
   // --- Camera ---
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
@@ -504,7 +525,7 @@ export function createScene({ audioManager, entryState }: {
     const inDoorX = px > -doorW / 2 - 1 && px < doorW / 2 + 1;
 
     const dist = Math.sqrt(px * px + (pz - doorBack.z) * (pz - doorBack.z));
-    const near = dist < doorSensorRange && inDoorX;
+    const near = (dist < doorSensorRange && inDoorX) || hasNearbyActor(physicsWorld, 0, doorBack.z, doorSensorRange);
     doorBack.targetOpen = near ? 1 : 0;
     if (near) {
       sLightMat.color.setHex(0x00ff44);
@@ -526,6 +547,15 @@ export function createScene({ audioManager, entryState }: {
       backCooldown = true;
       onBackTrigger(player.captureTransition({ x: 0, y: 0, z: -roomDepth / 2, yaw: 0 }));
     }
+
+    // Chest animation + interact prompt
+    chestMixer?.update(dt);
+    if (interactPrompt) {
+      const dxChest = px - chestPosition.x;
+      const dzChest = pz - chestPosition.z;
+      const inRange = chestReady && !chestLooted && enemyDefeated && Math.hypot(dxChest, dzChest) <= interactRange;
+      interactPrompt.classList.toggle('hidden', !inRange);
+    }
   }
 
   return {
@@ -533,6 +563,12 @@ export function createScene({ audioManager, entryState }: {
     cutsceneManager: null,
     player,
     setBackTrigger,
-    dispose: () => { player.dispose(); physics.dispose(); },
+    setEnemyDefeated,
+    dispose: () => {
+      window.removeEventListener('keydown', onKeyDown);
+      if (interactPrompt) interactPrompt.classList.add('hidden');
+      player.dispose();
+      physics.dispose();
+    },
   };
 }

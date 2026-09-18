@@ -7,7 +7,7 @@ import * as CANNON from 'cannon-es';
 import comicVert from '../shaders/comic.vert.glsl?raw';
 import comicFrag from '../shaders/comic.frag.glsl?raw';
 import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
-import { createScenePhysics, PHYSICS } from '../helpers/physics/scenePhysics.js';
+import { createScenePhysics, PHYSICS, hasNearbyActor } from '../helpers/physics/scenePhysics.js';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 
 export function createScene({ audioManager, skipWake, entryState }: {
@@ -602,6 +602,40 @@ export function createScene({ audioManager, skipWake, entryState }: {
   let eyeOverlay: HTMLDivElement | null = null;
   let eyelidTop: HTMLDivElement | null = null;
   let eyelidBottom: HTMLDivElement | null = null;
+  let wakeSkipBtn: HTMLButtonElement | null = null;
+
+  function removeWakeSkipBtn() {
+    wakeSkipBtn?.remove();
+    wakeSkipBtn = null;
+  }
+
+  /** Ends the wake-up sequence immediately, whether reached naturally or via the skip button. */
+  function finishWake() {
+    eyelidTop?.remove();
+    eyelidBottom?.remove();
+    eyeOverlay?.remove();
+    eyeOverlay = null; eyelidTop = null; eyelidBottom = null;
+    removeWakeSkipBtn();
+    const spawnX = capsuleX - 1.5;
+    const spawnZ = capsuleZ;
+    const bodyY = PHYSICS.playerRadius;
+    camera.position.set(spawnX, bodyY + 1.3, spawnZ);
+    camera.rotation.order = 'YXZ';
+    camera.rotation.set(0, 0, 0);
+    player.setRotation(Math.PI / 2, 0);
+    player.setPosition(spawnX, bodyY, spawnZ);
+    player.enable();
+    wakePhase = 'done';
+    console.log('Player spawned upright next to capsule');
+  }
+
+  if (!skipWake && !entryState) {
+    wakeSkipBtn = document.createElement('button');
+    wakeSkipBtn.textContent = 'SKIP';
+    wakeSkipBtn.className = 'wake-skip-btn';
+    wakeSkipBtn.addEventListener('click', finishWake);
+    document.body.appendChild(wakeSkipBtn);
+  }
 
   function updateWakeSequence(dt: number) {
     if (skipWake || wakePhase === 'done') return;
@@ -644,21 +678,7 @@ export function createScene({ audioManager, skipWake, entryState }: {
         }
         break;
       case 'spawn':
-        if (eyelidTop) eyelidTop.remove();
-        if (eyelidBottom) eyelidBottom.remove();
-        if (eyeOverlay) eyeOverlay.remove();
-        eyeOverlay = null; eyelidTop = null; eyelidBottom = null;
-        const spawnX = capsuleX - 1.5;
-        const spawnZ = capsuleZ;
-        const bodyY = PHYSICS.playerRadius;
-        camera.position.set(spawnX, bodyY + 1.3, spawnZ);
-        camera.rotation.order = 'YXZ';
-        camera.rotation.set(0, 0, 0);
-        player.setRotation(Math.PI / 2, 0);
-        player.setPosition(spawnX, bodyY, spawnZ);
-        player.enable();
-        wakePhase = 'done';
-        console.log('Player spawned upright next to capsule');
+        finishWake();
         break;
     }
   }
@@ -699,7 +719,7 @@ export function createScene({ audioManager, skipWake, entryState }: {
       const doorZPos = roomDepth / 2;
       const distToDoor = Math.sqrt(px * px + (pz - doorZPos) * (pz - doorZPos));
       const playerInFront = distToDoor < doorSensorRange && px > -doorW / 2 - 1 && px < doorW / 2 + 1;
-      if (playerInFront) {
+      if (playerInFront || hasNearbyActor(physicsWorld, 0, doorZPos, doorSensorRange)) {
         doorTargetOpen = 1;
         sensorLightMat.color.setHex(0x00ff44);
         sensorLightMat.emissive.setHex(0x00ff44);
@@ -744,6 +764,10 @@ export function createScene({ audioManager, skipWake, entryState }: {
     scene, camera, physicsWorld, updatePhysics,
     cutsceneManager: null,
     player,
+    npcSafeZone: new THREE.Box3(
+      new THREE.Vector3(-winW / 2, floor2Y - 0.15, -roomDepth / 2),
+      new THREE.Vector3(winW / 2, floor2Y + 2, -roomDepth / 2 + 2),
+    ),
     setDoorTrigger,
     dispose: () => {
       player.dispose();
@@ -751,6 +775,7 @@ export function createScene({ audioManager, skipWake, entryState }: {
       eyeOverlay?.remove();
       eyelidTop?.remove();
       eyelidBottom?.remove();
+      removeWakeSkipBtn();
     },
   };
 }

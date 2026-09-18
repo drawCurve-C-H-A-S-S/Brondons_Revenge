@@ -100,9 +100,69 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     actions.set(name, action);
   }
 
+  // Sample the authored aiming pose once to calibrate the hand-local grip.
+  const hand = model.getObjectByName('hand_r');
+  const middleFinger = model.getObjectByName('middle_01_r');
+  const upperRoot = model.getObjectByName('spine_01');
+  const aimClip = THREE.AnimationClip.findByName(clips, 'Pistol_Aim_Neutral');
+  const holdClip = THREE.AnimationClip.findByName(clips, 'Pistol_Idle_Loop');
+  const shootClip = THREE.AnimationClip.findByName(clips, 'Pistol_Shoot');
+  const socket = new THREE.Group();
+  socket.name = 'PistolGrip';
+  const upperBones = new Set<string>();
+  upperRoot?.traverse(node => { if ((node as THREE.Bone).isBone) upperBones.add(node.name); });
+  const upperPose = upperRoot?.clone(true) ?? new THREE.Group();
+  const upperMixer = new THREE.AnimationMixer(upperPose);
+  const layerBones = [...upperBones].map(name => {
+    const bone = model.getObjectByName(name)!;
+    return { bone, pose: upperPose.getObjectByName(name)!,
+      position: bone.position.clone(), quaternion: bone.quaternion.clone(), scale: bone.scale.clone() };
+  });
+  const upperClip = (clip: THREE.AnimationClip) => new THREE.AnimationClip(`${clip.name}_UpperBody`, clip.duration,
+    clip.tracks.filter(track => upperBones.has(THREE.PropertyBinding.parseTrackName(track.name).nodeName)).map(track => track.clone()));
+  const holdAction = holdClip ? upperMixer.clipAction(upperClip(holdClip)) : null;
+  const shootAction = shootClip ? upperMixer.clipAction(upperClip(shootClip)) : null;
+  shootAction?.setLoop(THREE.LoopOnce, 1);
+  if (shootAction) shootAction.clampWhenFinished = true;
+  if (hand && aimClip) {
+    const sampler = new THREE.AnimationMixer(model);
+    sampler.clipAction(aimClip).play();
+    sampler.update(0);
+    model.updateMatrixWorld(true);
+    const palm = hand.getWorldPosition(new THREE.Vector3());
+    if (middleFinger) palm.lerp(middleFinger.getWorldPosition(new THREE.Vector3()), 0.65);
+    socket.position.copy(hand.worldToLocal(palm));
+    const forward = model.getWorldQuaternion(new THREE.Quaternion())
+      .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI));
+    socket.quaternion.copy(hand.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(forward));
+    hand.add(socket);
+    sampler.stopAllAction();
+    sampler.uncacheRoot(model);
+  }
+  let armed = false;
+  const weapon = {
+    socket: hand ? socket : null,
+    setEquipped(equipped: boolean) {
+      if (equipped === armed) return;
+      armed = equipped;
+      upperMixer.stopAllAction();
+      if (armed) holdAction?.reset().play();
+    },
+    shoot() {
+      if (!armed || !shootAction) return;
+      holdAction?.stop();
+      shootAction.reset().setEffectiveWeight(1).setEffectiveTimeScale(1).play();
+    },
+  };
+
   let currentAction = actions.get('Idle_Loop')!;
   currentAction.play();
   mixer.update(0);
+  for (const base of layerBones) {
+    base.position.copy(base.bone.position);
+    base.quaternion.copy(base.bone.quaternion);
+    base.scale.copy(base.bone.scale);
+  }
 
   function fadeTo(name: ClipName) {
     const next = actions.get(name)!;
@@ -121,7 +181,7 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     thirdPerson: boolean,
     playerRadius: number,
   ) {
-    const { yaw, isMoving, isOnGround, velocityY, jumping, actionRequest, crouching, sprinting } = playerState;
+    const { yaw, pitch, isMoving, isOnGround, velocityY, jumping, actionRequest, crouching, sprinting } = playerState;
     model.visible = thirdPerson;
     model.position.set(playerBodyPos.x, playerBodyPos.y - playerRadius + modelOffsetY, playerBodyPos.z);
 
@@ -162,7 +222,38 @@ export async function loadCharacter(loader = new GLTFLoader()) {
       fadeTo('Jump_Loop');
     }
     wasOnGround = isOnGround;
+    // Restore last frame's base pose before the mixer applies its cached bindings.
+    for (const base of layerBones) {
+      base.bone.position.copy(base.position);
+      base.bone.quaternion.copy(base.quaternion);
+      base.bone.scale.copy(base.scale);
+    }
     mixer.update(dt);
+    for (const base of layerBones) {
+      base.position.copy(base.bone.position);
+      base.quaternion.copy(base.bone.quaternion);
+      base.scale.copy(base.bone.scale);
+    }
+    // The second mixer owns only spine/arms/head; hips and legs retain locomotion.
+    if (armed) {
+      upperMixer.update(dt);
+      if (shootAction?.paused) {
+        shootAction.stop();
+        holdAction?.reset().play();
+        upperMixer.update(0);
+      }
+      for (const { bone, pose } of layerBones) {
+        bone.position.copy(pose.position);
+        bone.quaternion.copy(pose.quaternion);
+        bone.scale.copy(pose.scale);
+      }
+      // Tilt the whole upper body/gun with the camera's up-down look so the
+      // aim pose actually points where the crosshair is, not just forward.
+      if (upperRoot) {
+        const aimPitch = Math.max(-1.1, Math.min(1.1, pitch));
+        upperRoot.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -aimPitch));
+      }
+    }
   }
 
   function setFacing(yaw: number) {
@@ -171,10 +262,12 @@ export async function loadCharacter(loader = new GLTFLoader()) {
   }
 
   function dispose() {
+    upperMixer.stopAllAction();
+    upperMixer.uncacheRoot(upperPose);
     mixer.stopAllAction();
     mixer.uncacheRoot(model);
     model.removeFromParent();
   }
 
-  return { model, mixer, update, setFacing, dispose };
+  return { model, mixer, update, setFacing, weapon, dispose };
 }
