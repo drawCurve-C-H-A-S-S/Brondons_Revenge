@@ -17,7 +17,7 @@ export const PHYSICS = Object.freeze({
 interface PhysicsPlayer {
   beforePhysicsStep(dt: number): void;
   afterPhysicsStep(): void;
-  updateCamera(dt: number): void;
+  updateCamera(dt: number, thirdPerson?: boolean): void;
 }
 
 type Point = { x: number; y: number; z: number };
@@ -123,7 +123,7 @@ export function createScenePhysics() {
     return { group, body };
   }
 
-  function step(dt: number, player: PhysicsPlayer) {
+  function step(dt: number, player: PhysicsPlayer, thirdPerson: boolean = false) {
     const frameTime = Number.isFinite(dt) ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime)) : 0;
     accumulator += frameTime;
     let steps = 0;
@@ -134,7 +134,7 @@ export function createScenePhysics() {
       accumulator = Math.max(0, accumulator - PHYSICS.fixedStep);
       steps++;
     }
-    player.updateCamera(frameTime);
+    player.updateCamera(frameTime, thirdPerson);
   }
 
   function dispose() {

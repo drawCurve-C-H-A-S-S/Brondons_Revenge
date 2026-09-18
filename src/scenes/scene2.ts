@@ -545,7 +545,7 @@ export function createScene({ audioManager, skipWake, entryState }: {
     const rl = new THREE.PointLight(0xeeeeff, 2, 8);
     rl.position.set(roomWidth / 2 - walkwayWidth / 2, totalHeight - 0.3, z); scene.add(rl);
   }
-  const ambLight = new THREE.AmbientLight(0xddeeff, 0.6); scene.add(ambLight);
+  const ambLight = new THREE.AmbientLight(0xddeeff, 0.4); scene.add(ambLight);
   const windowGlow = new THREE.PointLight(0x4466aa, 2, 20);
   windowGlow.position.set(0, 3, -roomDepth / 2 + 2); scene.add(windowGlow);
 
@@ -688,9 +688,9 @@ export function createScene({ audioManager, skipWake, entryState }: {
   let doorTriggerCooldown = false;
   function setDoorTrigger(callback: (state: PlayerTransitionState) => void) { onDoorTrigger = callback; }
 
-  function updatePhysics(dt: number) {
+  function updatePhysics(dt: number, thirdPerson: boolean = false) {
     dt = Number.isFinite(dt) ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime)) : 0;
-    physics.step(dt, player);
+    physics.step(dt, player, thirdPerson);
     if (wakePhase !== 'done') {
       updateWakeSequence(dt);
     } else {

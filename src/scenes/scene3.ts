@@ -8,8 +8,8 @@ import comicFrag from '../shaders/comic.frag.glsl?raw';
 import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
 import { createScenePhysics, PHYSICS } from '../helpers/physics/scenePhysics.js';
 
-export function createScene({ audioManager, entryState }: {
-  audioManager?: unknown; entryState?: PlayerTransitionState;
+export function createScene({ audioManager, entryState, entryDoor }: {
+  audioManager?: unknown; entryState?: PlayerTransitionState; entryDoor?: 'front' | 'back';
 } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0a10);
@@ -228,6 +228,19 @@ export function createScene({ audioManager, entryState }: {
   const doorFront = createDoor(roomDepth / 2, 1);
   const doorBack = createDoor(-roomDepth / 2, -1);
 
+  // --- Soft glow at all doorways ---
+  const doorwayGlowMat = new THREE.MeshBasicMaterial({
+    color: 0x8899aa,
+    transparent: true,
+    opacity: 0.15,
+    side: THREE.DoubleSide,
+  });
+  for (const doorZ of [roomDepth / 2, -roomDepth / 2]) {
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(doorW, doorH), doorwayGlowMat);
+    glow.position.set(0, doorH / 2, doorZ);
+    scene.add(glow);
+  }
+
   // --- Lighting ---
   const lightColor = 0x8899bb;
   const flickerLights: Array<{
@@ -269,7 +282,7 @@ export function createScene({ audioManager, entryState }: {
     });
   }
 
-  const ambLight = new THREE.AmbientLight(0x445566, 1.8);
+  const ambLight = new THREE.AmbientLight(0x445566, 2.8);
   scene.add(ambLight);
   const endGlow = new THREE.PointLight(0x4466aa, 2.5, 25);
   endGlow.position.set(0, 2, -roomDepth / 2 + 1);
@@ -318,11 +331,22 @@ export function createScene({ audioManager, entryState }: {
   player.setRotation(0, 0);
   player.enable();
   if (entryState) {
-    player.restoreTransition(entryState, { x: 0, y: 0, z: roomDepth / 2 });
-    doorFront.open = doorFront.targetOpen = 1;
-    doorFront.panelL.position.x = -doorPanelW / 2 - doorSlideDistance;
-    doorFront.panelR.position.x = doorPanelW / 2 + doorSlideDistance;
-    doorFront.seam.visible = false;
+    // Restore at the appropriate door based on entryDoor
+    const doorway = entryDoor === 'back'
+      ? { x: 0, y: 0, z: -roomDepth / 2 }
+      : { x: 0, y: 0, z: roomDepth / 2 };
+    player.restoreTransition(entryState, doorway);
+    if (entryDoor === 'back') {
+      doorBack.open = doorBack.targetOpen = 1;
+      doorBack.panelL.position.x = -doorPanelW / 2 - doorSlideDistance;
+      doorBack.panelR.position.x = doorPanelW / 2 + doorSlideDistance;
+      doorBack.seam.visible = false;
+    } else {
+      doorFront.open = doorFront.targetOpen = 1;
+      doorFront.panelL.position.x = -doorPanelW / 2 - doorSlideDistance;
+      doorFront.panelR.position.x = doorPanelW / 2 + doorSlideDistance;
+      doorFront.seam.visible = false;
+    }
   }
 
   // --- Door trigger callbacks ---
@@ -336,9 +360,9 @@ export function createScene({ audioManager, entryState }: {
 
   // --- Update ---
   let flickerTime = 0;
-  function updatePhysics(dt: number) {
+  function updatePhysics(dt: number, thirdPerson: boolean = false) {
     dt = Number.isFinite(dt) ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime)) : 0;
-    physics.step(dt, player);
+    physics.step(dt, player, thirdPerson);
 
     // Flicker lights
     flickerTime += dt;

@@ -16,9 +16,11 @@ import type { PlayerState } from './player.js';
 interface Vec3Like { x: number; y: number; z: number; }
 
 const CLIP_NAMES = [
-  'Idle_Loop', 'Walk_Loop', 'Jump_Start', 'Jump_Loop', 'Jump_Land',
+  'Idle_Loop', 'Walk_Loop', 'Sprint_Loop', 'Jump_Start', 'Jump_Loop', 'Jump_Land',
   // One-shot action clips on number keys 6-9 (input mapping in player.ts).
   'Sword_Attack', 'Pistol_Shoot', 'Pistol_Reload', 'Dance_Loop',
+  // Crouch animations
+  'Crouch_Idle_Loop', 'Crouch_Fwd_Loop',
 ] as const;
 type ClipName = typeof CLIP_NAMES[number];
 
@@ -119,7 +121,7 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     thirdPerson: boolean,
     playerRadius: number,
   ) {
-    const { yaw, isMoving, isOnGround, velocityY, jumping, actionRequest } = playerState;
+    const { yaw, isMoving, isOnGround, velocityY, jumping, actionRequest, crouching, sprinting } = playerState;
     model.visible = thirdPerson;
     model.position.set(playerBodyPos.x, playerBodyPos.y - playerRadius + modelOffsetY, playerBodyPos.z);
 
@@ -137,7 +139,16 @@ export async function loadCharacter(loader = new GLTFLoader()) {
       if (actionRequest) {
         fadeTo(actionRequest);
       } else if (!actionPlaying) {
-        if (isMoving) {
+        // Crouch animations take priority when crouching
+        if (crouching) {
+          if (isMoving) {
+            fadeTo('Crouch_Fwd_Loop');
+          } else {
+            fadeTo('Crouch_Idle_Loop');
+          }
+        } else if (sprinting && isMoving) {
+          fadeTo('Sprint_Loop');
+        } else if (isMoving) {
           fadeTo('Walk_Loop');
         } else if (wasOnGround === false) {
           fadeTo('Jump_Land');

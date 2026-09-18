@@ -4,6 +4,7 @@ import * as CANNON from 'cannon-es';
 import { createScene as createScene1 } from './scenes/scene1.js';
 import { createScene as createScene2 } from './scenes/scene2.js';
 import { createScene as createScene3 } from './scenes/scene3.js';
+import { createScene as createScene4 } from './scenes/scene4.js';
 import { loadCharacter } from './scripts/characterManager.js';
 import type { Player, PlayerTransitionState } from './scripts/player.js';
 
@@ -24,7 +25,7 @@ const audioManager = null;
 let currentSceneData: any = null;
 let activeScene: THREE.Scene | null = null;
 let activeCamera: THREE.PerspectiveCamera | null = null;
-let updatePhysics: ((dt: number) => void) | null = null;
+let updatePhysics: ((dt: number, thirdPerson?: boolean) => void) | null = null;
 let cutsceneManager: any = null;
 let lastSplinePoint: THREE.Vector3 | null = null;
 let transitionTimer: ReturnType<typeof setTimeout> | null = null;
@@ -245,7 +246,7 @@ function loadScene3(entryState: PlayerTransitionState) {
     currentSceneData.setBackTrigger((state: PlayerTransitionState) => { transitionBackToScene2(state); });
   }
   if (currentSceneData.setForwardTrigger) {
-    currentSceneData.setForwardTrigger(() => { console.log('Forward door triggered - future scene'); });
+    currentSceneData.setForwardTrigger(() => { transitionToScene4(); });
   }
   renderer.render(activeScene!, activeCamera!);
   console.log('Scene 3 loaded - passageway');
@@ -290,10 +291,89 @@ function transitionBackToScene2(entryState: PlayerTransitionState) {
   }
 }
 
+function loadScene4(entryState: PlayerTransitionState) {
+  console.log('Loading scene 4...');
+  if (transitionTimer) { clearTimeout(transitionTimer); transitionTimer = null; }
+
+  const sceneData = createScene4({ audioManager, entryState });
+  currentSceneData?.dispose?.();
+  currentSceneData = sceneData;
+  activeScene = currentSceneData.scene;
+  activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+  updatePhysics = currentSceneData.updatePhysics;
+  cutsceneManager = currentSceneData.cutsceneManager;
+  currentPlayer = currentSceneData.player;
+
+  if (globalCharacter && activeScene) {
+    if (globalCharacter.model.parent !== activeScene) {
+      globalCharacter.model.parent?.remove(globalCharacter.model);
+      activeScene.add(globalCharacter.model);
+    }
+  }
+
+  orbitControls!.object = activeCamera!;
+  orbitControls!.enabled = false;
+  globalCharacter?.setFacing(currentPlayer!.getState().yaw);
+  updatePlayerView(0);
+
+  if (currentSceneData.setBackTrigger) {
+    currentSceneData.setBackTrigger((state: PlayerTransitionState) => { transitionBackToScene3(state); });
+  }
+  renderer.render(activeScene!, activeCamera!);
+  console.log('Scene 4 loaded - computer room');
+}
+
+function transitionToScene4() {
+  console.log('Transitioning to scene 4');
+  // Capture player state for transition - scene3's forward door is at -Z (z = -10)
+  // Use yaw: 0 so the player's position is preserved correctly through the transition
+  if (currentPlayer) {
+    const state = currentPlayer.captureTransition({ x: 0, y: 0, z: -10, yaw: 0 });
+    try { loadScene4(state); } catch (e) { console.error('Error loading scene 4:', e); }
+  }
+}
+
+function transitionBackToScene3(entryState: PlayerTransitionState) {
+  console.log('Returning to scene 3 from scene 4');
+  try {
+    const sceneData = createScene3({ audioManager, entryState, entryDoor: 'back' });
+    currentSceneData?.dispose?.();
+    currentSceneData = sceneData;
+    activeScene = currentSceneData.scene;
+    activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    updatePhysics = currentSceneData.updatePhysics;
+    cutsceneManager = currentSceneData.cutsceneManager;
+    currentPlayer = currentSceneData.player;
+
+    if (globalCharacter && activeScene) {
+      if (globalCharacter.model.parent !== activeScene) {
+        globalCharacter.model.parent?.remove(globalCharacter.model);
+        activeScene.add(globalCharacter.model);
+      }
+    }
+
+    orbitControls!.object = activeCamera!;
+    orbitControls!.enabled = false;
+    globalCharacter?.setFacing(currentPlayer!.getState().yaw);
+    updatePlayerView(0);
+
+    if (currentSceneData.setBackTrigger) {
+      currentSceneData.setBackTrigger((state: PlayerTransitionState) => { transitionBackToScene2(state); });
+    }
+    if (currentSceneData.setForwardTrigger) {
+      currentSceneData.setForwardTrigger(() => { transitionToScene4(); });
+    }
+    renderer.render(activeScene!, activeCamera!);
+    console.log('Scene 3 loaded - return from scene 4');
+  } catch (e) {
+    console.error('Error in transitionBackToScene3:', e);
+  }
+}
+
 function updatePlayerView(dt: number) {
   if (!currentPlayer?.isEnabled() || !activeCamera) return;
   // Always start from the base camera, including the first render after a scene swap.
-  currentPlayer.updateCamera(0);
+  currentPlayer.updateCamera(0, isThirdPerson);
   const state = currentPlayer.getState();
   globalCharacter?.update(dt, currentPlayer.body.position, state, isThirdPerson, currentPlayer.radius);
   if (isThirdPerson) {
@@ -337,7 +417,7 @@ function animate() {
   }
 
   // Physics
-  if (updatePhysics) updatePhysics(delta);
+  if (updatePhysics) updatePhysics(delta, isThirdPerson);
 
   // Cutscenes
   if (cutsceneManager) cutsceneManager.update(delta);

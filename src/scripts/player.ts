@@ -27,6 +27,8 @@ export interface PlayerState {
   yaw: number;
   velocityY: number;
   actionRequest: PlayerActionName | null;
+  crouching: boolean;
+  sprinting: boolean;
 }
 
 interface Doorway {
@@ -47,6 +49,8 @@ export interface PlayerTransitionState {
   jumpQueued: boolean;
   bobTime: number;
   bobIntensity: number;
+  crouching: boolean;
+  sprinting: boolean;
 }
 
 interface PlayerOptions {
@@ -60,6 +64,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   const playerRadius = PHYSICS.playerRadius;
   const playerMass = 70;
   const eyeHeight = 1.6;
+  const crouchEyeHeight = 0.9;
 
   const playerShape = new CANNON.Sphere(playerRadius);
   const playerBody = new CANNON.Body({ mass: playerMass });
@@ -75,10 +80,14 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   // --- Movement ---
   const keys: Record<string, boolean> = {};
   const moveSpeed = PHYSICS.moveSpeed;
+  const crouchMoveSpeed = PHYSICS.moveSpeed * 0.6; // 60% speed when crouching
+  const sprintMoveSpeed = PHYSICS.moveSpeed * 1.6; // 160% speed when sprinting
   let isOnGround = false;
   let enabled = false;
   let jumpQueued = false;
   let intentionalJump = false;
+  let crouching = false;
+  let sprinting = false;
   let actionRequest: PlayerActionName | null = null;
   // Requests stay readable for exactly one physics+animation frame, then
   // expire, so a held or unconsumed key can never retrigger the action.
@@ -99,12 +108,22 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   const bobAmplitudeHorizontal = 0.02;
   const bobAmplitudePitch = 0.008;
   const bobTransitionSpeed = 4;
+  // Third-person view reduces bobbing since the camera is further from the head.
+  const thirdPersonBobScale = 0.3;
   let isPointerLocked = document.pointerLockElement != null;
 
   // --- Input ---
   function onKeyDown(e: KeyboardEvent) {
     if (!enabled) return;
     if (e.code === 'Space' && !keys[e.code] && !e.repeat) jumpQueued = true;
+    // Toggle crouch with C key (only on fresh press, not repeat)
+    if (e.code === 'KeyC' && !keys[e.code] && !e.repeat) {
+      crouching = !crouching;
+    }
+    // Sprint with Shift key
+    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+      sprinting = true;
+    }
     const action = ACTION_KEYS[e.code];
     if (action && !keys[e.code] && !e.repeat && isOnGround) {
       actionRequest = action;
@@ -114,7 +133,12 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     }
     keys[e.code] = true;
   }
-  function onKeyUp(e: KeyboardEvent) { keys[e.code] = false; }
+  function onKeyUp(e: KeyboardEvent) {
+    keys[e.code] = false;
+    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+      sprinting = false;
+    }
+  }
 
   function clearInput() {
     for (const code of Object.keys(keys)) delete keys[code];
@@ -225,15 +249,17 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     if (!enabled) return;
     const moveDir = getMoveDirection();
     const desired = new CANNON.Vec3(moveDir?.x ?? 0, 0, moveDir?.z ?? 0);
+    let currentMoveSpeed = crouching ? crouchMoveSpeed : moveSpeed;
+    if (sprinting && !crouching) currentMoveSpeed = sprintMoveSpeed;
     if (isOnGround) {
       desired.y = -(desired.x * groundNormal.x + desired.z * groundNormal.z) / groundNormal.y;
       desired.normalize();
-      desired.scale(moveSpeed, playerBody.velocity);
+      desired.scale(currentMoveSpeed, playerBody.velocity);
     } else {
-      playerBody.velocity.x = desired.x * moveSpeed;
-      playerBody.velocity.z = desired.z * moveSpeed;
+      playerBody.velocity.x = desired.x * currentMoveSpeed;
+      playerBody.velocity.z = desired.z * currentMoveSpeed;
     }
-    if (jumpQueued && isOnGround) {
+    if (jumpQueued && isOnGround && !crouching) {
       playerBody.velocity.y = PHYSICS.jumpSpeed;
       isOnGround = false;
       intentionalJump = true;
@@ -251,7 +277,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     if (enabled) updateGroundState(true);
   }
 
-  function updateCamera(dt: number) {
+  function updateCamera(dt: number, thirdPerson: boolean = false) {
     if (!enabled) return;
     // Expire action requests after one character-update cycle (physics.step
     // calls this once per render frame, before the character update).
@@ -266,14 +292,17 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       bobTime += dt * bobFrequency * bobIntensity;
     }
 
-    const bobVertical = Math.sin(bobTime * 2) * bobAmplitudeVertical * bobIntensity;
-    const bobHorizontal = Math.cos(bobTime) * bobAmplitudeHorizontal * bobIntensity;
-    const bobPitch = Math.sin(bobTime * 2) * bobAmplitudePitch * bobIntensity;
+    // Scale down bobbing in third-person view since the camera is further away.
+    const bobScale = thirdPerson ? thirdPersonBobScale : 1;
+    const bobVertical = Math.sin(bobTime * 2) * bobAmplitudeVertical * bobIntensity * bobScale;
+    const bobHorizontal = Math.cos(bobTime) * bobAmplitudeHorizontal * bobIntensity * bobScale;
+    const bobPitch = Math.sin(bobTime * 2) * bobAmplitudePitch * bobIntensity * bobScale;
 
     // Camera
+    const currentEyeHeight = crouching ? crouchEyeHeight : eyeHeight;
     camera.position.set(
       playerBody.position.x + bobHorizontal,
-      playerBody.position.y - playerRadius + eyeHeight + bobVertical,
+      playerBody.position.y - playerRadius + currentEyeHeight + bobVertical,
       playerBody.position.z
     );
     camera.rotation.order = 'YXZ';
@@ -296,6 +325,8 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       jumpQueued,
       bobTime,
       bobIntensity,
+      crouching,
+      sprinting,
     };
   }
 
@@ -318,6 +349,8 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     jumpQueued = state.jumpQueued;
     bobTime = state.bobTime;
     bobIntensity = state.bobIntensity;
+    crouching = state.crouching;
+    sprinting = state.sprinting;
     isOnGround = false;
     updateGroundState(false);
     isPointerLocked = document.pointerLockElement != null;
@@ -374,6 +407,8 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       yaw,
       velocityY: playerBody.velocity.y,
       actionRequest,
+      crouching,
+      sprinting,
     }),
   };
 }
