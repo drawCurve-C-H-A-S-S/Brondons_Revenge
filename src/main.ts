@@ -5,7 +5,10 @@ import { createScene as createScene1 } from './scenes/scene1.js';
 import { createScene as createScene2 } from './scenes/scene2.js';
 import { createScene as createScene3 } from './scenes/scene3.js';
 import { loadCharacter } from './scripts/characterManager.js';
+import { createFirstPersonHands } from './scripts/firstPersonHands.js';
 import type { Player, PlayerTransitionState } from './scripts/player.js';
+import { itemRegistry } from './scripts/items/itemRegistry.js';
+
 
 // --- Renderer ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -32,6 +35,7 @@ let creditsTimer: ReturnType<typeof setTimeout> | null = null;
 
 // --- Global Character (persists across scenes) ---
 let globalCharacter: Awaited<ReturnType<typeof loadCharacter>> = null;
+let firstPersonHands: Awaited<ReturnType<typeof createFirstPersonHands>> | null = null;
 let currentPlayer: Player | null = null;
 
 // --- View toggle (first-person / third-person) ---
@@ -56,12 +60,20 @@ async function initializeApp() {
   globalCharacter = await loadCharacter();
   if (globalCharacter) {
     console.log('Character loaded successfully');
+    globalCharacter.heldItems?.equip('crowbar', itemRegistry.crowbar);
   } else {
     console.warn('Failed to load character, continuing without character');
   }
   loadScene1();
   initializeControls();
   setupViewToggle();
+
+  firstPersonHands = await createFirstPersonHands();
+  firstPersonHands.heldItems.equip('crowbar', {
+    ...itemRegistry.crowbar,
+    position: [0, 0, 0],
+    scale: 0.7,
+  });
 }
 
 // --- View toggle ---
@@ -79,6 +91,7 @@ function setupViewToggle() {
 
 function toggleView() {
   isThirdPerson = !isThirdPerson;
+  console.log('View toggled:', isThirdPerson ? 'third person' : 'first person');
   const btn = document.getElementById('view-toggle-btn');
   if (btn) btn.textContent = isThirdPerson ? '1st Person' : '3rd Person';
 }
@@ -296,6 +309,8 @@ function updatePlayerView(dt: number) {
   currentPlayer.updateCamera(0);
   const state = currentPlayer.getState();
   globalCharacter?.update(dt, currentPlayer.body.position, state, isThirdPerson, currentPlayer.radius);
+  firstPersonHands?.update(globalCharacter?.getAttackProgress() ?? null, state.bob);
+
   if (isThirdPerson) {
     activeCamera.position.x += Math.sin(state.yaw) * THIRD_PERSON_DIST;
     activeCamera.position.z += Math.cos(state.yaw) * THIRD_PERSON_DIST;
@@ -351,6 +366,9 @@ function animate() {
   // Render
   if (activeScene && activeCamera) {
     renderer.render(activeScene, activeCamera);
+    if (!isThirdPerson && currentPlayer?.isEnabled()) {
+      firstPersonHands?.render(renderer, activeCamera.aspect);
+    }
   }
 }
 

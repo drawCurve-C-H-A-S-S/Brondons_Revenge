@@ -215,7 +215,8 @@ export function createScene({ audioManager, skipWake, entryState }: {
   });
   mirror.rotation.y = Math.PI;
   mirror.position.set(0, floor2Y + mirrorHeight / 2, roomDepth / 2 - 0.05);
-  mirror.layers.enable(1);
+  // Reflector owns an independent camera; changing the main camera's layers has no effect on it.
+  mirror.camera.layers.enable(1);
   scene.add(mirror);
 
   // --- Second floor walkways ---

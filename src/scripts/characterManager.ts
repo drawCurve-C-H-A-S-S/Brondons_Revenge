@@ -10,6 +10,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import ualModelUrl from '../assets/models/Subject.glb';
+import { createHeldItemHandler, HeldItemDef } from './items/heldItemHandler.js';
+import { createHammer } from './items/createHammer.js';
 
 import type { PlayerState } from './player.js';
 
@@ -34,6 +36,21 @@ const ONE_SHOT_CLIPS = ['Jump_Start', 'Jump_Land', ...ACTION_CLIPS];
 // direction the camera is looking.
 const MODEL_ROT_OFFSET = Math.PI;
 
+const RIGHT_HAND_BONE_CANDIDATES = [
+  'hand_r', 'RightHand', 'mixamorigRightHand', 'Hand_R', 'hand.R',
+];
+
+function findBone(model: THREE.Object3D, candidates: string[]): THREE.Object3D | null {
+  let found: THREE.Object3D | null = null;
+  model.traverse((child) => {
+    if (found) return;
+    if ((child as THREE.Bone).isBone && candidates.includes(child.name)) {
+      found = child;
+    }
+  });
+  return found;
+}
+
 export async function loadCharacter(loader = new GLTFLoader()) {
 
   let gltf;
@@ -51,9 +68,11 @@ export async function loadCharacter(loader = new GLTFLoader()) {
   let wasOnGround: boolean | null = null;
   model.rotation.y = MODEL_ROT_OFFSET;
 
-  // Layer 0: third-person camera and mirror both render the character.
+  // Layer 0: third-person camera renders the character.
+  // Layer 1: mirror reflection renders the character.
   model.traverse((child: THREE.Object3D) => {
-    child.layers.set(0);
+    child.layers.enable(0);
+    child.layers.enable(1);
     if ((child as THREE.Mesh).isMesh) {
       (child as THREE.Mesh).castShadow = true;
       (child as THREE.Mesh).receiveShadow = true;
@@ -102,11 +121,17 @@ export async function loadCharacter(loader = new GLTFLoader()) {
   currentAction.play();
   mixer.update(0);
 
+  const rightHand = findBone(model, RIGHT_HAND_BONE_CANDIDATES);
+  if (!rightHand) {
+    console.warn('Right hand bone not found — check the bone list above and update RIGHT_HAND_BONE_CANDIDATES.');
+  }
+  const heldItems = rightHand ? createHeldItemHandler(rightHand) : null;
+
   function fadeTo(name: ClipName) {
     const next = actions.get(name)!;
-    if (next === currentAction) return;
+    if (next === currentAction && !currentAction.paused) return;
     currentAction.fadeOut(0.2);
-    next.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.2).play();
+    next.reset().setEffectiveTimeScale(name === 'Sword_Attack' ? 1.8 : 1).setEffectiveWeight(1).fadeIn(0.2).play();
     currentAction = next;
   }
 
@@ -120,7 +145,19 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     playerRadius: number,
   ) {
     const { yaw, isMoving, isOnGround, velocityY, jumping, actionRequest } = playerState;
-    model.visible = thirdPerson;
+    // Third person model visibility:
+    // - Third person: layer 0 (main camera) + layer 1 (mirror)
+    // - First person: layer 1 only (mirror reflection, not main camera)
+    // Must apply to all children, not just the root model.
+    model.traverse((child: THREE.Object3D) => {
+      if (thirdPerson) {
+        child.layers.enable(0);
+        child.layers.enable(1);
+      } else {
+        child.layers.disable(0);
+        child.layers.enable(1);
+      }
+    });
     model.position.set(playerBodyPos.x, playerBodyPos.y - playerRadius + modelOffsetY, playerBodyPos.z);
 
     let diff = yaw + MODEL_ROT_OFFSET - model.rotation.y;
@@ -129,14 +166,15 @@ export async function loadCharacter(loader = new GLTFLoader()) {
 
     // Grounded input always takes priority over airborne animation state.
     // One-shot completion is driven by the mixer, never by wall-clock timers.
+    let actionPlaying = false
     const name = currentAction.getClip().name;
-    if (isOnGround) {
+    actionPlaying = ACTION_CLIPS.has(name) && !currentAction.paused;
+    if (actionRequest && !actionPlaying) {
+      fadeTo(actionRequest);
+    } else if (isOnGround) {
       // One-shot action requests (keys 6-9) play once, then locomotion resumes.
       // While one plays, idle/walk/land transitions wait for mixer completion.
-      const actionPlaying = ACTION_CLIPS.has(name) && !currentAction.paused;
-      if (actionRequest) {
-        fadeTo(actionRequest);
-      } else if (!actionPlaying) {
+      if (!actionPlaying) {
         if (isMoving) {
           fadeTo('Walk_Loop');
         } else if (wasOnGround === false) {
@@ -145,12 +183,24 @@ export async function loadCharacter(loader = new GLTFLoader()) {
           fadeTo('Idle_Loop');
         }
       }
-    } else if (wasOnGround === true && jumping) {
-      fadeTo('Jump_Start');
-    } else if (name !== 'Jump_Start' || currentAction.paused || velocityY <= 0) {
-      fadeTo('Jump_Loop');
+    } else if (!actionPlaying) {
+      if (wasOnGround === true && jumping) {
+        fadeTo('Jump_Start');
+      } else if (name !== 'Jump_Start' || currentAction.paused || velocityY <= 0) {
+        fadeTo('Jump_Loop');
+      }
     }
     wasOnGround = isOnGround;
+
+    if (heldItems) {
+      if (actionPlaying) {
+        const clip = currentAction.getClip();
+        const progress = THREE.MathUtils.clamp(currentAction.time / clip.duration, 0, 1);
+        heldItems.updateSwing(name, progress);
+      } else {
+        heldItems.updateSwing(null, null);
+      }
+    }
     mixer.update(dt);
   }
 
@@ -160,10 +210,16 @@ export async function loadCharacter(loader = new GLTFLoader()) {
   }
 
   function dispose() {
+    heldItems?.dispose();
     mixer.stopAllAction();
     mixer.uncacheRoot(model);
     model.removeFromParent();
   }
 
-  return { model, mixer, update, setFacing, dispose };
+  function getAttackProgress(): number | null {
+    if (currentAction.getClip().name !== 'Sword_Attack' || currentAction.paused) return null;
+    return THREE.MathUtils.clamp(currentAction.time / currentAction.getClip().duration, 0, 1);
+  }
+
+  return { model, mixer, update, setFacing, dispose, heldItems, getAttackProgress };
 }

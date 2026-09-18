@@ -10,8 +10,6 @@ import { PHYSICS } from '../helpers/physics/scenePhysics.js';
 export type PlayerActionName = 'Sword_Attack' | 'Pistol_Shoot' | 'Pistol_Reload' | 'Dance_Loop';
 
 const ACTION_KEYS: Record<string, PlayerActionName> = {
-  Digit6: 'Sword_Attack',
-  Numpad6: 'Sword_Attack',
   Digit7: 'Pistol_Shoot',
   Numpad7: 'Pistol_Shoot',
   Digit8: 'Pistol_Reload',
@@ -27,6 +25,8 @@ export interface PlayerState {
   yaw: number;
   velocityY: number;
   actionRequest: PlayerActionName | null;
+  // Head-bob offsets for viewmodel sway (camera-space).
+  bob: { x: number; y: number; pitch: number };
 }
 
 interface Doorway {
@@ -100,6 +100,8 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   const bobAmplitudePitch = 0.008;
   const bobTransitionSpeed = 4;
   let isPointerLocked = document.pointerLockElement != null;
+  // Latest head-bob offsets, exposed for viewmodel sway.
+  const bob = { x: 0, y: 0, pitch: 0 };
 
   // --- Input ---
   function onKeyDown(e: KeyboardEvent) {
@@ -138,7 +140,12 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   }
 
   function onClick() {
-    if (enabled && !isPointerLocked) document.body.requestPointerLock();
+    if (enabled && !isPointerLocked) {
+      document.body.requestPointerLock();
+    } else if (enabled && isPointerLocked) {
+      actionRequest = 'Sword_Attack';
+      actionRequestLife = 3;
+    }
   }
 
   window.addEventListener('keydown', onKeyDown);
@@ -269,6 +276,9 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     const bobVertical = Math.sin(bobTime * 2) * bobAmplitudeVertical * bobIntensity;
     const bobHorizontal = Math.cos(bobTime) * bobAmplitudeHorizontal * bobIntensity;
     const bobPitch = Math.sin(bobTime * 2) * bobAmplitudePitch * bobIntensity;
+    bob.x = bobHorizontal;
+    bob.y = bobVertical;
+    bob.pitch = bobPitch;
 
     // Camera
     camera.position.set(
@@ -374,6 +384,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       yaw,
       velocityY: playerBody.velocity.y,
       actionRequest,
+      bob: { ...bob },
     }),
   };
 }
