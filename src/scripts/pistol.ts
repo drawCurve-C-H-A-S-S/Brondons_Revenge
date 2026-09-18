@@ -20,6 +20,7 @@ interface WeaponContext {
     setEquipped(equipped: boolean): void;
     shoot(): void;
   };
+  holsterOther?: () => void;
 }
 function belongsTo(object: THREE.Object3D, root: THREE.Object3D) {
   for (let node: THREE.Object3D | null = object; node; node = node.parent) if (node === root) return true;
@@ -53,7 +54,7 @@ export function traceShot(scene: THREE.Scene, world: CANNON.World | null, ray: T
         target = undefined;
       }
     });
-  return { point: ray.at(distance, new THREE.Vector3()), target };
+  return { point: ray.at(distance, new THREE.Vector3()), target, object: first?.object ?? null };
 }
 
 /** One input owner and one weapon instance for the entire application. */
@@ -108,6 +109,7 @@ export class PistolController {
     if (event.code !== 'KeyK' || event.repeat || !this.context().player?.isEnabled()) return;
     if (event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable="true"]')) return;
     event.preventDefault();
+    if (!this.equipped) this.context().holsterOther?.();
     this.equipped = !this.equipped;
     this.context().weaponAnimation?.setEquipped(this.equipped && this.loaded);
     this.updateStatus();
@@ -122,6 +124,12 @@ export class PistolController {
   private updateStatus() {
     if (this.status) this.status.textContent = this.equipped
       ? (this.loaded ? 'K: holster | Left click: shoot' : 'Loading pistol...') : 'K: equip pistol';
+  }
+
+  holster() {
+    this.equipped = false;
+    this.context().weaponAnimation?.setEquipped(false);
+    this.updateStatus();
   }
 
   shoot() {

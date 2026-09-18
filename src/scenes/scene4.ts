@@ -57,8 +57,8 @@ const TEXTURE_SETS = [
   { diffuse: tex8Url, normal: null, specular: null }, // Texture 8 has no normal/specular maps
 ];
 
-export function createScene({ audioManager, entryState, chestOpened, onChestCollected }: {
-  audioManager?: unknown; entryState?: PlayerTransitionState; chestOpened?: boolean; onChestCollected?: () => void;
+export function createScene({ audioManager, entryState, entryDoor = 'back', cafeteriaUnlocked = false, chestOpened, onChestCollected }: {
+  audioManager?: unknown; entryState?: PlayerTransitionState; entryDoor?: 'back' | 'front'; cafeteriaUnlocked?: boolean; chestOpened?: boolean; onChestCollected?: () => void;
 } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0a10);
@@ -67,6 +67,7 @@ export function createScene({ audioManager, entryState, chestOpened, onChestColl
   const roomWidth = 10;
   const roomDepth = 12;
   const roomHeight = 4.5;
+  const doorW = 3;
 
   // --- Physics ---
   const physics = createScenePhysics();
@@ -159,8 +160,10 @@ export function createScene({ audioManager, entryState, chestOpened, onChestColl
   floor.receiveShadow = true;
   scene.add(floor);
   physics.addBox({ x: roomWidth, y: 0.4, z: roomDepth }, { x: 0, y: -0.2, z: 0 });
-  // Threshold extends through the back door (entry from scene3)
-  physics.addBox({ x: 3, y: 0.4, z: 2 }, { x: 0, y: -0.2, z: -(roomDepth / 2 + 1) });
+  // Pad past the front door so the player never leaves solid ground mid-transition to scene 7
+  physics.addBox({ x: doorW + 2, y: 0.4, z: 6 }, { x: 0, y: -0.2, z: roomDepth / 2 + 3 });
+  // Pad past the back door so the player never leaves solid ground mid-transition to scene 3
+  physics.addBox({ x: doorW + 2, y: 0.4, z: 6 }, { x: 0, y: -0.2, z: -(roomDepth / 2 + 3) });
 
   // --- Ceiling ---
   const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(roomWidth, roomDepth), ceilingMat);
@@ -170,7 +173,7 @@ export function createScene({ audioManager, entryState, chestOpened, onChestColl
   scene.add(ceiling);
 
   // --- Walls (same style as scene3) ---
-  const doorW = 3, doorH = 3.5;
+  const doorH = 3.5;
   const makeWall = (w: number, h: number, pos: THREE.Vector3, rotY: number) => {
     const wall = new THREE.Mesh(new THREE.PlaneGeometry(w, h), wallMat);
     wall.position.copy(pos);
@@ -185,8 +188,10 @@ export function createScene({ audioManager, entryState, chestOpened, onChestColl
   makeWall(backWallLeftW, roomHeight, new THREE.Vector3(-roomWidth / 2 + backWallLeftW / 2, roomHeight / 2, -roomDepth / 2), 0);
   makeWall(backWallLeftW, roomHeight, new THREE.Vector3(roomWidth / 2 - backWallLeftW / 2, roomHeight / 2, -roomDepth / 2), 0);
   makeWall(doorW, roomHeight - doorH, new THREE.Vector3(0, doorH + (roomHeight - doorH) / 2, -roomDepth / 2), 0);
-  // Front wall (solid, no exit)
-  makeWall(roomWidth, roomHeight, new THREE.Vector3(0, roomHeight / 2, roomDepth / 2), Math.PI);
+  // Front wall with a doorway into the cafeteria scene.
+  makeWall(backWallLeftW, roomHeight, new THREE.Vector3(-roomWidth / 2 + backWallLeftW / 2, roomHeight / 2, roomDepth / 2), Math.PI);
+  makeWall(backWallLeftW, roomHeight, new THREE.Vector3(roomWidth / 2 - backWallLeftW / 2, roomHeight / 2, roomDepth / 2), Math.PI);
+  makeWall(doorW, roomHeight - doorH, new THREE.Vector3(0, doorH + (roomHeight - doorH) / 2, roomDepth / 2), Math.PI);
   // Side walls
   makeWall(roomDepth, roomHeight, new THREE.Vector3(-roomWidth / 2, roomHeight / 2, 0), Math.PI / 2);
   makeWall(roomDepth, roomHeight, new THREE.Vector3(roomWidth / 2, roomHeight / 2, 0), -Math.PI / 2);
@@ -202,7 +207,9 @@ export function createScene({ audioManager, entryState, chestOpened, onChestColl
   addWallBody(-roomWidth / 2 + backWallLeftW / 2, roomHeight / 2, -roomDepth / 2, backWallLeftW / 2, roomHeight / 2, wallThickness);
   addWallBody(roomWidth / 2 - backWallLeftW / 2, roomHeight / 2, -roomDepth / 2, backWallLeftW / 2, roomHeight / 2, wallThickness);
   addWallBody(0, doorH + (roomHeight - doorH) / 2, -roomDepth / 2, doorW / 2, (roomHeight - doorH) / 2, wallThickness);
-  addWallBody(0, roomHeight / 2, roomDepth / 2, roomWidth / 2, roomHeight / 2, wallThickness);
+  addWallBody(-roomWidth / 2 + backWallLeftW / 2, roomHeight / 2, roomDepth / 2, backWallLeftW / 2, roomHeight / 2, wallThickness);
+  addWallBody(roomWidth / 2 - backWallLeftW / 2, roomHeight / 2, roomDepth / 2, backWallLeftW / 2, roomHeight / 2, wallThickness);
+  addWallBody(0, doorH + (roomHeight - doorH) / 2, roomDepth / 2, doorW / 2, (roomHeight - doorH) / 2, wallThickness);
   addWallBody(-roomWidth / 2, roomHeight / 2, 0, wallThickness, roomHeight / 2, roomDepth / 2);
   addWallBody(roomWidth / 2, roomHeight / 2, 0, wallThickness, roomHeight / 2, roomDepth / 2);
 
@@ -262,6 +269,29 @@ export function createScene({ audioManager, entryState, chestOpened, onChestColl
   sLight.position.set(0, doorH + 0.2, -roomDepth / 2 - 0.02);
   scene.add(sLight);
   const doorBack: DoorState = { panelL, panelR, seam, sLightMat, open: 0, targetOpen: 0, z: doorZ };
+  const frontDoorZ = roomDepth / 2 + 0.15;
+  const frontDoorTarget = new THREE.Group();
+  frontDoorTarget.name = 'cafeteria-door';
+  scene.add(frontDoorTarget);
+  const frontPanelL = new THREE.Mesh(new THREE.BoxGeometry(doorPanelW, doorH, doorPanelD), wallMat);
+  const frontPanelR = new THREE.Mesh(new THREE.BoxGeometry(doorPanelW, doorH, doorPanelD), wallMat);
+  frontPanelL.position.set(-doorPanelW / 2, doorH / 2, frontDoorZ);
+  frontPanelR.position.set(doorPanelW / 2, doorH / 2, frontDoorZ);
+  frontPanelL.castShadow = true; frontPanelR.castShadow = true;
+  frontDoorTarget.add(frontPanelL); frontDoorTarget.add(frontPanelR);
+  const frontSeam = new THREE.Mesh(new THREE.BoxGeometry(0.02, doorH, doorPanelD + 0.01), doorSeamMat);
+  frontSeam.position.set(0, doorH / 2, frontDoorZ);
+  frontDoorTarget.add(frontSeam);
+  const frontLightMat = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 2.0 });
+  const frontLight = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), frontLightMat);
+  frontLight.position.set(0, doorH + 0.2, roomDepth / 2 + 0.02);
+  frontDoorTarget.add(frontLight);
+  const frontDoor: DoorState = { panelL: frontPanelL, panelR: frontPanelR, seam: frontSeam, sLightMat: frontLightMat, open: 0, targetOpen: 0, z: frontDoorZ };
+  const frontDoorBody = new CANNON.Body({ mass: 0, material: floorPhysMat });
+  frontDoorBody.addShape(new CANNON.Box(new CANNON.Vec3(doorW / 2, doorH / 2, wallThickness)));
+  frontDoorBody.position.set(0, doorH / 2, roomDepth / 2);
+  frontDoorBody.collisionResponse = true;
+  physicsWorld.addBody(frontDoorBody);
 
   // --- BETTER LIGHTING (key difference from scene3) ---
   // More lights, higher intensity, less flicker - so you can see the dirty walls
@@ -408,62 +438,71 @@ export function createScene({ audioManager, entryState, chestOpened, onChestColl
   let chestMixer: THREE.AnimationMixer | null = null;
   let chestOpenAction: THREE.AnimationAction | null = null;
   let chestIdleOpenAction: THREE.AnimationAction | null = null;
+  let chestInteractionStarted = false;
   let chestReady = false;
   let chestLooted = !!chestOpened;
+  let chestModel: THREE.Group | null = null;
+  let chestBody: CANNON.Body | null = null;
   const interactPrompt = document.getElementById('interact-prompt');
   const interactRange = 1.8;
 
-  loadToolModel('Prop_Chest').then(gltf => {
-    const box = new THREE.Box3().setFromObject(gltf.scene);
-    gltf.scene.position.y -= box.min.y;
-    gltf.scene.position.add(chestPosition);
-    gltf.scene.rotation.y = Math.PI;
-    gltf.scene.traverse(child => {
-      if (child instanceof THREE.Mesh) { child.castShadow = true; child.receiveShadow = true; }
-    });
-    scene.add(gltf.scene);
+  // Chest is already looted from a prior visit - never spawn it again.
+  if (!chestLooted) {
+    loadToolModel('Prop_Chest').then(gltf => {
+      const box = new THREE.Box3().setFromObject(gltf.scene);
+      gltf.scene.position.y -= box.min.y;
+      gltf.scene.position.add(chestPosition);
+      gltf.scene.rotation.y = Math.PI;
+      gltf.scene.traverse(child => {
+        if (child instanceof THREE.Mesh) { child.castShadow = true; child.receiveShadow = true; }
+      });
+      scene.add(gltf.scene);
+      chestModel = gltf.scene;
 
-    const size = box.getSize(new THREE.Vector3());
-    const chestBody = new CANNON.Body({ mass: 0, material: floorPhysMat });
-    chestBody.addShape(new CANNON.Box(new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)));
-    chestBody.position.set(chestPosition.x, size.y / 2, chestPosition.z);
-    physicsWorld.addBody(chestBody);
+      const size = box.getSize(new THREE.Vector3());
+      chestBody = new CANNON.Body({ mass: 0, material: floorPhysMat });
+      chestBody.addShape(new CANNON.Box(new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)));
+      chestBody.position.set(chestPosition.x, size.y / 2, chestPosition.z);
+      physicsWorld.addBody(chestBody);
 
-    chestMixer = new THREE.AnimationMixer(gltf.scene);
-    const findClip = (name: string) => THREE.AnimationClip.findByName(gltf.animations, name);
-    const idleClosed = findClip('Idle_Closed');
-    const openClip = findClip('Open');
-    const idleOpen = findClip('Idle_Open');
-    if (chestLooted && idleOpen) {
-      chestIdleOpenAction = chestMixer.clipAction(idleOpen);
-      chestIdleOpenAction.play();
-    } else if (idleClosed) {
-      chestMixer.clipAction(idleClosed).play();
-    }
-    if (openClip) {
-      chestOpenAction = chestMixer.clipAction(openClip);
-      chestOpenAction.setLoop(THREE.LoopOnce, 1);
-      chestOpenAction.clampWhenFinished = true;
-    }
-    if (idleOpen) chestIdleOpenAction = chestMixer.clipAction(idleOpen);
-    chestReady = true;
-  }).catch(error => console.error('[Scene4] Failed to load chest:', error));
+      chestMixer = new THREE.AnimationMixer(gltf.scene);
+      const findClip = (name: string) => THREE.AnimationClip.findByName(gltf.animations, name);
+      const idleClosed = findClip('Idle_Closed');
+      const openClip = findClip('Open');
+      const idleOpen = findClip('Idle_Open');
+      if (idleClosed) chestMixer.clipAction(idleClosed).play();
+      if (openClip) {
+        chestOpenAction = chestMixer.clipAction(openClip);
+        chestOpenAction.setLoop(THREE.LoopOnce, 1);
+        chestOpenAction.clampWhenFinished = true;
+      }
+      if (idleOpen) chestIdleOpenAction = chestMixer.clipAction(idleOpen);
+      chestReady = true;
+    }).catch(error => console.error('[Scene4] Failed to load chest:', error));
+  }
 
   // --- Enemy defeat gate + 'E' interact ---
   let enemyDefeated = false;
   function setEnemyDefeated(defeated: boolean) { enemyDefeated = defeated; }
 
   function openChest() {
+    if (chestInteractionStarted) return;
+    chestInteractionStarted = true;
+    player.requestAction('Interact');
     chestLooted = true;
+    cafeteriaUnlocked = true;
+    frontDoorTarget.visible = true;
     if (interactPrompt) interactPrompt.classList.add('hidden');
-    if (chestOpenAction) {
+    if (chestOpenAction && chestMixer) {
+      const onFinished = (event: THREE.Event) => {
+        if (event.action !== chestOpenAction) return;
+        chestMixer?.removeEventListener('finished', onFinished);
+        chestIdleOpenAction?.reset().play();
+        if (chestModel) { scene.remove(chestModel); chestModel = null; }
+        if (chestBody) { physicsWorld.removeBody(chestBody); chestBody = null; }
+      };
+      chestMixer.addEventListener('finished', onFinished);
       chestOpenAction.reset().play();
-      if (chestIdleOpenAction) {
-        chestMixer?.addEventListener('finished', function onFinished() {
-          chestMixer?.removeEventListener('finished', onFinished);
-          chestIdleOpenAction?.reset().play();
-        });
-      }
     }
     onChestCollected?.();
   }
@@ -489,18 +528,31 @@ export function createScene({ audioManager, entryState, chestOpened, onChestColl
   player.setRotation(0, 0);
   player.enable();
   if (entryState) {
-    player.restoreTransition(entryState, { x: 0, y: 0, z: -roomDepth / 2 });
-    doorBack.open = doorBack.targetOpen = 1;
-    doorBack.panelL.position.x = -doorPanelW / 2 - doorSlideDistance;
-    doorBack.panelR.position.x = doorPanelW / 2 + doorSlideDistance;
-    doorBack.seam.visible = false;
+    const entryZ = entryDoor === 'front' ? roomDepth / 2 : -roomDepth / 2;
+    player.restoreTransition(entryState, { x: 0, y: 0, z: entryZ });
+    const entry = entryDoor === 'front' ? frontDoor : doorBack;
+    entry.open = entry.targetOpen = 1;
+    entry.panelL.position.x = -doorPanelW / 2 - doorSlideDistance;
+    entry.panelR.position.x = doorPanelW / 2 + doorSlideDistance;
+    entry.seam.visible = false;
+    if (entryDoor === 'front') frontDoorBody.collisionResponse = false;
   }
 
   // --- Door trigger callback ---
   let onBackTrigger: ((state: PlayerTransitionState) => void) | null = null;
+  let onForwardTrigger: ((state: PlayerTransitionState) => void) | null = null;
   let backCooldown = false;
+  let forwardCooldown = false;
 
   function setBackTrigger(callback: (state: PlayerTransitionState) => void) { onBackTrigger = callback; }
+  function setForwardTrigger(callback: (state: PlayerTransitionState) => void) { onForwardTrigger = callback; }
+  function hitForwardDoor() {
+    const px = player.body.position.x;
+    const pz = player.body.position.z;
+    const inDoorZone = Math.hypot(px, pz - frontDoor.z) < doorSensorRange &&
+      px > -doorW / 2 - 1 && px < doorW / 2 + 1;
+    if (cafeteriaUnlocked && inDoorZone) frontDoor.targetOpen = 1;
+  }
 
   // --- Update ---
   let flickerTime = 0;
@@ -542,10 +594,30 @@ export function createScene({ audioManager, entryState, chestOpened, onChestColl
     doorBack.panelR.position.x = doorPanelW / 2 + slideOffset;
     doorBack.seam.visible = doorBack.open < 0.1;
 
+    const frontInRange = Math.hypot(px, pz - frontDoor.z) < doorSensorRange && inDoorX;
+    if (cafeteriaUnlocked && frontInRange) {
+      frontDoor.sLightMat.color.setHex(0x00ff44);
+      frontDoor.sLightMat.emissive.setHex(0x00ff44);
+    } else {
+      frontDoor.sLightMat.color.setHex(0xff0000);
+      frontDoor.sLightMat.emissive.setHex(0xff0000);
+    }
+    if (frontDoor.open < frontDoor.targetOpen) frontDoor.open = Math.min(frontDoor.open + slideDelta, 1);
+    else if (frontDoor.open > frontDoor.targetOpen) frontDoor.open = Math.max(frontDoor.open - slideDelta, 0);
+    const frontSlideOffset = frontDoor.open * doorSlideDistance;
+    frontDoor.panelL.position.x = -doorPanelW / 2 - frontSlideOffset;
+    frontDoor.panelR.position.x = doorPanelW / 2 + frontSlideOffset;
+    frontDoor.seam.visible = frontDoor.open < 0.1;
+    frontDoorBody.collisionResponse = frontDoor.open < 0.9;
+
     // Check door trigger (back to scene3)
     if (onBackTrigger && !backCooldown && doorBack.open > 0.9 && pz < -roomDepth / 2 - 0.8 && inDoorX) {
       backCooldown = true;
       onBackTrigger(player.captureTransition({ x: 0, y: 0, z: -roomDepth / 2, yaw: 0 }));
+    }
+    if (onForwardTrigger && !forwardCooldown && frontDoor.open > 0.9 && pz > roomDepth / 2 + 0.8 && inDoorX) {
+      forwardCooldown = true;
+      onForwardTrigger(player.captureTransition({ x: 0, y: 0, z: roomDepth / 2 }));
     }
 
     // Chest animation + interact prompt
@@ -563,6 +635,9 @@ export function createScene({ audioManager, entryState, chestOpened, onChestColl
     cutsceneManager: null,
     player,
     setBackTrigger,
+    setForwardTrigger,
+    forwardDoorTarget: frontDoorTarget,
+    hitForwardDoor,
     setEnemyDefeated,
     dispose: () => {
       window.removeEventListener('keydown', onKeyDown);

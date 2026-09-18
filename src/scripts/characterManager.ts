@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import ualModelUrl from '../assets/models/Subject.glb';
+import { createCrowbar } from './items/createCrowbar.js';
 
 import type { PlayerState } from './player.js';
 
@@ -18,7 +19,7 @@ interface Vec3Like { x: number; y: number; z: number; }
 const CLIP_NAMES = [
   'Idle_Loop', 'Walk_Loop', 'Sprint_Loop', 'Jump_Start', 'Jump_Loop', 'Jump_Land',
   // One-shot action clips on number keys 6-9 (input mapping in player.ts).
-  'Sword_Attack', 'Pistol_Shoot', 'Pistol_Reload', 'Dance_Loop',
+  'Sword_Attack', 'Pistol_Shoot', 'Pistol_Reload', 'Dance_Loop', 'Interact',
   // Crouch animations
   'Crouch_Idle_Loop', 'Crouch_Fwd_Loop',
 ] as const;
@@ -27,7 +28,7 @@ type ClipName = typeof CLIP_NAMES[number];
 // One-shot action clips. They play once per key press, then the normal
 // locomotion state machine resumes (idle or walk, mixer-driven completion).
 const ACTION_CLIPS: ReadonlySet<string> = new Set([
-  'Sword_Attack', 'Pistol_Shoot', 'Pistol_Reload', 'Dance_Loop',
+  'Sword_Attack', 'Pistol_Shoot', 'Pistol_Reload', 'Dance_Loop', 'Interact',
 ]);
 const ONE_SHOT_CLIPS = ['Jump_Start', 'Jump_Land', ...ACTION_CLIPS];
 
@@ -53,9 +54,10 @@ export async function loadCharacter(loader = new GLTFLoader()) {
   let wasOnGround: boolean | null = null;
   model.rotation.y = MODEL_ROT_OFFSET;
 
-  // Layer 0: third-person camera and mirror both render the character.
+  // Layer 0 is the gameplay camera; layer 1 is the mirror camera.
   model.traverse((child: THREE.Object3D) => {
-    child.layers.set(0);
+    child.layers.enable(0);
+    child.layers.enable(1);
     if ((child as THREE.Mesh).isMesh) {
       (child as THREE.Mesh).castShadow = true;
       (child as THREE.Mesh).receiveShadow = true;
@@ -155,6 +157,13 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     },
   };
 
+  const rightHand = model.getObjectByName('hand_r');
+  const crowbar = createCrowbar();
+  crowbar.position.set(0, 0, 0);
+  crowbar.rotation.set(Math.PI / 2, 0, 0);
+  crowbar.visible = false;
+  rightHand?.add(crowbar);
+
   let currentAction = actions.get('Idle_Loop')!;
   currentAction.play();
   mixer.update(0);
@@ -168,7 +177,7 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     const next = actions.get(name)!;
     if (next === currentAction) return;
     currentAction.fadeOut(0.2);
-    next.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.2).play();
+    next.reset().setEffectiveTimeScale(name === 'Sword_Attack' ? 2.8 : 1).setEffectiveWeight(1).fadeIn(0.2).play();
     currentAction = next;
   }
 
@@ -182,7 +191,15 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     playerRadius: number,
   ) {
     const { yaw, pitch, isMoving, isOnGround, velocityY, jumping, actionRequest, crouching, sprinting } = playerState;
-    model.visible = thirdPerson;
+    model.traverse((child: THREE.Object3D) => {
+      if (thirdPerson) {
+        child.layers.enable(0);
+      } else {
+        child.layers.disable(0);
+      }
+      child.layers.enable(1);
+    });
+    model.visible = true;
     model.position.set(playerBodyPos.x, playerBodyPos.y - playerRadius + modelOffsetY, playerBodyPos.z);
 
     let diff = yaw + MODEL_ROT_OFFSET - model.rotation.y;
@@ -262,6 +279,7 @@ export async function loadCharacter(loader = new GLTFLoader()) {
   }
 
   function dispose() {
+    crowbar.removeFromParent();
     upperMixer.stopAllAction();
     upperMixer.uncacheRoot(upperPose);
     mixer.stopAllAction();
@@ -269,5 +287,9 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     model.removeFromParent();
   }
 
-  return { model, mixer, update, setFacing, weapon, dispose };
+  return {
+    model, mixer, update, setFacing, weapon, crowbar,
+    setCrowbarEquipped: (equipped: boolean) => { crowbar.visible = equipped; },
+    dispose,
+  };
 }

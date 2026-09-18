@@ -7,7 +7,7 @@ import * as CANNON from 'cannon-es';
 import { PHYSICS } from '../helpers/physics/scenePhysics.js';
 
 // One-shot character actions (see characterManager.ts) on number keys 6-9.
-export type PlayerActionName = 'Sword_Attack' | 'Pistol_Shoot' | 'Pistol_Reload' | 'Dance_Loop';
+export type PlayerActionName = 'Sword_Attack' | 'Pistol_Shoot' | 'Pistol_Reload' | 'Dance_Loop' | 'Interact';
 
 const ACTION_KEYS: Record<string, PlayerActionName> = {
   Digit6: 'Sword_Attack',
@@ -54,6 +54,7 @@ export interface PlayerTransitionState {
   bobIntensity: number;
   crouching: boolean;
   sprinting: boolean;
+  health?: number;
 }
 
 interface PlayerOptions {
@@ -151,6 +152,13 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     actionRequestLife = 0;
     playerBody.velocity.x = 0;
     playerBody.velocity.z = 0;
+  }
+
+  function requestAction(action: PlayerActionName) {
+    if (!enabled || !isOnGround || actionRequest) return false;
+    actionRequest = action;
+    actionRequestLife = 3;
+    return true;
   }
 
   function onMouseMove(e: MouseEvent) {
@@ -331,6 +339,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       bobIntensity,
       crouching,
       sprinting,
+      health,
     };
   }
 
@@ -355,6 +364,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     bobIntensity = state.bobIntensity;
     crouching = state.crouching;
     sprinting = state.sprinting;
+    if (Number.isFinite(state.health)) health = Math.max(0, Math.min(PLAYER_MAX_HEALTH, state.health!));
     isOnGround = false;
     updateGroundState(false);
     isPointerLocked = document.pointerLockElement != null;
@@ -410,6 +420,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       health = Math.max(0, health - amount);
     },
     getHealth: () => health,
+    requestAction,
     getState: (): PlayerState => ({
       isMoving: enabled && getMoveDirection() !== null,
       isOnGround,

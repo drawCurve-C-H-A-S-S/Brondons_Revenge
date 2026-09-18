@@ -6,11 +6,15 @@ import { createScene as createScene3 } from './scenes/scene3.js';
 import { createScene as createScene4 } from './scenes/scene4.js';
 import { createScene as createScene5 } from './scenes/scene5.js';
 import { createScene as createScene6 } from './scenes/scene6.js';
+import { createScene as createScene7 } from './scenes/scene7.js';
 import { loadCharacter } from './scripts/characterManager.js';
 import type { Player, PlayerTransitionState } from './scripts/player.js';
 import { PLAYER_MAX_HEALTH } from './scripts/player.js';
 import { NPCEnemyManager } from './scripts/npc-enemy-robots.js';
 import { PistolController } from './scripts/pistol.js';
+import { CrowbarController } from './scripts/crowbar.js';
+import { createCctvSystem } from './scripts/cctv.js';
+import { createFirstPersonHands } from './scripts/firstPersonHands.js';
 
 // --- Renderer ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -21,6 +25,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 document.body.appendChild(renderer.domElement);
+const cctv = createCctvSystem(renderer);
 
 // --- Audio Manager stub ---
 const audioManager = null;
@@ -45,6 +50,8 @@ const npcManager = new NPCEnemyManager();
 
 // --- Crowbar pickup (scene4 chest, persists once collected) ---
 let hasCrowbar = false;
+let crowbarController: CrowbarController | null = null;
+let firstPersonHands: Awaited<ReturnType<typeof createFirstPersonHands>> | null = null;
 
 // --- View toggle (first-person / third-person) ---
 let isThirdPerson = true;
@@ -57,7 +64,25 @@ const pistol = new PistolController(() => ({
   player: currentPlayer, character: globalCharacter?.model ?? null,
   thirdPerson: isThirdPerson, targets: npcManager.getDamageTargets(),
   weaponAnimation: globalCharacter?.weapon,
+  holsterOther: () => crowbarController?.holster(),
 }));
+
+const crowbar = new CrowbarController(() => ({
+  scene: activeScene,
+  camera: activeCamera,
+  world: currentSceneData?.physicsWorld ?? null,
+  player: currentPlayer,
+  character: globalCharacter?.model ?? null,
+  thirdPerson: isThirdPerson,
+  hasCrowbar,
+  targets: npcManager.getDamageTargets(),
+  setCharacterEquipped: (equipped: boolean) => globalCharacter?.setCrowbarEquipped(equipped),
+  doorTarget: currentSceneData?.forwardDoorTarget ?? null,
+  openDoor: () => currentSceneData?.hitForwardDoor?.(),
+  holsterOther: () => pistol.holster(),
+  firstPersonHands: () => firstPersonHands,
+}));
+crowbarController = crowbar;
 
 // --- Controls ---
 let orbitControls: OrbitControls | null = null;
@@ -78,6 +103,11 @@ async function initializeApp() {
     console.log('Character loaded successfully');
   } else {
     console.warn('Failed to load character, continuing without character');
+  }
+  try {
+    firstPersonHands = await createFirstPersonHands();
+  } catch (error) {
+    console.error('Failed to load first-person hands:', error);
   }
   loadScene1();
   initializeControls();
@@ -318,13 +348,19 @@ function transitionBackToScene2(entryState: PlayerTransitionState) {
   }
 }
 
-function loadScene4(entryState: PlayerTransitionState) {
+function loadScene4(entryState: PlayerTransitionState, entryDoor: 'back' | 'front' = 'back') {
   console.log('Loading scene 4...');
   if (transitionTimer) { clearTimeout(transitionTimer); transitionTimer = null; }
 
   const sceneData = createScene4({
-    audioManager, entryState, chestOpened: hasCrowbar,
-    onChestCollected: () => { hasCrowbar = true; },
+    audioManager, entryState, entryDoor, cafeteriaUnlocked: hasCrowbar, chestOpened: hasCrowbar,
+    onChestCollected: () => {
+      hasCrowbar = true;
+      crowbar.equip();
+      const overlay = document.getElementById('crowbar-overlay');
+      overlay?.classList.remove('hidden');
+      window.setTimeout(() => overlay?.classList.add('hidden'), 4500);
+    },
   });
   npcManager.enterScene('scene4', sceneData);
   currentSceneData = sceneData;
@@ -349,6 +385,9 @@ function loadScene4(entryState: PlayerTransitionState) {
   if (currentSceneData.setBackTrigger) {
     currentSceneData.setBackTrigger((state: PlayerTransitionState) => { transitionBackToScene3(state); });
   }
+  if (currentSceneData.setForwardTrigger) {
+    currentSceneData.setForwardTrigger((state: PlayerTransitionState) => { transitionToScene7(state); });
+  }
   renderer.render(activeScene!, activeCamera!);
   console.log('Scene 4 loaded - computer room');
 }
@@ -361,6 +400,43 @@ function transitionToScene4() {
     const state = currentPlayer.captureTransition({ x: 0, y: 0, z: -10, yaw: 0 });
     try { loadScene4(state); } catch (e) { console.error('Error loading scene 4:', e); }
   }
+}
+
+function loadScene7(entryState: PlayerTransitionState) {
+  console.log('Loading scene 7 - cafeteria...');
+  document.getElementById('skip-btn')?.classList.add('hidden');
+  if (transitionTimer) { clearTimeout(transitionTimer); transitionTimer = null; }
+  const sceneData = createScene7({ entryState });
+  npcManager.enterScene('scene7', sceneData);
+  currentSceneData = sceneData;
+  activeScene = sceneData.scene;
+  activeCamera = sceneData.camera;
+  updatePhysics = sceneData.updatePhysics;
+  cutsceneManager = sceneData.cutsceneManager;
+  currentPlayer = sceneData.player;
+  if (globalCharacter && activeScene) {
+    if (globalCharacter.model.parent !== activeScene) {
+      globalCharacter.model.parent?.remove(globalCharacter.model);
+      activeScene.add(globalCharacter.model);
+    }
+  }
+  orbitControls!.object = activeCamera;
+  orbitControls!.enabled = false;
+  globalCharacter?.setFacing(currentPlayer.getState().yaw);
+  updatePlayerView(0);
+  if (currentSceneData.setBackTrigger) {
+    currentSceneData.setBackTrigger((state: PlayerTransitionState) => { transitionBackToScene4(state); });
+  }
+  renderer.render(activeScene, activeCamera);
+  console.log('Scene 7 loaded - cafeteria');
+}
+
+function transitionToScene7(entryState: PlayerTransitionState) {
+  try { loadScene7(entryState); } catch (error) { console.error('Error loading scene 7:', error); }
+}
+
+function transitionBackToScene4(entryState: PlayerTransitionState) {
+  try { loadScene4(entryState, 'front'); } catch (error) { console.error('Error returning to scene 4:', error); }
 }
 
 function transitionBackToScene3(entryState: PlayerTransitionState) {
@@ -667,6 +743,8 @@ function animate() {
   updatePlayerView(delta);
 
   pistol.update(delta);
+  crowbar.update(delta);
+  cctv.update(delta, currentSceneData?.roomId, activeScene, npcManager.getStatus().scene);
 
   // Controls
   if (orbitControls && orbitControls.enabled) orbitControls.update();
@@ -674,6 +752,7 @@ function animate() {
   // Render
   if (activeScene && activeCamera) {
     renderer.render(activeScene, activeCamera);
+    crowbar.renderFirstPerson(renderer);
   }
 }
 
