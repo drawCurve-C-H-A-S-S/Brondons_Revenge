@@ -7,6 +7,7 @@ import { createScene as createScene3 } from './scenes/scene3.js';
 import { createScene as createScene4 } from './scenes/scene4.js';
 import { loadCharacter } from './scripts/characterManager.js';
 import type { Player, PlayerTransitionState } from './scripts/player.js';
+import { createCctvSystem } from './scripts/cctv.js';
 
 // --- Renderer ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -17,6 +18,27 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 document.body.appendChild(renderer.domElement);
+
+const cctv = createCctvSystem(renderer, [
+  {
+    id: 'medical-bay', label: 'MEDICAL BAY',
+    position: [3.8, 8.7, 8], lookAt: [-1, 1.5, -5],
+    createView: () => createScene2({ surveillanceOnly: true }),
+    panel: { position: [-2.8, 2.15, 14.78], yaw: Math.PI },
+  },
+  {
+    id: 'hallway', label: 'HALLWAY',
+    position: [3.4, 3.9, 8.8], lookAt: [-1, 1.2, -7],
+    createView: () => createScene3({ surveillanceOnly: true }),
+    panel: { position: [-2.75, 2.15, 9.82], yaw: Math.PI },
+  },
+  {
+    id: 'computer-room', label: 'COMPUTER ROOM',
+    position: [-4.2, 3.8, -5], lookAt: [1, 1, 2.5],
+    createView: () => createScene4({ surveillanceOnly: true }),
+  },
+]);
+window.addEventListener('pagehide', event => { if (!event.persisted) cctv.dispose(); });
 
 // --- Audio Manager stub ---
 const audioManager = null;
@@ -430,6 +452,7 @@ function animate() {
 
   // Render
   if (activeScene && activeCamera) {
+    cctv.update(delta, currentSceneData, activeCamera, globalCharacter?.model);
     renderer.render(activeScene, activeCamera);
   }
 }

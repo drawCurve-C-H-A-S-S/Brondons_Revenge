@@ -7,9 +7,10 @@ import comicVert from '../shaders/comic.vert.glsl?raw';
 import comicFrag from '../shaders/comic.frag.glsl?raw';
 import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
 import { createScenePhysics, PHYSICS } from '../helpers/physics/scenePhysics.js';
+import { disposeSurveillanceScene } from '../scripts/cctv.js';
 
-export function createScene({ audioManager, entryState, entryDoor }: {
-  audioManager?: unknown; entryState?: PlayerTransitionState; entryDoor?: 'front' | 'back';
+export function createScene({ audioManager, entryState, entryDoor, surveillanceOnly = false }: {
+  audioManager?: unknown; entryState?: PlayerTransitionState; entryDoor?: 'front' | 'back'; surveillanceOnly?: boolean;
 } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0a10);
@@ -318,6 +319,36 @@ export function createScene({ audioManager, entryState, entryDoor }: {
     scene.add(seamR);
   }
 
+  let flickerTime = 0;
+  function updateEnvironment(dt: number) {
+    flickerTime += dt;
+    for (const fl of flickerLights) {
+      let intensity = fl.baseIntensity;
+      if (fl.isAggressive) {
+        const noise = Math.sin(flickerTime * fl.flickerSpeed * 10) * 0.5 +
+                      Math.sin(flickerTime * 37.7) * 0.3 +
+                      (Math.random() - 0.5) * 0.8;
+        intensity = fl.baseIntensity * (0.3 + Math.max(0, noise) * fl.flickerAmount * 4);
+        if (Math.random() < 0.02) intensity *= 0.1;
+      } else {
+        const noise = Math.sin(flickerTime * fl.flickerSpeed + fl.phase) * 0.5 +
+                      Math.sin(flickerTime * fl.flickerSpeed * 2.3 + fl.phase) * 0.2 +
+                      (Math.random() - 0.5) * 0.15;
+        intensity = fl.baseIntensity * (0.7 + noise * fl.flickerAmount);
+      }
+      fl.light.intensity = Math.max(0.1, intensity);
+      fl.tubeMat.emissiveIntensity = Math.max(0.1, intensity / fl.baseIntensity * 2.0);
+    }
+  }
+
+  if (surveillanceOnly) {
+    physics.dispose();
+    return {
+      roomId: 'hallway', scene, updateEnvironment,
+      dispose: () => { disposeSurveillanceScene(scene); },
+    };
+  }
+
   // --- Camera ---
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
 
@@ -359,30 +390,10 @@ export function createScene({ audioManager, entryState, entryDoor }: {
   function setForwardTrigger(callback: () => void) { onForwardTrigger = callback; }
 
   // --- Update ---
-  let flickerTime = 0;
   function updatePhysics(dt: number, thirdPerson: boolean = false) {
     dt = Number.isFinite(dt) ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime)) : 0;
     physics.step(dt, player, thirdPerson);
-
-    // Flicker lights
-    flickerTime += dt;
-    for (const fl of flickerLights) {
-      let intensity = fl.baseIntensity;
-      if (fl.isAggressive) {
-        const noise = Math.sin(flickerTime * fl.flickerSpeed * 10) * 0.5 +
-                      Math.sin(flickerTime * 37.7) * 0.3 +
-                      (Math.random() - 0.5) * 0.8;
-        intensity = fl.baseIntensity * (0.3 + Math.max(0, noise) * fl.flickerAmount * 4);
-        if (Math.random() < 0.02) intensity *= 0.1;
-      } else {
-        const noise = Math.sin(flickerTime * fl.flickerSpeed + fl.phase) * 0.5 +
-                      Math.sin(flickerTime * fl.flickerSpeed * 2.3 + fl.phase) * 0.2 +
-                      (Math.random() - 0.5) * 0.15;
-        intensity = fl.baseIntensity * (0.7 + noise * fl.flickerAmount);
-      }
-      fl.light.intensity = Math.max(0.1, intensity);
-      fl.tubeMat.emissiveIntensity = Math.max(0.1, intensity / fl.baseIntensity * 2.0);
-    }
+    updateEnvironment(dt);
 
     // Door sensor and animation
     const px = player.body.position.x;
@@ -421,7 +432,8 @@ export function createScene({ audioManager, entryState, entryDoor }: {
   }
 
   return {
-    scene, camera, physicsWorld, updatePhysics,
+    roomId: 'hallway',
+    scene, camera, physicsWorld, updatePhysics, updateEnvironment,
     cutsceneManager: null,
     player,
     setBackTrigger,

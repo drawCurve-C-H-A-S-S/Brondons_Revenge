@@ -9,9 +9,10 @@ import comicFrag from '../shaders/comic.frag.glsl?raw';
 import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
 import { createScenePhysics, PHYSICS } from '../helpers/physics/scenePhysics.js';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
+import { disposeSurveillanceScene } from '../scripts/cctv.js';
 
-export function createScene({ audioManager, skipWake, entryState }: {
-  audioManager?: unknown; skipWake?: boolean; entryState?: PlayerTransitionState;
+export function createScene({ audioManager, skipWake, entryState, surveillanceOnly = false }: {
+  audioManager?: unknown; skipWake?: boolean; entryState?: PlayerTransitionState; surveillanceOnly?: boolean;
 } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x000000);
@@ -586,6 +587,30 @@ export function createScene({ audioManager, skipWake, entryState }: {
   machinePhysBody.addShape(new CANNON.Cylinder(machineRadius, machineRadius, totalHeight, 12));
   machinePhysBody.position.set(0, totalHeight / 2, machineZ); physicsWorld.addBody(machinePhysBody);
 
+  function updateEnvironment(dt: number) {
+    const positions = stars.geometry.attributes.position.array as Float32Array;
+    const windowZ = -roomDepth / 2;
+    for (let i = 0; i < starCount; i++) {
+      positions[i * 3 + 2] += 15 * dt;
+      if (positions[i * 3 + 2] > windowZ - 5) positions[i * 3 + 2] = windowZ - 200;
+    }
+    stars.geometry.attributes.position.needsUpdate = true;
+    const pulseTime = performance.now() * 0.001;
+    for (const sf of pulsingScreens) {
+      const pulse = 0.5 + 0.5 * Math.sin(pulseTime * 2 + sf.phase);
+      sf.material.emissiveIntensity = 0.3 + pulse * 0.5;
+      sf.light.intensity = 1.0 + pulse * 1.5;
+    }
+  }
+
+  if (surveillanceOnly) {
+    physics.dispose();
+    return {
+      roomId: 'medical-bay', scene, updateEnvironment,
+      dispose: () => { disposeSurveillanceScene(scene); },
+    };
+  }
+
   // --- Player ---
   const capsuleX = 8.8;
   const capsuleZ = -11.375;
@@ -722,26 +747,12 @@ export function createScene({ audioManager, skipWake, entryState }: {
         }
       }
     }
-    // Animate stars
-    const positions = stars.geometry.attributes.position.array as Float32Array;
-    const speed = 15;
-    const windowZ = -roomDepth / 2;
-    for (let i = 0; i < starCount; i++) {
-      positions[i * 3 + 2] += speed * dt;
-      if (positions[i * 3 + 2] > windowZ - 5) positions[i * 3 + 2] = windowZ - 200;
-    }
-    stars.geometry.attributes.position.needsUpdate = true;
-    // Pulse screens
-    const pulseTime = performance.now() * 0.001;
-    for (const sf of pulsingScreens) {
-      const pulse = 0.5 + 0.5 * Math.sin(pulseTime * 2 + sf.phase);
-      sf.material.emissiveIntensity = 0.3 + pulse * 0.5;
-      sf.light.intensity = 1.0 + pulse * 1.5;
-    }
+    updateEnvironment(dt);
   }
 
   return {
-    scene, camera, physicsWorld, updatePhysics,
+    roomId: 'medical-bay',
+    scene, camera, physicsWorld, updatePhysics, updateEnvironment,
     cutsceneManager: null,
     player,
     setDoorTrigger,

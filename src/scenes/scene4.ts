@@ -9,6 +9,7 @@ import comicVert from '../shaders/comic.vert.glsl?raw';
 import comicFrag from '../shaders/comic.frag.glsl?raw';
 import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
 import { createScenePhysics, PHYSICS } from '../helpers/physics/scenePhysics.js';
+import { disposeSurveillanceScene } from '../scripts/cctv.js';
 
 // Computer model imports (FBX for 1-2, OBJ for 3-8)
 import computer1Url from '../assets/models/Retro computers/models/Computer1.fbx';
@@ -56,11 +57,12 @@ const TEXTURE_SETS = [
   { diffuse: tex8Url, normal: null, specular: null }, // Texture 8 has no normal/specular maps
 ];
 
-export function createScene({ audioManager, entryState }: {
-  audioManager?: unknown; entryState?: PlayerTransitionState;
+export function createScene({ audioManager, entryState, surveillanceOnly = false }: {
+  audioManager?: unknown; entryState?: PlayerTransitionState; surveillanceOnly?: boolean;
 } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0a10);
+  let disposed = false;
 
   // --- Room dimensions (smaller than scene2, similar wall style to scene3) ---
   const roomWidth = 10;
@@ -361,6 +363,7 @@ export function createScene({ audioManager, entryState }: {
 
   // Create materials with textures for each computer
   const textureLoader = new THREE.TextureLoader();
+  const computerMaterials: THREE.MeshStandardMaterial[] = [];
   function createComputerMaterial(texSetIdx: number): THREE.MeshStandardMaterial {
     const texSet = TEXTURE_SETS[texSetIdx % TEXTURE_SETS.length];
     const diffuse = textureLoader.load(texSet.diffuse);
@@ -412,9 +415,14 @@ export function createScene({ audioManager, entryState }: {
   for (const placement of computerPlacements) {
     const url = COMPUTER_URLS[placement.modelIdx % COMPUTER_URLS.length];
     const material = createComputerMaterial(placement.modelIdx);
+    computerMaterials.push(material);
     const isFBX = placement.modelIdx < 2; // Computer1 and Computer2 are FBX
 
     const onLoad = (obj: THREE.Group) => {
+      if (disposed) {
+        disposeSurveillanceScene(obj);
+        return;
+      }
       // Scale to reasonable size (models are roughly 1-2 units, scale to ~0.6-0.8)
       const box = new THREE.Box3().setFromObject(obj);
       const size = box.getSize(new THREE.Vector3());
@@ -455,6 +463,43 @@ export function createScene({ audioManager, entryState }: {
     }
   }
 
+  let flickerTime = 0;
+  function updateEnvironment(dt: number) {
+    flickerTime += dt;
+    for (const fl of flickerLights) {
+      const noise = Math.sin(flickerTime * fl.flickerSpeed + fl.phase) * 0.5 +
+                    Math.sin(flickerTime * fl.flickerSpeed * 1.7 + fl.phase) * 0.3 +
+                    (Math.random() - 0.5) * 0.1;
+      const intensity = fl.baseIntensity * (0.9 + noise * fl.flickerAmount);
+      fl.light.intensity = Math.max(0.5, intensity);
+      fl.tubeMat.emissiveIntensity = Math.max(0.5, intensity / fl.baseIntensity * 2.0);
+    }
+  }
+
+  if (surveillanceOnly) {
+    physics.dispose();
+    return {
+      roomId: 'computer-room', scene, updateEnvironment,
+      dispose() {
+        disposed = true;
+        const attachedMaterials = new Set<THREE.Material>();
+        scene.traverse(object => {
+          if (object instanceof THREE.Mesh) {
+            for (const material of Array.isArray(object.material) ? object.material : [object.material]) attachedMaterials.add(material);
+          }
+        });
+        for (const material of computerMaterials) {
+          if (attachedMaterials.has(material)) continue;
+          material.map?.dispose();
+          material.normalMap?.dispose();
+          material.roughnessMap?.dispose();
+          material.dispose();
+        }
+        disposeSurveillanceScene(scene);
+      },
+    };
+  }
+
   // --- Camera ---
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
 
@@ -482,21 +527,10 @@ export function createScene({ audioManager, entryState }: {
   function setBackTrigger(callback: (state: PlayerTransitionState) => void) { onBackTrigger = callback; }
 
   // --- Update ---
-  let flickerTime = 0;
   function updatePhysics(dt: number, thirdPerson: boolean = false) {
     dt = Number.isFinite(dt) ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime)) : 0;
     physics.step(dt, player, thirdPerson);
-
-    // Gentle light flicker (much subtler than scene3)
-    flickerTime += dt;
-    for (const fl of flickerLights) {
-      const noise = Math.sin(flickerTime * fl.flickerSpeed + fl.phase) * 0.5 +
-                    Math.sin(flickerTime * fl.flickerSpeed * 1.7 + fl.phase) * 0.3 +
-                    (Math.random() - 0.5) * 0.1;
-      const intensity = fl.baseIntensity * (0.9 + noise * fl.flickerAmount);
-      fl.light.intensity = Math.max(0.5, intensity);
-      fl.tubeMat.emissiveIntensity = Math.max(0.5, intensity / fl.baseIntensity * 2.0);
-    }
+    updateEnvironment(dt);
 
     // Door sensor and animation
     const px = player.body.position.x;
@@ -529,7 +563,8 @@ export function createScene({ audioManager, entryState }: {
   }
 
   return {
-    scene, camera, physicsWorld, updatePhysics,
+    roomId: 'computer-room',
+    scene, camera, physicsWorld, updatePhysics, updateEnvironment,
     cutsceneManager: null,
     player,
     setBackTrigger,
