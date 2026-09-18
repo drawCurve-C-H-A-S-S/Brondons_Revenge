@@ -13,6 +13,7 @@ let disposeSurveillanceScene;
 let createScene2;
 let createScene3;
 let createScene4;
+let createScene5;
 
 before(async () => {
   server = await createServer({
@@ -23,6 +24,7 @@ before(async () => {
   ({ createScene: createScene2 } = await server.ssrLoadModule('/scenes/scene2.ts'));
   ({ createScene: createScene3 } = await server.ssrLoadModule('/scenes/scene3.ts'));
   ({ createScene: createScene4 } = await server.ssrLoadModule('/scenes/scene4.ts'));
+  ({ createScene: createScene5 } = await server.ssrLoadModule('/scenes/scene5.ts'));
 });
 after(async () => { await server?.close(); });
 
@@ -568,6 +570,7 @@ for (const [name, roomId, factory] of [
   ['Scene 2', 'medical-bay', () => createScene2],
   ['Scene 3', 'hallway', () => createScene3],
   ['Scene 4', 'computer-room', () => createScene4],
+  ['Scene 5', 'cafeteria', () => createScene5],
 ]) {
   test(`${name} surveillance mode animates the real environment without player, input listeners, wake overlays, or physics simulation`, t => {
     browserStubs(t);

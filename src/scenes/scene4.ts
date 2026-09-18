@@ -57,8 +57,8 @@ const TEXTURE_SETS = [
   { diffuse: tex8Url, normal: null, specular: null }, // Texture 8 has no normal/specular maps
 ];
 
-export function createScene({ audioManager, entryState, surveillanceOnly = false }: {
-  audioManager?: unknown; entryState?: PlayerTransitionState; surveillanceOnly?: boolean;
+export function createScene({ audioManager, entryState, entryDoor = 'back', surveillanceOnly = false }: {
+  audioManager?: unknown; entryState?: PlayerTransitionState; entryDoor?: 'front' | 'back'; surveillanceOnly?: boolean;
 } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0a10);
@@ -162,6 +162,8 @@ export function createScene({ audioManager, entryState, surveillanceOnly = false
   physics.addBox({ x: roomWidth, y: 0.4, z: roomDepth }, { x: 0, y: -0.2, z: 0 });
   // Threshold extends through the back door (entry from scene3)
   physics.addBox({ x: 3, y: 0.4, z: 2 }, { x: 0, y: -0.2, z: -(roomDepth / 2 + 1) });
+  // Threshold extends through the front door (onward to the cafeteria)
+  physics.addBox({ x: 3, y: 0.4, z: 2 }, { x: 0, y: -0.2, z: roomDepth / 2 + 1 });
 
   // --- Ceiling ---
   const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(roomWidth, roomDepth), ceilingMat);
@@ -186,8 +188,11 @@ export function createScene({ audioManager, entryState, surveillanceOnly = false
   makeWall(backWallLeftW, roomHeight, new THREE.Vector3(-roomWidth / 2 + backWallLeftW / 2, roomHeight / 2, -roomDepth / 2), 0);
   makeWall(backWallLeftW, roomHeight, new THREE.Vector3(roomWidth / 2 - backWallLeftW / 2, roomHeight / 2, -roomDepth / 2), 0);
   makeWall(doorW, roomHeight - doorH, new THREE.Vector3(0, doorH + (roomHeight - doorH) / 2, -roomDepth / 2), 0);
-  // Front wall (solid, no exit)
-  makeWall(roomWidth, roomHeight, new THREE.Vector3(0, roomHeight / 2, roomDepth / 2), Math.PI);
+  // Front wall (door onward to the cafeteria)
+  const frontWallLeftW = (roomWidth - doorW) / 2;
+  makeWall(frontWallLeftW, roomHeight, new THREE.Vector3(-roomWidth / 2 + frontWallLeftW / 2, roomHeight / 2, roomDepth / 2), Math.PI);
+  makeWall(frontWallLeftW, roomHeight, new THREE.Vector3(roomWidth / 2 - frontWallLeftW / 2, roomHeight / 2, roomDepth / 2), Math.PI);
+  makeWall(doorW, roomHeight - doorH, new THREE.Vector3(0, doorH + (roomHeight - doorH) / 2, roomDepth / 2), Math.PI);
   // Side walls
   makeWall(roomDepth, roomHeight, new THREE.Vector3(-roomWidth / 2, roomHeight / 2, 0), Math.PI / 2);
   makeWall(roomDepth, roomHeight, new THREE.Vector3(roomWidth / 2, roomHeight / 2, 0), -Math.PI / 2);
@@ -203,25 +208,31 @@ export function createScene({ audioManager, entryState, surveillanceOnly = false
   addWallBody(-roomWidth / 2 + backWallLeftW / 2, roomHeight / 2, -roomDepth / 2, backWallLeftW / 2, roomHeight / 2, wallThickness);
   addWallBody(roomWidth / 2 - backWallLeftW / 2, roomHeight / 2, -roomDepth / 2, backWallLeftW / 2, roomHeight / 2, wallThickness);
   addWallBody(0, doorH + (roomHeight - doorH) / 2, -roomDepth / 2, doorW / 2, (roomHeight - doorH) / 2, wallThickness);
-  addWallBody(0, roomHeight / 2, roomDepth / 2, roomWidth / 2, roomHeight / 2, wallThickness);
+  addWallBody(-roomWidth / 2 + frontWallLeftW / 2, roomHeight / 2, roomDepth / 2, frontWallLeftW / 2, roomHeight / 2, wallThickness);
+  addWallBody(roomWidth / 2 - frontWallLeftW / 2, roomHeight / 2, roomDepth / 2, frontWallLeftW / 2, roomHeight / 2, wallThickness);
+  addWallBody(0, doorH + (roomHeight - doorH) / 2, roomDepth / 2, doorW / 2, (roomHeight - doorH) / 2, wallThickness);
   addWallBody(-roomWidth / 2, roomHeight / 2, 0, wallThickness, roomHeight / 2, roomDepth / 2);
   addWallBody(roomWidth / 2, roomHeight / 2, 0, wallThickness, roomHeight / 2, roomDepth / 2);
 
-  // --- Door frame (entry only) ---
+  // --- Door frames (back entry from scene3, front exit to the cafeteria) ---
   const frameThick = 0.12;
   const frameDepth = 0.2;
-  const jambL = new THREE.Mesh(new THREE.BoxGeometry(frameThick, doorH, frameDepth), doorFrameMat);
-  jambL.position.set(-doorW / 2 - frameThick / 2, doorH / 2, -roomDepth / 2);
-  jambL.castShadow = true;
-  scene.add(jambL);
-  const jambR = new THREE.Mesh(new THREE.BoxGeometry(frameThick, doorH, frameDepth), doorFrameMat);
-  jambR.position.set(doorW / 2 + frameThick / 2, doorH / 2, -roomDepth / 2);
-  jambR.castShadow = true;
-  scene.add(jambR);
-  const header = new THREE.Mesh(new THREE.BoxGeometry(doorW + frameThick * 2, frameThick, frameDepth), doorFrameMat);
-  header.position.set(0, doorH + frameThick / 2, -roomDepth / 2);
-  header.castShadow = true;
-  scene.add(header);
+  const addDoorFrame = (z: number) => {
+    const jambL = new THREE.Mesh(new THREE.BoxGeometry(frameThick, doorH, frameDepth), doorFrameMat);
+    jambL.position.set(-doorW / 2 - frameThick / 2, doorH / 2, z);
+    jambL.castShadow = true;
+    scene.add(jambL);
+    const jambR = new THREE.Mesh(new THREE.BoxGeometry(frameThick, doorH, frameDepth), doorFrameMat);
+    jambR.position.set(doorW / 2 + frameThick / 2, doorH / 2, z);
+    jambR.castShadow = true;
+    scene.add(jambR);
+    const header = new THREE.Mesh(new THREE.BoxGeometry(doorW + frameThick * 2, frameThick, frameDepth), doorFrameMat);
+    header.position.set(0, doorH + frameThick / 2, z);
+    header.castShadow = true;
+    scene.add(header);
+  };
+  addDoorFrame(-roomDepth / 2);
+  addDoorFrame(roomDepth / 2);
 
   // --- Soft glow at doorway ---
   const doorwayGlowMat = new THREE.MeshBasicMaterial({
@@ -230,11 +241,13 @@ export function createScene({ audioManager, entryState, surveillanceOnly = false
     opacity: 0.15,
     side: THREE.DoubleSide,
   });
-  const doorwayGlow = new THREE.Mesh(new THREE.PlaneGeometry(doorW, doorH), doorwayGlowMat);
-  doorwayGlow.position.set(0, doorH / 2, -roomDepth / 2);
-  scene.add(doorwayGlow);
+  for (const glowZ of [-roomDepth / 2, roomDepth / 2]) {
+    const doorwayGlow = new THREE.Mesh(new THREE.PlaneGeometry(doorW, doorH), doorwayGlowMat);
+    doorwayGlow.position.set(0, doorH / 2, glowZ);
+    scene.add(doorwayGlow);
+  }
 
-  // --- Sliding door (entry) ---
+  // --- Sliding doors (back entry from scene3, front exit to the cafeteria) ---
   const doorComicMat = makeComicMaterial(0x8899aa);
   const doorPanelW = doorW / 2 + 0.1;
   const doorPanelD = 0.08;
@@ -253,27 +266,32 @@ export function createScene({ audioManager, entryState, surveillanceOnly = false
     z: number;
   }
 
-  const doorZ = -roomDepth / 2 - 0.15;
-  const panelL = new THREE.Mesh(new THREE.BoxGeometry(doorPanelW, doorH, doorPanelD), doorComicMat);
-  const panelR = new THREE.Mesh(new THREE.BoxGeometry(doorPanelW, doorH, doorPanelD), doorComicMat);
-  panelL.position.set(-doorPanelW / 2, doorH / 2, doorZ);
-  panelR.position.set(doorPanelW / 2, doorH / 2, doorZ);
-  panelL.castShadow = true;
-  panelR.castShadow = true;
-  scene.add(panelL);
-  scene.add(panelR);
-  const seam = new THREE.Mesh(new THREE.BoxGeometry(0.02, doorH, doorPanelD + 0.01), doorSeamMat);
-  seam.position.set(0, doorH / 2, doorZ);
-  scene.add(seam);
-  const sBase = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.08, 0.1),
-    new THREE.MeshStandardMaterial({ color: 0x333344, metalness: 0.7, roughness: 0.3 }));
-  sBase.position.set(0, doorH + 0.2, -roomDepth / 2 + 0.06);
-  scene.add(sBase);
-  const sLightMat = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 2.0 });
-  const sLight = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), sLightMat);
-  sLight.position.set(0, doorH + 0.2, -roomDepth / 2 - 0.02);
-  scene.add(sLight);
-  const doorBack: DoorState = { panelL, panelR, seam, sLightMat, open: 0, targetOpen: 0, z: doorZ };
+  function createDoor(z: number, faceZ: number): DoorState {
+    const doorZ = z + faceZ * 0.15;
+    const panelL = new THREE.Mesh(new THREE.BoxGeometry(doorPanelW, doorH, doorPanelD), doorComicMat);
+    const panelR = new THREE.Mesh(new THREE.BoxGeometry(doorPanelW, doorH, doorPanelD), doorComicMat);
+    panelL.position.set(-doorPanelW / 2, doorH / 2, doorZ);
+    panelR.position.set(doorPanelW / 2, doorH / 2, doorZ);
+    panelL.castShadow = true;
+    panelR.castShadow = true;
+    scene.add(panelL);
+    scene.add(panelR);
+    const seam = new THREE.Mesh(new THREE.BoxGeometry(0.02, doorH, doorPanelD + 0.01), doorSeamMat);
+    seam.position.set(0, doorH / 2, doorZ);
+    scene.add(seam);
+    const sBase = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.08, 0.1),
+      new THREE.MeshStandardMaterial({ color: 0x333344, metalness: 0.7, roughness: 0.3 }));
+    sBase.position.set(0, doorH + 0.2, z - faceZ * 0.06);
+    scene.add(sBase);
+    const sLightMat = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 2.0 });
+    const sLight = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), sLightMat);
+    sLight.position.set(0, doorH + 0.2, z + faceZ * 0.02);
+    scene.add(sLight);
+    return { panelL, panelR, seam, sLightMat, open: 0, targetOpen: 0, z: doorZ };
+  }
+
+  const doorBack = createDoor(-roomDepth / 2, -1);
+  const doorFront = createDoor(roomDepth / 2, 1);
 
   // --- BETTER LIGHTING (key difference from scene3) ---
   // More lights, higher intensity, less flicker - so you can see the dirty walls
@@ -512,19 +530,25 @@ export function createScene({ audioManager, entryState, surveillanceOnly = false
   });
   player.setRotation(0, 0);
   player.enable();
+
   if (entryState) {
-    player.restoreTransition(entryState, { x: 0, y: 0, z: -roomDepth / 2 });
-    doorBack.open = doorBack.targetOpen = 1;
-    doorBack.panelL.position.x = -doorPanelW / 2 - doorSlideDistance;
-    doorBack.panelR.position.x = doorPanelW / 2 + doorSlideDistance;
-    doorBack.seam.visible = false;
+    const doorway = entryDoor === 'front' ? { x: 0, y: 0, z: roomDepth / 2 } : { x: 0, y: 0, z: -roomDepth / 2 };
+    player.restoreTransition(entryState, doorway);
+    const entryDoorState = entryDoor === 'front' ? doorFront : doorBack;
+    entryDoorState.open = entryDoorState.targetOpen = 1;
+    entryDoorState.panelL.position.x = -doorPanelW / 2 - doorSlideDistance;
+    entryDoorState.panelR.position.x = doorPanelW / 2 + doorSlideDistance;
+    entryDoorState.seam.visible = false;
   }
 
-  // --- Door trigger callback ---
+  // --- Door trigger callbacks ---
   let onBackTrigger: ((state: PlayerTransitionState) => void) | null = null;
+  let onForwardTrigger: ((state: PlayerTransitionState) => void) | null = null;
   let backCooldown = false;
+  let forwardCooldown = false;
 
   function setBackTrigger(callback: (state: PlayerTransitionState) => void) { onBackTrigger = callback; }
+  function setForwardTrigger(callback: (state: PlayerTransitionState) => void) { onForwardTrigger = callback; }
 
   // --- Update ---
   function updatePhysics(dt: number, thirdPerson: boolean = false) {
@@ -532,33 +556,41 @@ export function createScene({ audioManager, entryState, surveillanceOnly = false
     physics.step(dt, player, thirdPerson);
     updateEnvironment(dt);
 
-    // Door sensor and animation
+    // Door sensors and animation
     const px = player.body.position.x;
     const pz = player.body.position.z;
     const inDoorX = px > -doorW / 2 - 1 && px < doorW / 2 + 1;
 
-    const dist = Math.sqrt(px * px + (pz - doorBack.z) * (pz - doorBack.z));
-    const near = dist < doorSensorRange && inDoorX;
-    doorBack.targetOpen = near ? 1 : 0;
-    if (near) {
-      sLightMat.color.setHex(0x00ff44);
-      sLightMat.emissive.setHex(0x00ff44);
-    } else {
-      sLightMat.color.setHex(0xff0000);
-      sLightMat.emissive.setHex(0xff0000);
+    for (const door of [doorBack, doorFront]) {
+      const dist = Math.sqrt(px * px + (pz - door.z) * (pz - door.z));
+      const near = dist < doorSensorRange && inDoorX;
+      door.targetOpen = near ? 1 : 0;
+      if (near) {
+        door.sLightMat.color.setHex(0x00ff44);
+        door.sLightMat.emissive.setHex(0x00ff44);
+      } else {
+        door.sLightMat.color.setHex(0xff0000);
+        door.sLightMat.emissive.setHex(0xff0000);
+      }
+      const slideDelta = doorSlideSpeed * dt;
+      if (door.open < door.targetOpen) door.open = Math.min(door.open + slideDelta, 1);
+      else if (door.open > door.targetOpen) door.open = Math.max(door.open - slideDelta, 0);
+      const slideOffset = door.open * doorSlideDistance;
+      door.panelL.position.x = -doorPanelW / 2 - slideOffset;
+      door.panelR.position.x = doorPanelW / 2 + slideOffset;
+      door.seam.visible = door.open < 0.1;
     }
-    const slideDelta = doorSlideSpeed * dt;
-    if (doorBack.open < doorBack.targetOpen) doorBack.open = Math.min(doorBack.open + slideDelta, 1);
-    else if (doorBack.open > doorBack.targetOpen) doorBack.open = Math.max(doorBack.open - slideDelta, 0);
-    const slideOffset = doorBack.open * doorSlideDistance;
-    doorBack.panelL.position.x = -doorPanelW / 2 - slideOffset;
-    doorBack.panelR.position.x = doorPanelW / 2 + slideOffset;
-    doorBack.seam.visible = doorBack.open < 0.1;
 
     // Check door trigger (back to scene3)
     if (onBackTrigger && !backCooldown && doorBack.open > 0.9 && pz < -roomDepth / 2 - 0.8 && inDoorX) {
       backCooldown = true;
       onBackTrigger(player.captureTransition({ x: 0, y: 0, z: -roomDepth / 2, yaw: 0 }));
+    }
+
+    // Check forward trigger (onward to the cafeteria)
+    if (onForwardTrigger && !forwardCooldown && doorFront.open > 0.9 && pz > roomDepth / 2 + 0.8 && inDoorX) {
+      forwardCooldown = true;
+      onForwardTrigger(player.captureTransition({ x: 0, y: 0, z: roomDepth / 2 }));
     }
   }
 
@@ -568,6 +600,7 @@ export function createScene({ audioManager, entryState, surveillanceOnly = false
     cutsceneManager: null,
     player,
     setBackTrigger,
+    setForwardTrigger,
     dispose: () => { player.dispose(); physics.dispose(); },
   };
 }

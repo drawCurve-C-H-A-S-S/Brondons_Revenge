@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { createServer } from 'vite';
@@ -9,6 +11,8 @@ import { createServer } from 'vite';
 let server;
 let createScene2;
 let createScene3;
+let createScene4;
+let createScene5;
 let createScenePhysics;
 let createPlayer;
 let PHYSICS;
@@ -21,6 +25,8 @@ before(async () => {
   });
   ({ createScene: createScene2 } = await server.ssrLoadModule('/scenes/scene2.ts'));
   ({ createScene: createScene3 } = await server.ssrLoadModule('/scenes/scene3.ts'));
+  ({ createScene: createScene4 } = await server.ssrLoadModule('/scenes/scene4.ts'));
+  ({ createScene: createScene5 } = await server.ssrLoadModule('/scenes/scene5.ts'));
   ({ createScenePhysics, PHYSICS } = await server.ssrLoadModule('/helpers/physics/scenePhysics.ts'));
   ({ createPlayer } = await server.ssrLoadModule('/scripts/player.ts'));
   ({ loadCharacter } = await server.ssrLoadModule('/scripts/characterManager.ts'));
@@ -64,6 +70,21 @@ function simpleFixture(t, setup) {
   player.enable();
   t.after(() => { player.dispose(); physics.dispose(); restore(); });
   return { physics, player, updatePhysics: dt => physics.step(dt, player) };
+}
+
+function stubComputerLoaders(t) {
+  const load = (_url, onLoad) => {
+    const group = new THREE.Group();
+    const material = new THREE.MeshBasicMaterial();
+    group.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material));
+    t.after(() => material.dispose());
+    onLoad(group);
+  };
+  return [
+    t.mock.method(OBJLoader.prototype, 'load', load),
+    t.mock.method(FBXLoader.prototype, 'load', load),
+    t.mock.method(THREE.TextureLoader.prototype, 'load', (_url, onLoad) => { const texture = new THREE.Texture(); onLoad?.(texture); return texture; }),
+  ];
 }
 
 function grounded(player, message) {
@@ -180,6 +201,43 @@ test('Scene 3 has no phantom upper floor and supports both door thresholds', t =
     data.player.setPosition(0, 0.3, z);
     frames(data, 60, 1 / 60, () => grounded(data.player, 'Door threshold'));
   }
+});
+
+test('Scene 5 floor, entry threshold, and serving island collision', t => {
+  stubComputerLoaders(t);
+  const data = sceneFixture(t, createScene5);
+  data.player.setRotation(0);
+  data.player.setPosition(0, 5.2, 0);
+  assert.equal(data.player.getState().isOnGround, false);
+  frames(data, 180);
+  grounded(data.player, 'Cafeteria floor');
+  data.player.setPosition(0, 0.3, 6.9);
+  frames(data, 60, 1 / 60, () => grounded(data.player, 'Cafeteria threshold'));
+  data.player.setPosition(0, 0.3, 0.4);
+  key('keydown', 'KeyW');
+  frames(data, 60, 1 / 60, () => grounded(data.player, 'Walking into the island'));
+  key('keyup', 'KeyW');
+  assert.ok(data.player.body.position.z > -0.4 && data.player.body.position.z < -0.2,
+    `Island must block at the collider face: ${data.player.body.position.toString()}`);
+});
+
+test('Scene 5 kitchen appliances and dining furniture block movement', t => {
+  stubComputerLoaders(t);
+  const data = sceneFixture(t, createScene5);
+  const { player } = data;
+  player.setRotation(0);
+  player.setPosition(2, 0.3, -4.2);
+  key('keydown', 'KeyW');
+  frames(data, 60, 1 / 60, () => grounded(player, 'Walking into the prep counter'));
+  key('keyup', 'KeyW');
+  assert.ok(player.body.position.z > -4.9 && player.body.position.z < -4.65,
+    `Prep counter must block: ${player.body.position.toString()}`);
+  player.setPosition(-2.6, 0.3, 5.6);
+  key('keydown', 'KeyW');
+  frames(data, 60, 1 / 60, () => grounded(player, 'Walking into the dining bench'));
+  key('keyup', 'KeyW');
+  assert.ok(player.body.position.z > 4.9 && player.body.position.z < 5.15,
+    `Dining bench must block: ${player.body.position.toString()}`);
 });
 
 test('fixed-step movement is render-rate independent and long frames are bounded', t => {
@@ -325,6 +383,77 @@ for (const direction of ['2-to-3', '3-to-2']) {
       };
       if (goingTo3) source.setDoorTrigger(transition);
       else source.setBackTrigger(transition);
+      source.player.setPosition(0.2, 0.3, sourceDoorZ - 0.6);
+      source.player.setRotation(movement.yaw, 0.27);
+      frames(source, 60); // Open the exit before crossing it.
+      key('keydown', movement.code);
+      for (let i = 0; i < 60 && !destination; i++) source.updatePhysics(1 / 60);
+      assert.ok(destination, 'The real door trigger must transition');
+      assert.equal(destination.player.isEnabled(), true, 'Return must skip the wake sequence');
+      const expectedYaw = Math.atan2(Math.sin(snapshot.yaw + Math.PI), Math.cos(snapshot.yaw + Math.PI));
+      assert.ok(Math.abs(destination.player.getState().yaw - expectedYaw) < 1e-9);
+      assert.ok(Math.abs(destination.camera.rotation.y - expectedYaw) < 1e-9, 'Camera heading is ready before the first frame');
+      assert.ok(Math.abs(destination.player.body.position.x + snapshot.position.x) < 1e-9);
+      assert.ok(Math.abs(destination.player.body.position.z - (destinationDoorZ - snapshot.position.z)) < 1e-9);
+      assert.ok(Math.abs(destination.player.body.velocity.z + snapshot.velocity.z) < 1e-9);
+      const arrival = destination.player.captureTransition({ x: 0, y: 0, z: destinationDoorZ });
+      assert.equal(arrival.pitch, 0.27);
+      assert.equal(arrival.bobTime, snapshot.bobTime);
+      assert.equal(arrival.bobIntensity, snapshot.bobIntensity);
+      assert.ok(arrival.heldKeys.includes(movement.code));
+      const panels = destination.scene.children.filter(node => node.isMesh &&
+        node.geometry.parameters.width === 1.6 && node.geometry.parameters.height === 3.5 &&
+        node.geometry.parameters.depth === 0.08 && Math.abs(node.position.z - (destinationDoorZ + 0.15)) < 0.001);
+      assert.equal(panels.length, 2);
+      assert.ok(panels.every(panel => Math.abs(panel.position.x) > 2), 'Arrival door must already be open');
+      const startZ = destination.player.body.position.z;
+      frames(destination, 5);
+      assert.ok(destination.player.body.position.z < startZ - 0.4, 'Held movement continues without another keydown');
+      assert.equal(bounceCount, 0, 'Arrival must not retrigger the exit');
+      const oldYaw = source.player.getState().yaw;
+      const mouse = new Event('mousemove');
+      Object.defineProperties(mouse, { movementX: { value: 12 }, movementY: { value: -3 } });
+      window.dispatchEvent(mouse); // No pointerlockchange or click between controllers.
+      assert.ok(Math.abs(destination.player.getState().yaw - (expectedYaw - 0.024)) < 1e-9);
+      assert.equal(source.player.getState().yaw, oldYaw, 'Old input listeners must be removed');
+      assert.equal(lockRequest.mock.callCount(), 0);
+      key('keyup', movement.code);
+      assert.equal(destination.player.getState().isMoving, false);
+    });
+  }
+}
+
+for (const direction of ['4-to-5', '5-to-4']) {
+  for (const movement of [
+    { name: 'forward at an angle', code: 'KeyW', yaw: Math.PI + 0.15 },
+    { name: 'backward', code: 'KeyS', yaw: 0 },
+    { name: 'sideways', code: 'KeyA', yaw: Math.PI / 2 },
+  ]) {
+    test(`door ${direction} preserves ${movement.name} movement, look, and existing mouse lock`, t => {
+      const restore = browserStubs();
+      document.pointerLockElement = document.body;
+      const lockRequest = t.mock.method(document.body, 'requestPointerLock', () => {});
+      stubComputerLoaders(t);
+      const goingTo5 = direction === '4-to-5';
+      const source = (goingTo5 ? createScene4 : createScene5)({ skipWake: true });
+      const sourceDoorZ = 6;
+      const destinationDoorZ = 6;
+      let destination;
+      let snapshot;
+      let bounceCount = 0;
+      t.after(() => { source.dispose(); destination?.dispose(); restore(); });
+      const transition = state => {
+        snapshot = state;
+        destination = goingTo5
+          ? createScene5({ entryState: state })
+          : createScene4({ entryState: state, entryDoor: 'front' });
+        source.dispose();
+        const onBounce = () => { bounceCount++; };
+        if (goingTo5) destination.setDoorTrigger(onBounce);
+        else destination.setForwardTrigger(onBounce);
+      };
+      if (goingTo5) source.setForwardTrigger(transition);
+      else source.setDoorTrigger(transition);
       source.player.setPosition(0.2, 0.3, sourceDoorZ - 0.6);
       source.player.setRotation(movement.yaw, 0.27);
       frames(source, 60); // Open the exit before crossing it.

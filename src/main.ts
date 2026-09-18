@@ -5,6 +5,7 @@ import { createScene as createScene1 } from './scenes/scene1.js';
 import { createScene as createScene2 } from './scenes/scene2.js';
 import { createScene as createScene3 } from './scenes/scene3.js';
 import { createScene as createScene4 } from './scenes/scene4.js';
+import { createScene as createScene5 } from './scenes/scene5.js';
 import { loadCharacter } from './scripts/characterManager.js';
 import type { Player, PlayerTransitionState } from './scripts/player.js';
 import { createCctvSystem } from './scripts/cctv.js';
@@ -36,6 +37,11 @@ const cctv = createCctvSystem(renderer, [
     id: 'computer-room', label: 'COMPUTER ROOM',
     position: [-4.2, 3.8, -5], lookAt: [1, 1, 2.5],
     createView: () => createScene4({ surveillanceOnly: true }),
+  },
+  {
+    id: 'cafeteria', label: 'CAFETERIA',
+    position: [5.5, 3.9, 5.0], lookAt: [-2.5, 1, -4.5],
+    createView: () => createScene5({ surveillanceOnly: true }),
   },
 ]);
 window.addEventListener('pagehide', event => { if (!event.persisted) cctv.dispose(); });
@@ -313,11 +319,11 @@ function transitionBackToScene2(entryState: PlayerTransitionState) {
   }
 }
 
-function loadScene4(entryState: PlayerTransitionState) {
+function loadScene4(entryState: PlayerTransitionState, entryDoor: 'front' | 'back' = 'back') {
   console.log('Loading scene 4...');
   if (transitionTimer) { clearTimeout(transitionTimer); transitionTimer = null; }
 
-  const sceneData = createScene4({ audioManager, entryState });
+  const sceneData = createScene4({ audioManager, entryState, entryDoor });
   currentSceneData?.dispose?.();
   currentSceneData = sceneData;
   activeScene = currentSceneData.scene;
@@ -340,6 +346,9 @@ function loadScene4(entryState: PlayerTransitionState) {
 
   if (currentSceneData.setBackTrigger) {
     currentSceneData.setBackTrigger((state: PlayerTransitionState) => { transitionBackToScene3(state); });
+  }
+  if (currentSceneData.setForwardTrigger) {
+    currentSceneData.setForwardTrigger((state: PlayerTransitionState) => { transitionToScene5(state); });
   }
   renderer.render(activeScene!, activeCamera!);
   console.log('Scene 4 loaded - computer room');
@@ -390,6 +399,48 @@ function transitionBackToScene3(entryState: PlayerTransitionState) {
   } catch (e) {
     console.error('Error in transitionBackToScene3:', e);
   }
+}
+
+function loadScene5(entryState: PlayerTransitionState) {
+  console.log('Loading scene 5...');
+  if (transitionTimer) { clearTimeout(transitionTimer); transitionTimer = null; }
+
+  const sceneData = createScene5({ audioManager, entryState });
+  currentSceneData?.dispose?.();
+  currentSceneData = sceneData;
+  activeScene = currentSceneData.scene;
+  activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+  updatePhysics = currentSceneData.updatePhysics;
+  cutsceneManager = currentSceneData.cutsceneManager;
+  currentPlayer = currentSceneData.player;
+
+  if (globalCharacter && activeScene) {
+    if (globalCharacter.model.parent !== activeScene) {
+      globalCharacter.model.parent?.remove(globalCharacter.model);
+      activeScene.add(globalCharacter.model);
+    }
+  }
+
+  orbitControls!.object = activeCamera!;
+  orbitControls!.enabled = false;
+  globalCharacter?.setFacing(currentPlayer!.getState().yaw);
+  updatePlayerView(0);
+
+  if (currentSceneData.setDoorTrigger) {
+    currentSceneData.setDoorTrigger((state: PlayerTransitionState) => { transitionBackToScene4(state); });
+  }
+  renderer.render(activeScene!, activeCamera!);
+  console.log('Scene 5 loaded - cafeteria');
+}
+
+function transitionToScene5(entryState: PlayerTransitionState) {
+  console.log('Transitioning to scene 5');
+  try { loadScene5(entryState); } catch (e) { console.error('Error loading scene 5:', e); }
+}
+
+function transitionBackToScene4(entryState: PlayerTransitionState) {
+  console.log('Returning to scene 4 from scene 5');
+  try { loadScene4(entryState, 'front'); } catch (e) { console.error('Error in transitionBackToScene4:', e); }
 }
 
 function updatePlayerView(dt: number) {
