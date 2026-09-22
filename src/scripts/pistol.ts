@@ -128,6 +128,15 @@ export class PistolController {
       ? (this.loaded ? 'K: holster | Left click: shoot' : 'Loading pistol...') : 'K: equip pistol';
   }
 
+  equip() {
+    this.context().holsterOther?.();
+    this.equipped = true;
+    this.cooldown = 0;
+    this.clearFeedback();
+    this.context().weaponAnimation?.setEquipped(this.loaded && !!this.context().player?.isEnabled());
+    this.updateStatus();
+  }
+
   holster() {
     this.equipped = false;
     this.context().weaponAnimation?.setEquipped(false);

@@ -24,12 +24,32 @@
     <div class="escape-hint">X: shoot · Y: crowbar · Z: dodge</div>
   </section>
   <section id="flight-hud" class="hidden" aria-label="Shuttle flight instruments">
-    <div id="flight-objective">REACH THE PLANET</div>
-    <div class="flight-readouts"><span id="flight-speed"></span><span id="flight-distance"></span></div>
-    <div>W/S: nose up/down · A/D: turn · Shift: boost · Space: brake</div>
-    <div>V: cockpit/chase view · R: face planet</div>
+    <div id="flight-objective">CLEAR THE INTERCEPTORS</div>
+    <div class="space-health-heading"><span>SHUTTLE HULL</span><span id="space-health-label">120 / 120</span></div>
+    <div id="space-health-track" role="progressbar" aria-label="Shuttle hull integrity" aria-valuemin="0" aria-valuemax="120" aria-valuenow="120"><div id="space-health-fill"></div></div>
+    <div id="flight-speed">AUTO THRUST / 200 m/s</div>
+    <div id="space-roll-status">SPACE / EVASIVE ROLL READY</div>
+    <div id="space-threat">WATCH FOR GREEN LASER FIRE</div>
   </section>
+  <aside id="flight-controls" class="hidden" aria-label="Space flight controls">
+    <div><kbd>WASD</kbd> dodge <span>/</span> <kbd>Mouse</kbd> aim</div>
+    <div><kbd>Hold LMB</kbd> fire <span>/</span> <kbd>Space</kbd> evade</div>
+    <div><kbd>V</kbd> view <span>/</span> <kbd>Esc</kbd> pause</div>
+  </aside>
+  <div id="space-alert" class="hidden" role="status" aria-live="polite"></div>
+  <div id="space-damage" class="hidden" aria-hidden="true"></div>
+  <section id="space-pause" class="hidden" aria-label="Flight status">
+    <div id="space-pause-title">FLIGHT PAUSED</div>
+    <div id="space-pause-hint">Click or Escape to resume</div>
+  </section>
+  <div id="space-cinematic-caption" class="hidden" role="status" aria-live="polite"></div>
   <div id="flight-target" class="hidden" aria-hidden="true">NEAREST PLANET</div>
+  <div id="space-crosshair" class="hidden" aria-hidden="true"></div>
+  <div id="space-enemy-count" class="hidden" aria-hidden="true"></div>
+  <section id="space-boss-hud" class="hidden" aria-label="Capital ship health">
+    <div id="space-boss-label">CAPITAL SHIP</div>
+    <div id="space-boss-track"><div id="space-boss-fill"></div></div>
+  </section>
   <div id="goggles-overlay" class="hidden" aria-hidden="true"></div>
   <div id="goggles-status" role="status" aria-live="polite"></div>
   <div id="crowbar-overlay" class="hidden" role="status" aria-live="polite">
@@ -79,6 +99,22 @@
   <!-- Skip button for scene one -->
   <button id="skip-btn" class="hidden">SKIP</button>
   
+  <div id="scene-menu-hint" class="hidden"><kbd>Enter</kbd> scenes</div>
+  <dialog id="scene-quick-menu" aria-labelledby="scene-menu-title" aria-describedby="scene-menu-description">
+    <header class="scene-menu-header">
+      <div>
+        <p class="scene-menu-eyebrow">GAME PAUSED</p>
+        <h1 id="scene-menu-title">Scene quick menu</h1>
+      </div>
+      <button id="scene-quick-close" type="button">Close <kbd>Esc</kbd></button>
+    </header>
+    <p id="scene-menu-description">Jump to any scene with full health, a crowbar, pistol, and goggles.</p>
+    <p class="scene-menu-gear"><kbd>T</kbd> crowbar · <kbd>K</kbd> pistol · <kbd>N</kbd> goggles</p>
+    <div id="scene-quick-list" role="group" aria-label="Choose a scene"></div>
+    <p id="scene-menu-error" role="alert"></p>
+    <footer class="scene-menu-footer">Arrow keys to select · Enter to load · Click a scene to jump<br>Scenes 1 and 16 play as cutscenes.</footer>
+  </dialog>
+
   <script type="module" src="./main.ts"></script>
 </body>
 </html>

@@ -15,7 +15,8 @@ import { createScene as createScene11 } from './scenes/scene11.js';
 import { createScene as createScene12, type PassageDestination } from './scenes/scene12.js';
 import { createScene as createScene13 } from './scenes/scene13.js';
 import { createScene as createScene14 } from './scenes/scene14.js';
-import { createScene as createScene15 } from './scenes/scene15.js';
+import { createScene as createScene15, type FlightExitState } from './scenes/scene15.js';
+import { createScene as createScene16 } from './scenes/scene16.js';
 import { loadCharacter } from './scripts/characterManager.js';
 import type { Player, PlayerTransitionState } from './scripts/player.js';
 import { PLAYER_MAX_HEALTH } from './scripts/player.js';
@@ -48,8 +49,25 @@ let activeCamera: THREE.PerspectiveCamera | null = null;
 let updatePhysics: ((dt: number, thirdPerson?: boolean) => void) | null = null;
 let cutsceneManager: any = null;
 let lastSplinePoint: THREE.Vector3 | null = null;
-let transitionTimer: ReturnType<typeof setTimeout> | null = null;
-let creditsTimer: ReturnType<typeof setTimeout> | null = null;
+let creditsTimer: number | null = null;
+let activeSceneId = 'scene1';
+let quickMenuOpen = false;
+let nextSceneActionId = 0;
+const pendingSceneActions = new Map<number, { remaining: number; run: () => void }>();
+
+// Scene delays advance with the game loop, so the scene menu freezes them too.
+function scheduleSceneAction(run: () => void, delayMs: number) {
+  const id = ++nextSceneActionId;
+  pendingSceneActions.set(id, { remaining: delayMs / 1000, run });
+  return id;
+}
+function advanceSceneActions(dt: number) {
+  for (const [id, action] of [...pendingSceneActions]) {
+    if (!pendingSceneActions.has(id)) continue;
+    action.remaining -= dt;
+    if (action.remaining <= 0) { pendingSceneActions.delete(id); action.run(); }
+  }
+}
 let scene1SkipVisible = false;
 let bayGravityRestored = false;
 let puzzleState: PuzzleState | undefined;
@@ -135,6 +153,7 @@ async function initializeApp() {
   loadScene1();
   initializeControls();
   setupViewToggle();
+  setupSceneQuickMenu();
 }
 
 // --- View toggle ---
@@ -158,6 +177,7 @@ function toggleView() {
 
 // --- Load Scene 1 ---
 function loadScene1() {
+  activeSceneId = 'scene1'; currentPlayer = null;
   currentSceneData = createScene1({ audioManager });
   scene1Data = currentSceneData;
   activeScene = currentSceneData.scene;
@@ -165,6 +185,8 @@ function loadScene1() {
   updatePhysics = currentSceneData.updatePhysics;
   cutsceneManager = currentSceneData.cutsceneManager;
   lastSplinePoint = currentSceneData.lastSplinePoint;
+  const introScene = currentSceneData;
+  if (orbitControls) { orbitControls.object = activeCamera!; orbitControls.enabled = false; }
 
   if (!currentSceneData.camera) {
     activeCamera!.position.set(5, 5, 5);
@@ -178,7 +200,7 @@ function loadScene1() {
     skipBtn.classList.remove('hidden');
 
     cutsceneManager.onStateChange = (state: string) => {
-      if (state === 'stopped' && lastSplinePoint) {
+      if (currentSceneData === introScene && state === 'stopped' && lastSplinePoint) {
         activeCamera!.position.copy(lastSplinePoint);
         orbitControls!.target.set(0, 15, 0);
         orbitControls!.enabled = true;
@@ -188,7 +210,8 @@ function loadScene1() {
       }
     };
 
-    skipBtn.addEventListener('click', () => {
+    skipBtn.onclick = () => {
+      if (currentSceneData !== introScene) return;
       scene1SkipVisible = false;
       skipBtn.classList.add('hidden');
       if (cutsceneManager) cutsceneManager.stop();
@@ -197,11 +220,11 @@ function loadScene1() {
         orbitControls!.target.set(0, 15, 0);
         orbitControls!.enabled = true;
       }
-      if (creditsTimer) { clearTimeout(creditsTimer); creditsTimer = null; }
+      if (creditsTimer) { pendingSceneActions.delete(creditsTimer); creditsTimer = null; }
       const creditsOverlay = document.getElementById('credits-overlay')!;
       creditsOverlay.classList.add('hidden');
       showMenuButtons();
-    });
+    };
   }
 }
 
@@ -209,7 +232,7 @@ function loadScene1() {
 function showCredits() {
   const creditsOverlay = document.getElementById('credits-overlay')!;
   creditsOverlay.classList.remove('hidden');
-  creditsTimer = setTimeout(() => {
+  creditsTimer = scheduleSceneAction(() => {
     creditsTimer = null;
     creditsOverlay.classList.add('hidden');
     showMenuButtons();
@@ -242,36 +265,36 @@ function transitionToScene2() {
   const zoomDuration = 1500;
   const startPos = activeCamera!.position.clone();
   const endPos = new THREE.Vector3(0, 15, 0);
-  const startTime = performance.now();
+  let elapsed = 0, zoomFinished = false;
+  const previousUpdate = updatePhysics;
 
-  function zoomAnimation() {
-    const elapsed = performance.now() - startTime;
+  updatePhysics = (dt: number) => {
+    previousUpdate?.(dt);
+    if (zoomFinished) return;
+    elapsed += dt * 1000;
     const progress = Math.min(elapsed / zoomDuration, 1);
     const eased = 1 - Math.pow(1 - progress, 3);
     activeCamera!.position.lerpVectors(startPos, endPos, eased);
     activeCamera!.lookAt(0, 15, 0);
-    if (progress < 1) {
-      requestAnimationFrame(zoomAnimation);
-    } else {
+    if (progress >= 1) {
+      zoomFinished = true;
       fadeOverlay.classList.add('active');
-      setTimeout(() => {
+      scheduleSceneAction(() => {
         try { loadScene2(); } catch (e) { console.error('Error loading scene 2:', e); }
         fadeOverlay.classList.remove('active');
-        setTimeout(() => { fadeOverlay.classList.add('hidden'); }, 1500);
+        scheduleSceneAction(() => { fadeOverlay.classList.add('hidden'); }, 1500);
       }, 1500);
     }
-  }
-  zoomAnimation();
+  };
 }
 
-function loadScene2() {
+function loadScene2(skipWake = false) {
   console.log('Loading scene 2...');
-  if (transitionTimer) { clearTimeout(transitionTimer); transitionTimer = null; }
 
   globalCharacter?.model.removeFromParent();
   if (currentSceneData === scene1Data) currentSceneData?.dispose?.();
   retireTraversalRoom();
-  const sceneData = createScene2({ audioManager });
+  const sceneData = createScene2({ audioManager, skipWake });
   enterManagedScene('scene2', sceneData);
   currentSceneData = sceneData;
   activeScene = currentSceneData.scene;
@@ -296,9 +319,8 @@ function loadScene2() {
   renderer.render(activeScene!, activeCamera!);
 }
 
-function loadScene3(entryState: PlayerTransitionState) {
+function loadScene3(entryState?: PlayerTransitionState) {
   console.log('Loading scene 3...');
-  if (transitionTimer) { clearTimeout(transitionTimer); transitionTimer = null; }
 
   const sceneData = createScene3({ audioManager, entryState, ...cargoAccess() });
   enterManagedScene('scene3', sceneData);
@@ -376,9 +398,8 @@ function transitionBackToScene2(entryState: PlayerTransitionState) {
   }
 }
 
-function loadScene4(entryState: PlayerTransitionState, entryDoor: 'back' | 'front' = 'back') {
+function loadScene4(entryState?: PlayerTransitionState, entryDoor: 'back' | 'front' = 'back') {
   console.log('Loading scene 4...');
-  if (transitionTimer) { clearTimeout(transitionTimer); transitionTimer = null; }
 
   const sceneData = createScene4({
     audioManager, entryState, entryDoor, cafeteriaUnlocked: hasCrowbar, chestOpened: hasCrowbar,
@@ -387,7 +408,7 @@ function loadScene4(entryState: PlayerTransitionState, entryDoor: 'back' | 'fron
       crowbar.equip();
       const overlay = document.getElementById('crowbar-overlay');
       overlay?.classList.remove('hidden');
-      window.setTimeout(() => overlay?.classList.add('hidden'), 4500);
+      scheduleSceneAction(() => overlay?.classList.add('hidden'), 4500);
     },
   });
   enterManagedScene('scene4', sceneData);
@@ -430,10 +451,9 @@ function transitionToScene4() {
   }
 }
 
-function loadScene7(entryState: PlayerTransitionState) {
+function loadScene7(entryState?: PlayerTransitionState) {
   console.log('Loading scene 7 - cafeteria...');
   document.getElementById('skip-btn')?.classList.add('hidden');
-  if (transitionTimer) { clearTimeout(transitionTimer); transitionTimer = null; }
   const sceneData = createScene7({ entryState, ...ladderAccess() });
   enterManagedScene('scene7', sceneData);
   currentSceneData = sceneData;
@@ -478,6 +498,7 @@ function hideScene1Skip() {
 function enterManagedScene(id: string, sceneData: any) {
   globalCharacter?.model.removeFromParent();
   npcManager.enterScene(id, sceneData);
+  activeSceneId = id;
 }
 
 function retireTraversalRoom() {
@@ -495,12 +516,12 @@ function fadeTraversal(complete: () => void) {
   fade.classList.add('black');
   void fade.clientWidth;
   fade.classList.add('active');
-  window.setTimeout(() => {
+  scheduleSceneAction(() => {
     retireTraversalRoom();
     complete();
-    window.setTimeout(() => {
+    scheduleSceneAction(() => {
       fade.classList.remove('active');
-      window.setTimeout(() => { fade.classList.remove('black'); fade.classList.add('hidden'); }, 300);
+      scheduleSceneAction(() => { fade.classList.remove('black'); fade.classList.add('hidden'); }, 300);
     }, 120);
   }, 300);
 }
@@ -576,7 +597,7 @@ function loadExtensionRoom(id: 10 | 11 | 13, entryState?: PlayerTransitionState,
   sceneData.setBackTrigger(state => loadPassage12(state, id));
 }
 
-function loadHangar14(entryState: PlayerTransitionState) {
+function loadHangar14(entryState?: PlayerTransitionState) {
   bayBossDefeated = true;
   hideScene1Skip(); retireTraversalRoom();
   const sceneData = createScene14({
@@ -585,15 +606,25 @@ function loadHangar14(entryState: PlayerTransitionState) {
       // A fresh living player, with session inventory and the boss defeat preserved.
       loadExtensionRoom(13, undefined, false, true);
     },
-    onLaunch: state => {
-      retireTraversalRoom();
-      activateExtension(createScene15({ entryState: state }), 'scene15');
-    },
+    onLaunch: loadFlight15,
   });
   activateExtension(sceneData, 'scene14');
 }
 
-function loadPassage12(entryState: PlayerTransitionState, from: PassageDestination) {
+function loadFlight15(entryState?: PlayerTransitionState) {
+  hideScene1Skip(); retireTraversalRoom();
+  activateExtension(createScene15({ entryState, onTransition: loadCrash16 }), 'scene15');
+}
+
+function loadCrash16(entryState?: FlightExitState) {
+  hideScene1Skip(); retireTraversalRoom();
+  activateExtension(createScene16({
+    entryState,
+    onFinished: () => document.getElementById('credits-overlay')?.classList.remove('hidden'),
+  }), 'scene16');
+}
+
+function loadPassage12(entryState?: PlayerTransitionState, from: PassageDestination = 10) {
   retireTraversalRoom();
   const sceneData = createScene12({ entryState, from });
   activateExtension(sceneData, 'scene12');
@@ -646,7 +677,7 @@ function transitionBackToScene3(entryState: PlayerTransitionState) {
   }
 }
 
-function loadScene5(entryState: PlayerTransitionState) {
+function loadScene5(entryState?: PlayerTransitionState) {
   console.log('Loading scene 5...');
   hideScene1Skip();
 
@@ -726,9 +757,8 @@ function transitionBackToScene3FromLeft(entryState: PlayerTransitionState) {
   }
 }
 
-function loadScene6(entryState: PlayerTransitionState) {
+function loadScene6(entryState?: PlayerTransitionState) {
   console.log('Loading scene 6...');
-  if (transitionTimer) { clearTimeout(transitionTimer); transitionTimer = null; }
 
   const sceneData = createScene6({ audioManager, entryState, gogglesCollected: goggles.isCollected(), onGogglesCollected: () => goggles.collect() });
   enterManagedScene('scene6', sceneData);
@@ -848,6 +878,124 @@ function updatePlayerView(dt: number) {
   }
 }
 
+// --- Direct scene selection ---
+const SCENE_CHOICES = [
+  [1, 'Space prologue'], [2, 'Medical bay'], [3, 'Passageway'], [4, 'Computer room'],
+  [5, 'Cargo hold'], [6, 'Target range'], [7, 'Cafeteria'], [8, 'Vent junction'],
+  [9, 'Zero-gravity loading bay'], [10, 'Cargo transfer puzzle'], [11, 'Empty compartment'],
+  [12, 'Transfer passage'], [13, 'Bay Warden boss'], [14, 'Hangar escape'],
+  [15, 'Space combat'], [16, 'Pod crash cutscene'],
+] as const;
+const quickMenu = document.getElementById('scene-quick-menu') as HTMLDialogElement;
+
+function clearSceneInput() {
+  currentPlayer?.clearInput();
+  currentSceneData?.clearInput?.();
+}
+function setQuickMenu(open: boolean) {
+  if (open === quickMenuOpen) return;
+  quickMenuOpen = open;
+  clearSceneInput();
+  document.body.classList.toggle('quick-menu-open', open);
+  if (open) {
+    if (document.pointerLockElement) document.exitPointerLock();
+    quickMenu.showModal();
+    const buttons = quickMenu.querySelectorAll<HTMLButtonElement>('[data-scene]');
+    buttons.forEach(button => button.setAttribute('aria-current', String(`scene${button.dataset.scene}` === activeSceneId)));
+    const current = quickMenu.querySelector<HTMLButtonElement>('[aria-current="true"]') ?? buttons[0];
+    current?.focus(); current?.scrollIntoView({ block: 'nearest' });
+  } else {
+    quickMenu.close();
+    renderer.domElement.focus();
+  }
+}
+function jumpToScene(id: number) {
+  if (!SCENE_CHOICES.some(([scene]) => scene === id)) return;
+  pendingSceneActions.clear(); creditsTimer = null;
+  clearSceneInput();
+  // Detach persistent gear before the outgoing scene disposes its meshes.
+  pistol.holster(); crowbar.holster(); pistol.update(0); crowbar.update(0);
+  globalCharacter?.model.removeFromParent();
+  if (currentSceneData === scene1Data) { currentSceneData?.dispose?.(); scene1Data = null; }
+  retireTraversalRoom();
+  currentSceneData = null; currentPlayer = null; activeScene = null; activeCamera = null;
+  updatePhysics = null; cutsceneManager = null; traversalState = undefined; lastSplinePoint = null;
+  hideScene1Skip();
+  for (const overlay of ['credits-overlay', 'menu-buttons', 'crowbar-overlay', 'boss-hud', 'boss-subtitles', 'escape-qte', 'loading-bay-status', 'space-cinematic-caption']) document.getElementById(overlay)?.classList.add('hidden');
+  const fade = document.getElementById('fade-overlay'); fade?.classList.remove('active', 'black'); fade?.classList.add('hidden');
+  hasCrowbar = true; goggles.collect();
+  if (id === 9) bayGravityRestored = false;
+  if (id === 10) puzzleState = undefined;
+  if (id === 13) bayBossDefeated = false;
+  try {
+    switch (id) {
+      case 1: loadScene1(); break;
+      case 2: loadScene2(true); break;
+      case 3: loadScene3(); break;
+      case 4: loadScene4(); break;
+      case 5: loadScene5(); break;
+      case 6: loadScene6(); break;
+      case 7: loadScene7(); break;
+      case 8: loadScene8(); break;
+      case 9: loadScene9(); break;
+      case 10: case 11: case 13: loadExtensionRoom(id); break;
+      case 12: loadPassage12(); break;
+      case 14: loadHangar14(); break;
+      case 15: loadFlight15(); break;
+      case 16: loadCrash16(); break;
+    }
+    const spawnedPlayer = currentSceneData?.player as Player | undefined;
+    spawnedPlayer?.heal(PLAYER_MAX_HEALTH);
+    pistol.equip(); goggles.update(); updatePlayerView(0);
+    document.getElementById('scene-menu-error')!.textContent = '';
+    setQuickMenu(false);
+  } catch (error) {
+    console.error('Scene jump failed:', error);
+    document.getElementById('scene-menu-error')!.textContent = 'Unable to load that scene. Choose another scene to continue.';
+  }
+}
+function setupSceneQuickMenu() {
+  renderer.domElement.tabIndex = -1;
+  const list = document.getElementById('scene-quick-list')!;
+  for (const [id, label] of SCENE_CHOICES) {
+    const button = document.createElement('button'); button.type = 'button'; button.dataset.scene = String(id);
+    button.textContent = `${String(id).padStart(2, '0')} / ${label}`; list.appendChild(button);
+  }
+  quickMenu.addEventListener('click', event => {
+    event.stopPropagation();
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
+    if (button?.dataset.scene) jumpToScene(Number(button.dataset.scene));
+    else if (button?.id === 'scene-quick-close') setQuickMenu(false);
+  });
+  quickMenu.addEventListener('cancel', event => { event.preventDefault(); setQuickMenu(false); });
+  quickMenu.addEventListener('close', () => { if (quickMenuOpen) setQuickMenu(false); });
+  window.addEventListener('keydown', event => {
+    const enter = event.code === 'Enter' || event.code === 'NumpadEnter';
+    if (!quickMenuOpen) {
+      if (!enter || event.repeat || (event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable="true"]'))) return;
+      event.preventDefault(); event.stopImmediatePropagation(); setQuickMenu(true); return;
+    }
+    event.stopImmediatePropagation();
+    if (event.code === 'Tab') return;
+    event.preventDefault();
+    if (event.code === 'Escape') { setQuickMenu(false); return; }
+    const buttons = Array.from(quickMenu.querySelectorAll<HTMLButtonElement>('[data-scene]'));
+    const focused = document.activeElement as HTMLButtonElement | null;
+    if (enter && !event.repeat) {
+      if (focused?.dataset.scene) jumpToScene(Number(focused.dataset.scene)); else setQuickMenu(false);
+    } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.code)) {
+      const index = Math.max(0, buttons.indexOf(focused!));
+      const next = event.code === 'Home' ? 0 : event.code === 'End' ? buttons.length - 1 : (index + (event.code === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+      buttons[next].focus(); buttons[next].scrollIntoView({ block: 'nearest' });
+    }
+  }, true);
+  // Capture before scene input handlers; native dialog scrolling/focus still works.
+  for (const type of ['keyup', 'mousedown', 'mouseup', 'mousemove', 'pointerdown', 'pointerup', 'wheel']) {
+    window.addEventListener(type, event => { if (quickMenuOpen) event.stopImmediatePropagation(); }, true);
+  }
+  document.getElementById('scene-menu-hint')?.classList.remove('hidden');
+}
+
 // --- Start ---
 initializeApp();
 
@@ -880,6 +1028,11 @@ function respawnAtCapsule() {
 function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
+  if (quickMenuOpen) {
+    if (activeScene && activeCamera) renderer.render(activeScene, activeCamera);
+    return;
+  }
+  advanceSceneActions(Math.min(delta, 0.1));
   if (!scene1SkipVisible) document.getElementById('skip-btn')?.classList.add('hidden');
 
   // FPS counter

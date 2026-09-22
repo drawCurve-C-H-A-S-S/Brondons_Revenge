@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { CutsceneManager } from '../helpers/animation/CutsceneManager.js';
+import { disposeRoom } from '../helpers/scene/shipRoom.js';
 import comicVert from '../shaders/comic.vert.glsl?raw';
 import comicFrag from '../shaders/comic.frag.glsl?raw';
 
@@ -271,5 +272,10 @@ export function createScene({ audioManager }: { audioManager?: unknown } = {}) {
     updatePhysics,
     cutsceneManager,
     lastSplinePoint,
+    dispose() {
+      cutsceneManager.onStateChange = undefined;
+      cutsceneManager.clear();
+      disposeRoom(scene);
+    },
   };
 }

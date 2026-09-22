@@ -445,6 +445,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     updateCamera,
     captureTransition,
     restoreTransition,
+    clearInput,
     dispose,
     enable: () => {
       isPointerLocked = document.pointerLockElement != null;

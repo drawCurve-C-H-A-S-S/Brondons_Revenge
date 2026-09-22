@@ -12,7 +12,8 @@ export function createEscapeShip() {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), mat); mesh.position.set(...p); mesh.castShadow = true; mesh.receiveShadow = true; root.add(mesh); return mesh;
   }
   box([2.8, 1, 6.5], [0, 0.9, 0], hull);
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(1.5, 2.5, 4), hull); nose.rotation.set(-Math.PI / 2, 0, Math.PI / 4); nose.position.set(0, 0.9, -4); root.add(nose);
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(1.45, 3.2, 16), hull); nose.rotation.x = -Math.PI / 2; nose.position.set(0, 0.9, -4.85); root.add(nose);
+  const noseCap = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 6), orange); noseCap.position.set(0, 0.9, -6.5); root.add(noseCap);
   const canopy = box([2.3, 1.55, 2.8], [0, 1.95, -0.4], glass); canopy.name = 'ShuttleCanopy';
   for (const x of [-1.18, 1.18]) {
     box([0.1, 1.6, 0.1], [x, 1.95, -1.85], dark); box([0.1, 0.1, 2.9], [x, 2.7, -0.4], dark);
@@ -33,6 +34,18 @@ export function createEscapeShip() {
     setThrust(amount: number) { thrusters.forEach((t, i) => { t.visible = amount > 0; t.scale.y = 0.45 + amount * (1 + Math.sin(amount * 17 + i) * 0.08); }); },
     setFlying(active: boolean) { gear.forEach(g => { g.visible = !active; }); },
   };
+}
+
+/** Shared pod keeps the boss ejection and planetary pursuit visually continuous. */
+export function createEscapePod() {
+  const root = new THREE.Group(); root.name = 'EscapePod';
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(1.2, 2.8, 8, 12), new THREE.MeshStandardMaterial({ color: 0x8a7a6a, metalness: 0.6, roughness: 0.4 }));
+  body.rotation.x = Math.PI / 2; root.add(body);
+  const window = new THREE.Mesh(new THREE.SphereGeometry(0.6, 12, 8), new THREE.MeshBasicMaterial({ color: 0x7fe6ff }));
+  window.position.set(0, 0.8, -1); window.scale.y = 0.4; root.add(window);
+  const trail = new THREE.Mesh(new THREE.ConeGeometry(0.8, 7, 12), new THREE.MeshBasicMaterial({ color: 0xff8833, transparent: true, opacity: 0.85, depthWrite: false }));
+  trail.rotation.x = -Math.PI / 2; trail.position.z = 5; trail.name = 'PodTrail'; root.add(trail);
+  return root;
 }
 
 export function addPlanetBackdrop(scene: THREE.Scene, position: THREE.Vector3, radius: number, starRadius: number) {

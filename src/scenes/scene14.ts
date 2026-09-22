@@ -282,6 +282,7 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
       } else gun?.removeFromParent();
     },
     applyCinematicCamera: cameraView,
+    clearInput: () => pressed.clear(),
     onPlayerDeath() { fail(); return true; },
     getEscapeStatus: () => ({ phase, stage, expected, timeLeft, loaded, paused, clock, shot, impact }),
     updatePhysics(dt: number, thirdPerson = false) {
