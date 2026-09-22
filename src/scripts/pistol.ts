@@ -3,9 +3,11 @@ import * as CANNON from 'cannon-es';
 import { loadToolModel } from '../core/loader.js';
 import type { Player } from './player.js';
 
+export type DamageWeapon = 'pistol' | 'crowbar';
 export interface DamageTarget {
   root: THREE.Object3D;
-  damage(amount: number): boolean;
+  body?: CANNON.Body;
+  damage(amount: number, weapon?: DamageWeapon): boolean;
 }
 interface WeaponContext {
   scene: THREE.Scene | null;
@@ -37,7 +39,7 @@ export function traceShot(scene: THREE.Scene, world: CANNON.World | null, ray: T
   scene.updateMatrixWorld(true);
   const raycaster = new THREE.Raycaster(ray.origin, ray.direction, 0, range);
   const hits = raycaster.intersectObjects(scene.children, true).filter(hit => {
-    if (!visible(hit.object) || ignored.some(root => belongsTo(hit.object, root))) return false;
+    if (!visible(hit.object) || hit.object.name === 'BreakableDebris' || ignored.some(root => belongsTo(hit.object, root))) return false;
     if (!(hit.object instanceof THREE.Mesh)) return false;
     const materials = Array.isArray(hit.object.material) ? hit.object.material : [hit.object.material];
     return materials.some(material => material.visible && (!material.transparent || material.opacity >= 0.5));
@@ -49,7 +51,7 @@ export function traceShot(scene: THREE.Scene, world: CANNON.World | null, ray: T
   world?.raycastAll(new CANNON.Vec3(ray.origin.x, ray.origin.y, ray.origin.z),
     new CANNON.Vec3(ray.origin.x + ray.direction.x * range, ray.origin.y + ray.direction.y * range, ray.origin.z + ray.direction.z * range),
     { skipBackfaces: false, checkCollisionResponse: true }, hit => {
-      if (hit.body?.type === CANNON.Body.STATIC && hit.distance < distance - 0.001) {
+      if (hit.body?.type === CANNON.Body.STATIC && hit.body !== target?.body && hit.distance < distance - 0.001) {
         distance = hit.distance;
         target = undefined;
       }
@@ -134,7 +136,7 @@ export class PistolController {
 
   shoot() {
     const { scene, camera, world, player, character, targets, weaponAnimation } = this.context();
-    if (!this.equipped || !this.loaded || this.cooldown > 0 || !player?.isEnabled() || !scene || !camera) return false;
+    if (!this.equipped || !this.loaded || this.cooldown > 0 || !player?.isEnabled() || player.getState().climbing || player.getState().ventMode || player.getState().boxHandling || !scene || !camera) return false;
     this.update(0);
     camera.updateMatrixWorld(true);
     const aim = new THREE.Raycaster();
@@ -145,7 +147,7 @@ export class PistolController {
     const origin = this.flash.getWorldPosition(new THREE.Vector3());
     const direction = sight.point.clone().sub(origin);
     const shot = traceShot(scene, world, new THREE.Ray(origin, direction.clone().normalize()), targets, ignored, direction.length() + 0.05);
-    const hit = shot.target?.damage(25) ?? false;
+    const hit = shot.target?.damage(25, 'pistol') ?? false;
     weaponAnimation?.shoot();
     this.cooldown = 0.2;
     this.recoil = 0.1;
@@ -178,7 +180,7 @@ export class PistolController {
     this.beamLife = Math.max(0, this.beamLife - frame);
     this.beam.visible = this.beamLife > 0;
     const { scene, camera, player, thirdPerson, weaponAnimation } = this.context();
-    this.root.visible = this.loaded && this.equipped && !!player?.isEnabled();
+    this.root.visible = this.loaded && this.equipped && !!player?.isEnabled() && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling;
     weaponAnimation?.setEquipped(this.root.visible);
     if (!scene || !camera || !this.root.visible) { this.root.removeFromParent(); this.beam.removeFromParent(); return; }
     camera.updateMatrixWorld(true);

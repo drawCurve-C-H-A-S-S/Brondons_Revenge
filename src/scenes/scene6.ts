@@ -8,9 +8,12 @@ import comicVert from '../shaders/comic.vert.glsl?raw';
 import comicFrag from '../shaders/comic.frag.glsl?raw';
 import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
 import { createScenePhysics, PHYSICS, hasNearbyActor } from '../helpers/physics/scenePhysics.js';
+import { createBreakables } from '../scripts/breakables.js';
+import { createRewardChest } from '../scripts/rewardChest.js';
 
-export function createScene({ audioManager, entryState }: {
+export function createScene({ audioManager, entryState, gogglesCollected = false, onGogglesCollected }: {
   audioManager?: unknown; entryState?: PlayerTransitionState;
+  gogglesCollected?: boolean; onGogglesCollected?: () => void;
 } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x100a0a);
@@ -198,6 +201,12 @@ export function createScene({ audioManager, entryState }: {
   pipe.position.set(-roomWidth / 2 + 0.1, 3.2, 0);
   scene.add(pipe);
 
+  const breakables = createBreakables(scene, physicsWorld);
+  for (const side of [-1, 1]) {
+    for (const z of [-0.5, 3.4]) breakables.add(`WallTarget${side}_${z}`, 'pistol', new THREE.Vector3(side * 4.7, 1.8, z), new THREE.Vector3(0.18, 0.85, 0.85));
+    breakables.add(`EndTarget${side}`, 'pistol', new THREE.Vector3(side * 1.7, 2.1, 4.7), new THREE.Vector3(0.85, 0.85, 0.18));
+  }
+
   // --- Camera ---
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
 
@@ -215,6 +224,10 @@ export function createScene({ audioManager, entryState }: {
     doorBack.seam.visible = false;
   }
 
+  const chest = gogglesCollected ? null : createRewardChest({ scene, world: physicsWorld, player,
+    position: new THREE.Vector3(0, 0, 3.7), reward: 'goggles', unlocked: () => breakables.remaining() === 0,
+    removeOnCollect: true, onCollect: () => { onGogglesCollected?.(); return true; } });
+
   // --- Door trigger callback ---
   let onBackTrigger: ((state: PlayerTransitionState) => void) | null = null;
   let backCooldown = false;
@@ -223,6 +236,7 @@ export function createScene({ audioManager, entryState }: {
   function updatePhysics(dt: number, thirdPerson: boolean = false) {
     dt = Number.isFinite(dt) ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime)) : 0;
     physics.step(dt, player, thirdPerson);
+    breakables.update(dt); chest?.update(dt);
 
     const px = player.body.position.x;
     const pz = player.body.position.z;
@@ -251,7 +265,8 @@ export function createScene({ audioManager, entryState }: {
     scene, camera, physicsWorld, updatePhysics,
     cutsceneManager: null,
     player,
-    setBackTrigger,
-    dispose: () => { player.dispose(); physics.dispose(); },
+    setBackTrigger, breakables, chest, getDamageTargets: breakables.getDamageTargets,
+    setGogglesActive: breakables.setHighlighted,
+    dispose: () => { chest?.dispose(); breakables.dispose(); player.dispose(); physics.dispose(); },
   };
 }

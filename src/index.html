@@ -9,6 +9,29 @@
 <body>
   <div id="crosshair" aria-hidden="true"></div>
   <div id="interact-prompt" class="hidden">Press E to open chest</div>
+  <div id="loading-bay-status" class="hidden" role="status" aria-live="polite"></div>
+  <section id="boss-hud" class="hidden" aria-label="Bay Warden health">
+    <div id="boss-health-label">BAY WARDEN</div>
+    <div id="boss-health-track"><div id="boss-health-fill"></div></div>
+    <div id="boss-phase"></div>
+  </section>
+  <div id="boss-subtitles" class="hidden" role="status" aria-live="polite"></div>
+  <section id="escape-qte" class="hidden" role="status" aria-live="assertive" aria-label="Timed escape action">
+    <div class="escape-caption">PRESS THE DISPLAYED KEY</div>
+    <kbd id="escape-key">X</kbd>
+    <div id="escape-timer-track"><div id="escape-timer-fill"></div></div>
+    <div id="escape-action"></div>
+    <div class="escape-hint">X: shoot · Y: crowbar · Z: dodge</div>
+  </section>
+  <section id="flight-hud" class="hidden" aria-label="Shuttle flight instruments">
+    <div id="flight-objective">REACH THE PLANET</div>
+    <div class="flight-readouts"><span id="flight-speed"></span><span id="flight-distance"></span></div>
+    <div>W/S: nose up/down · A/D: turn · Shift: boost · Space: brake</div>
+    <div>V: cockpit/chase view · R: face planet</div>
+  </section>
+  <div id="flight-target" class="hidden" aria-hidden="true">NEAREST PLANET</div>
+  <div id="goggles-overlay" class="hidden" aria-hidden="true"></div>
+  <div id="goggles-status" role="status" aria-live="polite"></div>
   <div id="crowbar-overlay" class="hidden" role="status" aria-live="polite">
     <div class="crowbar-overlay-title">CROWBAR ACQUIRED</div>
     <div>Swing it to damage enemies, break things, and open stuck doors.</div>

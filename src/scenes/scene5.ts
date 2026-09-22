@@ -8,6 +8,8 @@ import comicVert from '../shaders/comic.vert.glsl?raw';
 import comicFrag from '../shaders/comic.frag.glsl?raw';
 import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
 import { createScenePhysics, PHYSICS, hasNearbyActor } from '../helpers/physics/scenePhysics.js';
+import { createBreakables } from '../scripts/breakables.js';
+import { createRewardChest } from '../scripts/rewardChest.js';
 
 export function createScene({ audioManager, entryState }: {
   audioManager?: unknown; entryState?: PlayerTransitionState;
@@ -67,7 +69,6 @@ export function createScene({ audioManager, entryState }: {
       },
     });
   }
-  const crateMat = makeComicMaterial(0x8a6a3a);
   const pipeMat = makeComicMaterial(0x4a554a);
 
   // --- Floor / ceiling ---
@@ -179,20 +180,13 @@ export function createScene({ audioManager, entryState }: {
     scene.add(light);
   }
 
-  // --- Cargo crates ---
+  const breakables = createBreakables(scene, physicsWorld);
+  // The chest sits inside a stack; clearing it is repeated on each room visit.
   const cratePositions = [
-    { x: -3, z: -1, s: 1 }, { x: -3, z: 0.2, s: 0.8 }, { x: 3, z: 1, s: 1.1 }, { x: 2.2, z: 2, s: 0.7 },
+    [-0.8, 0.6, 1.8], [0.8, 0.6, 1.8], [-0.8, 0.6, 3.6], [0.8, 0.6, 3.6],
+    [-0.8, 1.8, 2.7], [0.8, 1.8, 2.7], [-3, 0.6, -0.5], [3, 0.6, 0.5],
   ];
-  for (const cp of cratePositions) {
-    const crate = new THREE.Mesh(new THREE.BoxGeometry(cp.s, cp.s, cp.s), crateMat);
-    crate.position.set(cp.x, cp.s / 2, cp.z);
-    crate.castShadow = true;
-    scene.add(crate);
-    const body = new CANNON.Body({ mass: 0, material: floorPhysMat });
-    body.addShape(new CANNON.Box(new CANNON.Vec3(cp.s / 2, cp.s / 2, cp.s / 2)));
-    body.position.set(cp.x, cp.s / 2, cp.z);
-    physicsWorld.addBody(body);
-  }
+  cratePositions.forEach(([x, y, z], i) => breakables.add(`CargoCrate${i}`, 'crowbar', new THREE.Vector3(x, y, z), new THREE.Vector3(1.5, 1.2, 1.2)));
 
   // --- Wall pipes ---
   const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, roomDepth - 1, 8), pipeMat);
@@ -217,6 +211,10 @@ export function createScene({ audioManager, entryState }: {
     doorBack.seam.visible = false;
   }
 
+  const chest = createRewardChest({ scene, world: physicsWorld, player, position: new THREE.Vector3(0, 0, 2.7),
+    reward: 'health', unlocked: () => breakables.objects.slice(0, 6).every(item => item.broken),
+    onCollect: () => player.heal(15) });
+
   // --- Door trigger callback ---
   let onBackTrigger: ((state: PlayerTransitionState) => void) | null = null;
   let backCooldown = false;
@@ -225,6 +223,7 @@ export function createScene({ audioManager, entryState }: {
   function updatePhysics(dt: number, thirdPerson: boolean = false) {
     dt = Number.isFinite(dt) ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime)) : 0;
     physics.step(dt, player, thirdPerson);
+    breakables.update(dt); chest.update(dt);
 
     const px = player.body.position.x;
     const pz = player.body.position.z;
@@ -253,7 +252,8 @@ export function createScene({ audioManager, entryState }: {
     scene, camera, physicsWorld, updatePhysics,
     cutsceneManager: null,
     player,
-    setBackTrigger,
-    dispose: () => { player.dispose(); physics.dispose(); },
+    setBackTrigger, breakables, chest, getDamageTargets: breakables.getDamageTargets,
+    setGogglesActive: breakables.setHighlighted,
+    dispose: () => { chest.dispose(); breakables.dispose(); player.dispose(); physics.dispose(); },
   };
 }

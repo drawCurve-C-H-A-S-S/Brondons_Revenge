@@ -18,3 +18,11 @@ export const CONFIG = {
   FOG_NEAR: 10,
   FOG_FAR: 50,
 } as const;
+
+export const LADDER = {
+  rungSpacing: 0.38,
+  cycleDuration: 0.9,
+  climbSpeed: (2 * 0.38) / 0.9,
+  bodyOffset: 0.42,
+  mountDuration: 0.25,
+} as const;

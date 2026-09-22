@@ -8,8 +8,9 @@ import comicFrag from '../shaders/comic.frag.glsl?raw';
 import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
 import { createScenePhysics, PHYSICS, hasNearbyActor } from '../helpers/physics/scenePhysics.js';
 
-export function createScene({ audioManager, entryState, entryDoor }: {
+export function createScene({ audioManager, entryState, entryDoor, hasCrowbar = false, cargoDoorUnlocked = false, onCargoDoorOpened }: {
   audioManager?: unknown; entryState?: PlayerTransitionState; entryDoor?: 'front' | 'back' | 'left' | 'right';
+  hasCrowbar?: boolean; cargoDoorUnlocked?: boolean; onCargoDoorOpened?: () => void;
 } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0a10);
@@ -127,7 +128,7 @@ export function createScene({ audioManager, entryState, entryDoor }: {
   // --- Walls ---
   const doorW = 3, doorH = 3.5;
   const makeWall = (w: number, h: number, pos: THREE.Vector3, rotY: number) => {
-    const wall = new THREE.Mesh(new THREE.PlaneGeometry(w, h), wallMat);
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.3), wallMat);
     wall.position.copy(pos);
     wall.rotation.y = rotY;
     wall.receiveShadow = true;
@@ -266,10 +267,13 @@ export function createScene({ audioManager, entryState, entryDoor }: {
     open: number;
     targetOpen: number;
     x: number;
+    bodyL: CANNON.Body;
+    bodyR: CANNON.Body;
   }
 
   function createSideDoor(x: number, faceX: number): SideDoorState {
-    const doorX = x + faceX * 0.15;
+    // Panels slide inside the wall thickness, occluded by its actual surfaces.
+    const doorX = x;
     const panelL = new THREE.Mesh(new THREE.BoxGeometry(doorPanelD, doorH, doorPanelW), doorComicMat);
     const panelR = new THREE.Mesh(new THREE.BoxGeometry(doorPanelD, doorH, doorPanelW), doorComicMat);
     panelL.position.set(doorX, doorH / 2, -doorPanelW / 2);
@@ -289,7 +293,13 @@ export function createScene({ audioManager, entryState, entryDoor }: {
     const sLight = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), sLightMat);
     sLight.position.set(x + faceX * 0.02, doorH + 0.2, 0);
     scene.add(sLight);
-    return { panelL, panelR, seam, sLightMat, open: 0, targetOpen: 0, x: doorX };
+    const bodies = [panelL, panelR].map(panel => {
+      const body = new CANNON.Body({ mass: 0, material: floorPhysMat });
+      body.addShape(new CANNON.Box(new CANNON.Vec3(doorPanelD / 2, doorH / 2, doorPanelW / 2)));
+      body.position.set(panel.position.x, panel.position.y, panel.position.z); physicsWorld.addBody(body);
+      return body;
+    });
+    return { panelL, panelR, seam, sLightMat, open: 0, targetOpen: 0, x: doorX, bodyL: bodies[0], bodyR: bodies[1] };
   }
 
   const doorLeft = createSideDoor(-roomWidth / 2, 1);
@@ -391,7 +401,7 @@ export function createScene({ audioManager, entryState, entryDoor }: {
       doorBack.panelL.position.x = -doorPanelW / 2 - doorSlideDistance;
       doorBack.panelR.position.x = doorPanelW / 2 + doorSlideDistance;
       doorBack.seam.visible = false;
-    } else if (entryDoor === 'left') {
+    } else if (entryDoor === 'left' && cargoDoorUnlocked) {
       doorLeft.open = doorLeft.targetOpen = 1;
       doorLeft.panelL.position.z = -doorPanelW / 2 - doorSlideDistance;
       doorLeft.panelR.position.z = doorPanelW / 2 + doorSlideDistance;
@@ -408,6 +418,29 @@ export function createScene({ audioManager, entryState, entryDoor }: {
       doorFront.seam.visible = false;
     }
   }
+
+  function syncSideDoor(door: SideDoorState) {
+    for (const [body, panel] of [[door.bodyL, door.panelL], [door.bodyR, door.panelR]] as const) {
+      body.position.set(panel.position.x, panel.position.y, panel.position.z); body.aabbNeedsUpdate = true;
+    }
+  }
+  syncSideDoor(doorLeft); syncSideDoor(doorRight);
+  const prompt = document.getElementById('interact-prompt');
+  let stuckMessageTime = 0, ownsPrompt = false;
+  const nearCargoDoor = () => Math.hypot(player.body.position.x + roomWidth / 2, player.body.position.z) < 2.1 && player.body.position.y < 1.5;
+  function hitCargoDoor() {
+    if (!hasCrowbar || cargoDoorUnlocked || !player.isEnabled() || !nearCargoDoor()) return false;
+    const towardDoor = -Math.sin(player.getState().yaw);
+    if (towardDoor > -0.4) return false;
+    cargoDoorUnlocked = true; onCargoDoorOpened?.();
+    prompt?.classList.add('hidden'); ownsPrompt = false;
+    return true;
+  }
+  function onInteract(event: KeyboardEvent) {
+    if (event.code !== 'KeyE' || event.repeat || !player.isEnabled() || cargoDoorUnlocked || !nearCargoDoor()) return;
+    event.preventDefault(); stuckMessageTime = 3.5;
+  }
+  window.addEventListener('keydown', onInteract);
 
   // --- Door trigger callbacks ---
   let onBackTrigger: ((state: PlayerTransitionState) => void) | null = null;
@@ -481,7 +514,8 @@ export function createScene({ audioManager, entryState, entryDoor }: {
 
     for (const door of [doorLeft, doorRight]) {
       const dist = Math.sqrt((px - door.x) * (px - door.x) + pz * pz);
-      const near = (dist < doorSensorRange && inDoorZ) || hasNearbyActor(physicsWorld, door.x, 0, doorSensorRange);
+      const unlocked = door !== doorLeft || cargoDoorUnlocked;
+      const near = unlocked && ((dist < doorSensorRange && inDoorZ) || hasNearbyActor(physicsWorld, door.x, 0, doorSensorRange));
       door.targetOpen = near ? 1 : 0;
       if (near) {
         door.sLightMat.color.setHex(0x00ff44);
@@ -497,9 +531,14 @@ export function createScene({ audioManager, entryState, entryDoor }: {
       door.panelL.position.z = -doorPanelW / 2 - slideOffset;
       door.panelR.position.z = doorPanelW / 2 + slideOffset;
       door.seam.visible = door.open < 0.1;
-      door.panelL.visible = door.open < 0.97;
-      door.panelR.visible = door.open < 0.97;
+      syncSideDoor(door);
     }
+    stuckMessageTime = Math.max(0, stuckMessageTime - dt);
+    if (player.isEnabled() && !cargoDoorUnlocked && nearCargoDoor() && prompt) {
+      prompt.textContent = stuckMessageTime > 0 ? 'Hmm, it seems this door is stuck. I need a crowbar.'
+        : hasCrowbar ? 'T: equip crowbar · Swing at the door to pry it open' : 'Press E to interact';
+      prompt.classList.remove('hidden'); ownsPrompt = true;
+    } else if (ownsPrompt) { prompt?.classList.add('hidden'); ownsPrompt = false; }
 
     // Check door triggers
     if (onBackTrigger && !backCooldown && doorFront.open > 0.9 && pz > roomDepth / 2 + 0.8 && inDoorX) {
@@ -510,7 +549,7 @@ export function createScene({ audioManager, entryState, entryDoor }: {
       forwardCooldown = true;
       onForwardTrigger();
     }
-    if (onLeftTrigger && !leftCooldown && doorLeft.open > 0.9 && px < -roomWidth / 2 - 0.8 && inDoorZ) {
+    if (cargoDoorUnlocked && onLeftTrigger && !leftCooldown && doorLeft.open > 0.9 && px < -roomWidth / 2 - 0.8 && inDoorZ) {
       leftCooldown = true;
       onLeftTrigger(player.captureTransition({ x: -roomWidth / 2, y: 0, z: 0, yaw: Math.PI / 2 }));
     }
@@ -527,7 +566,8 @@ export function createScene({ audioManager, entryState, entryDoor }: {
     setBackTrigger,
     setForwardTrigger,
     setLeftTrigger,
-    setRightTrigger,
-    dispose: () => { player.dispose(); physics.dispose(); },
+    setRightTrigger, hitCargoDoor, sideDoors: [doorLeft, doorRight],
+    isCargoDoorUnlocked: () => cargoDoorUnlocked,
+    dispose: () => { window.removeEventListener('keydown', onInteract); if (ownsPrompt) prompt?.classList.add('hidden'); player.dispose(); physics.dispose(); },
   };
 }

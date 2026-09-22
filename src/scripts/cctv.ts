@@ -25,10 +25,19 @@ function disposeObject(root: THREE.Object3D) {
 export function createCctvSystem(renderer: THREE.WebGLRenderer) {
   const sources = new Map<string, FeedSource>();
   const sourceFactories: Record<string, () => FeedSource> = {
-    'medical-bay': () => createScene2({}),
-    hallway: () => createScene3({}),
+    'medical-bay': () => {
+      const sceneData = createScene2({ skipWake: true });
+      sceneData.player.dispose();
+      return sceneData;
+    },
+    hallway: () => {
+      const sceneData = createScene3({});
+      sceneData.player.dispose();
+      return sceneData;
+    },
     'computer-room': () => {
-      const sceneData = createScene4({ cafeteriaUnlocked: true, chestOpened: true });
+      const sceneData = createScene4({ cafeteriaUnlocked: true, chestOpened: true, preview: true });
+      sceneData.player.dispose();
       const enemyManager = new NPCEnemyManager();
       enemyManager.enterScene('scene4', sceneData);
       return {

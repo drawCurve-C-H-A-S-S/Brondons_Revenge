@@ -1,0 +1,185 @@
+import assert from 'node:assert/strict';
+import { before, after, test } from 'node:test';
+import { readFile } from 'node:fs/promises';
+import { createServer } from 'vite';
+
+let server, THREE, CANNON, PistolController, CrowbarController, GogglesController, traceShot, createBreakables, createRewardChest;
+let createPlayer, createScenePhysics, chestJSON;
+const scenes = {};
+before(async () => {
+  server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom',
+    optimizeDeps: { noDiscovery: true, include: [] }, plugins: [{ name: 'tutorial-deps',
+      resolveId: id => id === 'virtual:tutorial-deps' ? '\0tutorial-deps' : null,
+      load: id => id === '\0tutorial-deps' ? "export * as THREE from 'three'; export * as CANNON from 'cannon-es';" : null }] });
+  ({ THREE, CANNON } = await server.ssrLoadModule('virtual:tutorial-deps'));
+  ({ PistolController, traceShot } = await server.ssrLoadModule('/scripts/pistol.ts'));
+  ({ CrowbarController } = await server.ssrLoadModule('/scripts/crowbar.ts'));
+  ({ GogglesController } = await server.ssrLoadModule('/scripts/goggles.ts'));
+  ({ createBreakables } = await server.ssrLoadModule('/scripts/breakables.ts'));
+  ({ createRewardChest } = await server.ssrLoadModule('/scripts/rewardChest.ts'));
+  ({ createPlayer } = await server.ssrLoadModule('/scripts/player.ts'));
+  ({ createScenePhysics } = await server.ssrLoadModule('/helpers/physics/scenePhysics.ts'));
+  for (const id of [3, 5, 6, 7]) scenes[id] = (await server.ssrLoadModule(`/scenes/scene${id}.ts`)).createScene;
+  const base = new URL('../src/assets/models/Tools/', import.meta.url);
+  chestJSON = JSON.parse(await readFile(new URL('Prop_Chest.gltf', base), 'utf8'));
+  for (const buffer of chestJSON.buffers) buffer.uri = `data:application/octet-stream;base64,${(await readFile(new URL(buffer.uri, base))).toString('base64')}`;
+  delete chestJSON.materials; delete chestJSON.textures; delete chestJSON.images;
+  for (const mesh of chestJSON.meshes) for (const primitive of mesh.primitives) delete primitive.material;
+});
+after(async () => server?.close());
+function browser(t) {
+  const old = { window: globalThis.window, document: globalThis.document, HTMLElement: globalThis.HTMLElement, ProgressEvent: globalThis.ProgressEvent };
+  class Element extends EventTarget {
+    style = {}; dataset = {}; textContent = ''; hidden = true;
+    classList = { add: () => { this.hidden = true; }, remove: () => { this.hidden = false; }, toggle: (_, value) => { this.hidden = value; } };
+    closest() { return null; } requestPointerLock() {}
+  }
+  const elements = new Map();
+  globalThis.HTMLElement = Element; globalThis.ProgressEvent = class extends Event {};
+  globalThis.window = Object.assign(new EventTarget(), { innerWidth: 1280, innerHeight: 720 });
+  globalThis.document = Object.assign(new EventTarget(), { baseURI: 'http://localhost:5173/', pointerLockElement: null, body: new Element(),
+    getElementById: id => { if (!elements.has(id)) elements.set(id, new Element()); return elements.get(id); },
+    createElement: () => ({ getContext: () => new Proxy({}, { get: () => () => {} }) }) });
+  const fetchOriginal = globalThis.fetch;
+  t.mock.method(globalThis, 'fetch', async (url, options) => String(url).includes('Prop_Chest')
+    ? new Response(JSON.stringify(chestJSON), { status: 200 }) : fetchOriginal(url, options));
+  const cleanups = []; t.cleanup = fn => cleanups.push(fn);
+  t.after(() => { for (const cleanup of cleanups.reverse()) cleanup(); Object.assign(globalThis, old); });
+  return elements;
+}
+function key(code, extra = {}) {
+  const event = new Event('keydown', { cancelable: true });
+  Object.defineProperties(event, Object.fromEntries(Object.entries({ code, repeat: false, ...extra }).map(([k, value]) => [k, { value }])));
+  window.dispatchEvent(event);
+}
+function click() { const event = new Event('mousedown'); Object.defineProperty(event, 'button', { value: 0 }); document.dispatchEvent(event); }
+function step(data, seconds = 1) { for (let i = 0; i < seconds * 60; i++) data.updatePhysics(1 / 60); }
+async function room(t, id, options) {
+  const data = scenes[id](options); t.cleanup(() => data.dispose()); await data.chest?.ready; return data;
+}
+function fixture(t) {
+  const physics = createScenePhysics(), scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
+  const player = createPlayer({ camera, physicsWorld: physics.world, spawnPosition: { x: 0, y: 0.3, z: 0 } }); player.enable();
+  const breakables = createBreakables(scene, physics.world);
+  t.cleanup(() => { breakables.dispose(); player.dispose(); physics.dispose(); });
+  return { scene, camera, world: physics.world, player, breakables };
+}
+
+test('real weapon input rejects wrong tools and breaks targets/crates in both views', async t => {
+  browser(t);
+  const f = fixture(t);
+  const context = () => ({ ...f, character: null, thirdPerson: false, hasCrowbar: true, targets: f.breakables.getDamageTargets(), setCharacterEquipped() {}, doorTarget: null, openDoor() {} });
+  const pistol = new PistolController(context, async () => ({ scene: new THREE.Group() })); await pistol.ready;
+  const crowbar = new CrowbarController(context); t.cleanup(() => { pistol.dispose(); crowbar.dispose(); });
+  const target = f.breakables.add('Target', 'pistol', new THREE.Vector3(0, 1.3, -1), new THREE.Vector3(0.8, 0.8, 0.15));
+  f.camera.position.set(0, 1.3, 0); f.camera.lookAt(0, 1.3, -1);
+  document.pointerLockElement = document.body;
+  crowbar.equip(); click(); assert.equal(target.broken, false, 'Crowbar cannot break a pistol target'); crowbar.holster();
+  key('KeyK'); assert.equal(pistol.shoot(), true); assert.equal(target.broken, true);
+  const crate = f.breakables.add('Crate', 'crowbar', new THREE.Vector3(0, 0.6, -1.2), new THREE.Vector3(1, 1.2, 1));
+  f.camera.lookAt(0, 0.7, -1.2); pistol.update(0.3); pistol.shoot(); assert.equal(crate.broken, false); pistol.holster();
+  crowbar.equip(); crowbar.update(0.3); click(); assert.equal(crate.broken, true, 'First-person crowbar reaches from the body');
+  const third = f.breakables.add('ThirdPersonCrate', 'crowbar', new THREE.Vector3(0, 0.6, -1.2), new THREE.Vector3(1, 1.2, 1));
+  f.camera.position.set(0.7, 1.9, 1.5); f.camera.lookAt(0, 0.7, -1.2); crowbar.update(0.3); crowbar.update(0.3); crowbar.update(0.3); click();
+  assert.equal(third.broken, true, 'Third-person camera distance must not shorten the physical melee reach');
+  assert.ok(f.scene.children.some(node => node.name === 'BreakableDebris'));
+  for (let i = 0; i < 150; i++) f.breakables.update(1 / 60);
+  assert.ok(!f.scene.children.some(node => node.name === 'BreakableDebris'));
+  assert.ok(!f.world.bodies.includes(third.body));
+});
+
+test('walls occlude breakables and distant crates cannot be hit by the crowbar', t => {
+  browser(t); const f = fixture(t);
+  const item = f.breakables.add('Covered', 'pistol', new THREE.Vector3(0, 1, -3), new THREE.Vector3(1, 1, 0.2));
+  const wall = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(2, 2, 0.15)) }); wall.position.set(0, 1, -1); f.world.addBody(wall);
+  const ray = new THREE.Ray(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, -1));
+  assert.equal(traceShot(f.scene, f.world, ray, [item]).target, undefined);
+  f.world.removeBody(wall);
+  assert.equal(traceShot(f.scene, f.world, ray, [item]).target, item);
+  const crate = f.breakables.add('Distant', 'crowbar', new THREE.Vector3(0, 1, -2.5), new THREE.Vector3(1, 1, 0.2));
+  const crowbar = new CrowbarController(() => ({ ...f, hasCrowbar: true, character: null, thirdPerson: false, targets: [crate], setCharacterEquipped() {}, doorTarget: null, openDoor() {} }));
+  t.cleanup(() => crowbar.dispose()); f.camera.position.set(0, 1, 0); f.camera.lookAt(0, 1, -3); document.pointerLockElement = document.body;
+  crowbar.equip(); click(); assert.equal(crate.broken, false);
+});
+
+test('goggles unlock after all scene 6 targets, auto-equip, toggle, and persist without chest/collider', async t => {
+  const elements = browser(t); let current;
+  const goggles = new GogglesController(() => ({ player: current?.player ?? null, scene: current, setCharacterEquipped() {} })); t.cleanup(() => goggles.dispose());
+  current = await room(t, 6, { onGogglesCollected: () => goggles.collect() });
+  const chest = current.chest;
+  current.player.setPosition(0, 0.3, 2.3); key('KeyN'); assert.equal(goggles.isEquipped(), false);
+  key('KeyE'); step(current, 2); assert.equal(goggles.isCollected(), false);
+  const targets = current.getDamageTargets();
+  targets.slice(0, -1).forEach(item => item.damage(25, 'pistol'));
+  key('KeyE'); step(current, 2); assert.equal(goggles.isCollected(), false);
+  targets.at(-1).damage(25, 'pistol'); key('KeyE'); step(current, 3);
+  assert.equal(goggles.isCollected(), true); assert.equal(goggles.isEquipped(), true);
+  assert.equal(chest.root.parent, null); assert.ok(!current.physicsWorld.bodies.includes(chest.body));
+  current.dispose();
+  current = await room(t, 6, { gogglesCollected: goggles.isCollected() }); goggles.update();
+  assert.equal(current.chest, null); assert.equal(current.getDamageTargets().length, 6);
+  const mesh = current.getDamageTargets()[0].root.children[0]; assert.equal(mesh.material.color.getHex(), 0xff2424);
+  key('KeyN', { repeat: true }); assert.equal(goggles.isEquipped(), true);
+  key('KeyN'); assert.equal(goggles.isEquipped(), false); assert.notEqual(mesh.material.color.getHex(), 0xff2424);
+  key('KeyN'); assert.equal(mesh.material.color.getHex(), 0xff2424);
+  assert.match(elements.get('goggles-status').textContent, /Red: pistol/);
+  current.player.disable(); key('KeyN'); assert.equal(goggles.isEquipped(), true);
+});
+
+test('scene 5 crates scan yellow; health chest gives 15 HP per visit and stays', async t => {
+  browser(t); let data = await room(t, 5); data.player.takeDamage(40); data.player.setPosition(0, 0.3, 1);
+  data.setGogglesActive(true);
+  assert.ok(data.getDamageTargets().every(item => item.root.children[0].material.color.getHex() === 0xffd629));
+  key('KeyE'); step(data, 2); assert.equal(data.player.getHealth(), 60);
+  data.getDamageTargets().forEach(item => item.damage(35, 'crowbar'));
+  data.player.setPosition(0, 0.3, 1.5); key('KeyE'); step(data, 3);
+  assert.equal(data.player.getHealth(), 75); assert.ok(data.chest.root.parent); assert.ok(data.physicsWorld.bodies.includes(data.chest.body));
+  key('KeyE'); step(data, 3); assert.equal(data.player.getHealth(), 75);
+  data.dispose(); data = await room(t, 5);
+  assert.equal(data.getDamageTargets().length, 8);
+  data.player.takeDamage(10); data.getDamageTargets().forEach(item => item.damage(35, 'crowbar'));
+  data.player.setPosition(0, 0.3, 1.5); key('KeyE'); step(data, 3); assert.equal(data.player.getHealth(), 100);
+});
+
+test('scene 3 stuck door requires an equipped crowbar swing and slides inside solid walls', async t => {
+  const elements = browser(t); let data = await room(t, 3); let transitions = 0;
+  data.setLeftTrigger(() => transitions++); data.player.setPosition(-2.8, 0.3, 0); data.player.setRotation(Math.PI / 2, 0);
+  step(data); key('KeyE'); step(data, 0.1); assert.match(elements.get('interact-prompt').textContent, /door is stuck/);
+  assert.equal(data.hitCargoDoor(), false); assert.equal(data.sideDoors[0].open, 0);
+  data.player.setPosition(-3.3, 0.3, 0); key('KeyW'); step(data, 1); key('KeyW');
+  assert.ok(data.player.body.position.x > -4, 'Closed door collider prevents crossing'); assert.equal(transitions, 0);
+  data.dispose(); let unlocked = false;
+  data = await room(t, 3, { hasCrowbar: true, onCargoDoorOpened: () => { unlocked = true; } });
+  data.player.setPosition(-2.8, 0.3, 0); data.player.setRotation(Math.PI / 2, 0); step(data); assert.equal(data.sideDoors[0].open, 0);
+  const crowbar = new CrowbarController(() => ({ scene: data.scene, world: data.physicsWorld, camera: data.camera, player: data.player, character: null, thirdPerson: false,
+    hasCrowbar: true, targets: [], setCharacterEquipped() {}, doorTarget: null, openDoor: data.hitCargoDoor })); t.cleanup(() => crowbar.dispose());
+  document.pointerLockElement = document.body; click(); assert.equal(unlocked, false); crowbar.equip(); click(); assert.equal(unlocked, true);
+  step(data); const door = data.sideDoors[0];
+  assert.equal(door.open, 1); assert.equal(door.panelL.position.x, -4); assert.equal(door.bodyL.position.z, door.panelL.position.z);
+  assert.equal(door.panelL.visible, true, 'Solid walls occlude the retracted panels; no visibility pop');
+  const wallRay = new THREE.Raycaster(new THREE.Vector3(0, 1, door.panelL.position.z), new THREE.Vector3(-1, 0, 0)); data.scene.updateMatrixWorld(true);
+  assert.notEqual(wallRay.intersectObjects(data.scene.children, true)[0].object, door.panelL, 'Wall surface hides the panel');
+  data.dispose(); data = await room(t, 3, { hasCrowbar: true, cargoDoorUnlocked: unlocked }); data.player.setPosition(-2.8, 0.3, 0); step(data);
+  assert.equal(data.sideDoors[0].open, 1);
+  data.player.setPosition(2.8, 0.3, 0); step(data); assert.equal(data.sideDoors[1].open, 1, 'Scene 6 remains sensor-operated');
+});
+
+test('each scene 7 ladder crate stays cleared, and the climb prompt waits for all four', async t => {
+  const elements = browser(t); const cleared = new Set(); let data = await room(t, 7, { clearedCrates: cleared, onCrateBroken: id => cleared.add(id) });
+  data.setLadderTrigger(() => {}); data.player.setPosition(4.6, 0.3, -2.95); key('KeyE');
+  assert.equal(data.player.getState().climbing, false); assert.equal(elements.get('interact-prompt').hidden, true);
+  data.getDamageTargets()[0].damage(35, 'crowbar'); data.dispose();
+  data = await room(t, 7, { clearedCrates: cleared, onCrateBroken: id => cleared.add(id) }); assert.equal(data.getDamageTargets().length, 3);
+  data.getDamageTargets().forEach(item => item.damage(35, 'crowbar'));
+  data.player.setPosition(4.6, 0.3, -2.95); data.setLadderTrigger(() => {}); step(data, 0.1);
+  assert.equal(elements.get('interact-prompt').textContent, 'Press E to climb'); key('KeyE'); assert.equal(data.player.getState().climbing, true);
+  data.dispose(); data = await room(t, 7, { clearedCrates: cleared }); assert.equal(data.getDamageTargets().length, 0);
+});
+
+test('chest disposal before async load cannot resurrect a collider or reward', async t => {
+  browser(t); const f = fixture(t); let complete, rewards = 0;
+  const chest = createRewardChest({ scene: f.scene, world: f.world, player: f.player, position: new THREE.Vector3(), reward: 'goggles', unlocked: () => true,
+    onCollect: () => { rewards++; return true; } }, () => new Promise(resolve => { complete = resolve; }));
+  chest.dispose(); complete({ scene: new THREE.Group(), animations: [] }); await chest.ready;
+  key('KeyE'); chest.update(1); assert.equal(rewards, 0); assert.equal(chest.root.parent, null); assert.ok(!f.world.bodies.includes(chest.body));
+});

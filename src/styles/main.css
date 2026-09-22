@@ -53,6 +53,47 @@ canvas {
   z-index: 1500;
 }
 
+#loading-bay-status {
+  position: fixed;
+  bottom: 22px;
+  left: 22px;
+  max-width: min(520px, calc(100vw - 44px));
+  padding: 12px 16px;
+  border-left: 3px solid #dda34c;
+  background: rgba(7, 17, 25, 0.88);
+  color: #d5e8ee;
+  white-space: pre-line;
+  font-size: 12px;
+  line-height: 1.7;
+  pointer-events: none;
+  z-index: 20;
+}
+#loading-bay-status.restored { border-left-color: #60d99d; }
+
+#goggles-overlay {
+  position: fixed;
+  inset: 0;
+  border: 16px solid rgba(9, 23, 26, 0.7);
+  border-radius: 12%;
+  box-shadow: inset 0 0 65px rgba(40, 220, 180, 0.18);
+  pointer-events: none;
+  z-index: 8;
+}
+#goggles-status {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  max-width: 40vw;
+  color: #89f2d3;
+  background: rgba(7, 17, 25, 0.88);
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 8px 12px;
+  pointer-events: none;
+  z-index: 20;
+}
+#goggles-status:empty { display: none; }
+
 #hud {
   position: fixed;
   top: 0;
@@ -250,6 +291,11 @@ canvas {
   opacity: 1;
 }
 
+#fade-overlay.black {
+  background: #000;
+  transition-duration: 0.3s;
+}
+
 /* Skip button */
 #skip-btn {
   position: fixed;
@@ -272,6 +318,10 @@ canvas {
   background: rgba(0, 0, 0, 0.8);
   color: #fff;
   border-color: #88aacc;
+}
+
+#skip-btn.hidden {
+  display: none;
 }
 
 #crowbar-overlay {
@@ -327,4 +377,101 @@ canvas {
   background: rgba(0, 0, 0, 0.8);
   color: #fff;
   border-color: #88aacc;
+}
+
+#boss-hud {
+  position: fixed;
+  top: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(620px, 70vw);
+  padding: 12px 18px;
+  background: rgba(8, 17, 24, 0.88);
+  border: 1px solid #689883;
+  color: #e4f6ec;
+  font: 13px monospace;
+  text-align: center;
+  pointer-events: none;
+  z-index: 100;
+}
+#escape-qte {
+  position: fixed;
+  left: 50%;
+  top: 54%;
+  transform: translate(-50%, -50%);
+  width: min(380px, 88vw);
+  padding: 20px 24px;
+  background: rgba(5, 14, 23, 0.93);
+  border: 2px solid #ffc16c;
+  box-shadow: 0 0 35px rgba(231, 141, 49, 0.25);
+  text-align: center;
+  pointer-events: none;
+  z-index: 1600;
+}
+.escape-caption { font-size: 12px; letter-spacing: 2px; color: #ffe0b6; }
+#escape-key {
+  display: inline-block;
+  margin: 14px 0;
+  min-width: 88px;
+  padding: 8px 18px;
+  border: 2px solid #fff1d7;
+  border-bottom-width: 6px;
+  border-radius: 8px;
+  font: bold 54px monospace;
+  color: #fff1d7;
+}
+#escape-timer-track { height: 8px; background: #403122; margin-bottom: 14px; }
+#escape-timer-fill { width: 100%; height: 100%; background: #ffc16c; }
+#escape-qte.urgent { border-color: #ff6a56; }
+#escape-qte.urgent #escape-timer-fill { background: #ff6a56; }
+#escape-action { min-height: 32px; font-size: 13px; line-height: 1.5; }
+.escape-hint { margin-top: 10px; font-size: 11px; color: #a4b5c5; }
+#flight-hud {
+  position: fixed;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(660px, 92vw);
+  padding: 16px 22px;
+  border: 1px solid #7ecee2;
+  background: rgba(4, 15, 27, 0.88);
+  color: #c8edf7;
+  text-align: center;
+  font: 12px/1.8 monospace;
+  pointer-events: none;
+  z-index: 120;
+}
+#flight-objective { letter-spacing: 1px; color: #fff1d3; }
+.flight-readouts { display: flex; justify-content: space-between; gap: 20px; font-size: 18px; margin: 10px 0; }
+#flight-target {
+  position: fixed;
+  transform: translate(-50%, -50%);
+  padding: 10px 14px;
+  border: 1px solid #79def2;
+  background: rgba(4, 15, 27, 0.35);
+  color: #b4efff;
+  text-shadow: 0 1px 3px #000;
+  font: 11px monospace;
+  pointer-events: none;
+  z-index: 110;
+}
+
+#boss-health-label { letter-spacing: 3px; margin-bottom: 9px; }
+#boss-health-track { height: 10px; background: #293d37; }
+#boss-health-fill { width: 100%; height: 100%; background: #79e99b; transition: width 0.15s linear; }
+#boss-phase { margin-top: 9px; font-size: 11px; min-height: 14px; }
+#boss-subtitles {
+  position: fixed;
+  bottom: 12%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(740px, 84vw);
+  padding: 18px 24px;
+  color: #edf7ff;
+  background: rgba(5, 12, 20, 0.92);
+  border-bottom: 2px solid #9ccebd;
+  font: 17px/1.6 monospace;
+  text-align: center;
+  pointer-events: none;
+  z-index: 110;
 }

@@ -74,36 +74,42 @@ export class CrowbarController {
 
   private swing() {
     const { scene, camera, world, player, character, targets, doorTarget, openDoor } = this.context();
-    if (!this.equipped || this.cooldown > 0 || !player?.isEnabled() || !scene || !camera) return false;
+    if (!this.equipped || this.cooldown > 0 || !player?.isEnabled() || player.getState().climbing || player.getState().ventMode || player.getState().boxHandling || !scene || !camera) return false;
     player.requestAction('Sword_Attack');
     camera.updateMatrixWorld(true);
     const aim = new THREE.Raycaster();
     aim.setFromCamera(new THREE.Vector2(0, 0), camera);
     const reach = 1.8;
-    const sight = traceShot(scene, world, aim.ray, targets, character ? [character, this.root] : [this.root], reach);
+    const ignored = character ? [character, this.root] : [this.root];
+    const origin = new THREE.Vector3(player.body.position.x, player.body.position.y + 0.8, player.body.position.z);
+    const sight = traceShot(scene, world, aim.ray, targets, ignored, reach + camera.position.distanceTo(origin));
+    const direction = sight.point.clone().sub(origin);
+    const strike = direction.length() <= reach
+      ? traceShot(scene, world, new THREE.Ray(origin, direction.clone().normalize()), targets, ignored, direction.length() + 0.03)
+      : null;
     // Door interaction is zone-based: a swing near the cafeteria door opens it
     // even when the crosshair is aimed at the surrounding wall or frame.
     openDoor();
-    const hit = sight.target ? sight.target.damage(35) : false;
+    const hit = strike?.target?.damage(35, 'crowbar') ?? false;
 
     if (world) {
-      let closestBody: CANNON.Body | null = null;
-      let closestDistance = reach;
+      const closest: { body: CANNON.Body | null; distance: number } = { body: null, distance: reach };
+      const end = origin.clone().addScaledVector(direction.clone().normalize(), Math.min(reach, direction.length()));
       world.raycastAll(
-        new CANNON.Vec3(aim.ray.origin.x, aim.ray.origin.y, aim.ray.origin.z),
-        new CANNON.Vec3(sight.point.x, sight.point.y, sight.point.z),
+        new CANNON.Vec3(origin.x, origin.y, origin.z),
+        new CANNON.Vec3(end.x, end.y, end.z),
         { skipBackfaces: false, checkCollisionResponse: true },
         result => {
           if (!result.body || result.body === player.body || result.body.mass <= 0) return;
-          if (result.distance < closestDistance) {
-            closestBody = result.body;
-            closestDistance = result.distance;
+          if (result.distance < closest.distance) {
+            closest.body = result.body;
+            closest.distance = result.distance;
           }
         },
       );
-      if (closestBody) {
+      if (closest.body) {
         const impulse = new CANNON.Vec3(aim.ray.direction.x * 3.5, 0.8, aim.ray.direction.z * 3.5);
-        closestBody.applyImpulse(impulse, closestBody.position);
+        closest.body.applyImpulse(impulse);
       }
     }
 
@@ -120,8 +126,9 @@ export class CrowbarController {
     const { camera, player, thirdPerson, hasCrowbar, setCharacterEquipped, firstPersonHands: handsSource } = this.context();
     const firstPersonHands = typeof handsSource === 'function' ? handsSource() : handsSource;
     if (!hasCrowbar) this.equipped = false;
-    setCharacterEquipped(this.equipped);
-    this.root.visible = this.equipped && !thirdPerson && !!player?.isEnabled();
+    const usable = !!player?.isEnabled() && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling;
+    setCharacterEquipped(this.equipped && usable);
+    this.root.visible = this.equipped && !thirdPerson && usable;
     firstPersonHands?.update(this.swingTime > 0 ? 1 - this.swingTime / 0.16 : null);
     if (!camera || !this.root.visible) {
       this.root.removeFromParent();
@@ -135,7 +142,7 @@ export class CrowbarController {
   renderFirstPerson(renderer: THREE.WebGLRenderer) {
     const { player, thirdPerson, hasCrowbar, firstPersonHands: handsSource } = this.context();
     const firstPersonHands = typeof handsSource === 'function' ? handsSource() : handsSource;
-    if (hasCrowbar && this.equipped && !thirdPerson && player?.isEnabled()) firstPersonHands?.render(renderer);
+    if (hasCrowbar && this.equipped && !thirdPerson && player?.isEnabled() && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling) firstPersonHands?.render(renderer);
   }
 
   dispose() {

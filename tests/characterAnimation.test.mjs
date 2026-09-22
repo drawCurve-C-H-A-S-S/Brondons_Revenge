@@ -26,11 +26,13 @@ before(async () => {
 
 after(async () => { await server?.close(); });
 
-async function fixture(t) {
+async function fixture(t, asset) {
+  const buffer = asset ? await readFile(new URL(`../src/assets/models/${asset}`, import.meta.url)) : null;
+  const data = buffer ? buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) : modelData;
   // Use the actual GLB and loader; replace only the browser URL transport.
   const loader = new GLTFLoader();
   t.mock.method(loader, 'loadAsync', function () {
-    return this.parseAsync(modelData.slice(0), '');
+    return this.parseAsync(data.slice(0), '');
   });
   t.mock.method(console, 'log', () => {});
   const character = await loadCharacter(loader);
@@ -144,7 +146,7 @@ test('wake-up initializes grounded state before the first animation update', asy
 
 test('grounded WASD selects Walk_Loop and release returns to Idle_Loop', async t => {
   const { frame, key, weight, character } = await fixture(t);
-  frame(30);
+  frame(15);
   assert.ok(weight('Idle_Loop') > 0.99);
   for (const code of ['KeyW', 'KeyA', 'KeyS', 'KeyD']) {
     key('keydown', code);
@@ -160,6 +162,91 @@ test('grounded WASD selects Walk_Loop and release returns to Idle_Loop', async t
     assert.ok(weight('Walk_Loop') < 0.01);
   }
 });
+
+test('scripted ladder traversal selects the generated alternating climb loop', async t => {
+  const { player, character, frame, weight } = await fixture(t);
+  player.setClimbing(true);
+  frame(15);
+  assert.ok(weight('Ladder_Climb_Loop') > 0.99);
+  const leftArm = character.model.getObjectByName('upperarm_l').quaternion.clone();
+  frame(10);
+  assert.ok(leftArm.angleTo(character.model.getObjectByName('upperarm_l').quaternion) > 0.1);
+  player.setClimbing(false);
+  frame(30);
+  assert.ok(weight('Idle_Loop') > 0.99);
+});
+
+for (const asset of ['Subject.glb', 'UAL1_Standard.glb']) {
+  test(`${asset} ladder IK alternates hands and flexes both knees, with seamless looping`, async t => {
+    const { player, character, frame } = await fixture(t, asset);
+    player.setClimbing(true);
+    character.weapon.setEquipped(true);
+    frame(15);
+    const action = character.mixer._actions.find(a => a.getClip().name === 'Ladder_Climb_Loop');
+    const clip = action.getClip();
+    const names = clip.tracks.map(t => t.name);
+    for (const bone of ['upperarm_l', 'lowerarm_l', 'upperarm_r', 'lowerarm_r', 'thigh_l', 'calf_l', 'thigh_r', 'calf_r']) {
+      assert.ok(names.includes(`${bone}.quaternion`), `${bone} is animated`);
+      const track = clip.tracks.find(t => t.name === `${bone}.quaternion`);
+      const first = new THREE.Quaternion().fromArray(track.values);
+      const middle = new THREE.Quaternion().fromArray(track.values, 24 * 4);
+      const last = new THREE.Quaternion().fromArray(track.values, track.values.length - 4);
+      assert.ok(first.angleTo(middle) > 0.1, `${bone} has meaningful motion`);
+      assert.ok(first.angleTo(last) < 0.001, `${bone} loop is seamless`);
+    }
+    const pose = time => {
+      action.time = time;
+      character.update(0, player.body.position, player.getState(), true, player.radius);
+      character.model.updateMatrixWorld(true);
+      return ['hand_l', 'hand_r', 'foot_l', 'foot_r'].map(name =>
+        character.model.worldToLocal(character.model.getObjectByName(name).getWorldPosition(new THREE.Vector3())));
+    };
+    const a = pose(0), b = pose(clip.duration / 2);
+    assert.ok(a[0].y > a[1].y + 0.25 && b[1].y > b[0].y + 0.25, 'Opposite hands reach in alternation');
+    assert.ok(Math.abs(a[2].y - b[2].y) > 0.25 && Math.abs(a[3].y - b[3].y) > 0.25, 'Boots step between rungs');
+    assert.ok(a.slice(0, 2).every(p => p.z > 0.35), 'Hands reach toward the ladder, even while armed');
+    player.setClimbing(true, -1); frame();
+    assert.equal(action.getEffectiveTimeScale(), -1, 'Descent reverses the climb');
+  });
+
+  test(`${asset} hands face the rungs and relax instead of keeping the climbing grip in zero-G`, async t => {
+    const { player, character, frame, world } = await fixture(t, asset);
+    player.setClimbing(true); frame(30);
+    const direction = suffix => {
+      character.model.updateMatrixWorld(true);
+      const hand = character.model.getObjectByName(`hand_${suffix}`);
+      const finger = character.model.getObjectByName(`middle_01_${suffix}`);
+      return finger.getWorldPosition(new THREE.Vector3()).sub(hand.getWorldPosition(new THREE.Vector3()))
+        .applyQuaternion(character.model.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize();
+    };
+    for (const suffix of ['l', 'r']) {
+      assert.ok(direction(suffix).y > 0.98, 'Fingers point upward to wrap over a rung, not sideways');
+      const hand = character.model.getObjectByName(`hand_${suffix}`);
+      const palm = hand.userData.restPalm.clone().applyQuaternion(hand.getWorldQuaternion(new THREE.Quaternion()))
+        .applyQuaternion(character.model.getWorldQuaternion(new THREE.Quaternion()).invert());
+      assert.ok(palm.z > 0.98, 'Both palms face the ladder');
+    }
+    world.gravity.set(0, 0, 0); player.setClimbing(false); player.setZeroGravity(true); frame(60);
+    for (const suffix of ['l', 'r']) {
+      assert.ok(direction(suffix).z > 0.9, 'Floating hands relax forward');
+      assert.ok(direction(suffix).y < 0.2, 'Ladder wrist orientation does not leak into floating');
+    }
+  });
+
+  test(`${asset} floating yields to climbing and returns to normal locomotion`, async t => {
+    const { player, character, frame, world, weight } = await fixture(t, asset);
+    world.gravity.set(0, 0, 0); player.setZeroGravity(true); frame(30);
+    assert.ok(weight('Float_Loop') > 0.99);
+    const clip = character.mixer._actions.find(a => a.getClip().name === 'Float_Loop').getClip();
+    assert.ok(clip.tracks.some(t => t.name === 'calf_l.quaternion'));
+    player.setClimbing(true); frame(30);
+    assert.ok(weight('Ladder_Climb_Loop') > 0.99, 'Climbing takes priority in zero-G');
+    player.setClimbing(false); frame(30);
+    assert.ok(weight('Float_Loop') > 0.99);
+    player.setZeroGravity(false); world.gravity.set(0, -9.82, 0); frame(120);
+    assert.ok(weight('Idle_Loop') > 0.99);
+  });
+}
 
 test('an airborne frame cannot permanently block grounded walk or idle', async t => {
   const { player, character, frame, key, weight } = await fixture(t);
@@ -246,7 +333,7 @@ test('doorway arrival aligns the real character before rendering without a half-
     character.update(0, player.body.position, player.getState(), true, player.radius);
     const modelForward = new THREE.Vector3(0, 0, 1).applyQuaternion(character.model.quaternion);
     const cameraForward = camera.getWorldDirection(new THREE.Vector3());
-    assert.ok(modelForward.dot(cameraForward) > 0.999999, 'Model must face the arrival direction immediately');
+    assert.ok(modelForward.dot(cameraForward) > 0.999999, `Arrival yaw=${yaw}, model=${modelForward.toArray()}, camera=${cameraForward.toArray()}`);
   }
 });
 
@@ -254,7 +341,10 @@ test('view changes keep animation running while first person hides the model', a
   const { character, frame, key, weight } = await fixture(t);
   key('keydown', 'KeyW');
   frame(30, false);
-  assert.equal(character.model.visible, false);
+  character.model.traverse(node => {
+    assert.equal(node.layers.isEnabled(0), false, 'First-person gameplay layer hides the model');
+    assert.equal(node.layers.isEnabled(1), true, 'CCTV/mirror layer retains the model');
+  });
   assert.ok(weight('Walk_Loop') > 0.99);
   key('keyup', 'KeyW');
   frame(30, true);

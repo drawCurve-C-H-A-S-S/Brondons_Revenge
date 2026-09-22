@@ -5,8 +5,12 @@ import comicVert from '../shaders/comic.vert.glsl?raw';
 import comicFrag from '../shaders/comic.frag.glsl?raw';
 import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
 import { createScenePhysics, PHYSICS } from '../helpers/physics/scenePhysics.js';
+import { LADDER } from '../utils/constants.js';
+import { createBreakables } from '../scripts/breakables.js';
 
-export function createScene({ entryState }: { entryState?: PlayerTransitionState } = {}) {
+export function createScene({ entryState, clearedCrates = new Set<string>(), onCrateBroken }: {
+  entryState?: PlayerTransitionState; clearedCrates?: ReadonlySet<string>; onCrateBroken?: (id: string) => void;
+} = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x080b10);
 
@@ -64,7 +68,7 @@ export function createScene({ entryState }: { entryState?: PlayerTransitionState
   function addPhysicsBody(pos: THREE.Vector3, halfExtents: THREE.Vector3) {
     const body = new CANNON.Body({ mass: 0, material: physics.solidMaterial });
     body.addShape(new CANNON.Box(new CANNON.Vec3(halfExtents.x, halfExtents.y, halfExtents.z)));
-    body.position.copy(pos); physicsWorld.addBody(body);
+    body.position.set(pos.x, pos.y, pos.z); physicsWorld.addBody(body);
   }
 
   // --- Room Shell ---
@@ -73,7 +77,23 @@ export function createScene({ entryState }: { entryState?: PlayerTransitionState
   physics.addBox({ x: roomWidth, y: 0.4, z: roomDepth }, { x: 0, y: -0.2, z: 0 });
   // Pad past the back door so the player never leaves solid ground mid-transition to scene 4
   physics.addBox({ x: doorW + 2, y: 0.4, z: 6 }, { x: 0, y: -0.2, z: roomDepth / 2 + 3 });
-  addBox(new THREE.Vector3(roomWidth, 0.18, roomDepth), new THREE.Vector3(0, roomHeight, 0), makeMaterial.ceiling());
+  const ladderX = 4.6, ladderZ = -3.6, hatchSize = 1.5;
+  const leftCeilingWidth = ladderX - hatchSize / 2 + roomWidth / 2;
+  const rightCeilingWidth = roomWidth / 2 - ladderX - hatchSize / 2;
+  const frontCeilingDepth = ladderZ - hatchSize / 2 + roomDepth / 2;
+  const backCeilingDepth = roomDepth / 2 - ladderZ - hatchSize / 2;
+  addBox(new THREE.Vector3(leftCeilingWidth, 0.18, roomDepth), new THREE.Vector3(-roomWidth / 2 + leftCeilingWidth / 2, roomHeight, 0), makeMaterial.ceiling());
+  addBox(new THREE.Vector3(rightCeilingWidth, 0.18, roomDepth), new THREE.Vector3(roomWidth / 2 - rightCeilingWidth / 2, roomHeight, 0), makeMaterial.ceiling());
+  addBox(new THREE.Vector3(hatchSize, 0.18, frontCeilingDepth), new THREE.Vector3(ladderX, roomHeight, -roomDepth / 2 + frontCeilingDepth / 2), makeMaterial.ceiling());
+  addBox(new THREE.Vector3(hatchSize, 0.18, backCeilingDepth), new THREE.Vector3(ladderX, roomHeight, roomDepth / 2 - backCeilingDepth / 2), makeMaterial.ceiling());
+  for (const x of [-0.34, 0.34]) {
+    const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, roomHeight - 0.25, 8), makeMaterial.steel());
+    rail.position.set(ladderX + x, (roomHeight - 0.25) / 2, ladderZ); scene.add(rail);
+  }
+  for (let y = 0.45; y < roomHeight - 0.2; y += 0.38) {
+    const rung = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.72, 8), makeMaterial.steel());
+    rung.rotation.z = Math.PI / 2; rung.position.set(ladderX, y, ladderZ); scene.add(rung);
+  }
   
   const sideWidth = (roomWidth - doorW) / 2;
   addBox(new THREE.Vector3(roomWidth, roomHeight, wallThickness), new THREE.Vector3(0, roomHeight / 2, -roomDepth / 2), makeMaterial.wall());
@@ -179,17 +199,65 @@ export function createScene({ entryState }: { entryState?: PlayerTransitionState
     doorL.position.x = -panelW / 2 - slideD; doorR.position.x = panelW / 2 + slideD; doorSeam.visible = false;
   }
 
+  const breakables = createBreakables(scene, physicsWorld);
+  for (const [i, offset] of [[-0.6, 0.6], [0.6, 0.6], [-0.6, 1.8], [0.6, 1.8]].entries()) {
+    const id = `LadderCrate${i}`;
+    if (!clearedCrates.has(id)) breakables.add(id, 'crowbar',
+      new THREE.Vector3(ladderX + offset[0], offset[1], ladderZ + 0.5), new THREE.Vector3(1.15, 1.2, 1.25), onCrateBroken);
+  }
+
   // --- Scene Logic ---
   let onBackTrigger: ((state: PlayerTransitionState) => void) | null = null;
+  let onLadderTrigger: (() => void) | null = null;
   let doorCooldown = false;
+  let climbing = false;
+  let handoffStarted = false;
+  let climbTime = 0;
+  const climbStart = new THREE.Vector3();
+  const prompt = document.getElementById?.('interact-prompt');
+  let promptVisible = false;
+  const ladderInteractRange = 1.15;
+  prompt?.classList.add('hidden');
   
   function setBackTrigger(callback: (state: PlayerTransitionState) => void) { onBackTrigger = callback; }
+  function setLadderTrigger(callback: () => void) { onLadderTrigger = callback; }
+  function onKeyDown(event: KeyboardEvent) {
+    if (event.code !== 'KeyE' || event.repeat || climbing || !onLadderTrigger || breakables.remaining() > 0) return;
+    const dx = player.body.position.x - ladderX;
+    const dz = player.body.position.z - (ladderZ + 0.65);
+    if (Math.hypot(dx, dz) > ladderInteractRange) return;
+    if (!player.isEnabled()) return;
+    climbing = true; handoffStarted = false; climbTime = 0;
+    climbStart.copy(player.body.position);
+    player.setRotation(0, 0); player.setLookLocked(true); player.setClimbing(true);
+    prompt?.classList.add('hidden'); promptVisible = false;
+  }
+  window.addEventListener('keydown', onKeyDown);
 
   function updatePhysics(dt: number, thirdPerson = false) {
     dt = Number.isFinite(dt) ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime)) : 0;
     physics.step(dt, player, thirdPerson);
-    
+    breakables.update(dt);
     const px = player.body.position.x, pz = player.body.position.z;
+    if (climbing) {
+      climbTime += dt;
+      const mount = THREE.MathUtils.smoothstep(climbTime, 0, LADDER.mountDuration);
+      const top = roomHeight + PHYSICS.playerRadius;
+      const y = Math.min(top, climbStart.y + Math.max(0, climbTime - LADDER.mountDuration) * LADDER.climbSpeed);
+      player.body.position.set(THREE.MathUtils.lerp(climbStart.x, ladderX, mount), y,
+        THREE.MathUtils.lerp(climbStart.z, ladderZ + LADDER.bodyOffset, mount));
+      player.body.aabbNeedsUpdate = true;
+      player.updateCamera(0, thirdPerson);
+      if (y >= top && !handoffStarted) { handoffStarted = true; onLadderTrigger?.(); }
+      return;
+    }
+    const nearLadder = player.isEnabled() && breakables.remaining() === 0 && Math.hypot(px - ladderX, pz - (ladderZ + 0.65)) <= ladderInteractRange;
+    if (prompt && nearLadder !== promptVisible) {
+      promptVisible = nearLadder;
+      prompt.textContent = 'Press E to climb';
+      prompt.classList.toggle('hidden', !nearLadder);
+    }
+
     const inDoorZone = Math.abs(px) < doorW / 2 + 1;
     const nearDoor = Math.hypot(px, pz - doorZ) < 3.5 && inDoorZone;
     doorTarget = nearDoor ? 1 : 0;
@@ -208,5 +276,7 @@ export function createScene({ entryState }: { entryState?: PlayerTransitionState
     }
   }
 
-  return { roomId: 'cafeteria', scene, camera, physicsWorld, updatePhysics, cutsceneManager: null, player, setBackTrigger, dispose: () => { player.dispose(); physics.dispose(); screenTex.dispose(); tileTexture.dispose(); } };
+  return { roomId: 'cafeteria', scene, camera, physicsWorld, updatePhysics, cutsceneManager: null, player, setBackTrigger, setLadderTrigger,
+    breakables, getDamageTargets: breakables.getDamageTargets, setGogglesActive: breakables.setHighlighted,
+    dispose: () => { breakables.dispose(); window.removeEventListener('keydown', onKeyDown); prompt?.classList.add('hidden'); player.dispose(); physics.dispose(); screenTex.dispose(); tileTexture.dispose(); } };
 }

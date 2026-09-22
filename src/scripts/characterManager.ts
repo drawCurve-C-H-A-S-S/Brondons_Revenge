@@ -11,6 +11,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import ualModelUrl from '../assets/models/Subject.glb';
 import { createCrowbar } from './items/createCrowbar.js';
+import { LADDER } from '../utils/constants.js';
+import { createGoggles } from './rewardChest.js';
 
 import type { PlayerState } from './player.js';
 
@@ -22,6 +24,8 @@ const CLIP_NAMES = [
   'Sword_Attack', 'Pistol_Shoot', 'Pistol_Reload', 'Dance_Loop', 'Interact',
   // Crouch animations
   'Crouch_Idle_Loop', 'Crouch_Fwd_Loop',
+  'Ladder_Climb_Loop',
+  'Float_Loop', 'Box_Push_Loop', 'Box_Pull_Loop',
 ] as const;
 type ClipName = typeof CLIP_NAMES[number];
 
@@ -52,7 +56,7 @@ export async function loadCharacter(loader = new GLTFLoader()) {
   model.scale.set(1, 1, 1);
   const modelOffsetY = -new THREE.Box3().setFromObject(model).min.y;
   let wasOnGround: boolean | null = null;
-  model.rotation.y = MODEL_ROT_OFFSET;
+  model.rotation.set(0, MODEL_ROT_OFFSET, 0, 'YXZ');
 
   // Layer 0 is the gameplay camera; layer 1 is the mirror camera.
   model.traverse((child: THREE.Object3D) => {
@@ -67,6 +71,132 @@ export async function loadCharacter(loader = new GLTFLoader()) {
   // ---- Animation setup ----
   const mixer = new THREE.AnimationMixer(model);
   const clips = gltf.animations || [];
+
+  // Bake two-bone IK once at load time. The actual UAL leg names are thigh/calf.
+  // Targets are model-local (+Z forward), independent of each bone's rest axes.
+  const rig: Array<{ bone: THREE.Bone; position: THREE.Vector3; quaternion: THREE.Quaternion }> = [];
+  model.traverse(node => {
+    if ((node as THREE.Bone).isBone) rig.push({ bone: node as THREE.Bone, position: node.position.clone(), quaternion: node.quaternion.clone() });
+  });
+  function resetRig() {
+    for (const { bone, position, quaternion } of rig) { bone.position.copy(position); bone.quaternion.copy(quaternion); }
+    model.updateMatrixWorld(true);
+  }
+  function aimBone(bone: THREE.Object3D, child: THREE.Object3D, target: THREE.Vector3) {
+    const origin = bone.getWorldPosition(new THREE.Vector3());
+    const current = child.getWorldPosition(new THREE.Vector3()).sub(origin).normalize();
+    const desired = target.clone().sub(origin).normalize();
+    const rotation = new THREE.Quaternion().setFromUnitVectors(current, desired)
+      .multiply(bone.getWorldQuaternion(new THREE.Quaternion()));
+    bone.quaternion.copy(bone.parent!.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(rotation));
+    model.updateMatrixWorld(true);
+  }
+  function solveLimb(upperName: string, lowerName: string, tipName: string, target: THREE.Vector3, pole: THREE.Vector3) {
+    const upper = model.getObjectByName(upperName), lower = model.getObjectByName(lowerName), tip = model.getObjectByName(tipName);
+    if (!upper || !lower || !tip) throw new Error(`Traversal animation requires ${upperName}/${lowerName}/${tipName}`);
+    const origin = upper.getWorldPosition(new THREE.Vector3());
+    const joint = lower.getWorldPosition(new THREE.Vector3());
+    const end = tip.getWorldPosition(new THREE.Vector3());
+    const endRotation = tip.getWorldQuaternion(new THREE.Quaternion());
+    const a = origin.distanceTo(joint), b = joint.distanceTo(end);
+    const direction = target.clone().sub(origin);
+    const distance = THREE.MathUtils.clamp(direction.length(), Math.abs(a - b) + 0.001, a + b - 0.001);
+    direction.normalize();
+    const bend = pole.clone().addScaledVector(direction, -pole.dot(direction)).normalize();
+    const along = (a * a - b * b + distance * distance) / (2 * distance);
+    const knee = origin.clone().addScaledVector(direction, along).addScaledVector(bend, Math.sqrt(Math.max(0, a * a - along * along)));
+    aimBone(upper, lower, knee);
+    aimBone(lower, tip, origin.clone().addScaledVector(direction, distance));
+    // Keep boots level while knees flex; hands retain their grip orientation.
+    tip.quaternion.copy(tip.parent!.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(endRotation));
+    model.updateMatrixWorld(true);
+  }
+  function orientHand(suffix: string, climbing: boolean, curl = climbing) {
+    const hand = model.getObjectByName(`hand_${suffix}`)!;
+    const middle = model.getObjectByName(`middle_01_${suffix}`)!;
+    const index = model.getObjectByName(`index_01_${suffix}`)!;
+    const pinky = model.getObjectByName(`pinky_01_${suffix}`)!;
+    const rest = rig.find(entry => entry.bone === hand)!;
+    const finger = middle.position.clone().normalize();
+    const palm = index.position.clone().sub(pinky.position).cross(finger).normalize();
+    // UAL's mirrored rest palms face down. Build a hand-local anatomical frame
+    // instead of retaining the T-pose's world rotation after solving the elbows.
+    const restWorld = hand.parent!.getWorldQuaternion(new THREE.Quaternion()).multiply(rest.quaternion);
+    const savedPalm = hand.userData.restPalm as THREE.Vector3 | undefined;
+    if (savedPalm) palm.copy(savedPalm);
+    else {
+      if (palm.clone().applyQuaternion(restWorld).y > 0) palm.negate();
+      hand.userData.restPalm = palm.clone();
+    }
+    const side = suffix === 'l' ? 1 : -1;
+    const fingersToward = climbing ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(side * 0.2, 0.1, 1).normalize();
+    const palmToward = climbing ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, -1, 0);
+    const basis = (y: THREE.Vector3, z: THREE.Vector3) => {
+      const x = new THREE.Vector3().crossVectors(y, z).normalize();
+      return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, new THREE.Vector3().crossVectors(x, y)));
+    };
+    const rotation = basis(fingersToward, palmToward).multiply(basis(finger, palm).invert());
+    hand.quaternion.copy(hand.parent!.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(rotation));
+    model.updateMatrixWorld(true);
+    // Curl the distal joints around the rung; float with relaxed, open fingers.
+    if (curl) for (const digit of ['index', 'middle', 'ring', 'pinky']) {
+      for (const segment of ['02', '03']) {
+        const joint = model.getObjectByName(`${digit}_${segment}_${suffix}`);
+        if (!joint) continue;
+        const axis = new THREE.Vector3(1, 0, 0).applyQuaternion(joint.getWorldQuaternion(new THREE.Quaternion()).invert());
+        joint.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(axis, 0.85));
+      }
+    }
+  }
+  // Calibrate the mirrored palm normals from the untouched neutral pose.
+  const calibrationFacing = model.quaternion.clone(); model.quaternion.identity(); resetRig();
+  orientHand('l', false); orientHand('r', false); resetRig(); model.quaternion.copy(calibrationFacing);
+
+  function bakeTraversal(name: string, duration: number, climbing: boolean, handling = 0) {
+    const facing = model.quaternion.clone();
+    model.quaternion.identity();
+    const times = Array.from({ length: 49 }, (_, i) => i * duration / 48);
+    const rotations = rig.map(() => [] as number[]);
+    const positions = rig.map(() => [] as number[]);
+    for (let frame = 0; frame < times.length; frame++) {
+      resetRig();
+      const phase = frame / 48;
+      for (const side of [1, -1]) {
+        const suffix = side === 1 ? 'l' : 'r';
+        const cycle = (phase + (side === 1 ? 0 : 0.5)) % 1;
+        // Planted for half a cycle, then lifted to the next rung in a smooth arc.
+        const planted = cycle < 0.5;
+        const recovery = (cycle - 0.5) * 2;
+        const reach = planted ? 1 - cycle * 2 : THREE.MathUtils.smoothstep(recovery, 0, 1);
+        const lift = planted ? 0 : Math.sin(recovery * Math.PI);
+        const drift = Math.sin(cycle * Math.PI * 2);
+        const handTarget = handling
+          ? new THREE.Vector3(side * 0.28, 1.12, 0.54)
+          : climbing ? new THREE.Vector3(side * 0.26, 1.25 + LADDER.rungSpacing * reach, LADDER.bodyOffset - lift * 0.1)
+          : new THREE.Vector3(side * (0.32 + drift * 0.03), 1.16 + drift * 0.06, 0.24);
+        const footTarget = handling
+          ? new THREE.Vector3(side * 0.15, 0.025 + Math.max(0, drift) * 0.10, Math.cos(cycle * Math.PI * 2) * 0.19 * handling)
+          : climbing ? new THREE.Vector3(side * 0.16, 0.08 + LADDER.rungSpacing * (1 - reach), LADDER.bodyOffset - 0.13 - lift * 0.09)
+          : new THREE.Vector3(side * 0.16, 0.14 + drift * 0.05, 0.08 + drift * 0.04);
+        solveLimb(`upperarm_${suffix}`, `lowerarm_${suffix}`, `hand_${suffix}`, handTarget, new THREE.Vector3(side, -0.2, -0.1));
+        solveLimb(`thigh_${suffix}`, `calf_${suffix}`, `foot_${suffix}`, footTarget, new THREE.Vector3(side * 0.15, 0, 1));
+        orientHand(suffix, climbing || handling !== 0, climbing || handling < 0);
+      }
+      rig.forEach(({ bone }, i) => { rotations[i].push(...bone.quaternion.toArray()); positions[i].push(...bone.position.toArray()); });
+    }
+    resetRig();
+    model.quaternion.copy(facing);
+    model.updateMatrixWorld(true);
+    // Full-pose tracks prevent stale walk/aim tracks leaking into traversal.
+    return new THREE.AnimationClip(name, duration, rig.flatMap(({ bone }, i) => [
+      new THREE.QuaternionKeyframeTrack(`${bone.name}.quaternion`, times, rotations[i]),
+      new THREE.VectorKeyframeTrack(`${bone.name}.position`, times, positions[i]),
+    ]));
+  }
+  clips.push(bakeTraversal('Ladder_Climb_Loop', LADDER.cycleDuration, true));
+  clips.push(bakeTraversal('Float_Loop', 2.4, false));
+  clips.push(bakeTraversal('Box_Push_Loop', 0.95, false, 1));
+  clips.push(bakeTraversal('Box_Pull_Loop', 1.05, false, -1));
   console.log('=== UAL1 ANIMATION DEBUG ===');
   console.log('Total clips:', clips.length);
   console.log('Clip names:', clips.map((c: THREE.AnimationClip) => c.name));
@@ -162,7 +292,20 @@ export async function loadCharacter(loader = new GLTFLoader()) {
   crowbar.position.set(0, 0, 0);
   crowbar.rotation.set(Math.PI / 2, 0, 0);
   crowbar.visible = false;
+  let crowbarEquipped = false;
   rightHand?.add(crowbar);
+
+  const goggles = createGoggles();
+  goggles.visible = false;
+  const head = model.getObjectByName('head');
+  if (head) {
+    model.updateMatrixWorld(true);
+    const headPosition = model.worldToLocal(head.getWorldPosition(new THREE.Vector3()));
+    const eyePosition = new THREE.Vector3(0, headPosition.y + 0.09, headPosition.z + 0.12);
+    goggles.position.copy(head.worldToLocal(model.localToWorld(eyePosition)));
+    goggles.quaternion.copy(head.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(model.getWorldQuaternion(new THREE.Quaternion())));
+    head.add(goggles);
+  }
 
   let currentAction = actions.get('Idle_Loop')!;
   currentAction.play();
@@ -190,7 +333,7 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     thirdPerson: boolean,
     playerRadius: number,
   ) {
-    const { yaw, pitch, isMoving, isOnGround, velocityY, jumping, actionRequest, crouching, sprinting } = playerState;
+    const { yaw, pitch, isMoving, isOnGround, velocityY, jumping, actionRequest, crouching, sprinting, climbing, climbDirection, floating, floatTime, boxHandling, boxMotion } = playerState;
     model.traverse((child: THREE.Object3D) => {
       if (thirdPerson) {
         child.layers.enable(0);
@@ -205,11 +348,23 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     let diff = yaw + MODEL_ROT_OFFSET - model.rotation.y;
     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
     model.rotation.y += diff * Math.min(1, 10 * dt);
+    const weightless = floating && !climbing;
+    model.rotation.x = THREE.MathUtils.damp(model.rotation.x, weightless ? 0.08 : 0, 8, dt);
+    model.rotation.z = THREE.MathUtils.damp(model.rotation.z, weightless ? Math.sin((floatTime ?? 0) * 1.2) * 0.035 : 0, 8, dt);
 
     // Grounded input always takes priority over airborne animation state.
     // One-shot completion is driven by the mixer, never by wall-clock timers.
     const name = currentAction.getClip().name;
-    if (isOnGround) {
+    if (climbing) {
+      fadeTo('Ladder_Climb_Loop');
+      currentAction.setEffectiveTimeScale(climbDirection ?? 1);
+    } else if (floating) {
+      fadeTo('Float_Loop');
+      currentAction.setEffectiveTimeScale(isMoving ? 1.3 : 0.8);
+    } else if (boxHandling) {
+      fadeTo(boxMotion < -0.07 ? 'Box_Pull_Loop' : 'Box_Push_Loop');
+      currentAction.setEffectiveTimeScale(Math.abs(boxMotion) < 0.07 ? 0 : Math.min(1.5, Math.abs(boxMotion) / 1.1));
+    } else if (isOnGround) {
       // One-shot action requests (keys 6-9) play once, then locomotion resumes.
       // While one plays, idle/walk/land transitions wait for mixer completion.
       const actionPlaying = ACTION_CLIPS.has(name) && !currentAction.paused;
@@ -227,6 +382,8 @@ export async function loadCharacter(loader = new GLTFLoader()) {
           fadeTo('Sprint_Loop');
         } else if (isMoving) {
           fadeTo('Walk_Loop');
+        } else if (name === 'Ladder_Climb_Loop') {
+          fadeTo('Idle_Loop');
         } else if (wasOnGround === false) {
           fadeTo('Jump_Land');
         } else if (name !== 'Jump_Land' || currentAction.paused) {
@@ -252,7 +409,10 @@ export async function loadCharacter(loader = new GLTFLoader()) {
       base.scale.copy(base.bone.scale);
     }
     // The second mixer owns only spine/arms/head; hips and legs retain locomotion.
-    if (armed) {
+    const handsFree = !climbing && !playerState.ventMode && !boxHandling;
+    socket.visible = handsFree;
+    crowbar.visible = crowbarEquipped && handsFree;
+    if (armed && handsFree) {
       upperMixer.update(dt);
       if (shootAction?.paused) {
         shootAction.stop();
@@ -275,11 +435,17 @@ export async function loadCharacter(loader = new GLTFLoader()) {
 
   function setFacing(yaw: number) {
     // Doorway coordinate changes are instantaneous, not an in-world turn.
-    model.rotation.y = yaw + MODEL_ROT_OFFSET;
+    model.rotation.set(0, yaw + MODEL_ROT_OFFSET, 0, 'YXZ');
   }
 
   function dispose() {
     crowbar.removeFromParent();
+    goggles.removeFromParent();
+    const gogglesMaterials = new Set<THREE.Material>();
+    goggles.traverse(node => {
+      if (node instanceof THREE.Mesh) { node.geometry.dispose(); (Array.isArray(node.material) ? node.material : [node.material]).forEach(mat => gogglesMaterials.add(mat)); }
+    });
+    gogglesMaterials.forEach(mat => mat.dispose());
     upperMixer.stopAllAction();
     upperMixer.uncacheRoot(upperPose);
     mixer.stopAllAction();
@@ -289,7 +455,8 @@ export async function loadCharacter(loader = new GLTFLoader()) {
 
   return {
     model, mixer, update, setFacing, weapon, crowbar,
-    setCrowbarEquipped: (equipped: boolean) => { crowbar.visible = equipped; },
+    setCrowbarEquipped: (equipped: boolean) => { crowbarEquipped = equipped; crowbar.visible = equipped; },
+    setGogglesEquipped: (equipped: boolean) => { goggles.visible = equipped; },
     dispose,
   };
 }

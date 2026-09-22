@@ -57,8 +57,8 @@ const TEXTURE_SETS = [
   { diffuse: tex8Url, normal: null, specular: null }, // Texture 8 has no normal/specular maps
 ];
 
-export function createScene({ audioManager, entryState, entryDoor = 'back', cafeteriaUnlocked = false, chestOpened, onChestCollected }: {
-  audioManager?: unknown; entryState?: PlayerTransitionState; entryDoor?: 'back' | 'front'; cafeteriaUnlocked?: boolean; chestOpened?: boolean; onChestCollected?: () => void;
+export function createScene({ audioManager, entryState, entryDoor = 'back', cafeteriaUnlocked = false, chestOpened, onChestCollected, preview = false }: {
+  audioManager?: unknown; entryState?: PlayerTransitionState; entryDoor?: 'back' | 'front'; cafeteriaUnlocked?: boolean; chestOpened?: boolean; onChestCollected?: () => void; preview?: boolean;
 } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0a10);
@@ -443,7 +443,7 @@ export function createScene({ audioManager, entryState, entryDoor = 'back', cafe
   let chestLooted = !!chestOpened;
   let chestModel: THREE.Group | null = null;
   let chestBody: CANNON.Body | null = null;
-  const interactPrompt = document.getElementById('interact-prompt');
+  const interactPrompt = preview ? null : document.getElementById('interact-prompt');
   const interactRange = 1.8;
 
   // Chest is already looted from a prior visit - never spawn it again.
@@ -494,7 +494,7 @@ export function createScene({ audioManager, entryState, entryDoor = 'back', cafe
     frontDoorTarget.visible = true;
     if (interactPrompt) interactPrompt.classList.add('hidden');
     if (chestOpenAction && chestMixer) {
-      const onFinished = (event: THREE.Event) => {
+      const onFinished = (event: THREE.AnimationMixerEventMap['finished']) => {
         if (event.action !== chestOpenAction) return;
         chestMixer?.removeEventListener('finished', onFinished);
         chestIdleOpenAction?.reset().play();

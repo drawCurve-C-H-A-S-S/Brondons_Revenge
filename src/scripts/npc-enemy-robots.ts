@@ -113,6 +113,16 @@ export class NPCEnemyManager {
     }
   }
 
+  /** End a non-pursuit traversal visit before constructing the next room's UI. */
+  leaveScene() {
+    this.detach();
+    if (this.state !== 'DISAPPEARED') this.state = 'WAITING';
+    const previous = this.active;
+    this.active = null;
+    previous?.dispose();
+    this.releaseRetired();
+  }
+
   private spawn(visit: Visit) {
     this.health = 100;
     this.state = 'PACING';
