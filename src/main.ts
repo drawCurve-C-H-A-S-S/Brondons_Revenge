@@ -816,7 +816,10 @@ function updatePlayerView(dt: number) {
     globalCharacter?.setCrowbarEquipped(currentSceneData.getCinematicWeapon?.() === 'crowbar');
     if (globalCharacter) {
       if (currentSceneData.hideCharacter?.()) globalCharacter.model.visible = false;
-      else globalCharacter.update(dt, currentPlayer.body.position, cinematicState, true, currentPlayer.radius);
+      else globalCharacter.update(
+        currentSceneData.getCinematicDelta?.() ?? dt, currentPlayer.body.position,
+        cinematicState, true, currentPlayer.radius, currentSceneData.getCinematicPose?.(),
+      );
     }
     currentSceneData.updateCinematicCharacter?.(globalCharacter);
     currentSceneData.applyCinematicCamera();

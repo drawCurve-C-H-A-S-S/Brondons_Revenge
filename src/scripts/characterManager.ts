@@ -18,6 +18,13 @@ import type { PlayerState } from './player.js';
 
 interface Vec3Like { x: number; y: number; z: number; }
 
+export interface CinematicPose {
+  clip: 'Idle_Loop' | 'Sprint_Loop' | 'Pistol_Aim_Neutral' | 'Pistol_Shoot' | 'Sword_Idle' | 'Sword_Attack' | 'Roll' | 'Hit_Chest' | 'Death01' | 'Jump_Start' | 'Jump_Loop' | 'Jump_Land' | 'Sitting_Enter';
+  time: number;
+  duration?: number;
+  loop?: boolean;
+}
+
 const CLIP_NAMES = [
   'Idle_Loop', 'Walk_Loop', 'Sprint_Loop', 'Jump_Start', 'Jump_Loop', 'Jump_Land',
   // One-shot action clips on number keys 6-9 (input mapping in player.ts).
@@ -307,6 +314,8 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     head.add(goggles);
   }
 
+  const cinematicActions = new Map<string, THREE.AnimationAction>();
+  let cinematicAction: THREE.AnimationAction | null = null;
   let currentAction = actions.get('Idle_Loop')!;
   currentAction.play();
   mixer.update(0);
@@ -332,6 +341,7 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     playerState: PlayerState,
     thirdPerson: boolean,
     playerRadius: number,
+    cinematic?: CinematicPose | null,
   ) {
     const { yaw, pitch, isMoving, isOnGround, velocityY, jumping, actionRequest, crouching, sprinting, climbing, climbDirection, floating, floatTime, boxHandling, boxMotion } = playerState;
     model.traverse((child: THREE.Object3D) => {
@@ -354,8 +364,31 @@ export async function loadCharacter(loader = new GLTFLoader()) {
 
     // Grounded input always takes priority over airborne animation state.
     // One-shot completion is driven by the mixer, never by wall-clock timers.
+    if (!cinematic && cinematicAction) {
+      mixer.stopAllAction(); cinematicAction = null;
+      currentAction = actions.get('Idle_Loop')!;
+      currentAction.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play();
+      wasOnGround = null;
+    }
     const name = currentAction.getClip().name;
-    if (climbing) {
+    if (cinematic) {
+      let next = cinematicActions.get(cinematic.clip);
+      if (!next) {
+        const clip = THREE.AnimationClip.findByName(clips, cinematic.clip) ?? actions.get('Idle_Loop')!.getClip();
+        // Separate actions preserve gameplay looping/time-scale settings on the shared rig.
+        next = mixer.clipAction(clip.clone()); cinematicActions.set(cinematic.clip, next);
+      }
+      if (next !== cinematicAction) {
+        if (cinematicAction) cinematicAction.fadeOut(0.1);
+        else mixer.stopAllAction();
+        next.reset().setLoop(THREE.LoopOnce, 1).setEffectiveWeight(1).fadeIn(0.1).play();
+        cinematicAction = next;
+      }
+      const duration = next.getClip().duration;
+      const time = Math.max(0, cinematic.time) * (cinematic.duration ? duration / cinematic.duration : 1);
+      next.paused = true;
+      next.time = cinematic.loop ? time % duration : Math.min(time, duration);
+    } else if (climbing) {
       fadeTo('Ladder_Climb_Loop');
       currentAction.setEffectiveTimeScale(climbDirection ?? 1);
     } else if (floating) {
@@ -412,7 +445,7 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     const handsFree = !climbing && !playerState.ventMode && !boxHandling;
     socket.visible = handsFree;
     crowbar.visible = crowbarEquipped && handsFree;
-    if (armed && handsFree) {
+    if (armed && handsFree && !cinematic) {
       upperMixer.update(dt);
       if (shootAction?.paused) {
         shootAction.stop();
