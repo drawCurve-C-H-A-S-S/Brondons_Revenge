@@ -212,7 +212,7 @@ export function createScene({ entryState, clearedCrates = new Set<string>(), onC
   let doorCooldown = false;
   let climbing = false;
   let handoffStarted = false;
-  let climbTime = 0;
+  let climbTime = 0, climbBoost = false;
   const climbStart = new THREE.Vector3();
   const prompt = document.getElementById?.('interact-prompt');
   let promptVisible = false;
@@ -222,6 +222,9 @@ export function createScene({ entryState, clearedCrates = new Set<string>(), onC
   function setBackTrigger(callback: (state: PlayerTransitionState) => void) { onBackTrigger = callback; }
   function setLadderTrigger(callback: () => void) { onLadderTrigger = callback; }
   function onKeyDown(event: KeyboardEvent) {
+    if (event.code === 'Space' && climbing && !event.repeat) {
+      event.preventDefault(); climbBoost = true; player.clearInput(); return;
+    }
     if (event.code !== 'KeyE' || event.repeat || climbing || !onLadderTrigger || breakables.remaining() > 0) return;
     const dx = player.body.position.x - ladderX;
     const dz = player.body.position.z - (ladderZ + 0.65);
@@ -240,7 +243,7 @@ export function createScene({ entryState, clearedCrates = new Set<string>(), onC
     breakables.update(dt);
     const px = player.body.position.x, pz = player.body.position.z;
     if (climbing) {
-      climbTime += dt;
+      climbTime += dt * (climbBoost ? 12 : 1);
       const mount = THREE.MathUtils.smoothstep(climbTime, 0, LADDER.mountDuration);
       const top = roomHeight + PHYSICS.playerRadius;
       const y = Math.min(top, climbStart.y + Math.max(0, climbTime - LADDER.mountDuration) * LADDER.climbSpeed);
@@ -248,13 +251,13 @@ export function createScene({ entryState, clearedCrates = new Set<string>(), onC
         THREE.MathUtils.lerp(climbStart.z, ladderZ + LADDER.bodyOffset, mount));
       player.body.aabbNeedsUpdate = true;
       player.updateCamera(0, thirdPerson);
-      if (y >= top && !handoffStarted) { handoffStarted = true; onLadderTrigger?.(); }
+      if (player.getHeadY() >= roomHeight && !handoffStarted) { handoffStarted = true; onLadderTrigger?.(); }
       return;
     }
     const nearLadder = player.isEnabled() && breakables.remaining() === 0 && Math.hypot(px - ladderX, pz - (ladderZ + 0.65)) <= ladderInteractRange;
     if (prompt && nearLadder !== promptVisible) {
       promptVisible = nearLadder;
-      prompt.textContent = 'Press E to climb';
+      prompt.textContent = 'E: climb / Space while climbing: zip upward';
       prompt.classList.toggle('hidden', !nearLadder);
     }
 
@@ -270,9 +273,9 @@ export function createScene({ entryState, clearedCrates = new Set<string>(), onC
     
     beverageMat.emissiveIntensity = 1.1 + Math.sin(performance.now() * 0.002) * 0.2;
     
-    if (onBackTrigger && !doorCooldown && doorOpen > 0.9 && pz > roomDepth / 2 + 0.8 && inDoorZone) {
+    if (onBackTrigger && !doorCooldown && doorOpen > 0.9 && pz >= roomDepth / 2 && Math.abs(px) <= (doorW + 2) / 2 + player.radius) {
       doorCooldown = true;
-      onBackTrigger(player.captureTransition({ x: 0, y: 0, z: roomDepth / 2 }));
+      onBackTrigger(player.captureDoorTransition({ x: 0, y: 0, z: roomDepth / 2 }, 1));
     }
   }
 

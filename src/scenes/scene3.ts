@@ -541,21 +541,21 @@ export function createScene({ audioManager, entryState, entryDoor, hasCrowbar = 
     } else if (ownsPrompt) { prompt?.classList.add('hidden'); ownsPrompt = false; }
 
     // Check door triggers
-    if (onBackTrigger && !backCooldown && doorFront.open > 0.9 && pz > roomDepth / 2 + 0.8 && inDoorX) {
+    if (onBackTrigger && !backCooldown && doorFront.open > 0.9 && pz >= roomDepth / 2 && Math.abs(px) <= (doorW + 2) / 2 + player.radius) {
       backCooldown = true;
-      onBackTrigger(player.captureTransition({ x: 0, y: 0, z: roomDepth / 2 }));
+      onBackTrigger(player.captureDoorTransition({ x: 0, y: 0, z: roomDepth / 2 }, 1));
     }
-    if (onForwardTrigger && !forwardCooldown && doorBack.open > 0.9 && pz < -roomDepth / 2 - 0.8 && inDoorX) {
+    if (onForwardTrigger && !forwardCooldown && doorBack.open > 0.9 && pz <= -roomDepth / 2 && Math.abs(px) <= (doorW + 2) / 2 + player.radius) {
       forwardCooldown = true;
       onForwardTrigger();
     }
-    if (cargoDoorUnlocked && onLeftTrigger && !leftCooldown && doorLeft.open > 0.9 && px < -roomWidth / 2 - 0.8 && inDoorZ) {
+    if (cargoDoorUnlocked && onLeftTrigger && !leftCooldown && doorLeft.open > 0.9 && px <= -roomWidth / 2 && Math.abs(pz) <= (doorW + 2) / 2 + player.radius) {
       leftCooldown = true;
-      onLeftTrigger(player.captureTransition({ x: -roomWidth / 2, y: 0, z: 0, yaw: Math.PI / 2 }));
+      onLeftTrigger(player.captureDoorTransition({ x: -roomWidth / 2, y: 0, z: 0, yaw: Math.PI / 2 }));
     }
-    if (onRightTrigger && !rightCooldown && doorRight.open > 0.9 && px > roomWidth / 2 + 0.8 && inDoorZ) {
+    if (onRightTrigger && !rightCooldown && doorRight.open > 0.9 && px >= roomWidth / 2 && Math.abs(pz) <= (doorW + 2) / 2 + player.radius) {
       rightCooldown = true;
-      onRightTrigger(player.captureTransition({ x: roomWidth / 2, y: 0, z: 0, yaw: -Math.PI / 2 }));
+      onRightTrigger(player.captureDoorTransition({ x: roomWidth / 2, y: 0, z: 0, yaw: -Math.PI / 2 }));
     }
   }
 

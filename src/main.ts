@@ -10,13 +10,17 @@ import { createScene as createScene6 } from './scenes/scene6.js';
 import { createScene as createScene7 } from './scenes/scene7.js';
 import { createScene as createScene8 } from './scenes/scene8.js';
 import { createScene as createScene9 } from './scenes/scene9.js';
-import { createScene as createScene10, type PuzzleState } from './scenes/scene10.js';
+import { createScene as createScene10 } from './scenes/scene10.js';
+import { createCargoPuzzleState } from './scripts/cargoPuzzle.js';
+import { createHandle } from './helpers/scene/cargoVisuals.js';
 import { createScene as createScene11 } from './scenes/scene11.js';
 import { createScene as createScene12, type PassageDestination } from './scenes/scene12.js';
 import { createScene as createScene13 } from './scenes/scene13.js';
-import { createScene as createScene14 } from './scenes/scene14.js';
+import { createScene as createScene14, type LaunchState } from './scenes/scene14.js';
 import { createScene as createScene15, type FlightExitState } from './scenes/scene15.js';
 import { createScene as createScene16 } from './scenes/scene16.js';
+import { createScene as createScene17 } from './scenes/scene17.js';
+import type { RescueArrival } from './helpers/scene/rescueSite.js';
 import { loadCharacter } from './scripts/characterManager.js';
 import type { Player, PlayerTransitionState } from './scripts/player.js';
 import { PLAYER_MAX_HEALTH } from './scripts/player.js';
@@ -70,8 +74,8 @@ function advanceSceneActions(dt: number) {
   }
 }
 let scene1SkipVisible = false;
-let bayGravityRestored = false;
-let puzzleState: PuzzleState | undefined;
+let cargoPuzzle = createCargoPuzzleState();
+const heldSwitchHandle = createHandle();
 let bayBossDefeated = false;
 let traversalState: PlayerTransitionState | undefined;
 
@@ -99,7 +103,7 @@ const THIRD_PERSON_RIGHT = 0.7;
 
 const pistol = new PistolController(() => ({
   scene: activeScene, camera: activeCamera, world: currentSceneData?.physicsWorld ?? null,
-  player: currentPlayer, character: globalCharacter?.model ?? null,
+  player: cargoPuzzle.handle === 'carried' ? null : currentPlayer, character: globalCharacter?.model ?? null,
   thirdPerson: isThirdPerson, targets: [...npcManager.getDamageTargets(), ...(currentSceneData?.getDamageTargets?.() ?? [])],
   weaponAnimation: globalCharacter?.weapon,
   holsterOther: () => crowbarController?.holster(),
@@ -109,7 +113,7 @@ const crowbar = new CrowbarController(() => ({
   scene: activeScene,
   camera: activeCamera,
   world: currentSceneData?.physicsWorld ?? null,
-  player: currentPlayer,
+  player: cargoPuzzle.handle === 'carried' ? null : currentPlayer,
   character: globalCharacter?.model ?? null,
   thirdPerson: isThirdPerson,
   hasCrowbar,
@@ -448,7 +452,7 @@ function transitionToScene4() {
   // Capture player state for transition - scene3's forward door is at -Z (z = -10)
   // Use yaw: 0 so the player's position is preserved correctly through the transition
   if (currentPlayer) {
-    const state = currentPlayer.captureTransition({ x: 0, y: 0, z: -10, yaw: 0 });
+    const state = currentPlayer.captureDoorTransition({ x: 0, y: 0, z: -10, yaw: 0 });
     try { loadScene4(state); } catch (e) { console.error('Error loading scene 4:', e); }
   }
 }
@@ -498,13 +502,17 @@ function hideScene1Skip() {
 }
 
 function enterManagedScene(id: string, sceneData: any) {
+  heldSwitchHandle.removeFromParent();
   globalCharacter?.model.removeFromParent();
   npcManager.enterScene(id, sceneData);
   activeSceneId = id;
+  const damage = document.getElementById('player-damage');
+  if (damage) damage.style.opacity = '0';
 }
 
 function retireTraversalRoom() {
   // The persistent character is not scene-owned geometry.
+  heldSwitchHandle.removeFromParent();
   globalCharacter?.model.removeFromParent();
   npcManager.leaveScene();
 }
@@ -530,7 +538,7 @@ function fadeTraversal(complete: () => void) {
 
 function loadScene8(entry: 'galley' | 'deck' = 'galley') {
   hideScene1Skip();
-  const sceneData = createScene8({ entry, entryState: traversalState });
+  const sceneData = createScene8({ entry, entryState: traversalState, puzzle: cargoPuzzle });
     enterManagedScene('scene8', sceneData);
   currentSceneData = sceneData; activeScene = sceneData.scene; activeCamera = sceneData.camera;
   updatePhysics = sceneData.updatePhysics; cutsceneManager = null; currentPlayer = sceneData.player;
@@ -539,19 +547,21 @@ function loadScene8(entry: 'galley' | 'deck' = 'galley') {
   }
   orbitControls!.object = activeCamera; orbitControls!.enabled = false;
   globalCharacter?.setFacing(currentPlayer.getState().yaw); updatePlayerView(0);
-  sceneData.setReturnToSeven(() => fadeTraversal(loadScene7FromVent));
-  sceneData.setDescendToNine(() => fadeTraversal(() => loadScene9(traversalState)));
+  sceneData.setReturnToSeven(drop => fadeTraversal(() => loadScene7FromVent(drop)));
+  sceneData.setDescendToNine(drop => fadeTraversal(() => loadScene9(traversalState, false, drop)));
   sceneData.setDropToTen(state => fadeTraversal(() => loadExtensionRoom(10, state)));
   sceneData.setDropToEleven(state => fadeTraversal(() => loadExtensionRoom(11, state)));
   renderer.render(activeScene, activeCamera);
 }
 
-function loadScene7FromVent() {
+function loadScene7FromVent(drop = false) {
   hideScene1Skip();
   const sceneData = createScene7(ladderAccess());
   enterManagedScene('scene7', sceneData);
-  if (traversalState) sceneData.player.restoreTransition({ ...traversalState, position: { x: 4.6, y: 0.3, z: -2.95 }, velocity: { x: 0, y: 0, z: 0 }, yaw: Math.PI, heldKeys: [] }, { x: 0, y: 0, z: 0, yaw: -Math.PI });
-  sceneData.player.setPosition(4.6, 0.3, -2.95);
+  const position = { x: 4.6, y: drop ? 4.15 : 0.3, z: drop ? -3.18 : -2.95 };
+  if (traversalState) sceneData.player.restoreTransition({ ...traversalState, position, velocity: { x: 0, y: 0, z: 0 }, yaw: Math.PI, pitch: 0, heldKeys: [], blockedKeys: [], crouching: false, sprinting: false, intentionalJump: false, jumpQueued: false }, { x: 0, y: 0, z: 0, yaw: -Math.PI });
+  sceneData.player.setPosition(position.x, position.y, position.z);
+  if (drop) sceneData.player.body.velocity.y = -5;
   sceneData.player.setRotation(Math.PI, 0);
   currentSceneData = sceneData; activeScene = sceneData.scene; activeCamera = sceneData.camera;
   updatePhysics = sceneData.updatePhysics; cutsceneManager = null; currentPlayer = sceneData.player;
@@ -565,9 +575,9 @@ function loadScene7FromVent() {
   renderer.render(activeScene, activeCamera);
 }
 
-function loadScene9(entryState?: PlayerTransitionState, fromPassage = false) {
+function loadScene9(entryState?: PlayerTransitionState, fromPassage = false, dropFromLadder = false) {
   hideScene1Skip();
-  const sceneData = createScene9({ entryState, fromPassage, gravityRestored: bayGravityRestored, onGravityChanged: active => { bayGravityRestored = active; } });
+  const sceneData = createScene9({ entryState, fromPassage, dropFromLadder, puzzle: cargoPuzzle });
     enterManagedScene('scene9', sceneData);
   currentSceneData = sceneData; activeScene = sceneData.scene; activeCamera = sceneData.camera;
   updatePhysics = sceneData.updatePhysics; cutsceneManager = null; currentPlayer = sceneData.player;
@@ -592,9 +602,13 @@ function activateExtension(sceneData: any, id: string) {
 
 function loadExtensionRoom(id: 10 | 11 | 13, entryState?: PlayerTransitionState, fromPassage = false, checkpoint = false) {
   retireTraversalRoom();
-  const options = { entryState, fromPassage };
-  const sceneData = id === 10 ? createScene10({ ...options, puzzleState, onPuzzleChanged: state => { puzzleState = state; } })
-    : id === 11 ? createScene11(options) : createScene13({ ...options, defeated: bayBossDefeated, checkpoint, onDefeated: () => { bayBossDefeated = true; }, onDescend: loadHangar14 });
+  const options = { entryState, fromPassage, puzzle: cargoPuzzle };
+  const sceneData = id === 10 ? createScene10(options)
+    : id === 11 ? createScene11(options) : createScene13({
+      ...options, defeated: bayBossDefeated, checkpoint,
+      onDefeated: () => { bayBossDefeated = true; }, onDescend: loadHangar14,
+      onRespawn: () => loadExtensionRoom(13, undefined, false, true),
+    });
   activateExtension(sceneData, `scene${id}`);
   sceneData.setBackTrigger(state => loadPassage12(state, id));
 }
@@ -613,7 +627,7 @@ function loadHangar14(entryState?: PlayerTransitionState) {
   activateExtension(sceneData, 'scene14');
 }
 
-function loadFlight15(entryState?: PlayerTransitionState) {
+function loadFlight15(entryState?: LaunchState) {
   hideScene1Skip(); retireTraversalRoom();
   activateExtension(createScene15({ entryState, onTransition: loadCrash16 }), 'scene15');
   setTouchFlightMode(true);
@@ -624,13 +638,24 @@ function loadCrash16(entryState?: FlightExitState) {
   setTouchFlightMode(false);
   activateExtension(createScene16({
     entryState,
-    onFinished: () => document.getElementById('credits-overlay')?.classList.remove('hidden'),
+    onFinished: loadGround17,
   }), 'scene16');
+}
+
+function loadGround17(entryState?: RescueArrival) {
+  hideScene1Skip(); retireTraversalRoom(); setTouchFlightMode(false);
+  activateExtension(createScene17({
+    entryState,
+    onRespawn: () => loadGround17({
+      ...entryState,
+      pilotState: entryState?.pilotState ? { ...entryState.pilotState, health: PLAYER_MAX_HEALTH } : undefined,
+    }),
+  }), 'scene17');
 }
 
 function loadPassage12(entryState?: PlayerTransitionState, from: PassageDestination = 10) {
   retireTraversalRoom();
-  const sceneData = createScene12({ entryState, from });
+  const sceneData = createScene12({ entryState, from, puzzle: cargoPuzzle });
   activateExtension(sceneData, 'scene12');
   for (const id of [9, 10, 11, 13] as const) sceneData.setDoorTrigger(id, state => {
     if (id === 9) { retireTraversalRoom(); loadScene9(state, true); }
@@ -886,9 +911,9 @@ function updatePlayerView(dt: number) {
 const SCENE_CHOICES = [
   [1, 'Space prologue'], [2, 'Medical bay'], [3, 'Passageway'], [4, 'Computer room'],
   [5, 'Cargo hold'], [6, 'Target range'], [7, 'Cafeteria'], [8, 'Vent junction'],
-  [9, 'Zero-gravity loading bay'], [10, 'Cargo transfer puzzle'], [11, 'Empty compartment'],
+  [9, 'Zero-gravity loading bay'], [10, 'Durable cargo puzzle'], [11, 'Mixed cargo puzzle'],
   [12, 'Transfer passage'], [13, 'Bay Warden boss'], [14, 'Hangar escape'],
-  [15, 'Space combat'], [16, 'Pod crash cutscene'],
+  [15, 'Space combat'], [16, 'Rescue landing cutscene'], [17, 'Facility approach'], 
 ] as const;
 const quickMenu = document.getElementById('scene-quick-menu') as HTMLDialogElement;
 
@@ -929,8 +954,7 @@ function jumpToScene(id: number) {
   for (const overlay of ['credits-overlay', 'menu-buttons', 'crowbar-overlay', 'boss-hud', 'boss-subtitles', 'escape-qte', 'loading-bay-status', 'space-cinematic-caption']) document.getElementById(overlay)?.classList.add('hidden');
   const fade = document.getElementById('fade-overlay'); fade?.classList.remove('active', 'black'); fade?.classList.add('hidden');
   hasCrowbar = true; goggles.collect();
-  if (id === 9) bayGravityRestored = false;
-  if (id === 10) puzzleState = undefined;
+  if (id >= 8 && id <= 12) cargoPuzzle = createCargoPuzzleState(id);
   if (id === 13) bayBossDefeated = false;
   try {
     switch (id) {
@@ -948,6 +972,7 @@ function jumpToScene(id: number) {
       case 14: loadHangar14(); break;
       case 15: loadFlight15(); break;
       case 16: loadCrash16(); break;
+      case 17: loadGround17(); break;
     }
     const spawnedPlayer = currentSceneData?.player as Player | undefined;
     spawnedPlayer?.heal(PLAYER_MAX_HEALTH);
@@ -1021,6 +1046,7 @@ const fpsEl = document.getElementById('fps')!;
 const healthFillEl = document.getElementById('health-bar-fill');
 const healthLabelEl = document.getElementById('health-bar-label');
 const healthBarEl = document.getElementById('health-bar');
+const playerDamageEl = document.getElementById('player-damage');
 let frameCount = 0;
 let fpsTime = 0;
 
@@ -1034,7 +1060,7 @@ function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
   if (quickMenuOpen) {
-    if (activeScene && activeCamera) renderer.render(activeScene, activeCamera);
+    if (activeScene && activeCamera) renderer.render(currentSceneData?.getRenderScene?.() ?? activeScene, activeCamera);
     return;
   }
   advanceSceneActions(Math.min(delta, 0.1));
@@ -1075,6 +1101,7 @@ function animate() {
 
   // Physics
   if (updatePhysics) updatePhysics(delta, isThirdPerson);
+  if (playerDamageEl) playerDamageEl.style.opacity = String(currentPlayer?.getDamageFlash() ?? 0);
 
   // Cutscenes
   if (cutsceneManager) cutsceneManager.update(delta);
@@ -1094,6 +1121,19 @@ function animate() {
   updatePlayerView(delta);
 
   if (!sceneOwnsControls) { pistol.update(delta); crowbar.update(delta); }
+  document.getElementById('weapon-status')?.classList.toggle('hidden', cargoPuzzle.handle === 'carried');
+  heldSwitchHandle.visible = cargoPuzzle.handle === 'carried' && !sceneOwnsControls && !!currentPlayer?.isEnabled();
+  if (heldSwitchHandle.visible && currentPlayer && activeScene && activeCamera) {
+    activeScene.add(heldSwitchHandle);
+    const yaw = currentPlayer.getState().yaw, p = currentPlayer.body.position;
+    if (isThirdPerson) {
+      heldSwitchHandle.position.set(p.x + Math.cos(yaw) * 0.35 - Math.sin(yaw) * 0.45, p.y + 0.7, p.z - Math.sin(yaw) * 0.35 - Math.cos(yaw) * 0.45);
+      heldSwitchHandle.rotation.set(0.4, yaw, 0);
+    } else {
+      heldSwitchHandle.position.set(0.3, -0.45, -0.7).applyQuaternion(activeCamera.quaternion).add(activeCamera.position);
+      heldSwitchHandle.quaternion.copy(activeCamera.quaternion);
+    }
+  } else heldSwitchHandle.removeFromParent();
   cctv.update(delta, currentSceneData?.roomId, activeScene, npcManager.getStatus().scene);
 
   // Controls
@@ -1101,8 +1141,8 @@ function animate() {
 
   // Render
   if (activeScene && activeCamera) {
-    renderer.render(activeScene, activeCamera);
-    crowbar.renderFirstPerson(renderer);
+    renderer.render(currentSceneData?.getRenderScene?.() ?? activeScene, activeCamera);
+    if (!sceneOwnsControls && cargoPuzzle.handle !== 'carried') crowbar.renderFirstPerson(renderer);
   }
 }
 

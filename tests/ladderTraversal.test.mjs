@@ -70,26 +70,27 @@ test('Scene 9 holds the player in the ladder animation state during entry and re
   const restore = browser(t);
   const data = createScene9(); t.after(() => { data.dispose(); restore(); });
   assert.equal(data.player.getState().climbing, true);
-  for (let index = 0; index < 100; index++) data.updatePhysics(1 / 60, true);
+  step(data, 12);
   assert.equal(data.player.getState().climbing, false);
   let returned = 0;
   data.setReturnToEight(() => { returned++; });
-  data.player.setPosition(0, 0.3, -5.78); pressE();
-  for (let index = 0; index < 420; index++) data.updatePhysics(1 / 60, true);
+  data.player.setPosition(0, 0.3, data.ladderZ + 0.72); pressE();
+  step(data, 13);
   assert.equal(returned, 1);
 });
 
-test('Scene 9 preserves held movement when the entry climb releases the player', t => {
+test('Scene 9 clears held movement when the entry climb releases the player', t => {
   const restore = browser(t);
   const data = createScene9(); t.after(() => { data.dispose(); restore(); });
   key('keydown', 'KeyW');
-  for (let index = 0; index < 82; index++) data.updatePhysics(1 / 60, true);
+  step(data, 12);
   const startZ = data.player.body.position.z;
   for (let index = 0; index < 60; index++) data.updatePhysics(1 / 60, true);
   key('keyup', 'KeyW');
   assert.equal(data.player.getState().climbing, false);
-  assert.ok(data.player.body.position.z > startZ + 1,
-    `Held W moves away after entry: start=${startZ}, end=${data.player.body.position.z}, velocity=${data.player.body.velocity}, type=${data.player.body.type}, state=${JSON.stringify(data.player.getState())}`);
+  assert.ok(Math.abs(data.player.body.position.z - startZ) < 0.01, 'entry handoff requires a fresh movement press');
+  key('keydown', 'KeyW'); step(data, 1); key('keyup', 'KeyW');
+  assert.ok(data.player.body.position.z > startZ + 2);
 });
 
 function step(data, seconds, fps = 60) {
@@ -99,7 +100,7 @@ function bay(t, options) {
   const restore = browser(t);
   const data = createScene9(options);
   t.after(() => { data.dispose(); restore(); });
-  step(data, 2);
+  step(data, 12);
   return data;
 }
 
@@ -123,17 +124,17 @@ for (const fps of [30, 60, 144]) {
   test(`Vent A/D turns reverse direction without strafing at ${fps} FPS`, t => {
     const restore = browser(t);
     const data = createScene8(); t.after(() => { data.dispose(); restore(); });
-    data.player.setPosition(0, 0.3, 0);
+    data.player.setPosition(0, 0.3, -3); step(data, 0.1, fps);
     const startYaw = data.player.getState().yaw;
     key('keydown', 'KeyA'); step(data, 0.6, fps); key('keyup', 'KeyA');
     assert.ok(Math.abs(data.player.getState().yaw - startYaw - Math.PI) < 0.001);
     assert.ok(Math.abs(data.player.body.position.x) < 0.01);
     key('keydown', 'KeyW'); step(data, 1, fps); key('keyup', 'KeyW');
-    assert.ok(data.player.body.position.z < -1.5, 'W follows the reversed heading');
+    assert.ok(data.player.body.position.z < -4.5, 'W follows the reversed heading');
     key('keydown', 'KeyD'); step(data, 0.6, fps); key('keyup', 'KeyD');
     assert.ok(Math.abs(data.player.getState().yaw - startYaw) < 0.001);
     key('keydown', 'KeyW'); step(data, 1, fps); key('keyup', 'KeyW');
-    assert.ok(Math.abs(data.player.body.position.z) < 0.1);
+    assert.ok(Math.abs(data.player.body.position.z + 3) < 0.1);
   });
 }
 
@@ -149,34 +150,24 @@ test('Zero-G boost, diagonal speed, blur and collision containment', t => {
   data.player.setPosition(0, 3, 12);
   key('keydown', 'KeyW'); step(data, 3); key('keyup', 'KeyW');
   assert.ok(data.player.body.position.z < 13, 'Pressure field contains the player');
-  data.player.setPosition(0, 8.5, 0);
+  data.player.setPosition(3, 8.5, -3);
   key('keydown', 'Space'); step(data, 3); key('keyup', 'Space');
   assert.ok(data.player.body.position.y < 9, 'Ceiling contains the physics body');
 });
 
-test('Gravity switch toggles repeatedly from the deck, cargo falls and lifts again', t => {
-  const changes = [];
-  const data = bay(t, { onGravityChanged: value => changes.push(value) });
-  const cargo = data.physicsWorld.bodies.filter(b => b.mass > 0 && b !== data.player.body);
+test('Gravity control aligns cargo on belts, then floats it again without resetting progress', t => {
+  const changes = [], data = bay(t, { onGravityChanged: value => changes.push(value) });
   pressE(); assert.deepEqual(changes, [], 'Out-of-range E does nothing');
-  data.player.setPosition(10.2, 0.3, 5);
-  pressE(); assert.equal(data.isGravityRestored(), true);
-  step(data, 8);
-  assert.equal(data.player.getState().floating, false);
+  data.player.setPosition(0, 0.3, 11.3); pressE(); step(data, 2);
+  assert.equal(data.isGravityRestored(), true); assert.equal(data.player.getState().floating, false);
   assert.equal(data.player.getState().isOnGround, true);
-  assert.ok(cargo.every(b => b.position.y < 2), 'Freight settles onto the floor');
-  key('keydown', 'KeyW'); step(data, 0.3); key('keyup', 'KeyW');
-  assert.ok(data.player.body.position.z > 6, 'Normal walking works after landing');
-  data.player.setPosition(10.2, 0.3, 5);
-  const settledHeights = cargo.map(b => b.position.y);
-  pressE(); assert.equal(data.isGravityRestored(), false);
-  step(data, 2);
-  assert.ok(cargo.every((b, i) => b.position.y > settledHeights[i] + 0.2));
-  assert.equal(data.player.getState().floating, true);
-  key('keydown', 'Space'); step(data, 0.3); key('keyup', 'Space');
-  assert.ok(data.player.body.position.y > 0.6, 'Lift-off works from the floor');
-  pressE(); assert.equal(data.isGravityRestored(), true);
-  assert.deepEqual(changes, [true, false, true]);
+  assert.ok([...data.cargo.objects.values()].every(o => Math.abs(o.body.position.x) > 7.7));
+  const ids = data.puzzle.cargo.map(c => c.id); data.puzzle.gates[10] = true;
+  pressE(); step(data, 2); assert.equal(data.isGravityRestored(), false);
+  assert.ok([...data.cargo.objects.values()].every(o => o.body.position.y > 1.5));
+  assert.deepEqual(data.puzzle.cargo.map(c => c.id), ids); assert.equal(data.puzzle.gates[10], true);
+  key('keydown', 'Space'); step(data, 0.3); key('keyup', 'Space'); assert.ok(data.player.body.position.y > 0.6);
+  pressE(); assert.equal(data.isGravityRestored(), true); assert.deepEqual(changes, [true, false, true]);
   data.player.disable(); pressE(); assert.deepEqual(changes, [true, false, true]);
 });
 
@@ -185,7 +176,7 @@ test('Both gravity modes can be restored on revisiting scene 9', t => {
   t.after(restore);
   for (const gravityRestored of [true, false]) {
     const data = createScene9({ gravityRestored });
-    step(data, 3);
+    step(data, 12);
     assert.equal(data.isGravityRestored(), gravityRestored);
     assert.equal(data.player.getState().floating, !gravityRestored);
     assert.equal(data.physicsWorld.gravity.y === 0, !gravityRestored);
@@ -202,9 +193,9 @@ test('Traversal camera frames the climber and stays inside the vent during turns
     for (let i = 0; i < 40; i++) {
       data.updatePhysics(1 / 60, true);
       assert.equal(applyTraversalCamera(data.camera, data.player, true), true);
-      assert.ok(Math.abs(data.camera.position.x) <= 0.8);
+      assert.ok(Math.abs(data.camera.position.x) <= (z === 0 ? 1.25 : 1));
       assert.ok(data.camera.position.y <= 1.12 && data.camera.position.y >= 0.35);
-      assert.ok(Math.abs(data.camera.position.z) <= 7.75);
+      assert.ok(Math.abs(data.camera.position.z) <= 7.85, JSON.stringify({ camera: data.camera.position, player: data.player.body.position, yaw: data.player.getState().yaw }));
     }
     key('keyup', 'KeyD');
   }

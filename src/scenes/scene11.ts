@@ -1,7 +1,6 @@
-import { createDropRoom } from '../helpers/scene/shipRoom.js';
-import type { PlayerTransitionState } from '../scripts/player.js';
+import { createCargoRoom, type CargoRoomOptions } from '../helpers/scene/cargoRoom.js';
 
-/** Empty compartment reached by dropping from the right vent branch. */
-export function createScene(options: { entryState?: PlayerTransitionState; fromPassage?: boolean } = {}) {
-  return createDropRoom(11, options);
+/** Mirrored freight line with breakable cargo and the hub-plate reveal. */
+export function createScene(options: CargoRoomOptions = {}) {
+  return createCargoRoom(11, options);
 }

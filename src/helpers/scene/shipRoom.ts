@@ -13,7 +13,7 @@ export function roomBox(scene: THREE.Scene, physics: Physics, size: [number, num
 }
 
 /** Frames point out of their room. Panels and colliders retract into solid wall pockets. */
-export function createSlidingPortal(scene: THREE.Scene, physics: Physics, frame: PortalFrame, span: number, height: number, label: string) {
+export function createSlidingPortal(scene: THREE.Scene, physics: Physics, frame: PortalFrame, span: number, height: number, label: string, options: { closeSpeed?: number; cargo?: () => Array<{ position: { x: number; y: number; z: number } }> } = {}) {
   const group = new THREE.Group(); group.position.set(frame.x, frame.y, frame.z); group.rotation.y = frame.yaw;
   group.name = `Door-${label}`; scene.add(group);
   const wall = new THREE.MeshStandardMaterial({ color: 0x52616a, roughness: 0.78, metalness: 0.25 });
@@ -27,7 +27,7 @@ export function createSlidingPortal(scene: THREE.Scene, physics: Physics, frame:
   localBox([side, height, 0.5], [-(w + side) / 2, height / 2, 0], wall);
   localBox([side, height, 0.5], [(w + side) / 2, height / 2, 0], wall);
   localBox([w, height - h, 0.5], [0, (height + h) / 2, 0], wall);
-  localBox([w, 0.4, 2.4], [0, -0.2, -0.8], steel);
+  localBox([w, 0.4, options.cargo ? 6 : 2.4], [0, -0.2, options.cargo ? 0 : -0.8], steel);
   for (const x of [-1.56, 1.56]) localBox([0.12, h, 0.62], [x, h / 2, 0], steel, false);
   const panels = [-1, 1].map(sign => ({ ...localBox([1.5, h, 0.12], [sign * 0.75, h / 2, 0], steel), sign }));
   localBox([2.6, 0.055, 0.04], [0, h + 0.07, 0.28], indicator, false);
@@ -37,7 +37,7 @@ export function createSlidingPortal(scene: THREE.Scene, physics: Physics, frame:
   const texture = new THREE.CanvasTexture(canvas);
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 0.46), new THREE.MeshBasicMaterial({ map: texture }));
   sign.position.set(0, h + 0.5, 0.27); group.add(sign);
-  let open = 0, crossed = false;
+  let open = 0, crossed = false, locked = false;
   let callback: ((state: PlayerTransitionState) => void) | null = null;
   function sync() {
     for (const p of panels) {
@@ -50,16 +50,18 @@ export function createSlidingPortal(scene: THREE.Scene, physics: Physics, frame:
   return {
     frame, group, panels, texture, get open() { return open; },
     setTrigger: (next: (state: PlayerTransitionState) => void) => { callback = next; },
-    openImmediately: () => { open = 1; sync(); },
+    openImmediately: () => { if (!locked) { open = 1; sync(); } },
+    setLocked: (value: boolean) => { locked = value; if (locked) { open = 0; sync(); } },
     near: (player: Player) => { const p = localPosition(player); return Math.abs(p.x) < 2.2 && Math.abs(p.z) < 3.4 && p.y < 2.2; },
     update(dt: number, player: Player, allowed: boolean) {
       const p = localPosition(player);
       // Never close on an actor already inside the opening, even when a plate releases.
-      const occupied = open > 0.9 && Math.abs(p.x) < 1.8 && Math.abs(p.z) < 1.1 && p.y < h;
-      open = THREE.MathUtils.clamp(open + ((allowed || occupied) ? 1 : -1) * dt * 1.8, 0, 1);
+      const cargoInside = options.cargo?.().some(body => { const b = group.worldToLocal(new THREE.Vector3().copy(body.position)); return Math.abs(b.x) < 2.1 && Math.abs(b.z) < 0.85 && b.y < h; });
+      const occupied = open > 0.9 && ((Math.abs(p.x) < 1.8 && Math.abs(p.z) < 1.1 && p.y < h) || cargoInside);
+      open = THREE.MathUtils.clamp(open + ((!locked && (allowed || occupied)) ? dt * 1.8 : -dt * (options.closeSpeed ?? 1.8)), 0, 1);
       indicator.color.setHex(allowed ? 0x65ffb6 : 0xffb34b); indicator.emissive.copy(indicator.color); sync();
-      if (player.isEnabled() && !crossed && callback && open > 0.95 && Math.abs(p.x) < 1.15 && p.y < 2.2 && p.z < -0.8) {
-        crossed = true; callback(player.captureTransition(frame));
+      if (!locked && player.isEnabled() && !crossed && callback && open > 0.95 && Math.abs(p.x) <= w / 2 + player.radius && p.y < h && p.z <= 0) {
+        crossed = true; callback(player.captureDoorTransition(frame));
       }
     },
   };

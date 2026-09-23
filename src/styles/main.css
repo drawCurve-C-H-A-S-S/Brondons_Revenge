@@ -566,7 +566,7 @@ body.space-cinematic #goggles-overlay, body.space-cinematic #goggles-status { di
   pointer-events: none;
   z-index: 121;
 }
-#space-damage {
+#space-damage, #player-damage {
   position: fixed;
   inset: 0;
   box-shadow: inset 0 0 100px 28px #ed263d;

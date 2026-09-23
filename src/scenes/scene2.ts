@@ -736,9 +736,9 @@ export function createScene({ audioManager, skipWake, entryState }: {
       doorRight.position.x = doorPanelW / 2 + slideOffset;
       doorSeam.visible = doorOpen < 0.1;
       if (onDoorTrigger && !doorTriggerCooldown && doorOpen > 0.9) {
-        if (pz > roomDepth / 2 + 0.5 && px > -doorW / 2 && px < doorW / 2) {
+        if (pz >= roomDepth / 2 && Math.abs(px) <= doorW / 2 + player.radius) {
           doorTriggerCooldown = true;
-          onDoorTrigger(player.captureTransition({ x: 0, y: 0, z: roomDepth / 2 }));
+          onDoorTrigger(player.captureDoorTransition({ x: 0, y: 0, z: roomDepth / 2 }, 1));
         }
       }
     }

@@ -1,287 +1,223 @@
-/** Scene 9 - Zero-gravity loading bay reached from the maintenance vent. */
+/** Scene 9 - Twin freight lines, gravity restoration, and vent access controls. */
 import * as THREE from 'three';
-import * as CANNON from 'cannon-es';
 import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
 import { createScenePhysics, PHYSICS } from '../helpers/physics/scenePhysics.js';
 import { LADDER } from '../utils/constants.js';
-import { createSlidingPortal } from '../helpers/scene/shipRoom.js';
+import { createSlidingPortal, roomBox, disposeRoom } from '../helpers/scene/shipRoom.js';
+import { createCargoMouth, createConveyor, createLever, createHandle, cargoSign } from '../helpers/scene/cargoVisuals.js';
+import { createCargoPuzzleState, advanceCargo, beltMoving, laneX, type CargoPuzzleState } from '../scripts/cargoPuzzle.js';
+import { createCargoController } from '../scripts/cargoController.js';
+import { createPuzzleCinematic } from '../scripts/puzzleCinematic.js';
 
-export function createScene({ gravityRestored = false, onGravityChanged, entryState, fromPassage = false }: {
-  gravityRestored?: boolean; onGravityChanged?: (active: boolean) => void;
-  entryState?: PlayerTransitionState; fromPassage?: boolean;
+export function createScene({ puzzle = createCargoPuzzleState(), gravityRestored, onGravityChanged, entryState, fromPassage = false, dropFromLadder = false }: {
+  puzzle?: CargoPuzzleState; gravityRestored?: boolean; onGravityChanged?: (active: boolean) => void;
+  entryState?: PlayerTransitionState; fromPassage?: boolean; dropFromLadder?: boolean;
 } = {}) {
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x020610);
-  const physics = createScenePhysics();
-  const physicsWorld = physics.world;
-  physicsWorld.gravity.set(0, gravityRestored ? PHYSICS.gravity : 0, 0);
-  physicsWorld.allowSleep = true;
+  if (gravityRestored !== undefined) puzzle.gravityRestored = gravityRestored;
+  const scene = new THREE.Scene(); scene.background = new THREE.Color(0x020610);
+  const physics = createScenePhysics(), physicsWorld = physics.world;
+  physicsWorld.gravity.y = puzzle.gravityRestored ? PHYSICS.gravity : 0;
   const steel = new THREE.MeshStandardMaterial({ color: 0x344653, metalness: 0.65, roughness: 0.48 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x131e29, metalness: 0.6, roughness: 0.6 });
   const trim = new THREE.MeshStandardMaterial({ color: 0x82959e, metalness: 0.8, roughness: 0.35 });
   const yellow = new THREE.MeshStandardMaterial({ color: 0xe3a83b, roughness: 0.6 });
   const cyan = new THREE.MeshStandardMaterial({ color: 0x74ddff, emissive: 0x32b9ef, emissiveIntensity: 2 });
-  const statusMaterial = new THREE.MeshStandardMaterial({ color: 0xffba45, emissive: 0xff8a20, emissiveIntensity: 2 });
-  function box(size: [number, number, number], position: [number, number, number], material: THREE.Material = steel, solid = true) {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), material);
-    mesh.position.set(...position); mesh.receiveShadow = true; mesh.castShadow = true; scene.add(mesh);
-    if (solid) physics.addBox({ x: size[0], y: size[1], z: size[2] }, mesh.position);
-    return mesh;
-  }
-  const textures: THREE.Texture[] = [];
-  function sign(text: string, width: number, height: number, position: [number, number, number], yaw = 0, color = '#a9e9ff') {
-    const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 128;
-    const ctx = canvas.getContext('2d')!;
-    ctx.fillStyle = '#0a1520'; ctx.fillRect(0, 0, 1024, 128);
-    ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.strokeRect(4, 4, 1016, 120);
-    ctx.fillStyle = color; ctx.font = 'bold 58px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(text, 512, 65, 990);
-    const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; textures.push(texture);
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide }));
-    mesh.position.set(...position); mesh.rotation.y = yaw; scene.add(mesh);
-    return mesh;
-  }
-
-  // A tall industrial shell with loading lanes and structural ribs.
+  const box = (s: [number, number, number], p: [number, number, number], m: THREE.Material = steel, solid = true) => roomBox(scene, physics, s, p, m, solid);
   box([24, 0.4, 26], [0, -0.2, 0], dark);
-  box([24, 0.4, 26], [0, 9.2, 0], dark);
-  const passageDoor = createSlidingPortal(scene, physics, { x: 0, y: 0, z: -13, yaw: 0 }, 24, 9, '12 / TRANSFER PASSAGE');
-  box([0.4, 9, 26], [-12, 4.5, 0]); box([0.4, 9, 26], [12, 4.5, 0]);
-  box([24, 1.1, 0.6], [0, 8.45, 13]);
-  for (const x of [-11, -5.6, 5.6, 11]) box([0.09, 0.015, 23], [x, 0.012, 0], yellow, false);
-  for (let z = -11; z <= 11; z += 2) {
-    box([0.04, 0.016, 1], [0, 0.013, z], trim, false);
-    for (const x of [-8.4, 8.4]) box([4.5, 0.016, 0.035], [x, 0.013, z], trim, false);
-  }
-  for (const z of [-11, -5, 1, 7, 12]) {
-    for (const x of [-11.6, 11.6]) {
-      box([0.35, 9, 0.45], [x, 4.5, z], dark);
-      box([0.12, 3.7, 0.08], [x * 0.995, 5.2, z - 0.25], cyan, false);
-    }
-    box([23, 0.35, 0.45], [0, 8.75, z], trim, false);
-  }
-  for (const x of [-5.5, 5.5]) {
-    box([0.3, 0.45, 23], [x, 8.4, 0], yellow, false);
-    box([0.14, 0.05, 22], [x, 8.14, 0], cyan, false);
-  }
-  // The huge blast doors are parked open, behind an active pressure field.
+  // A real ceiling hatch above the center ladder; chutes occupy separate openings.
+  for (const x of [-6.55, 6.55]) box([10.9, 0.4, 20.2], [x, 9.2, -2.9], dark);
+  box([2.2, 0.4, 11.9], [0, 9.2, -7.05], dark);
+  box([2.2, 0.4, 9], [0, 9.2, 5.6], dark);
+  box([24, 0.4, 1.7], [0, 9.2, 12.15], dark);
+  box([24, 0.4, 1.9], [0, 9.2, 8.15], dark);
+  box([13.36, 0.4, 2.2], [0, 9.2, 10.2], dark);
+  for (const side of [-1, 1]) box([3.08, 0.4, 2.2], [side * 10.46, 9.2, 10.2], dark);
   for (const side of [-1, 1]) {
-    const door = box([5.1, 7.8, 0.85], [side * 9.5, 3.9, 12.7], dark);
-    door.name = side < 0 ? 'LoadingDoorLeft' : 'LoadingDoorRight';
+    box([0.12, 2.2, 2.2], [side * 1.1, 10.1, 0], dark);
+    box([2.2, 2.2, 0.12], [0, 10.1, side * 1.1], dark);
+  }
+  box([2.3, 0.2, 2.3], [0, 11.3, 0], dark);
+  for (const x of [-7.8, 7.8]) box([2.4, 0.2, 2.4], [x, 9.5, 10.2], dark);
+  for (const x of [-12, 12]) box([0.4, 9, 26], [x, 4.5, 0]);
+  const passageDoor = createSlidingPortal(scene, physics, { x: 0, y: 0, z: -13, yaw: 0 }, 5.2, 9, '12 / HUB - UNLOCK FROM INSIDE');
+  // Wall segments leave both machine mouths genuinely open visually.
+  for (const side of [-1, 1]) {
+    box([3.8, 9, 0.5], [side * 4.5, 4.5, -13]);
+    box([2.8, 9, 0.5], [side * 10.6, 4.5, -13]);
+    box([2.8, 6.5, 0.5], [side * 7.8, 5.75, -13]);
+  }
+  box([24, 1.1, 0.6], [0, 8.45, 13]);
+  for (const side of [-1, 1]) {
+    box([5.1, 7.8, 0.85], [side * 9.5, 3.9, 12.7], dark).name = 'LoadingDoor';
     for (let y = 0.6; y < 7.7; y += 1.15) box([4.7, 0.85, 0.12], [side * 9.5, y, 12.22], steel, false);
-    box([0.18, 7.6, 0.2], [side * 6.9, 3.9, 12.15], yellow, false);
-    box([0.06, 7.5, 0.15], [side * 6.65, 3.9, 12.05], cyan, false);
+    box([0.08, 7.5, 0.15], [side * 6.65, 3.9, 12.05], cyan, false);
   }
-  const fieldMaterial = new THREE.MeshBasicMaterial({ color: 0x388bca, transparent: true, opacity: 0.075, side: THREE.DoubleSide, depthWrite: false });
-  const field = new THREE.Mesh(new THREE.PlaneGeometry(13.4, 7.8), fieldMaterial);
-  field.position.set(0, 3.9, 12.9); field.name = 'PressureContainmentField'; scene.add(field);
+  const fieldMaterial = new THREE.MeshBasicMaterial({ color: 0x388bca, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false });
+  const field = new THREE.Mesh(new THREE.PlaneGeometry(13.4, 7.8), fieldMaterial); field.position.set(0, 3.9, 12.9); field.name = 'PressureContainmentField'; scene.add(field);
   physics.addBox({ x: 24, y: 9, z: 0.25 }, { x: 0, y: 4.5, z: 13.1 });
-  for (let y = 0.3; y < 7.8; y += 0.45) box([13.3, 0.008, 0.01], [0, y, 12.92], fieldMaterial, false);
-  sign('09 / ORBITAL LOADING BAY', 10, 0.7, [0, 8.45, 12.64], Math.PI);
-  sign('PRESSURE FIELD ACTIVE', 6, 0.38, [0, 7.65, 12.5], Math.PI);
-
-  // Space is actual geometry beyond the opening, not a flat painted wall.
+  cargoSign(scene, '09 / ORBITAL LOADING BAY', [0, 8.45, 12.6], 9, Math.PI);
   const stars = new Float32Array(1200);
-  for (let i = 0; i < stars.length; i += 3) {
-    stars[i] = Math.sin(i * 12.9898) * 135;
-    stars[i + 1] = Math.cos(i * 4.1414) * 85;
-    stars[i + 2] = 45 + (i % 153);
-  }
-  const starGeometry = new THREE.BufferGeometry(); starGeometry.setAttribute('position', new THREE.BufferAttribute(stars, 3));
-  scene.add(new THREE.Points(starGeometry, new THREE.PointsMaterial({ color: 0xc7e9ff, size: 0.24, sizeAttenuation: true })));
-  const planet = new THREE.Mesh(new THREE.SphereGeometry(22, 48, 32), new THREE.MeshStandardMaterial({ color: 0x375e96, roughness: 1 }));
-  planet.position.set(-26, 4, 105); scene.add(planet);
-  const atmosphere = new THREE.Mesh(new THREE.SphereGeometry(22.45, 48, 32), new THREE.MeshBasicMaterial({ color: 0x62baff, transparent: true, opacity: 0.16, side: THREE.BackSide }));
-  atmosphere.position.copy(planet.position); scene.add(atmosphere);
+  for (let i = 0; i < stars.length; i += 3) { stars[i] = Math.sin(i * 12.9898) * 135; stars[i + 1] = Math.cos(i * 4.1414) * 85; stars[i + 2] = 45 + i % 153; }
+  const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(stars, 3));
+  scene.add(new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0xc7e9ff, size: 0.24 })));
   const sun = new THREE.DirectionalLight(0xb7d6ff, 2.5); sun.position.set(-25, 30, 25); scene.add(sun);
   scene.add(new THREE.HemisphereLight(0xa5d4f4, 0x29343c, 2.2));
-  for (const z of [-7, 3, 10]) {
+  for (const z of [-9, 0, 9]) {
     const light = new THREE.PointLight(0xa7d9ff, 45, 22, 1.5); light.position.set(0, 7.6, z); scene.add(light);
+    box([23, 0.12, 0.2], [0, 8.8, z], cyan, false);
   }
-
-  // Keep the vent route clear. Its short ladder connects to an overhead service duct.
-  const ladderZ = -6.5;
+  const belts: ReturnType<typeof createConveyor>[] = [], mouths: ReturnType<typeof createCargoMouth>[] = [];
+  for (const lane of [10, 11] as const) {
+    const x = laneX(lane, true); belts.push(createConveyor(scene, physics, x, 11.3, -13)); mouths.push(createCargoMouth(scene, physics, x, -12.85));
+    for (const dx of [-1.12, 1.12]) box([0.16, 1.3, 2.2], [x + dx, 8.7, 10.2], dark);
+    for (const z of [9.1, 11.3]) box([2.4, 1.3, 0.12], [x, 8.7, z], dark);
+    cargoSign(scene, `${lane} / CARGO ONLY`, [x, 3.1, -12.68], 3);
+    for (const edge of [-1.4, 1.4]) box([0.055, 0.012, 23], [x + edge, 0.012, -0.5], yellow, false);
+  }
+  const ladderZ = 0, ladderTop = 9;
   for (const x of [-0.34, 0.34]) {
-    const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 4.5, 8), trim);
-    rail.position.set(x, 2.25, ladderZ); scene.add(rail);
+    const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, ladderTop, 8), trim); rail.position.set(x, ladderTop / 2, ladderZ); scene.add(rail);
   }
-  for (let y = 0.35; y < 4.5; y += LADDER.rungSpacing) {
-    const rung = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.72, 8), trim);
-    rung.rotation.z = Math.PI / 2; rung.position.set(0, y, ladderZ); scene.add(rung);
+  for (let y = 0.35; y < ladderTop; y += LADDER.rungSpacing) {
+    const rung = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.72, 8), trim); rung.rotation.z = Math.PI / 2; rung.position.set(0, y, ladderZ); scene.add(rung);
   }
-  box([2.1, 4.3, 0.18], [0, 6.85, -7.35], dark);
-  for (const x of [-0.96, 0.96]) box([0.18, 4.3, 1.9], [x, 6.85, ladderZ], dark);
-  for (const x of [-0.8, 0.8]) box([0.12, 0.18, 1.6], [x, 4.6, ladderZ], yellow, false);
-  box([1.6, 0.18, 0.12], [0, 4.6, ladderZ + 0.8], yellow, false);
-  sign('VENT ACCESS', 2, 0.3, [0, 5.1, ladderZ + 0.97]);
-  sign('GRAVITY CONTROL  >>>', 5, 0.45, [3.8, 2, -12.75], 0, '#ffcd64');
-
-  // All loose freight uses real dynamic bodies: drifting now, falling and settling at 1G.
-  const cargoMaterial = new CANNON.Material({ friction: 0.6, restitution: 0.05 });
-  physicsWorld.addContactMaterial(new CANNON.ContactMaterial(cargoMaterial, physics.solidMaterial, { friction: 0.65, restitution: 0.05 }));
-  const cargo: Array<{ mesh: THREE.Group; body: CANNON.Body }> = [];
-  const cargoColors = [0xb2753c, 0x517788, 0x737c66, 0xa89065];
-  const locations = [[-6, 2.6, -3], [4, 4.7, -2], [-3, 5.8, 3], [2.2, 2.2, 5], [-7, 4.1, 7], [6, 5.6, 8], [-1.5, 6.5, 9], [6.6, 1.8, 1], [-4, 1.6, 9], [3, 6.8, 2]];
-  locations.forEach(([x, y, z], i) => {
-    const size = i % 3 === 0 ? 1.65 : i % 3 === 1 ? 1.2 : 0.85;
-    const group = new THREE.Group(); group.name = `FloatingCargo${i}`;
-    const material = new THREE.MeshStandardMaterial({ color: cargoColors[i % cargoColors.length], metalness: 0.35, roughness: 0.68 });
-    const crate = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), material); crate.castShadow = true; crate.receiveShadow = true; group.add(crate);
-    for (const offset of [-0.33, 0.33]) {
-      const band = new THREE.Mesh(new THREE.BoxGeometry(size + 0.025, 0.09, size + 0.025), dark);
-      band.position.y = offset * size; group.add(band);
-      const strap = new THREE.Mesh(new THREE.BoxGeometry(0.08, size + 0.03, size + 0.03), trim);
-      strap.position.x = offset * size; group.add(strap);
+  for (const x of [-1.1, 1.1]) box([0.1, 0.15, 2.2], [x, 8.98, 0], yellow, false);
+  cargoSign(scene, '08 / VENT LADDER', [0, 8.5, -1.05], 2);
+  const gravitySwitch = createLever(scene, physics, 0, 12.55, 'GRAVITY / E', Math.PI);
+  const switches = { 10: createLever(scene, physics, 4, -12.65, 'VENT 10 / E'), 11: createLever(scene, physics, -4, -12.65, 'VENT 11 / HANDLE REQUIRED') };
+  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 300);
+  const player = createPlayer({ camera, physicsWorld, spawnPosition: { x: 0, y: 8.6, z: LADDER.bodyOffset } }); player.enable();
+  let entryTime = fromPassage ? 0 : (8.6 - (puzzle.gravityRestored ? 0.3 : 1.25)) / LADDER.climbSpeed;
+  const entryDuration = entryTime, entryY = puzzle.gravityRestored ? 0.3 : 1.25;
+  if (entryState && fromPassage) player.restoreTransition(entryState, passageDoor.frame);
+  else if (entryState) player.restoreTransition({ ...entryState, position: { x: 0, y: 8.6, z: LADDER.bodyOffset }, velocity: { x: 0, y: 0, z: 0 }, heldKeys: [], yaw: 0 }, { x: 0, y: 0, z: 0, yaw: -Math.PI });
+  if (fromPassage) { if (!entryState) player.setPosition(0, 0.3, -11.7); player.setZeroGravity(!puzzle.gravityRestored); if (puzzle.shortcutUnlocked) passageDoor.openImmediately(); }
+  else { player.setRotation(0); player.setLookLocked(true); player.setClimbing(true, -1); }
+  const looseHandle = createHandle(); scene.add(looseHandle);
+  function recoverHandle() {
+    const p = puzzle.handlePosition;
+    if (puzzle.handle === 'loose' && (!p || ![p.x, p.y, p.z].every(Number.isFinite) || Math.abs(p.x) > 11.5 || Math.abs(p.z) > 12 || p.y < -0.5 || p.y > 8.5)) {
+      puzzle.handle = 'missing'; puzzle.handlePosition = null;
     }
-    const tag = new THREE.Mesh(new THREE.BoxGeometry(size * 0.38, size * 0.22, 0.02), yellow); tag.position.z = size / 2 + 0.025; group.add(tag);
-    const body = new CANNON.Body({ mass: 24 + size * 12, material: cargoMaterial, shape: new CANNON.Box(new CANNON.Vec3(size / 2, size / 2, size / 2)), allowSleep: gravityRestored, sleepSpeedLimit: 0.12, sleepTimeLimit: 1 });
-    body.position.set(x, gravityRestored ? size / 2 + 0.02 : y, z);
-    body.linearDamping = gravityRestored ? 0.25 : 0; body.angularDamping = gravityRestored ? 0.5 : 0;
-    if (!gravityRestored) {
-      body.quaternion.setFromEuler(i * 0.21, i * 0.53, i * 0.15);
-      body.velocity.set(Math.sin(i * 2) * 0.15, Math.cos(i * 1.7) * 0.12, Math.cos(i) * 0.16);
-      body.angularVelocity.set(0.04 + i * 0.006, 0.065 * Math.sin(i + 1), 0.045);
-    }
-    group.position.copy(body.position); group.quaternion.copy(body.quaternion); scene.add(group); physicsWorld.addBody(body);
-    cargo.push({ mesh: group, body });
+  }
+  const cargo = createCargoController(scene, physicsWorld, player, puzzle, 9, record => {
+    recoverHandle();
+    if (puzzle.handle !== 'missing') return;
+    puzzle.handle = 'loose'; puzzle.handlePosition = { x: record.position.x, y: 0.3, z: THREE.MathUtils.clamp(record.position.z, -10.8, 10.8) };
   });
-
-  // Operable both while floating and after landing on the deck.
-  const switchPosition = new THREE.Vector3(11.25, 1.4, 5);
-  box([0.45, 1.8, 1.5], [11.55, 1.4, 5], dark);
-  box([0.08, 1.45, 1.2], [11.28, 1.4, 5], trim, false);
-  const switchLight = box([0.1, 0.28, 0.8], [11.2, 1.9, 5], statusMaterial, false);
-  switchLight.name = 'GravitySwitch';
-  const lever = box([0.4, 0.12, 0.16], [11.04, 1.22, 5], yellow, false);
-  const restoreSign = sign('ENABLE GRAVITY / E', 3.4, 0.4, [11.13, 2.65, 5], -Math.PI / 2, '#ffcd64');
-  const restoredSign = sign('DISABLE GRAVITY / E', 3.4, 0.4, [11.12, 2.65, 5], -Math.PI / 2, '#7effb7');
-  const beacon = new THREE.PointLight(0xffa32b, 12, 8); beacon.position.set(10.6, 1.9, 5); scene.add(beacon);
-  function showGravityState() {
-    restoreSign.visible = !gravityRestored; restoredSign.visible = gravityRestored;
-    statusMaterial.color.setHex(gravityRestored ? 0x6fffb0 : 0xffba45);
-    statusMaterial.emissive.setHex(gravityRestored ? 0x20d880 : 0xff8a20);
-    beacon.color.setHex(gravityRestored ? 0x6fffb0 : 0xffa32b);
+  const floatPoses = new Map<string, { start: THREE.Vector3; rotation: THREE.Quaternion; target: THREE.Vector3; spin: THREE.Quaternion }>();
+  let floatTime = 0;
+  function floatCargo(immediate = false) {
+    floatPoses.clear(); floatTime = immediate ? 1.5 : 0;
+    let i = 0;
+    for (const [id, item] of cargo.objects) {
+      const angle = i * 2.4;
+      const target = new THREE.Vector3(Math.sin(angle) * 8.5, 2 + i % 5, Math.cos(angle) * 9);
+      const spin = new THREE.Quaternion().setFromEuler(new THREE.Euler(i * 0.3, i * 0.6, i * 0.15));
+      floatPoses.set(id, { start: new THREE.Vector3().copy(item.body.position), rotation: new THREE.Quaternion().copy(item.body.quaternion), target, spin });
+      if (immediate) { item.body.position.set(target.x, target.y, target.z); item.body.quaternion.set(spin.x, spin.y, spin.z, spin.w); }
+      i++;
+    }
   }
-  showGravityState();
-
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 300);
-  let entryTime = fromPassage ? 0 : 1.35;
-  const entryY = gravityRestored ? PHYSICS.playerRadius : 1.25;
-  const player = createPlayer({ camera, physicsWorld, spawnPosition: { x: 0, y: entryY + entryTime * LADDER.climbSpeed, z: ladderZ + LADDER.bodyOffset } });
-  player.setRotation(0, 0); player.enable();
-  if (fromPassage && entryState) {
-    player.restoreTransition(entryState, passageDoor.frame); passageDoor.openImmediately();
-    if (!gravityRestored) player.setZeroGravity(true);
-  } else {
-    if (entryState) player.restoreTransition({ ...entryState, position: { x: 0, y: entryY + entryTime * LADDER.climbSpeed, z: ladderZ + LADDER.bodyOffset }, velocity: { x: 0, y: 0, z: 0 }, yaw: 0 }, { x: 0, y: 0, z: 0, yaw: -Math.PI });
-    player.setLookLocked(true); player.setClimbing(true, -1);
+  if (!puzzle.gravityRestored) floatCargo(true);
+  let dropping = false, climbBoost = false;
+  function releaseLadder() {
+    entryTime = 0; dropping = true;
+    player.setClimbing(false); player.setLookLocked(false); player.setZeroGravity(false); player.clearInput();
+    player.body.position.z = 1.15; player.body.velocity.y = -5; player.body.aabbNeedsUpdate = true;
   }
-  let onReturnToEight: (() => void) | null = null;
-  let returning = false, handoffStarted = false, disposed = false;
-  let returnTime = 0, elapsed = 0;
+  if (dropFromLadder && !fromPassage) releaseLadder();
+  const cinematic = createPuzzleCinematic(player, camera);
+  let onReturnToEight: (() => void) | null = null, returning = false, handedOff = false, disposed = false, returnTime = 0, elapsed = 0;
   const climbStart = new THREE.Vector3();
-  const prompt = document.getElementById('interact-prompt');
-  const status = document.getElementById('loading-bay-status');
-  prompt?.classList.add('hidden');
-  function canInteract() { return player.isEnabled() && entryTime <= 0 && !returning; }
-  function canClimb() {
-    const p = player.body.position;
-    return canInteract() && !!onReturnToEight && p.y <= 1.6 && Math.hypot(p.x, p.z - (ladderZ + 0.72)) <= 1.2;
+  const prompt = document.getElementById('interact-prompt'), status = document.getElementById('loading-bay-status');
+  function near(position: THREE.Vector3) { const p = player.body.position; return Math.hypot(p.x - position.x, p.y + 0.9 - position.y, p.z - position.z) < 1.8; }
+  function canInteract() { return player.isEnabled() && entryTime <= 0 && !returning && !cinematic.isCinematic(); }
+  function canClimb() { const p = player.body.position; return !!onReturnToEight && p.y < 1.65 && Math.hypot(p.x, p.z - 0.7) < 1.3; }
+  function interaction() {
+    if (!canInteract()) return '';
+    if (near(gravitySwitch.position)) return puzzle.gravityRestored ? 'E: enable zero gravity / stop conveyors' : 'E: restore gravity / start conveyors';
+    if (near(switches[10].position)) return puzzle.gates[10] ? 'Vent 10 open' : puzzle.gravityRestored ? 'E: open vent 10' : 'Restore gravity to power vent controls';
+    if (near(switches[11].position)) return puzzle.gates[11] ? 'Vent 11 open' : puzzle.handle === 'carried' ? 'E: install handle' : puzzle.handle === 'installed' ? (puzzle.gravityRestored ? 'E: open vent 11' : 'Restore gravity to power vent controls') : 'Missing handle: use navigator goggles to find breakable freight on line 11';
+    if (puzzle.handle === 'loose' && near(looseHandle.position)) return 'E: pick up switch handle';
+    if (canClimb()) return 'E: climb back into the vent';
+    if (!puzzle.shortcutUnlocked && passageDoor.near(player)) return 'Hub door locked - unlock from the other side';
+    return '';
   }
-  function canToggleGravity() {
-    const p = player.body.position;
-    return canInteract() && Math.hypot(p.x - switchPosition.x, p.y + 0.9 - switchPosition.y, p.z - switchPosition.z) <= 1.8;
-  }
-  function updateHud() {
-    if (status) {
-      status.classList.toggle('hidden', !player.isEnabled());
-      status.classList.toggle('restored', gravityRestored);
-      const message = gravityRestored
-        ? 'LOADING BAY 09 / GRAVITY ON\nWASD: walk | Space: jump | C: crouch\nPress E at the green switch to enable zero gravity'
-        : 'LOADING BAY 09 / ZERO GRAVITY\nWASD: drift | Space: rise | C: descend | Shift: boost\nPress E at the amber switch beside the space doors to enable gravity';
-      if (status.textContent !== message) status.textContent = message;
+  function onKey(event: KeyboardEvent) {
+    if (event.code === 'Space' && !event.repeat && player.isEnabled()) {
+      if (entryTime > 0) { event.preventDefault(); releaseLadder(); return; }
+      if (returning) { event.preventDefault(); climbBoost = true; player.clearInput(); return; }
     }
-    if (prompt) {
-      prompt.textContent = canToggleGravity()
-        ? (gravityRestored ? 'Press E to enable zero gravity' : 'Press E to restore gravity')
-        : 'Press E to climb back into the vent';
-      prompt.classList.toggle('hidden', !canToggleGravity() && !canClimb());
+    if (event.code !== 'KeyE' || event.repeat || !canInteract()) return;
+    if (near(gravitySwitch.position)) {
+      puzzle.gravityRestored = !puzzle.gravityRestored; puzzle.alignment = puzzle.gravityRestored ? 1.5 : 0;
+      physicsWorld.gravity.y = puzzle.gravityRestored ? PHYSICS.gravity : 0; player.setZeroGravity(!puzzle.gravityRestored);
+      if (!puzzle.gravityRestored) floatCargo(); onGravityChanged?.(puzzle.gravityRestored);
+    } else if (near(switches[10].position) && puzzle.gravityRestored && !puzzle.gates[10]) { puzzle.gates[10] = true; cinematic.begin(10); }
+    else if (near(switches[11].position)) {
+      if (puzzle.handle === 'carried') { puzzle.handle = 'installed'; puzzle.handlePosition = null; }
+      else if (puzzle.handle === 'installed' && puzzle.gravityRestored && !puzzle.gates[11]) { puzzle.gates[11] = true; cinematic.begin(11); }
+    } else if (puzzle.handle === 'loose' && near(looseHandle.position)) { puzzle.handle = 'carried'; puzzle.handlePosition = null; }
+    else if (canClimb()) {
+      returning = true; climbBoost = false; returnTime = 0; climbStart.copy(player.body.position); player.setRotation(0); player.setLookLocked(true); player.setClimbing(true);
     }
   }
-  function onKeyDown(event: KeyboardEvent) {
-    if (event.code !== 'KeyE' || event.repeat || disposed) return;
-    if (canToggleGravity()) {
-      gravityRestored = !gravityRestored;
-      physicsWorld.gravity.set(0, gravityRestored ? PHYSICS.gravity : 0, 0);
-      player.setZeroGravity(!gravityRestored);
-      for (const [i, { body }] of cargo.entries()) {
-        body.linearDamping = gravityRestored ? 0.25 : 0;
-        body.angularDamping = gravityRestored ? 0.5 : 0;
-        body.allowSleep = gravityRestored;
-        body.wakeUp();
-        // A small release impulse lifts settled freight when the field switches off.
-        if (!gravityRestored) {
-          body.velocity.set(Math.sin(i * 2) * 0.15, 0.22, Math.cos(i) * 0.16);
-          body.angularVelocity.set(0.04, 0.06 * Math.sin(i + 1), 0.045);
+  window.addEventListener('keydown', onKey);
+  return { roomId: 'loading-bay', scene, camera, physicsWorld, physics, player, puzzle, cargo, gravitySwitch, switches, ladderZ, cutsceneManager: null,
+    isGravityRestored: () => puzzle.gravityRestored, passageDoor, setPassageTrigger: passageDoor.setTrigger,
+    setReturnToEight: (callback: () => void) => { onReturnToEight = callback; },
+    getDamageTargets: cargo.getDamageTargets, setGogglesActive: cargo.setHighlighted,
+    isCinematic: cinematic.isCinematic, getCinematicState: cinematic.getCinematicState, applyCinematicCamera: cinematic.applyCinematicCamera, getRenderScene: cinematic.getRenderScene, hideCharacter: cinematic.hideCharacter,
+    updatePhysics(dt: number, thirdPerson = false) {
+      if (disposed) return; dt = Number.isFinite(dt) ? Math.max(0, Math.min(dt, 0.1)) : 0;
+      if (cinematic.isCinematic()) {
+        prompt?.classList.add('hidden'); status?.classList.add('hidden');
+        cinematic.update(dt); return;
+      }
+      elapsed += dt; advanceCargo(puzzle, dt);
+      if (!puzzle.gravityRestored) {
+        floatTime = Math.min(1.5, floatTime + dt);
+        const t = THREE.MathUtils.smootherstep(floatTime, 0, 1.5);
+        let i = 0;
+        for (const [id, item] of cargo.objects) {
+          const pose = floatPoses.get(id), angle = i++ * 2.4;
+          if (pose) {
+            const p = pose.start.clone().lerp(pose.target, t);
+            p.x += Math.sin(elapsed * 0.4 + angle) * 0.15 * t;
+            p.y += Math.cos(elapsed * 0.6 + angle) * 0.15 * t;
+            const q = pose.rotation.clone().slerp(pose.spin, t);
+            item.body.position.set(p.x, p.y, p.z); item.body.quaternion.set(q.x, q.y, q.z, q.w);
+          }
         }
       }
-      showGravityState(); updateHud(); onGravityChanged?.(gravityRestored);
-    } else if (canClimb()) {
-      returning = true; handoffStarted = false; returnTime = 0;
-      climbStart.copy(player.body.position);
-      player.setRotation(0, 0); player.setLookLocked(true); player.setClimbing(true); prompt?.classList.add('hidden');
-    }
-  }
-  window.addEventListener('keydown', onKeyDown);
-  updateHud();
-  function updatePhysics(dt: number, thirdPerson = false) {
-    if (disposed) return;
-    dt = Number.isFinite(dt) ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime)) : 0;
-    elapsed += dt;
-    physics.step(dt, player, thirdPerson);
-    for (const { mesh, body } of cargo) { mesh.position.copy(body.position); mesh.quaternion.copy(body.quaternion); }
-    statusMaterial.emissiveIntensity = gravityRestored ? 1.5 : 1.6 + Math.sin(elapsed * 3) * 0.5;
-    lever.rotation.z = THREE.MathUtils.damp(lever.rotation.z, gravityRestored ? -0.7 : 0.5, 5, dt);
-    if (entryTime > 0) {
-      entryTime = Math.max(0, entryTime - dt);
-      player.body.position.y = entryY + entryTime * LADDER.climbSpeed;
-      const dismount = THREE.MathUtils.smoothstep(1.35 - entryTime, 1, 1.35);
-      player.body.position.z = ladderZ + LADDER.bodyOffset + dismount * 1.5;
-      player.body.aabbNeedsUpdate = true;
-      if (entryTime === 0) {
-        player.setClimbing(false); player.setLookLocked(false); player.setRotation(Math.PI, 0);
-        if (!gravityRestored) player.setZeroGravity(true);
+      cargo.update(dt, !puzzle.gravityRestored); belts.forEach(b => b.update(puzzle)); mouths.forEach(m => m.update(beltMoving(puzzle) ? 1 : 0.1));
+      gravitySwitch.update(true, puzzle.gravityRestored); switches[10].update(true, puzzle.gates[10]); switches[11].update(puzzle.handle === 'installed', puzzle.gates[11]);
+      recoverHandle(); looseHandle.visible = puzzle.handle === 'loose'; if (puzzle.handlePosition) looseHandle.position.copy(puzzle.handlePosition);
+      if (dropping && !puzzle.gravityRestored) player.body.velocity.y -= 9.82 * dt;
+      physics.step(dt, player, thirdPerson);
+      if (dropping && (player.getState().isOnGround || player.body.position.y <= entryY)) {
+        dropping = false; player.setZeroGravity(!puzzle.gravityRestored);
       }
-    }
-    updateHud();
-    if (returning) {
-      returnTime += dt;
-      const mount = THREE.MathUtils.smoothstep(returnTime, 0, LADDER.mountDuration);
-      const distance = 4.5 + PHYSICS.playerRadius - climbStart.y;
-      const rise = Math.min(distance, Math.max(0, returnTime - LADDER.mountDuration) * LADDER.climbSpeed);
-      player.body.position.set(THREE.MathUtils.lerp(climbStart.x, 0, mount), climbStart.y + rise,
-        THREE.MathUtils.lerp(climbStart.z, ladderZ + LADDER.bodyOffset, mount));
-      player.body.aabbNeedsUpdate = true;
-      if (rise >= distance && !handoffStarted) { handoffStarted = true; onReturnToEight?.(); }
-    }
-    passageDoor.update(dt, player, canInteract() && passageDoor.near(player));
-    if (!disposed) player.updateCamera(0, thirdPerson);
-  }
-  const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>();
-  scene.traverse(node => {
-    const mesh = node as THREE.Mesh;
-    if (mesh.geometry) geometries.add(mesh.geometry);
-    if (mesh.material) for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) materials.add(material);
-  });
-  return { roomId: 'loading-bay', scene, camera, physicsWorld, player, updatePhysics, cutsceneManager: null,
-    isGravityRestored: () => gravityRestored,
-    passageDoor, setPassageTrigger: passageDoor.setTrigger,
-    setReturnToEight: (callback: () => void) => { onReturnToEight = callback; },
-    dispose: () => {
-      if (disposed) return;
-      disposed = true;
-      window.removeEventListener('keydown', onKeyDown); prompt?.classList.add('hidden'); status?.classList.add('hidden');
-      player.dispose(); physics.dispose();
-      geometries.forEach(geometry => geometry.dispose()); materials.forEach(material => material.dispose()); textures.forEach(texture => texture.dispose()); passageDoor.texture.dispose();
-    } };
+      if (entryTime > 0) {
+        entryTime = Math.max(0, entryTime - dt); player.body.position.y = entryY + entryTime * LADDER.climbSpeed;
+        player.body.position.z = LADDER.bodyOffset + THREE.MathUtils.smoothstep(entryDuration - entryTime, entryDuration - 0.4, entryDuration) * 1.5;
+        player.body.aabbNeedsUpdate = true;
+        if (entryTime === 0) { player.setClimbing(false); player.setLookLocked(false); player.setRotation(Math.PI); player.clearInput(); player.setZeroGravity(!puzzle.gravityRestored); }
+      }
+      if (returning) {
+        returnTime += dt * (climbBoost ? 12 : 1); const mount = THREE.MathUtils.smoothstep(returnTime, 0, LADDER.mountDuration);
+        const rise = Math.min(9.3 - climbStart.y, Math.max(0, returnTime - LADDER.mountDuration) * LADDER.climbSpeed);
+        player.body.position.set(THREE.MathUtils.lerp(climbStart.x, 0, mount), climbStart.y + rise, THREE.MathUtils.lerp(climbStart.z, LADDER.bodyOffset, mount)); player.body.aabbNeedsUpdate = true;
+        if (player.getHeadY() >= ladderTop && !handedOff) { handedOff = true; onReturnToEight?.(); if (disposed) return; }
+      }
+      if (prompt) { prompt.textContent = interaction(); prompt.classList.toggle('hidden', !prompt.textContent); }
+      if (status) { status.classList.remove('hidden'); status.classList.toggle('restored', puzzle.gravityRestored); status.textContent = puzzle.gravityRestored
+        ? `09 / CONVEYORS ${puzzle.alignment > 0 ? 'ALIGNING' : puzzle.feedBlocked ? 'BLOCKED - CLEAR DETACHED CARGO' : beltMoving(puzzle) ? 'ADVANCING' : 'STOPPED FOR HANDLING'}\nVent 10: ${puzzle.gates[10] ? 'open' : 'use right lever'} | Vent 11: ${puzzle.gates[11] ? 'open' : puzzle.handle === 'carried' ? 'install handle at left lever' : puzzle.handle === 'installed' ? 'use left lever' : 'repair left lever'}\n${puzzle.handle === 'carried' ? 'Carrying handle - weapons unavailable. E at left socket: install.' : puzzle.handle === 'installed' ? 'Handle installed. E: operate vent controls.' : puzzle.handle === 'loose' ? 'Handle released - E: pick up the loose handle.' : 'Navigator goggles reveal breakable crates. T: equip crowbar, click: break. E: interact.'}`
+        : '09 / ZERO GRAVITY - MACHINERY OFFLINE\nWASD: drift | Space: rise | C: descend\nRestore gravity at the window-side control between the conveyors.'; }
+      passageDoor.update(dt, player, puzzle.shortcutUnlocked && canInteract() && passageDoor.near(player));
+      if (!disposed) player.updateCamera(0, thirdPerson);
+    },
+    dispose() { if (disposed) return; disposed = true; window.removeEventListener('keydown', onKey); prompt?.classList.add('hidden'); status?.classList.add('hidden'); cinematic.dispose(); cargo.dispose(); player.dispose(); physics.dispose(); disposeRoom(scene); },
+  };
 }

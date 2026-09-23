@@ -3,8 +3,11 @@ import * as THREE from 'three';
 import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
 import { createScenePhysics, PHYSICS } from '../helpers/physics/scenePhysics.js';
 import { LADDER } from '../utils/constants.js';
+import { createCargoPuzzleState, advanceCargo, type CargoPuzzleState } from '../scripts/cargoPuzzle.js';
+import { createVentGate, cargoSign } from '../helpers/scene/cargoVisuals.js';
+import { disposeRoom } from '../helpers/scene/shipRoom.js';
 
-export function createScene({ entry = 'galley', entryState }: { entry?: 'galley' | 'deck'; entryState?: PlayerTransitionState } = {}) {
+export function createScene({ entry = 'galley', entryState, puzzle = createCargoPuzzleState() }: { entry?: 'galley' | 'deck'; entryState?: PlayerTransitionState; puzzle?: CargoPuzzleState } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x040608);
   scene.fog = new THREE.Fog(0x101b23, 8, 24);
@@ -41,6 +44,9 @@ export function createScene({ entry = 'galley', entryState }: { entry?: 'galley'
     for (const z of [-0.93, 0.93]) box([1.2, 0.035, 0.08], [side * 7.4, 0.025, z], warning, false);
     const lamp = new THREE.PointLight(0x9de8eb, 4, 9); lamp.position.set(side * 4.5, 1, 0); scene.add(lamp);
   }
+  const gates = { 10: createVentGate(scene, physics, 1, puzzle.gates[10]), 11: createVentGate(scene, physics, -1, puzzle.gates[11]) };
+  cargoSign(scene, '10 / CARGO - BAY LEVER', [2.05, 0.95, -1.02], 1.7);
+  cargoSign(scene, '11 / CARGO - REPAIR LEVER', [-2.05, 0.95, -1.02], 1.7);
   box([width, height, 0.12], [0, height / 2, -length / 2], darkMetal);
   box([width, height, 0.12], [0, height / 2, length / 2], darkMetal);
   for (let z = -7.8; z < 8; z += 1.6) {
@@ -71,14 +77,13 @@ export function createScene({ entry = 'galley', entryState }: { entry?: 'galley'
     const lid = box([0.055, 1.05, 1.3], [-0.85, 0.55, z], metal, false);
     lid.rotation.z = -0.18;
   }
-  const signTextures: THREE.Texture[] = [];
   for (const [z, label] of [[-7.92, '07 / GALLEY'], [7.92, '09 / LOADING BAY']] as const) {
     const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 128;
     const ctx = canvas.getContext('2d')!;
     ctx.fillStyle = '#0d202a'; ctx.fillRect(0, 0, 512, 128);
     ctx.fillStyle = '#e8ba68'; ctx.font = 'bold 42px monospace'; ctx.textAlign = 'center';
     ctx.fillText(label, 256, 55); ctx.font = '24px monospace'; ctx.fillText('LADDER ACCESS / E', 256, 99);
-    const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; signTextures.push(texture);
+    const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
     const plate = new THREE.Mesh(new THREE.PlaneGeometry(1.65, 0.42), new THREE.MeshBasicMaterial({ map: texture }));
     plate.position.set(0, 0.85, z); plate.rotation.y = z > 0 ? Math.PI : 0; scene.add(plate);
   }
@@ -102,8 +107,8 @@ export function createScene({ entry = 'galley', entryState }: { entry?: 'galley'
   let onDropToTen: ((state: PlayerTransitionState) => void) | null = null;
   let onDropToEleven: ((state: PlayerTransitionState) => void) | null = null;
   let dropStarted = false;
-  let onReturnToSeven: (() => void) | null = null;
-  let onDescendToNine: (() => void) | null = null;
+  let onReturnToSeven: ((drop?: boolean) => void) | null = null;
+  let onDescendToNine: ((drop?: boolean) => void) | null = null;
   let climbing = false;
   let handoffStarted = false;
   let climbTime = 0;
@@ -114,12 +119,12 @@ export function createScene({ entry = 'galley', entryState }: { entry?: 'galley'
     status.textContent = 'MAINTENANCE DUCT 08\nW/S: crawl | A/D: turn (90° at junction, 180° elsewhere)\nFrom galley: LEFT → 10 / RIGHT → 11 (one-way drops)\nStraight → 09 loading bay | E: use end ladders';
     status.classList.remove('hidden', 'restored');
   }
-  let destination: (() => void) | null = null;
+  let destination: ((drop?: boolean) => void) | null = null;
   const prompt = document.getElementById?.('interact-prompt');
   let promptVisible = false;
   const hatchInteractZ = 6.1;
   prompt?.classList.add('hidden');
-  function beginClimb(next: () => void) {
+  function beginClimb(next: (drop?: boolean) => void) {
     if (climbing) return;
     climbing = true; handoffStarted = false; climbTime = 0; destination = next;
     climbStart.copy(player.body.position);
@@ -129,6 +134,11 @@ export function createScene({ entry = 'galley', entryState }: { entry?: 'galley'
     prompt?.classList.add('hidden'); promptVisible = false;
   }
   function onKeyDown(event: KeyboardEvent) {
+    if (event.code === 'Space' && climbing && !handoffStarted && !event.repeat) {
+      event.preventDefault(); handoffStarted = true;
+      player.setClimbing(false); player.setLookLocked(false); player.clearInput();
+      destination?.(true); return;
+    }
     if (event.code !== 'KeyE' || event.repeat || climbing || !player.isEnabled()) return;
     const z = player.body.position.z;
     if (z < -hatchInteractZ && onReturnToSeven) beginClimb(onReturnToSeven);
@@ -137,14 +147,18 @@ export function createScene({ entry = 'galley', entryState }: { entry?: 'galley'
   window.addEventListener('keydown', onKeyDown);
   function updatePhysics(dt: number, thirdPerson = false) {
     dt = Number.isFinite(dt) ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime)) : 0;
+    advanceCargo(puzzle, dt);
+    gates[10].setProgress(puzzle.gates[10] ? 1 : 0); gates[11].setProgress(puzzle.gates[11] ? 1 : 0);
+    if (status) status.textContent = `DUCT 08 / W/S: crawl | A/D: turn | E: ladders\nLEFT 10: ${puzzle.gates[10] ? 'OPEN' : 'LOCKED - LOADING BAY LEVER'}\nRIGHT 11: ${puzzle.gates[11] ? 'OPEN' : 'LOCKED - REPAIR BAY LEVER'}\nStraight: 09 / loading bay`;
     player.setVentTurnAngle(Math.abs(player.body.position.x) < 1.2 && Math.abs(player.body.position.z) < 1.2 ? Math.PI / 2 : Math.PI);
     physics.step(dt, player, thirdPerson);
     if (!dropStarted && !climbing && player.body.position.y < -0.45 && Math.abs(player.body.position.x) > 6.8) {
       const next = player.body.position.x > 0 ? onDropToTen : onDropToEleven;
-      if (next) { dropStarted = true; next(player.captureTransition({ x: 0, y: 0, z: 0 })); }
+      if (next && puzzle.gates[player.body.position.x > 0 ? 10 : 11]) { dropStarted = true; const state = player.captureTransition({ x: 0, y: 0, z: 0 }); player.clearInput(); next(state); }
       return;
     }
     if (climbing) {
+      if (handoffStarted) return;
       climbTime += dt;
       const mount = THREE.MathUtils.smoothstep(climbTime, 0, LADDER.mountDuration);
       const descent = Math.min(0.9, Math.max(0, climbTime - LADDER.mountDuration) * LADDER.climbSpeed);
@@ -165,21 +179,15 @@ export function createScene({ entry = 'galley', entryState }: { entry?: 'galley'
     }
   }
   return {
-    roomId: 'maintenance-vent', scene, camera, physicsWorld, player, updatePhysics, cutsceneManager: null,
+    roomId: 'maintenance-vent', scene, camera, physicsWorld, player, updatePhysics, gates, puzzle, cutsceneManager: null,
     setDropToTen: (callback: (state: PlayerTransitionState) => void) => { onDropToTen = callback; },
     setDropToEleven: (callback: (state: PlayerTransitionState) => void) => { onDropToEleven = callback; },
-    setReturnToSeven: (callback: () => void) => { onReturnToSeven = callback; },
-    setDescendToNine: (callback: () => void) => { onDescendToNine = callback; },
+    setReturnToSeven: (callback: (drop?: boolean) => void) => { onReturnToSeven = callback; },
+    setDescendToNine: (callback: (drop?: boolean) => void) => { onDescendToNine = callback; },
     dispose: () => {
       window.removeEventListener('keydown', onKeyDown); prompt?.classList.add('hidden'); status?.classList.add('hidden');
       player.dispose(); physics.dispose();
-      const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>();
-      scene.traverse(node => {
-        const mesh = node as THREE.Mesh;
-        if (mesh.geometry) geometries.add(mesh.geometry);
-        if (mesh.material) for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) materials.add(m);
-      });
-      geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); signTextures.forEach(t => t.dispose());
+      disposeRoom(scene);
     },
   };
 }

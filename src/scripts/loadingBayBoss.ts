@@ -1,15 +1,17 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { registerPhysicsActor } from '../helpers/physics/scenePhysics.js';
-import type { Player } from './player.js';
+import { PLAYER_MAX_HEALTH, type Player } from './player.js';
 import type { DamageTarget } from './pistol.js';
 
-export const BOSS_RULES = Object.freeze({ health: 420, headDamage: 35, headCooldown: 1,
-  exposedSeconds: 10, laserSpeed: 14, laserDamage: 12, chargeSeconds: 0.8, shotInterval: 1.8 });
-export type BossPhase = 'dormant' | 'flying' | 'falling' | 'exposed' | 'rising' | 'defeated';
+export const BOSS_RULES = Object.freeze({ health: 980, headDamage: 35, headCooldown: 1,
+  exposedSeconds: 10, laserSpeed: 14, laserDamage: 12, chargeSeconds: 0.8, shotInterval: 1.8,
+  rushInterval: 9, windupSeconds: 1.8, rushSpeed: 27 });
+export type BossPhase = 'dormant' | 'flying' | 'windup' | 'rushing' | 'recovering' | 'falling' | 'exposed' | 'rising' | 'defeated';
+export interface BossPillar { position: THREE.Vector3; intact: () => boolean; shatter: () => void; }
 
 /** Scene-owned, stationary hover boss. Its attack simulation uses the world's fixed clock. */
-export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, player: Player, onDefeated: () => void) {
+export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, player: Player, onDefeated: () => void, pillars: BossPillar[] = []) {
   const root = new THREE.Group(); root.name = 'LoadingBayBoss'; scene.add(root);
   const armor = new THREE.MeshStandardMaterial({ color: 0x25333e, metalness: 0.8, roughness: 0.42 });
   const trim = new THREE.MeshStandardMaterial({ color: 0x637681, metalness: 0.6, roughness: 0.5 });
@@ -45,7 +47,10 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   let phase: BossPhase = 'dormant', health = BOSS_RULES.health as number, round = 1, remaining = 0;
   let phaseTime = 0, elapsed = 0, shotClock = 0, headCooldown = 0, scanning = false, disposed = false, muzzleIndex = 0;
   const chargedAim = new THREE.Vector3();
-  let charging = false;
+  let charging = false, rushClock = 0, rushHit = false, pillarStun = false;
+  const rushDirection = new THREE.Vector3(), rushAim = new THREE.Vector3();
+  const impactPosition = new THREE.Vector3(), headStart = new THREE.Vector3();
+  const headLanding = new THREE.Vector3(0, 1.05, 0);
   const bolts: Array<{ mesh: THREE.Mesh; velocity: THREE.Vector3; life: number }> = [];
   const fragments: Array<{ mesh: THREE.Mesh; velocity: THREE.Vector3; life: number }> = [];
   const shardMaterial = new THREE.MeshStandardMaterial({ color: 0x718c80, roughness: 0.6 });
@@ -65,11 +70,11 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     const cross = new THREE.Mesh(geometry, green); cross.scale.set(0.16, 0.65, 0.2); cross.position.z = 0.55; mesh.add(cross);
     let hits = 1;
     const target: DamageTarget = { root: mesh, damage(amount, weapon) {
-      if (disposed || phase !== 'flying' || !player.isEnabled() || weapon !== 'pistol' || hits <= 0 || !Number.isFinite(amount) || amount <= 0) return false;
+      if (disposed || (phase !== 'flying' && phase !== 'windup') || !player.isEnabled() || weapon !== 'pistol' || hits <= 0 || !Number.isFinite(amount) || amount <= 0) return false;
       hits--; cross.visible = false;
       if (!hits) {
         burst(mesh); mesh.visible = false;
-        if (targets.every(t => t.hits() === 0)) { phase = 'falling'; phaseTime = 0; clearBolts(); }
+        if (targets.every(t => t.hits() === 0)) beginFall(false);
       }
       return true;
     } };
@@ -86,17 +91,62 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     return true;
   } };
   function clearBolts() { for (const bolt of bolts) bolt.mesh.removeFromParent(); bolts.length = 0; charging = false; }
+  function beginFall(hitPillar: boolean) {
+    head.getWorldPosition(headStart); impactPosition.copy(root.position); impactPosition.y = 0;
+    pillarStun = hitPillar; phase = 'falling'; phaseTime = 0; rushClock = 0; clearBolts();
+    root.rotation.z = 0;
+  }
+  function stepRush(dt: number) {
+    const from = root.position.clone(), to = from.clone().addScaledVector(rushDirection, BOSS_RULES.rushSpeed * dt);
+    from.y = to.y = 0;
+    const segment = new THREE.Line3(from, to);
+    let obstacle: BossPillar | null = null, first = Infinity;
+    for (const pillar of pillars) {
+      if (!pillar.intact()) continue;
+      const center = pillar.position.clone(); center.y = 0;
+      const closest = segment.closestPointToPoint(center, true, new THREE.Vector3());
+      if (closest.distanceTo(center) < 3.5 && from.distanceTo(closest) < first) { obstacle = pillar; first = from.distanceTo(closest); }
+    }
+    const p = new THREE.Vector3(player.body.position.x, 0, player.body.position.z);
+    const closest = segment.closestPointToPoint(p, true, new THREE.Vector3());
+    if (!rushHit && closest.distanceTo(p) < 3.1 && from.distanceTo(closest) < first) {
+      rushHit = true; player.takeDamage(PLAYER_MAX_HEALTH * 0.5);
+    }
+    root.position.copy(to);
+    if (obstacle) {
+      root.position.copy(from).addScaledVector(rushDirection, first);
+      obstacle.shatter(); beginFall(true); return;
+    }
+    if (Math.abs(to.x) > 16.5 || Math.abs(to.z) > 20.5 || phaseTime >= 1.6) {
+      root.position.x = THREE.MathUtils.clamp(to.x, -16.5, 16.5);
+      root.position.z = THREE.MathUtils.clamp(to.z, -20.5, 20.5);
+      impactPosition.copy(root.position); phase = 'recovering'; phaseTime = 0;
+    }
+  }
   const neutral = new Map([...limbs, torso, ...muzzles, ...thrusters, ...targets.map(t => t.mesh)].map(mesh => [mesh, mesh.position.clone()]));
   function pose(drop: number) {
     for (const [mesh, p] of neutral) { mesh.position.copy(p); mesh.position.y -= drop * (mesh.name === 'BossLeg' ? 2 : 2.65); }
     head.position.set(0, THREE.MathUtils.lerp(7.75, 1, drop), THREE.MathUtils.lerp(0.25, 2.8, drop));
-    thrusters.forEach(t => { t.visible = phase === 'flying' || phase === 'dormant' || phase === 'rising'; });
+    thrusters.forEach(t => { t.visible = phase !== 'defeated'; });
+    if (pillarStun && (phase === 'falling' || phase === 'exposed')) {
+      const t = phase === 'falling' ? THREE.MathUtils.smootherstep(phaseTime, 0, 0.85) : 1;
+      const p = headStart.clone().lerp(headLanding, t); p.y += Math.sin(t * Math.PI) * 3.5;
+      root.updateMatrixWorld(true); head.position.copy(root.worldToLocal(p));
+      head.rotation.z = phase === 'falling' ? t * Math.PI * 4 : 0;
+    } else {
+      head.rotation.z = 0;
+      if (pillarStun && phase === 'rising') {
+        const t = THREE.MathUtils.smootherstep(phaseTime, 0, 1.2);
+        head.position.set(0, THREE.MathUtils.lerp(headLanding.y, 7.75, t), THREE.MathUtils.lerp(0, 0.25, t));
+      }
+    }
     head.material = scanning && phase === 'exposed' ? yellow : core;
     core.emissive.setHex(headCooldown > 0.65 ? 0xffffff : 0x000000);
     root.updateMatrixWorld(true);
     for (const { mesh, body } of bodies) {
       const p = mesh.getWorldPosition(new THREE.Vector3()), q = mesh.getWorldQuaternion(new THREE.Quaternion());
       body.position.set(p.x, p.y, p.z); body.quaternion.set(q.x, q.y, q.z, q.w); body.aabbNeedsUpdate = true;
+      body.collisionResponse = mesh === head || !['rushing', 'recovering', 'falling', 'exposed', 'rising'].includes(phase);
     }
   }
   function fire() {
@@ -133,15 +183,37 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     }
     if (phase === 'defeated') return;
     if (phase === 'flying' || phase === 'dormant' || phase === 'rising') {
-      root.rotation.y = Math.atan2(player.body.position.x, player.body.position.z);
+      root.rotation.y = Math.atan2(player.body.position.x - root.position.x, player.body.position.z - root.position.z);
     }
     root.position.y = phase === 'flying' || phase === 'dormant' ? Math.sin(elapsed * 1.6) * 0.18 : 0;
+    if (round > 1 && phase === 'flying' && player.isEnabled() && player.getHealth() > 0) {
+      rushClock += dt;
+      if (rushClock >= BOSS_RULES.rushInterval) {
+        phase = 'windup'; phaseTime = 0; rushClock = 0; clearBolts(); rushAim.copy(player.body.position);
+      }
+    }
+    if (phase === 'windup') {
+      if (phaseTime < 1.1) rushAim.copy(player.body.position);
+      rushDirection.copy(rushAim).sub(root.position); rushDirection.y = 0; rushDirection.normalize();
+      root.rotation.y = Math.atan2(rushDirection.x, rushDirection.z);
+      root.rotation.z = Math.sin(phaseTime * 65) * 0.045 * (1 + phaseTime);
+      root.position.y = Math.sin(phaseTime * 80) * 0.08;
+      if (phaseTime >= BOSS_RULES.windupSeconds) { phase = 'rushing'; phaseTime = 0; rushHit = false; root.rotation.z = 0; }
+    } else if (phase === 'rushing') stepRush(dt);
+    else if (phase === 'recovering') {
+      root.position.copy(impactPosition).multiplyScalar(1 - THREE.MathUtils.smootherstep(phaseTime, 0, 2.5));
+      if (phaseTime >= 2.5) { phase = 'flying'; phaseTime = 0; shotClock = 0; }
+    }
     if (phase === 'falling' && phaseTime >= 0.85) { phase = 'exposed'; phaseTime = 0; remaining = BOSS_RULES.exposedSeconds; }
     else if (phase === 'exposed') {
       remaining = Math.max(0, BOSS_RULES.exposedSeconds - phaseTime);
-      if (remaining <= 1e-7) { phase = 'rising'; phaseTime = 0; remaining = 0; }
+      if (pillarStun) root.position.copy(impactPosition).multiplyScalar(1 - THREE.MathUtils.smootherstep(phaseTime, 0, BOSS_RULES.exposedSeconds));
+      if (remaining <= 1e-7) {
+        if (pillarStun) root.position.set(0, 0, 0);
+        phase = 'rising'; phaseTime = 0; remaining = 0;
+      }
     } else if (phase === 'rising' && phaseTime >= 1.2) {
-      round++; targets.forEach(t => t.reset()); phase = 'flying'; phaseTime = 0; shotClock = 0;
+      round++; targets.forEach(t => t.reset()); phase = 'flying'; phaseTime = 0; shotClock = 0; rushClock = 0; pillarStun = false;
     }
     pose(phase === 'falling' ? Math.min(1, (phaseTime / 0.85) ** 2) : phase === 'exposed' ? 1 : phase === 'rising' ? Math.max(0, 1 - phaseTime / 1.2) : 0);
     if (phase === 'flying' && player.isEnabled() && player.getHealth() > 0) {
@@ -159,9 +231,9 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   return {
     root, head, targets, headTarget,
     start() { if (phase === 'dormant') { phase = 'flying'; phaseTime = 0; shotClock = 0; } },
-    getDamageTargets: (): DamageTarget[] => phase === 'flying' ? targets.filter(t => t.hits() > 0) : phase === 'exposed' ? [headTarget] : [],
+    getDamageTargets: (): DamageTarget[] => phase === 'flying' || phase === 'windup' ? targets.filter(t => t.hits() > 0) : phase === 'exposed' ? [headTarget] : [],
     setGogglesActive(active: boolean) { scanning = active; for (const t of targets) t.mesh.material = active ? red : targetMaterial; head.material = active && phase === 'exposed' ? yellow : core; },
-    getStatus: () => ({ phase, health, maxHealth: BOSS_RULES.health, round, remaining, targets: targets.map(t => t.hits()), charging, projectiles: bolts.length }),
+    getStatus: () => ({ phase, health, maxHealth: BOSS_RULES.health, round, remaining, targets: targets.map(t => t.hits()), charging, projectiles: bolts.length, pillarsRemaining: pillars.filter(p => p.intact()).length }),
     dispose() {
       if (disposed) return; disposed = true; unregister(); clearBolts(); fragments.forEach(f => f.mesh.removeFromParent());
       for (const { body } of bodies) if (body.world === world) world.removeBody(body);

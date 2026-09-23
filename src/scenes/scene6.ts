@@ -255,9 +255,9 @@ export function createScene({ audioManager, entryState, gogglesCollected = false
     doorBack.panelR.position.x = doorPanelW / 2 + slideOffset;
     doorBack.seam.visible = doorBack.open < 0.1;
 
-    if (onBackTrigger && !backCooldown && doorBack.open > 0.9 && pz < -roomDepth / 2 - 0.8 && inDoorX) {
+    if (onBackTrigger && !backCooldown && doorBack.open > 0.9 && pz <= -roomDepth / 2 && Math.abs(px) <= (doorW + 2) / 2 + player.radius) {
       backCooldown = true;
-      onBackTrigger(player.captureTransition({ x: 0, y: 0, z: -roomDepth / 2, yaw: 0 }));
+      onBackTrigger(player.captureDoorTransition({ x: 0, y: 0, z: -roomDepth / 2, yaw: 0 }));
     }
   }
 

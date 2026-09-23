@@ -5,16 +5,17 @@ import boyUrl from '../assets/models/boy.glb';
 import { createScenePhysics, PHYSICS } from '../helpers/physics/scenePhysics.js';
 import { roomBox, createSlidingPortal, disposeRoom } from '../helpers/scene/shipRoom.js';
 import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
-import { createLoadingBayBoss } from '../scripts/loadingBayBoss.js';
+import { createLoadingBayBoss, type BossPillar } from '../scripts/loadingBayBoss.js';
 
 export const BOSS_ENTRY_SECONDS = 7;
 
 /** Loading bay below passage 12, with a stair entrance and a stationary aerial boss. */
-export function createScene({ entryState, defeated = false, checkpoint = false, onDefeated, onDescend, loadBoy = () => new GLTFLoader().loadAsync(boyUrl) }: {
+export function createScene({ entryState, defeated = false, checkpoint = false, onDefeated, onDescend, onRespawn, loadBoy = () => new GLTFLoader().loadAsync(boyUrl) }: {
   entryState?: PlayerTransitionState;
   defeated?: boolean;
   checkpoint?: boolean;
   onDefeated?: () => void;
+  onRespawn?: () => void;
   onDescend?: (state: PlayerTransitionState) => void;
   loadBoy?: () => Promise<GLTF>;
 } = {}) {
@@ -57,11 +58,24 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
     rail.rotation.x = Math.atan(3 / 9); physics.addBoxFromMesh(rail);
     box([0.14, 1, 3], [x, 3.5, -22.5], amber);
   }
-  const pillars = [];
+  const pillars: THREE.Mesh[] = [], covers: BossPillar[] = [];
+  const rubble: Array<{ mesh: THREE.Mesh; velocity: THREE.Vector3; life: number }> = [];
+  const rubbleGeometry = new THREE.BoxGeometry(1, 1, 1);
   for (const x of [-13, 13]) for (const z of [-15, 15]) {
-    const pillar = box([3, 14, 3], [x, 7, z], wall); pillar.name = 'ArenaCoverPillar'; pillars.push(pillar);
-    box([3.5, 0.35, 3.5], [x, 0.175, z], steel);
-    for (const y of [1.2, 5.5, 10]) box([3.06, 0.16, 3.06], [x, y, z], y === 1.2 ? amber : dark, false);
+    const pillar = box([3, 14, 3], [x, 7, z], wall, false); pillar.name = 'ArenaCoverPillar'; pillars.push(pillar);
+    const parts = [pillar, box([3.5, 0.35, 3.5], [x, 0.175, z], steel, false)];
+    const bodies = [physics.addBox({ x: 3, y: 14, z: 3 }, { x, y: 7, z }), physics.addBox({ x: 3.5, y: 0.35, z: 3.5 }, { x, y: 0.175, z })];
+    for (const y of [1.2, 5.5, 10]) parts.push(box([3.06, 0.16, 3.06], [x, y, z], y === 1.2 ? amber : dark, false));
+    let intact = true;
+    covers.push({ position: new THREE.Vector3(x, 0, z), intact: () => intact, shatter() {
+      if (!intact) return; intact = false; parts.forEach(part => { part.visible = false; }); bodies.forEach(body => physicsWorld.removeBody(body));
+      for (let i = 0; i < 42; i++) {
+        const mesh = new THREE.Mesh(rubbleGeometry, i % 4 ? wall : steel);
+        mesh.scale.set(0.3 + (i % 3) * 0.25, 0.35 + (i % 4) * 0.18, 0.45);
+        mesh.position.set(x + Math.sin(i) * 1.2, 0.5 + (i / 42) * 13, z + Math.cos(i) * 1.2); scene.add(mesh);
+        rubble.push({ mesh, velocity: new THREE.Vector3(Math.sin(i * 4) * 6, 2 + i % 5, Math.cos(i * 7) * 6), life: 7 });
+      }
+    } });
   }
   for (let z = -20; z <= 20; z += 4) {
     if (Math.abs(z) >= 5) box([39, 0.015, 0.025], [0, 0.012, z], steel, false);
@@ -81,9 +95,10 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 150);
   const player = createPlayer({ camera, physicsWorld, spawnPosition: { x: 0, y: 3.3, z: -22.8 } }); player.enable();
   if (entryState) player.restoreTransition(entryState, door.frame); else player.setRotation(Math.PI);
-  if (checkpoint) player.setPosition(0, 0.3, -6.2);
+  if (checkpoint) player.setPosition(0, 0.3, defeated ? -6.2 : -10.2);
   door.openImmediately();
-  let disposed = false, cleared = defeated, cinematic: 'entry' | 'reveal' | 'lift' | null = defeated ? null : 'entry', cinematicTime = 0;
+  let deathClock = 0;
+  let disposed = false, cleared = defeated, cinematic: 'entry' | 'reveal' | 'lift' | null = defeated || checkpoint ? null : 'entry', cinematicTime = 0;
   let liftTransferred = false;
   const liftPassenger = new THREE.Vector3();
   const boyOrigin = new THREE.Vector3();
@@ -116,8 +131,9 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
   const boss = createLoadingBayBoss(scene, physicsWorld, player, () => {
     cinematic = 'reveal'; cinematicTime = 0; freeze(); cloud.visible = true;
     if (boy) boy.visible = true;
-  });
+  }, covers);
   if (defeated) boss.dispose();
+  else if (checkpoint) { door.setLocked(true); boss.start(); }
   const ready = loadBoy().then(gltf => {
     if (disposed) { disposeRoom(gltf.scene as unknown as THREE.Scene); return; }
     boy = gltf.scene; boy.name = 'FreedBoy';
@@ -159,7 +175,7 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
       const y = z < -21 ? 3 : z < -12 ? (-12 - z) / 3 : 0;
       player.setPosition(THREE.MathUtils.lerp(entryStart.x, 0, Math.min(1, distance * 5)), y + player.radius, z); player.setRotation(Math.PI);
       if (subtitles) { subtitles.classList.remove('hidden'); subtitles.textContent = cinematicTime < 5 ? 'LOWER LOADING BAY / 13' : 'That machine is guarding the bay.'; }
-      if (cinematicTime >= BOSS_ENTRY_SECONDS) { cinematic = null; release(); boss.start(); subtitles?.classList.add('hidden'); }
+      if (cinematicTime >= BOSS_ENTRY_SECONDS) { cinematic = null; release(); door.setLocked(true); boss.start(); subtitles?.classList.add('hidden'); }
     } else if (cinematic === 'lift') {
       platform.position.y = -12 * THREE.MathUtils.smoothstep(cinematicTime, 0, 4.5);
       liftBody.position.y = platform.position.y - 0.2; liftBody.aabbNeedsUpdate = true;
@@ -183,7 +199,7 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
         if (boyError && cinematicTime < 3.5) subtitles.textContent = 'The prisoner is free. (Character model could not be loaded.)';
       }
       if (cinematicTime >= 21) {
-        cloud.visible = false; cinematic = null; cleared = true; consoleBody.collisionResponse = true; release(); subtitles?.classList.add('hidden'); onDefeated?.();
+        cloud.visible = false; cinematic = null; cleared = true; door.setLocked(false); consoleBody.collisionResponse = true; release(); subtitles?.classList.add('hidden'); onDefeated?.();
       }
     }
   }
@@ -194,6 +210,9 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
     if (fill) fill.style.width = `${s.health / s.maxHealth * 100}%`;
     if (label) label.textContent = `BAY WARDEN / ${s.health} / ${s.maxHealth}`;
     if (phaseLabel) phaseLabel.textContent = s.phase === 'exposed' ? `HEAD EXPOSED: ${s.remaining.toFixed(1)}s | T: crowbar | N: scan`
+      : s.phase === 'windup' ? `CHARGE BUILDUP / GET BEHIND A PILLAR (${s.pillarsRemaining} LEFT)`
+      : s.phase === 'rushing' ? 'WARDEN CHARGING / KEEP CLEAR'
+      : s.phase === 'recovering' ? 'WARDEN RECOVERING / REPOSITION'
       : s.phase === 'falling' ? 'WARDEN FALLING / GET TO THE HEAD'
       : s.phase === 'rising' ? 'REBUILDING ARMOR / TWO SHOTS PER TARGET'
       : `${s.targets.filter(h => h > 0).length} TARGETS / ${s.round === 1 ? 'ONE SHOT' : 'TWO SHOTS'} EACH | K: pistol | ${s.charging ? 'LASER CHARGING / DODGE' : 'USE THE PILLARS FOR COVER'}`;
@@ -206,12 +225,25 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
     isCinematic: () => cinematic !== null,
     getCinematicState: () => cinematic ? { ...player.getState(), isMoving: cinematic === 'entry' && cinematicTime < 5.8, isOnGround: true, jumping: false, climbing: false, velocityY: 0 } : null,
     applyCinematicCamera,
+    onPlayerDeath() {
+      if (!onRespawn) return false;
+      if (!deathClock) { deathClock = 1.4; freeze(); if (subtitles) { subtitles.textContent = 'WARDEN CHECKPOINT / RESTARTING'; subtitles.classList.remove('hidden'); } }
+      return true;
+    },
     updatePhysics(dt: number, thirdPerson = false) {
       if (disposed) return;
       dt = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, PHYSICS.maxFrameTime));
+      if (deathClock > 0) { deathClock = Math.max(0, deathClock - dt); if (!deathClock) onRespawn?.(); return; }
       updateCinematic(dt); if (disposed) return;
       physics.step(dt, player, thirdPerson); boyMixer?.update(dt);
-      door.update(dt, player, !cinematic && door.near(player));
+      for (const piece of rubble) {
+        if (piece.life <= 0) continue;
+        piece.life -= dt; piece.velocity.y -= dt * 9.82; piece.mesh.position.addScaledVector(piece.velocity, dt);
+        if (piece.mesh.position.y < 0.12) { piece.mesh.position.y = 0.12; piece.velocity.set(0, 0, 0); }
+        else { piece.mesh.rotation.x += dt * 2; piece.mesh.rotation.z += dt; }
+        if (piece.life <= 0) piece.mesh.visible = false;
+      }
+      door.update(dt, player, cleared && !cinematic && door.near(player));
       if (disposed) return;
       updateHud(); applyCinematicCamera();
     },
@@ -220,7 +252,7 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
       window.removeEventListener('keydown', onKey); prompt?.classList.add('hidden');
       hud?.classList.add('hidden'); subtitles?.classList.add('hidden');
       boss.dispose(); boyMixer?.stopAllAction(); if (boy) boyMixer?.uncacheRoot(boy);
-      player.dispose(); physics.dispose(); disposeRoom(scene);
+      player.dispose(); physics.dispose(); disposeRoom(scene); rubbleGeometry.dispose();
     },
   };
 }

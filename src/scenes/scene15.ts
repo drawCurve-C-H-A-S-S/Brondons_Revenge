@@ -5,10 +5,11 @@ import { disposeRoom } from '../helpers/scene/shipRoom.js';
 import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
 import { createEscapeShip, createEscapePod, addPlanetBackdrop } from '../scripts/items/createEscapeShip.js';
 import { consumeFlightAim, isTouchFire } from '../scripts/touchControls.js';
+import type { LaunchState } from './scene14.js';
 
 export const FLIGHT_RULES = Object.freeze({ cruise: 200, dodgeSpeed: 52, width: 64, height: 38, planetRadius: 900 });
-const TOTAL_FIGHTERS = 18, MAX_ACTIVE = 6, PLAYER_MAX_HP = 120;
-const SHOT_DAMAGE = 14, FIGHTER_HP = 42, GENERATOR_HP = 84, CORE_HP = 336;
+const TOTAL_FIGHTERS = 18, MAX_ACTIVE = 6, PLAYER_MAX_HP = 260;
+const SHOT_DAMAGE = 14, FIGHTER_HP = 42, GENERATOR_HP = 252, CORE_HP = 1120;
 const FORWARD = new THREE.Vector3(0, 0, 1), MODEL_FORWARD = new THREE.Vector3(0, 0, -1);
 type Phase = 'combat' | 'bossArmor' | 'bossCore' | 'victory' | 'dead';
 
@@ -21,6 +22,8 @@ export interface FlightExitState {
   cameraPosition: THREE.Vector3;
   cameraQuaternion: THREE.Quaternion;
   cameraFov: number;
+  hullHealth?: number;
+  pilotState?: PlayerTransitionState;
 }
 
 type Fighter = {
@@ -50,10 +53,12 @@ function createFighterMesh() {
 }
 
 function createBossMesh(): Boss {
-  const root = new THREE.Group(); root.name = 'CapitalShip'; root.scale.setScalar(6);
-  const hull = new THREE.MeshStandardMaterial({ color: 0x3d405b, metalness: 0.75, roughness: 0.32 });
-  const armor = new THREE.MeshStandardMaterial({ color: 0x181e30, metalness: 0.8, roughness: 0.3 });
-  function box(size: [number, number, number], position: [number, number, number], material = hull) {
+  const root = new THREE.Group(); root.name = 'CapitalShip'; root.scale.setScalar(10.5);
+  const hull = new THREE.MeshStandardMaterial({ color: 0x728395, metalness: 0.65, roughness: 0.48 });
+  const armor = new THREE.MeshStandardMaterial({ color: 0x25354b, metalness: 0.75, roughness: 0.4 });
+  const windows = new THREE.MeshBasicMaterial({ color: 0x90dcff });
+  const reactorGlow = new THREE.MeshBasicMaterial({ color: 0xf85458 });
+  function box(size: [number, number, number], position: [number, number, number], material: THREE.Material = hull) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), material); mesh.position.set(...position); root.add(mesh);
   }
   box([6, 4, 14], [0, 0, 0]); box([3, 2, 5], [0, 3, 0], armor);
@@ -62,6 +67,28 @@ function createBossMesh(): Boss {
     const engine = new THREE.Mesh(new THREE.ConeGeometry(1, 5, 12), new THREE.MeshBasicMaterial({ color: 0x8877ff }));
     engine.rotation.x = -Math.PI / 2; engine.position.set(x, 0, 8); root.add(engine);
   }
+  // Layered armor, recessed service channels, bridge glazing, batteries, and engine bells.
+  for (const side of [-1, 1]) {
+    for (let z = -3; z <= 5; z += 2) {
+      box([5.4, 0.24, 1.65], [side * 6, 2.45, z], hull);
+      box([0.18, 3.7, 1.55], [side * 9.05, 0, z], armor);
+      box([0.06, 0.14, 1.2], [side * 9.17, 0.5, z], windows);
+      box([1.1, 0.6, 1.2], [side * 4.2, 2.8, z], armor);
+      for (const dx of [-0.24, 0.24]) box([0.12, 0.14, 1.6], [side * 4.2 + dx, 3.15, z - 0.6], hull);
+    }
+    box([0.25, 1.1, 13], [side * 3.15, 0, -0.5], armor);
+    for (let z = -5; z < 6; z += 1) box([0.1, 0.2, 0.45], [side * 3.31, 0, z], reactorGlow);
+    box([1.8, 0.5, 3.5], [side * 1.8, 2.6, 2], hull);
+    box([0.12, 3, 0.12], [side * 1.5, 5.1, 1], armor);
+    for (const y of [-0.9, 0.9]) {
+      const bell = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.15, 1.5, 20, 1, true), armor);
+      bell.rotation.x = Math.PI / 2; bell.position.set(side * 6, y, 6.5); root.add(bell);
+    }
+    for (const x of [0.4, 0.9, 1.4]) box([0.26, 0.2, 0.04], [side * x, 3.45, -2.55], windows);
+  }
+  box([2, 0.8, 2.8], [0, 4, 1.4], armor);
+  box([2.5, 0.35, 0.06], [0, 4.12, -0.03], windows);
+  box([0.25, 1.8, 10], [0, -2.65, 1], armor);
   function target(position: [number, number, number], radius: number, health: number, color: number): WeakPoint {
     const material = new THREE.MeshBasicMaterial({ color });
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 20, 12), material);
@@ -70,21 +97,23 @@ function createBossMesh(): Boss {
     ring.position.copy(mesh.position); ring.position.z -= radius * 0.4; root.add(ring);
     return { mesh, ring, health, max: health };
   }
-  const generators = [-6, 6].flatMap(x => [-1.5, 1.5].map(y => target([x, y, -5.8], 0.85, GENERATOR_HP, 0xffbb44)));
-  const core = target([0, 0, -7.7], 1.45, CORE_HP, 0xff4466); core.mesh.visible = false; core.ring.visible = false;
+  const generators = [-6, 6].flatMap(x => [-1.8, 1.8].map(y => target([x, y, -8.3], 1.05, GENERATOR_HP, 0xffbb44)));
+  const core = target([0, 0, -9.3], 1.65, CORE_HP, 0xff4466); core.mesh.visible = false; core.ring.visible = false;
   const shield = new THREE.Mesh(new THREE.SphereGeometry(1.9, 20, 12), new THREE.MeshBasicMaterial({ color: 0x66ccff, transparent: true, opacity: 0.3 }));
   shield.position.copy(core.mesh.position); root.add(shield);
   return { root, generators, core, shield, fireCd: 2.8, volley: 0 };
 }
 
-export function createScene({ entryState, onTransition }: { entryState?: PlayerTransitionState; onTransition: (state: FlightExitState) => void }) {
+export function createScene({ entryState, onTransition }: { entryState?: LaunchState; onTransition: (state: FlightExitState) => void }) {
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x01040b);
   const physics = createScenePhysics(), physicsWorld = physics.world; physicsWorld.gravity.set(0, 0, 0);
   const camera = new THREE.PerspectiveCamera(76, window.innerWidth / window.innerHeight, 0.1, 50000);
   const player = createPlayer({ camera, physicsWorld, spawnPosition: { x: 0, y: 2, z: 0 } });
   if (entryState) player.restoreTransition({ ...entryState, position: { x: 0, y: 2, z: 0 }, velocity: { x: 0, y: 0, z: 0 }, yaw: Math.PI, pitch: 0, heldKeys: [], crouching: false, intentionalJump: false, jumpQueued: false }, { x: 0, y: 0, z: 0, yaw: -Math.PI });
   player.disable(); player.body.type = CANNON.Body.KINEMATIC; player.body.collisionResponse = false; player.body.updateMassProperties();
-  const ship = createEscapeShip(); ship.setFlying(true); ship.setThrust(1.5); scene.add(ship.root);
+  const ship = createEscapeShip(); ship.setFlying(true, true); ship.setThrust(1.5); scene.add(ship.root);
+  let launch = entryState?.launch;
+  if (launch) { ship.root.position.copy(launch.shipPosition); ship.root.quaternion.copy(launch.shipQuaternion); }
   const planetPosition = new THREE.Vector3(0, 120, 14000);
   const planet = addPlanetBackdrop(scene, planetPosition, FLIGHT_RULES.planetRadius, 30000); planet.visible = false;
   const starfield = scene.getObjectByName('Starfield');
@@ -106,8 +135,9 @@ export function createScene({ entryState, onTransition }: { entryState?: PlayerT
   function releasePointerLock() { if (document.pointerLockElement) document.exitPointerLock(); }
   releasePointerLock();
 
-  let phase: Phase = 'combat', checkpoint: 'combat' | 'bossArmor' | 'bossCore' = 'combat';
-  let clock = 0, phaseClock = 0, railZ = 0, spawned = 0, totalKilled = 0, spawnCd = 0;
+  let phase: Phase = 'combat';
+  let clock = 0, phaseClock = 0, railZ = launch?.shipPosition.z ?? 0, spawned = 0, totalKilled = 0, spawnCd = 0;
+  let deathClock = 0;
   let playerHp = PLAYER_MAX_HP, invulnerability = 0, damageFlash = 0, hitFlash = 0, fireCd = 0;
   let paused = false, disposed = false, transferred = false, firing = false, cockpitView = false;
   let rollCd = 0, rollTime = 0, rollSign = 1, alertTime = 0;
@@ -165,8 +195,8 @@ export function createScene({ entryState, onTransition }: { entryState?: PlayerT
   function interactiveTarget(event: Event) { return event.target instanceof HTMLElement && !!event.target.closest('button, input, textarea, select, [contenteditable="true"]'); }
   function onKeyDown(event: KeyboardEvent) {
     if (disposed || transferred || interactiveTarget(event)) return;
+    if (phase === 'dead') return;
     if (event.code === 'Escape' && !event.repeat && phase !== 'victory') { event.preventDefault(); setPaused(!paused); return; }
-    if (phase === 'dead') { if (event.code === 'KeyR' && !event.repeat) restartCheckpoint(); return; }
     if (paused || phase === 'victory') return;
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) event.preventDefault();
     keys.add(event.code);
@@ -192,7 +222,7 @@ export function createScene({ entryState, onTransition }: { entryState?: PlayerT
     if (phase !== 'dead' && phase !== 'victory') { onMouseMove(event); unlockAudio(); firing = true; fireCd = 0; }
   }
   function onMouseUp(event: MouseEvent) { if (event.button === 0) firing = false; }
-  function onBlur() { if (!disposed && !transferred) setPaused(true); }
+  function onBlur() { if (!disposed && !transferred && phase !== 'dead') setPaused(true); }
   function onVisibility() { if (document.hidden) onBlur(); }
   window.addEventListener('keydown', onKeyDown); window.addEventListener('keyup', onKeyUp);
   window.addEventListener('mousemove', onMouseMove); window.addEventListener('mousedown', onMouseDown); window.addEventListener('mouseup', onMouseUp);
@@ -258,8 +288,8 @@ export function createScene({ entryState, onTransition }: { entryState?: PlayerT
       for (const target of boss.generators) { target.health = 0; target.mesh.visible = false; target.ring.visible = false; }
       boss.shield.visible = false; boss.core.mesh.visible = true; boss.core.ring.visible = true;
     }
-    phase = corePhase ? 'bossCore' : 'bossArmor'; checkpoint = phase; phaseClock = 0;
-    playerHp = PLAYER_MAX_HP; invulnerability = 2; clearBolts();
+    phase = corePhase ? 'bossCore' : 'bossArmor'; phaseClock = 0;
+    invulnerability = 2; clearBolts();
     announce(corePhase ? 'PHASE 2 / EXPOSED REACTOR' : 'CAPITAL SHIP / DESTROY FOUR AMBER GENERATORS', 3);
   }
   function updateBoss(dt: number) {
@@ -267,6 +297,10 @@ export function createScene({ entryState, onTransition }: { entryState?: PlayerT
     boss.root.position.set(Math.sin(clock * 0.35) * 18, 4 + Math.sin(clock * 0.5) * 9, railZ + 340);
     boss.root.rotation.z = Math.sin(clock * 0.4) * 0.04; boss.root.updateMatrixWorld(true);
     boss.fireCd -= dt;
+    if (phase === 'bossCore') {
+      boss.shield.visible = phaseClock % 6 < 1.7;
+      boss.shield.scale.setScalar(1 + Math.sin(clock * 8) * 0.06);
+    }
     const charging = boss.fireCd < 0.65;
     for (const target of [...boss.generators, boss.core]) {
       if (target.health <= 0) continue;
@@ -274,34 +308,40 @@ export function createScene({ entryState, onTransition }: { entryState?: PlayerT
       target.mesh.material.color.setHex(charging ? 0xffffff : target === boss.core ? 0xff4466 : 0xffbb44);
     }
     if (boss.fireCd > 0) return;
-    boss.fireCd = phase === 'bossCore' ? 1.65 : 2.4; boss.volley++;
-    const from = boss.root.localToWorld(new THREE.Vector3(boss.volley % 2 ? -6 : 6, -1.8, -8));
+    boss.fireCd = phase === 'bossCore' ? 1.15 : 1.7; boss.volley++;
+    const from = boss.root.localToWorld(new THREE.Vector3(boss.volley % 2 ? -6 : 6, -1.8, -9));
     const aimAt = ship.root.position.clone().add(new THREE.Vector3(0, 1, 0));
     // Alternate aimed fans with walls that have a generous, readable dodge lane.
-    if (phase === 'bossCore' && boss.volley % 2 === 0) {
-      const gap = boss.volley % 4 === 0 ? 30 : -30;
-      for (let x = -60; x <= 60; x += 15) {
-        if (Math.abs(x - gap) < 22) continue;
-        for (const y of [-24, 0, 24]) launchBolt(new THREE.Vector3(x, y, railZ + 280), new THREE.Vector3(x, y, railZ), 14, 190);
+    if (boss.volley % (phase === 'bossCore' ? 2 : 3) === 0) {
+      const vertical = phase === 'bossCore' && boss.volley % 4 === 0;
+      const gap = boss.volley % 6 === 0 ? -25 : 25;
+      for (let x = -60; x <= 60; x += 12) for (let y = -36; y <= 36; y += 12) {
+        if (Math.abs((vertical ? y : x) - gap) < 16) continue;
+        launchBolt(new THREE.Vector3(x, y, railZ + 245), new THREE.Vector3(x, y, railZ), 18, 195);
       }
-      announce(gap < 0 ? 'BARRAGE / DODGE RIGHT' : 'BARRAGE / DODGE LEFT', 1.3);
+      announce(vertical ? (gap < 0 ? 'BARRAGE / DIVE' : 'BARRAGE / CLIMB') : gap < 0 ? 'BARRAGE / DODGE RIGHT' : 'BARRAGE / DODGE LEFT', 1.3);
     } else {
-      for (const offset of phase === 'bossCore' ? [-22, -11, 0, 11, 22] : [-14, 0, 14]) {
-        launchBolt(from, aimAt.clone().add(new THREE.Vector3(offset, 0, 0)), 14, 215);
+      aimAt.x += velocity.x * 0.35; aimAt.y += velocity.y * 0.35;
+      for (const offset of phase === 'bossCore' ? [-27, -18, -9, 0, 9, 18, 27] : [-20, -10, 0, 10, 20]) {
+        launchBolt(from, aimAt.clone().add(new THREE.Vector3(offset, 0, 0)), 18, 235);
+      }
+      if (phase === 'bossCore') {
+        const other = boss.root.localToWorld(new THREE.Vector3(boss.volley % 2 ? 6 : -6, 1.8, -9));
+        for (const y of [-14, 0, 14]) launchBolt(other, aimAt.clone().add(new THREE.Vector3(0, y, 0)), 18, 235);
       }
     }
   }
   function damageWeakPoint(target: WeakPoint) {
-    if (!boss || target.health <= 0) return;
+    if (!boss || target.health <= 0 || (target === boss.core && boss.shield.visible)) return;
     target.health = Math.max(0, target.health - SHOT_DAMAGE);
     if (target.health > 0) return;
     target.mesh.visible = false; target.ring.visible = false;
     burst(target.mesh.getWorldPosition(new THREE.Vector3()), 14);
     if (phase === 'bossArmor' && boss.generators.every(t => t.health <= 0)) {
-      phase = 'bossCore'; checkpoint = phase; phaseClock = 0;
+      phase = 'bossCore'; phaseClock = 1.7;
       boss.shield.visible = false; boss.core.mesh.visible = true; boss.core.ring.visible = true;
-      boss.fireCd = 2.5; clearBolts(); playerHp = Math.min(PLAYER_MAX_HP, playerHp + 30);
-      announce('SHIELDS DOWN / SHOOT THE RED REACTOR / +30 HULL', 3);
+      boss.fireCd = 2; clearBolts();
+      announce('REACTOR EXPOSED / FIRE BETWEEN SHIELD PULSES', 3);
     } else if (phase === 'bossCore' && target === boss.core) {
       phase = 'victory'; phaseClock = 0; firing = false; keys.clear(); clearBolts();
       planetPosition.set(0, 200, railZ + 14000); planet.position.copy(planetPosition); planet.visible = true;
@@ -339,7 +379,7 @@ export function createScene({ entryState, onTransition }: { entryState?: PlayerT
       fighter.health = Math.max(0, fighter.health - SHOT_DAMAGE); hitFlash = 0.12; burst(point, 2, 0xffe4a3);
       if (fighter.health === 0) {
         totalKilled++; fighter.root.visible = false; burst(fighter.root.position, 11); tone(130, 35, 0.22, 0.06);
-        playerHp = Math.min(PLAYER_MAX_HP, playerHp + 4);
+        // Hull damage persists for the entire sortie.
       }
       return;
     }
@@ -354,7 +394,7 @@ export function createScene({ entryState, onTransition }: { entryState?: PlayerT
     if (invulnerability > 0 || phase === 'dead' || phase === 'victory') return;
     playerHp = Math.max(0, playerHp - amount); invulnerability = 0.55; damageFlash = 0.7; tone(90, 30, 0.24, 0.08);
     if (playerHp === 0) {
-      phase = 'dead'; firing = false; keys.clear(); clearBolts(); burst(ship.root.position, 14);
+      phase = 'dead'; deathClock = 1.8; paused = false; firing = false; ship.root.visible = false; keys.clear(); clearBolts(); burst(ship.root.position, 14);
       document.body.classList.add('space-paused');
     }
   }
@@ -373,17 +413,19 @@ export function createScene({ entryState, onTransition }: { entryState?: PlayerT
       }
     }
   }
-  function restartCheckpoint() {
+  function restartScene() {
     for (const f of fighters) { scene.remove(f.root); disposeRoomForGroup(f.root); }
     fighters.length = 0;
     if (boss) { scene.remove(boss.root); disposeRoomForGroup(boss.root); boss = null; }
     clearBolts(); playerHp = PLAYER_MAX_HP; invulnerability = 2; damageFlash = 0; hitFlash = 0;
-    ship.root.position.set(0, 0, railZ); velocity.set(0, 0); rollTime = 0; rollCd = 0; phaseClock = 0;
-    setPaused(false);
-    if (checkpoint === 'combat') {
-      phase = 'combat'; spawned = 0; totalKilled = 0;
-      for (let i = 0; i < MAX_ACTIVE; i++) spawnFighter();
-    } else spawnBoss(checkpoint === 'bossCore');
+    for (const f of flashes) { scene.remove(f.mesh); if (!f.beam) f.mesh.material.dispose(); } flashes.length = 0;
+    if (pod) { scene.remove(pod); disposeRoomForGroup(pod); pod = null; }
+    launch = undefined; clock = phaseClock = railZ = spawned = totalKilled = spawnCd = deathClock = 0;
+    ship.root.position.set(0, 0, 0); ship.root.rotation.set(0, Math.PI, 0); ship.root.visible = true;
+    velocity.set(0, 0); dash.set(0, 0); aim.set(0, 0); rollTime = rollCd = fireCd = 0; cockpitView = false;
+    planet.visible = false; phase = 'combat'; setPaused(false);
+    for (let i = 0; i < MAX_ACTIVE; i++) spawnFighter();
+    cameraView(); showCrosshair(); announce('SORTIE RESTARTED / INTERCEPTORS INBOUND', 2);
   }
   function disposeRoomForGroup(group: THREE.Group) {
     const holder = new THREE.Scene(); holder.add(group); disposeRoom(holder); holder.remove(group);
@@ -397,7 +439,14 @@ export function createScene({ entryState, onTransition }: { entryState?: PlayerT
       camera.position.set(ship.root.position.x * 0.65, ship.root.position.y * 0.8 + 12, railZ - 34);
       camera.lookAt(new THREE.Vector3(ship.root.position.x * 0.65, ship.root.position.y * 0.8 + 6, railZ + 260));
     }
-    camera.updateMatrixWorld(true);
+    if (launch && clock < 2.5 && !cockpitView) {
+      const t = THREE.MathUtils.smootherstep(clock, 0, 2.5);
+      const start = launch.cameraPosition.clone().add(ship.root.position.clone().sub(launch.shipPosition));
+      camera.position.lerpVectors(start, camera.position.clone(), t);
+      camera.quaternion.slerpQuaternions(launch.cameraQuaternion, camera.quaternion.clone(), t);
+      camera.fov = THREE.MathUtils.lerp(launch.cameraFov, 76, t);
+    } else camera.fov = 76;
+    camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
   }
   function updateHud() {
     const dead = phase === 'dead', won = phase === 'victory';
@@ -405,7 +454,7 @@ export function createScene({ entryState, onTransition }: { entryState?: PlayerT
     if (healthFill) { healthFill.style.width = `${pct * 100}%`; healthFill.classList.toggle('low', pct <= 0.3); }
     healthTrack?.setAttribute('aria-valuenow', String(playerHp));
     if (healthLabel) healthLabel.textContent = `${playerHp} / ${PLAYER_MAX_HP}`;
-    if (speedLabel) speedLabel.textContent = `AUTO THRUST / ${FLIGHT_RULES.cruise} m/s`;
+    if (speedLabel) speedLabel.textContent = `AUTO THRUST / ${Math.round(launch ? THREE.MathUtils.lerp(launch.speed, FLIGHT_RULES.cruise, THREE.MathUtils.smootherstep(clock, 0, 2.5)) : FLIGHT_RULES.cruise)} m/s`;
     if (objective) objective.textContent = phase === 'combat' ? 'CLEAR THE INTERCEPTORS' : phase === 'bossArmor' ? 'BREAK THE FOUR SHIELD GENERATORS' : phase === 'bossCore' ? 'DESTROY THE EXPOSED REACTOR' : won ? 'FOLLOW THE ESCAPE POD' : 'HULL LOST';
     if (rollLabel) rollLabel.textContent = rollCd <= 0 ? 'SPACE / EVASIVE ROLL READY' : `ROLL RECHARGING / ${rollCd.toFixed(1)}s`;
     if (threatLabel) {
@@ -422,7 +471,7 @@ export function createScene({ entryState, onTransition }: { entryState?: PlayerT
       const targets = phase === 'bossCore' ? [boss.core] : boss.generators;
       const health = targets.reduce((sum, t) => sum + t.health, 0), max = targets.reduce((sum, t) => sum + t.max, 0);
       if (bossFill) bossFill.style.width = `${health / max * 100}%`;
-      if (bossLabel) bossLabel.textContent = phase === 'bossCore' ? 'PHASE 2 / REACTOR' : `PHASE 1 / SHIELDS ${targets.filter(t => t.health > 0).length}/4`;
+      if (bossLabel) bossLabel.textContent = phase === 'bossCore' ? (boss.shield.visible ? 'PHASE 2 / REACTOR SHIELD PULSE — EVADE' : 'PHASE 2 / REACTOR EXPOSED — FIRE') : `PHASE 1 / SHIELDS ${targets.filter(t => t.health > 0).length}/4`;
     }
     crosshair?.classList.toggle('hidden', paused || dead || won);
     crosshair?.setAttribute('data-hit', String(hitFlash > 0));
@@ -431,7 +480,7 @@ export function createScene({ entryState, onTransition }: { entryState?: PlayerT
     controls?.classList.toggle('hidden', won || dead);
     pausePanel?.classList.toggle('hidden', !paused && !dead);
     if (pauseTitle) pauseTitle.textContent = dead ? 'SHUTTLE DESTROYED' : 'FLIGHT PAUSED';
-    if (pauseHint) pauseHint.textContent = dead ? 'R: retry this encounter' : 'Click or Escape to resume';
+    if (pauseHint) pauseHint.textContent = dead ? 'Restarting sortie...' : 'Click or Escape to resume';
     document.body.classList.toggle('space-paused', paused || dead);
   }
   function updateEffects(dt: number) {
@@ -450,12 +499,17 @@ export function createScene({ entryState, onTransition }: { entryState?: PlayerT
     if (starfield) starfield.position.z = railZ;
   }
   function step(dt: number) {
+    if (phase === 'dead') {
+      deathClock -= dt; updateEffects(dt);
+      if (deathClock <= 0) restartScene();
+      return;
+    }
     clock += dt; phaseClock += dt; oldShipPosition.copy(ship.root.position);
     invulnerability = Math.max(0, invulnerability - dt); damageFlash = Math.max(0, damageFlash - dt * 1.8);
     hitFlash = Math.max(0, hitFlash - dt); alertTime = Math.max(0, alertTime - dt);
     rollCd = Math.max(0, rollCd - dt); rollTime = Math.max(0, rollTime - dt);
-    if (phase !== 'dead') {
-      railZ += FLIGHT_RULES.cruise * dt;
+    {
+      railZ += (launch ? THREE.MathUtils.lerp(launch.speed, FLIGHT_RULES.cruise, THREE.MathUtils.smootherstep(clock, 0, 2.5)) : FLIGHT_RULES.cruise) * dt;
       const horizontal = Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'));
       const vertical = Number(keys.has('KeyW') || keys.has('ArrowUp')) - Number(keys.has('KeyS') || keys.has('ArrowDown'));
       const input = new THREE.Vector2(-horizontal, vertical); if (input.lengthSq() > 1) input.normalize();
@@ -467,15 +521,15 @@ export function createScene({ entryState, onTransition }: { entryState?: PlayerT
       const bank = -velocity.x / FLIGHT_RULES.dodgeSpeed * 0.3 + (rollTime > 0 ? rollSign * (1 - rollTime / 0.42) * Math.PI * 2 : 0);
       ship.root.rotation.set(velocity.y / FLIGHT_RULES.dodgeSpeed * 0.1, Math.PI, bank, 'YXZ');
     }
-    ship.root.visible = !cockpitView && phase !== 'dead';
-    ship.setThrust(1.6 + Math.sin(clock * 24) * 0.1); cameraView();
-    if (phase === 'combat') {
+    ship.root.visible = !cockpitView;
+    ship.update(dt); ship.setThrust(1.6 + Math.sin(clock * 24) * 0.1); cameraView();
+    if (phase === 'combat' && (!launch || clock >= 2.5)) {
       updateFighters(dt); spawnCd -= dt;
       if (spawned < TOTAL_FIGHTERS && fighters.filter(f => f.health > 0).length < MAX_ACTIVE && spawnCd <= 0) { spawnFighter(); spawnCd = 0.8; }
       if (totalKilled === TOTAL_FIGHTERS) spawnBoss();
     }
     updateBoss(dt);
-    if (phase !== 'dead' && phase !== 'victory') {
+    if (phase !== 'victory') {
       fireCd -= dt;
       const touchAim = consumeFlightAim();
       if (touchAim.dx !== 0 || touchAim.dy !== 0) {
@@ -492,7 +546,7 @@ export function createScene({ entryState, onTransition }: { entryState?: PlayerT
       pod.position.addScaledVector(planetPosition.clone().sub(pod.position).normalize(), dt * 320);
       if (phaseClock >= 2.8 && !transferred) {
         transferred = true;
-        onTransition({ shipPosition: ship.root.position.clone(), shipQuaternion: ship.root.quaternion.clone(), podPosition: pod.position.clone(), podQuaternion: pod.quaternion.clone(), planetPosition: planetPosition.clone(), cameraPosition: camera.position.clone(), cameraQuaternion: camera.quaternion.clone(), cameraFov: camera.fov });
+        onTransition({ shipPosition: ship.root.position.clone(), shipQuaternion: ship.root.quaternion.clone(), podPosition: pod.position.clone(), podQuaternion: pod.quaternion.clone(), planetPosition: planetPosition.clone(), cameraPosition: camera.position.clone(), cameraQuaternion: camera.quaternion.clone(), cameraFov: camera.fov, hullHealth: playerHp, pilotState: player.captureTransition({ x: 0, y: 0, z: 0 }) });
         return;
       }
     }
@@ -500,7 +554,7 @@ export function createScene({ entryState, onTransition }: { entryState?: PlayerT
     player.setPosition(ship.root.position.x, ship.root.position.y + 2, ship.root.position.z);
   }
 
-  for (let i = 0; i < MAX_ACTIVE; i++) spawnFighter();
+  if (!launch) for (let i = 0; i < MAX_ACTIVE; i++) spawnFighter();
   ship.root.rotation.y = Math.PI; cameraView(); showCrosshair(); updateHud();
   announce('AUTO THRUST ENGAGED / INTERCEPTORS INBOUND', 3);
   return {

@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import dinoModelUrl from '../assets/models/Dino/QB-10_Monster.fbx';
+import dinoTextureUrl from '../assets/models/Dino/QB-10_Monster2.png';
 
 const gltfLoader = new GLTFLoader();
 
@@ -31,6 +34,48 @@ export async function loadToolModel(name: 'Enemy_Trilobite' | 'Gun_Pistol' | 'Gu
     entry.uri = new URL(resolved, document.baseURI).href;
   }
   return gltfLoader.parseAsync(JSON.stringify(json), '');
+}
+
+/** The exported FBX references a missing alternate atlas and the author's absolute disk paths. */
+export async function loadDinoModel() {
+  const manager = new THREE.LoadingManager();
+  manager.setURLModifier(url => {
+    const filename = decodeURIComponent(url.replace(/\\/g, '/').split('/').pop() ?? '').split(/[?#]/)[0];
+    return /^QB-10_Monster2?\.png$/i.test(filename) ? dinoTextureUrl : url;
+  });
+  let failedTexture: string | undefined;
+  const dependenciesReady = new Promise<void>(resolve => {
+    manager.onLoad = () => resolve();
+    manager.onError = url => { failedTexture = url; };
+  });
+  const model = await new FBXLoader(manager).loadAsync(dinoModelUrl);
+  await dependenciesReady;
+  const materials = new Set<THREE.Material>(), textures = new Set<THREE.Texture>();
+  model.traverse(node => {
+    if (!(node instanceof THREE.Mesh)) return;
+    node.castShadow = true; node.receiveShadow = true; node.frustumCulled = true;
+    for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
+      materials.add(material);
+      const surface = material as THREE.MeshPhongMaterial;
+      surface.color?.setHex(0xffffff);
+      if (surface.map) textures.add(surface.map);
+    }
+  });
+  if (failedTexture) {
+    const geometries = new Set<THREE.BufferGeometry>();
+    model.traverse(node => {
+      if (node instanceof THREE.Mesh) geometries.add(node.geometry);
+      if (node instanceof THREE.SkinnedMesh) node.skeleton.dispose();
+    });
+    geometries.forEach(geometry => geometry.dispose()); materials.forEach(material => material.dispose()); textures.forEach(texture => texture.dispose());
+    throw new Error(`Dinosaur texture could not load: ${failedTexture}`);
+  }
+  for (const texture of textures) {
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.magFilter = THREE.NearestFilter; texture.minFilter = THREE.NearestMipmapLinearFilter;
+    texture.generateMipmaps = true; texture.needsUpdate = true;
+  }
+  return { scene: model, animations: model.animations };
 }
 
 // Set up Draco decoder for compressed models

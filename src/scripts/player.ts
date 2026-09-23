@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 
 import { PHYSICS } from '../helpers/physics/scenePhysics.js';
+import type { CargoTransfer } from './cargoPuzzle.js';
 
 // One-shot character actions (see characterManager.ts) on number keys 6-9.
 export type PlayerActionName = 'Sword_Attack' | 'Pistol_Shoot' | 'Pistol_Reload' | 'Dance_Loop' | 'Interact';
@@ -62,6 +63,8 @@ export interface PlayerTransitionState {
   crouching: boolean;
   sprinting: boolean;
   health?: number;
+  cargo?: CargoTransfer;
+  blockedKeys?: string[];
 }
 
 interface PlayerOptions {
@@ -91,6 +94,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
 
   // --- Movement ---
   const keys: Record<string, boolean> = {};
+  const blockedKeys = new Set<string>();
   const moveSpeed = PHYSICS.moveSpeed;
   const crouchMoveSpeed = PHYSICS.moveSpeed * 0.6; // 60% speed when crouching
   const sprintMoveSpeed = PHYSICS.moveSpeed * 1.6; // 160% speed when sprinting
@@ -111,6 +115,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   let lookLocked = false;
   let sprinting = false;
   let health = PLAYER_MAX_HEALTH;
+  let lastDamageAt = -Infinity;
   let actionRequest: PlayerActionName | null = null;
   // Requests stay readable for exactly one physics+animation frame, then
   // expire, so a held or unconsumed key can never retrigger the action.
@@ -137,7 +142,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
 
   // --- Input ---
   function onKeyDown(e: KeyboardEvent) {
-    if (!enabled) return;
+    if (!enabled || blockedKeys.has(e.code) || (e.repeat && !keys[e.code])) return;
     if (e.code === 'Space' || (ventMode && ['KeyA', 'KeyD'].includes(e.code))) e.preventDefault();
     // Remember held movement during scripted traversal, but never queue a jump/action.
     if (climbing) { keys[e.code] = true; return; }
@@ -163,6 +168,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     keys[e.code] = true;
   }
   function onKeyUp(e: KeyboardEvent) {
+    blockedKeys.delete(e.code);
     keys[e.code] = false;
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
       sprinting = !!(keys['ShiftLeft'] || keys['ShiftRight']);
@@ -216,7 +222,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   function getMoveDirection(): { x: number; z: number } | null {
     if (ventMode && turnRemaining !== 0) return null;
     const fwd = (keys['KeyW'] ? 1 : 0) - (keys['KeyS'] ? 1 : 0);
-    const right = ventMode || boxHandling ? 0 : (keys['KeyD'] ? 1 : 0) - (keys['KeyA'] ? 1 : 0);
+    const right = ventMode ? 0 : (keys['KeyD'] ? 1 : 0) - (keys['KeyA'] ? 1 : 0);
     if (fwd === 0 && right === 0) return null;
     const len = Math.sqrt(fwd * fwd + right * right);
     const f = fwd / len;
@@ -398,6 +404,15 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     };
   }
 
+  function captureDoorTransition(doorway: Doorway, outward: -1 | 1 = -1): PlayerTransitionState {
+    const state = captureTransition(doorway);
+    // Edge exits arrive inside the destination aperture, beyond its return trigger.
+    const halfOpening = 1.5 - playerRadius - 0.05;
+    state.position.x = THREE.MathUtils.clamp(state.position.x, -halfOpening, halfOpening);
+    state.position.z = outward * Math.max(playerRadius + 0.2, state.position.z * outward);
+    return state;
+  }
+
   function restoreTransition(state: PlayerTransitionState, doorway: Doorway) {
     // Crossing maps the source's outward direction to the destination's inward direction.
     const rotation = (doorway.yaw ?? 0) + Math.PI;
@@ -405,7 +420,9 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     const position = new THREE.Vector3().copy(state.position).applyAxisAngle(axis, rotation);
     const velocity = new THREE.Vector3().copy(state.velocity).applyAxisAngle(axis, rotation);
     clearInput();
-    for (const code of state.heldKeys) keys[code] = true;
+    blockedKeys.clear();
+    for (const code of state.blockedKeys ?? []) blockedKeys.add(code);
+    for (const code of state.heldKeys) if (!blockedKeys.has(code)) keys[code] = true;
     playerBody.position.set(position.x + doorway.x, position.y + doorway.y, position.z + doorway.z);
     playerBody.velocity.set(velocity.x, velocity.y, velocity.z);
     playerBody.force.set(0, 0, 0);
@@ -441,10 +458,12 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   return {
     body: playerBody,
     radius: playerRadius,
+    getHeadY: () => playerBody.position.y - playerRadius + eyeHeight,
     beforePhysicsStep,
     afterPhysicsStep,
     updateCamera,
     captureTransition,
+    captureDoorTransition,
     restoreTransition,
     clearInput,
     dispose,
@@ -528,6 +547,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     takeDamage: (amount: number) => {
       if (!enabled || health <= 0 || !Number.isFinite(amount) || amount <= 0) return;
       health = Math.max(0, health - amount);
+      lastDamageAt = performance.now();
     },
     heal: (amount: number) => {
       if (!enabled || health <= 0 || !Number.isFinite(amount) || amount <= 0) return false;
@@ -536,6 +556,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       return health > previous;
     },
     getHealth: () => health,
+    getDamageFlash: () => Math.max(0, 0.72 - (performance.now() - lastDamageAt) / 650),
     requestAction,
     getState: (): PlayerState => ({
       isMoving: enabled && !climbing && (floating ? playerBody.velocity.lengthSquared() > 0.04 : getMoveDirection() !== null),

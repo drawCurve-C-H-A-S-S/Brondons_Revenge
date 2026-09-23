@@ -611,13 +611,13 @@ export function createScene({ audioManager, entryState, entryDoor = 'back', cafe
     frontDoorBody.collisionResponse = frontDoor.open < 0.9;
 
     // Check door trigger (back to scene3)
-    if (onBackTrigger && !backCooldown && doorBack.open > 0.9 && pz < -roomDepth / 2 - 0.8 && inDoorX) {
+    if (onBackTrigger && !backCooldown && doorBack.open > 0.9 && pz <= -roomDepth / 2 && Math.abs(px) <= (doorW + 2) / 2 + player.radius) {
       backCooldown = true;
-      onBackTrigger(player.captureTransition({ x: 0, y: 0, z: -roomDepth / 2, yaw: 0 }));
+      onBackTrigger(player.captureDoorTransition({ x: 0, y: 0, z: -roomDepth / 2, yaw: 0 }));
     }
-    if (onForwardTrigger && !forwardCooldown && frontDoor.open > 0.9 && pz > roomDepth / 2 + 0.8 && inDoorX) {
+    if (onForwardTrigger && !forwardCooldown && frontDoor.open > 0.9 && pz >= roomDepth / 2 && Math.abs(px) <= (doorW + 2) / 2 + player.radius) {
       forwardCooldown = true;
-      onForwardTrigger(player.captureTransition({ x: 0, y: 0, z: roomDepth / 2 }));
+      onForwardTrigger(player.captureDoorTransition({ x: 0, y: 0, z: roomDepth / 2 }, 1));
     }
 
     // Chest animation + interact prompt

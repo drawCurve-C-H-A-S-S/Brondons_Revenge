@@ -11,6 +11,11 @@ export function applyTraversalCamera(camera: THREE.PerspectiveCamera, player: Pl
   const right = new THREE.Vector3(Math.cos(state.yaw), 0, -Math.sin(state.yaw));
   const feet = p.y - player.radius;
   const target = new THREE.Vector3(p.x, feet + (state.ventMode ? 0.65 : 1.05), p.z);
+  if (state.ventMode && !state.climbing && !thirdPerson) {
+    camera.position.set(p.x, feet + 0.9, p.z);
+    camera.rotation.set(state.pitch, state.yaw, 0, 'YXZ');
+    return true;
+  }
   if (state.climbing || thirdPerson) {
     camera.position.copy(target).addScaledVector(forward, state.ventMode ? -1.15 : -2.3)
       .addScaledVector(right, state.ventMode ? 0.34 : 0.75);
@@ -20,16 +25,14 @@ export function applyTraversalCamera(camera: THREE.PerspectiveCamera, player: Pl
     const from = new CANNON.Vec3(target.x, target.y, target.z);
     const to = new CANNON.Vec3(camera.position.x, camera.position.y, camera.position.z);
     let distance = from.distanceTo(to);
+    const direction = to.vsub(from); direction.normalize();
+    to.vadd(direction.scale(0.4), to);
     world?.raycastAll(from, to, { skipBackfaces: true, checkCollisionResponse: true }, hit => {
-      if (hit.body !== player.body) distance = Math.min(distance, Math.max(0.15, hit.distance - 0.15));
+      if (hit.body === player.body) return;
+      const clearance = 0.15 / Math.max(0.1, Math.abs(hit.hitNormalWorld.dot(direction)));
+      distance = Math.min(distance, Math.max(0.05, hit.distance - clearance));
     });
     camera.position.sub(target).setLength(distance).add(target);
-  }
-  if (state.ventMode) {
-    camera.position.x = THREE.MathUtils.clamp(camera.position.x, -0.8, 0.8);
-    camera.position.y = THREE.MathUtils.clamp(camera.position.y, 0.35, 1.12);
-    camera.position.z = THREE.MathUtils.clamp(camera.position.z, -7.75, 7.75);
-    if (!state.climbing && !thirdPerson) return true;
   }
   camera.lookAt(target);
   return true;

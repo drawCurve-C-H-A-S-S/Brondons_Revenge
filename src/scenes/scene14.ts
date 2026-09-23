@@ -10,6 +10,9 @@ import { createEscapeShip, addPlanetBackdrop } from '../scripts/items/createEsca
 import type { DamageTarget } from '../scripts/pistol.js';
 import { isTouchActive } from '../scripts/touchControls.js';
 
+export interface LaunchState extends PlayerTransitionState {
+  launch?: { shipPosition: THREE.Vector3; shipQuaternion: THREE.Quaternion; cameraPosition: THREE.Vector3; cameraQuaternion: THREE.Quaternion; cameraFov: number; speed: number };
+}
 export const ESCAPE_QTE = Object.freeze({ seconds: 2.2, stages: 6, robots: 48 });
 type Phase = 'arrival' | 'run' | 'prompt' | 'action' | 'boarding' | 'aboard' | 'launch' | 'failed';
 type EscapeKey = 'KeyX' | 'KeyY' | 'KeyZ';
@@ -22,7 +25,7 @@ const BOARDING = { run: 1.05, takeoff: 1.4, land: 2.15, settle: 2.6, seated: 3.9
 
 /** A playable approach, a timed escape sequence, then cockpit decompression and launch. */
 export function createScene({ entryState, onFailure, onLaunch, loadModel = loadToolModel }: {
-  entryState?: PlayerTransitionState; onFailure: () => void; onLaunch: (state: PlayerTransitionState) => void;
+  entryState?: PlayerTransitionState; onFailure: () => void; onLaunch: (state: LaunchState) => void;
   loadModel?: typeof loadToolModel;
 }) {
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x020611);
@@ -48,7 +51,7 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
   const lift = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 4.5, 0.35, 48), steel); lift.name = 'HangarArrivalLift'; lift.position.set(0, -0.175, -29); scene.add(lift);
   const ship = createEscapeShip(); ship.root.position.set(0, 0, 21); ship.root.rotation.y = Math.PI; ship.setThrust(0); scene.add(ship.root);
   const shipCollider = physics.addBox({ x: 3, y: 2.6, z: 7 }, { x: 0, y: 1.3, z: 21 });
-  const planet = addPlanetBackdrop(scene, new THREE.Vector3(0, 60, 1500), 320, 2400);
+  const planet = addPlanetBackdrop(scene, new THREE.Vector3(0, 60, 1500), 320, 2400); planet.visible = false;
   scene.add(new THREE.HemisphereLight(0xa8cce9, 0x2b3139, 2.2));
   const sun = new THREE.DirectionalLight(0xb9d8ff, 3); sun.position.set(-20, 50, 30); scene.add(sun);
   for (const z of [-25, -5, 15]) { const light = new THREE.PointLight(0xb3def7, 180, 40); light.position.set(0, 12, z); scene.add(light); }
@@ -65,7 +68,7 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
   const boardingRun = new THREE.Vector3(0, 0.3, 16.5), boardingDeck = new THREE.Vector3(0, 1.7, 20.83);
   const shotPosition = new THREE.Vector3(), shotTarget = new THREE.Vector3();
   let shot = '', shotFov = 70;
-  const canopyY = ship.canopy.position.y;
+  ship.setCanopyOpen(0);
   const pressed = new Set<string>();
   const qte = document.getElementById('escape-qte'), keyLabel = document.getElementById('escape-key'), timer = document.getElementById('escape-timer-fill'), actionLabel = document.getElementById('escape-action');
   const qteCaption = qte?.querySelector?.('.escape-caption'), qteHint = qte?.querySelector?.('.escape-hint');
@@ -346,8 +349,8 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
           p.copy(boardingDeck); p.y -= 0.5 * THREE.MathUtils.smoothstep(clock, BOARDING.settle, BOARDING.seated);
         }
         player.setPosition(p.x, p.y, p.z);
-        ship.canopy.position.y = canopyY + 2.2 * THREE.MathUtils.smoothstep(clock, 0, BOARDING.takeoff) * (1 - THREE.MathUtils.smoothstep(clock, BOARDING.seated, BOARDING.end));
-        if (clock >= BOARDING.end) { phase = 'aboard'; clock = 0; ship.canopy.position.y = canopyY; player.setPosition(0, 2, 21); if (prompt) { prompt.textContent = 'Press E to open the hangar doors and launch'; prompt.classList.remove('hidden'); } }
+        ship.setCanopyOpen(THREE.MathUtils.smoothstep(clock, 0, BOARDING.takeoff) * (1 - THREE.MathUtils.smoothstep(clock, BOARDING.seated, BOARDING.end)));
+        if (clock >= BOARDING.end) { phase = 'aboard'; clock = 0; ship.setCanopyOpen(0); player.setPosition(0, 2, 21); if (prompt) { prompt.textContent = 'Press E to open the hangar doors and launch'; prompt.classList.remove('hidden'); } }
       } else if (phase === 'launch') {
         const opening = THREE.MathUtils.smoothstep(clock, 0, 3);
         for (const door of blastDoors) { door.mesh.position.x = door.sign * (5 + opening * 10.5); door.body.position.x = door.mesh.position.x; door.body.aabbNeedsUpdate = true; }
@@ -355,9 +358,15 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
         for (let i = 2; i < windPositions.length; i += 3) { windPositions[i] += dt * 45; if (windPositions[i] > 75) windPositions[i] = -35; } windGeometry.attributes.position.needsUpdate = true;
         const travel = Math.max(0, clock - 4); ship.setFlying(travel > 0); ship.root.position.set(0, Math.min(3, travel), 21 + travel * travel * 3.5); ship.setThrust(Math.min(1.6, travel)); shipCollider.collisionResponse = false;
         player.setPosition(0, ship.root.position.y + 2, ship.root.position.z);
-        if (clock > 9) { transferred = true; onLaunch(player.captureTransition({ x: 0, y: 0, z: 0 })); return; }
+        if (clock > 9) {
+          ship.update(dt); updateShot(dt); cameraView(); transferred = true;
+          onLaunch({ ...player.captureTransition({ x: 0, y: 0, z: 0 }), launch: {
+            shipPosition: ship.root.position.clone(), shipQuaternion: ship.root.quaternion.clone(),
+            cameraPosition: camera.position.clone(), cameraQuaternion: camera.quaternion.clone(), cameraFov: camera.fov, speed: travel * 7,
+          } }); return;
+        }
       } else if (phase === 'failed' && clock > 3.2) { transferred = true; onFailure(); return; }
-      updateRobots(dt); physics.step(dt, player, thirdPerson); planet.rotation.y += dt * 0.008;
+      ship.update(dt); updateRobots(dt); physics.step(dt, player, thirdPerson);
       if (status) status.textContent = assetError ? 'ROBOT ASSETS COULD NOT LOAD / E: retry' : phase === 'arrival' ? '14 / HANGAR\nLift arriving. One ship. Too many robots.' : phase === 'run' ? (isTouchActive() ? 'RUN TO THE SHIP / JOYSTICK + RUN\nTap the screen when the prompt appears.' : 'RUN TO THE SHIP / WASD + SHIFT\nBe ready to press the displayed X, Y or Z key.') : phase === 'launch' ? 'HANGAR DEPRESSURIZING\nAll robots are being pulled into space. Launching toward the planet...' : phase === 'aboard' ? 'COCKPIT SEALED / PRESS E TO LAUNCH' : 'BREAK THROUGH THE SWARM';
       updateShot(dt); cameraView();
     },
