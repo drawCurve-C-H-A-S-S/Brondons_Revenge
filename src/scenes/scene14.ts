@@ -8,6 +8,7 @@ import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
 import type { CinematicPose } from '../scripts/characterManager.js';
 import { createEscapeShip, addPlanetBackdrop } from '../scripts/items/createEscapeShip.js';
 import type { DamageTarget } from '../scripts/pistol.js';
+import { isTouchActive } from '../scripts/touchControls.js';
 
 export const ESCAPE_QTE = Object.freeze({ seconds: 2.2, stages: 6, robots: 48 });
 type Phase = 'arrival' | 'run' | 'prompt' | 'action' | 'boarding' | 'aboard' | 'launch' | 'failed';
@@ -67,6 +68,9 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
   const canopyY = ship.canopy.position.y;
   const pressed = new Set<string>();
   const qte = document.getElementById('escape-qte'), keyLabel = document.getElementById('escape-key'), timer = document.getElementById('escape-timer-fill'), actionLabel = document.getElementById('escape-action');
+  const qteCaption = qte?.querySelector?.('.escape-caption'), qteHint = qte?.querySelector?.('.escape-hint');
+  const desktopCaption = qteCaption?.textContent ?? '', desktopHint = qteHint?.textContent ?? '';
+  const qteTapEvent = 'PointerEvent' in window ? 'pointerdown' : 'touchstart';
   const prompt = document.getElementById('interact-prompt'), subtitles = document.getElementById('boss-subtitles'), status = document.getElementById('loading-bay-status');
   document.getElementById('boss-hud')?.classList.add('hidden'); status?.classList.remove('hidden', 'restored');
   type Robot = { root: THREE.Group; body: CANNON.Body; mixer: THREE.AnimationMixer; clips: THREE.AnimationClip[]; stunned: boolean; health: number; vacuum: THREE.Vector3; target: DamageTarget };
@@ -126,7 +130,10 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
     expected = queue.shift()!; phase = 'prompt'; clock = 0; timeLeft = ESCAPE_QTE.seconds;
     freeze(); qte?.classList.remove('hidden', 'urgent');
     if (timer) timer.style.width = '100%';
-    if (keyLabel) keyLabel.textContent = expected.slice(3);
+    const mobile = isTouchActive();
+    if (keyLabel) keyLabel.textContent = mobile ? 'TAP' : expected.slice(3);
+    if (qteCaption) qteCaption.textContent = mobile ? 'TAP ANYWHERE ON THE SCREEN' : desktopCaption;
+    if (qteHint) qteHint.textContent = mobile ? 'Tap once before the timer runs out' : desktopHint;
     if (actionLabel) actionLabel.textContent = `${stage + 1} / ${ESCAPE_QTE.stages} - ${expected === 'KeyX' ? 'FIRE THROUGH THE GAP' : expected === 'KeyY' ? 'STRIKE WITH THE CROWBAR' : 'ROLL PAST THE ATTACK'}`;
     const candidates = robots.filter(r => !r.stunned && r.root.position.z > player.body.position.z - 0.5);
     const position = new THREE.Vector3().copy(player.body.position);
@@ -148,6 +155,18 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
     if (phase !== 'prompt' || !['KeyX', 'KeyY', 'KeyZ'].includes(event.code)) return;
     event.preventDefault();
     if (event.code !== expected) { fail('WRONG MOVE'); return; }
+    acceptPrompt();
+  }
+  function onQteTap(event: Event) {
+    if (!isTouchActive() || disposed || transferred || paused || document.hidden || phase !== 'prompt' || timeLeft <= 0) return;
+    if (document.body.classList.contains('quick-menu-open')) return;
+    if (event.type === 'pointerdown' && (event as PointerEvent).pointerType === 'mouse' && (event as PointerEvent).button !== 0) return;
+    if (event.target instanceof HTMLElement && event.target.closest('#touch-menu, dialog, input, textarea, select, [contenteditable="true"]')) return;
+    // Capture the prompt tap before movement, weapon, or look controls consume it.
+    event.preventDefault(); event.stopImmediatePropagation();
+    acceptPrompt();
+  }
+  function acceptPrompt() {
     actionKey = expected; phase = 'action'; clock = 0; impact = false;
     actionStart.copy(player.body.position); actionEnd.set(stage % 2 ? 0.7 : -0.7, 0.3, -16 + stage * 5.5);
     rollEnd.copy(actionStart).add(new THREE.Vector3(stage % 2 ? -1.8 : 1.8, 0, 2.8));
@@ -158,6 +177,7 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
   function onBlur() { paused = true; pressed.clear(); }
   function onFocus() { paused = false; }
   window.addEventListener('keydown', onKeyDown); window.addEventListener('keyup', onKeyUp); window.addEventListener('blur', onBlur); window.addEventListener('focus', onFocus);
+  window.addEventListener(qteTapEvent, onQteTap, { capture: true, passive: false });
   function cinematicYaw() {
     if (phase === 'failed') return failedYaw;
     if (phase === 'action') {
@@ -338,12 +358,15 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
         if (clock > 9) { transferred = true; onLaunch(player.captureTransition({ x: 0, y: 0, z: 0 })); return; }
       } else if (phase === 'failed' && clock > 3.2) { transferred = true; onFailure(); return; }
       updateRobots(dt); physics.step(dt, player, thirdPerson); planet.rotation.y += dt * 0.008;
-      if (status) status.textContent = assetError ? 'ROBOT ASSETS COULD NOT LOAD / E: retry' : phase === 'arrival' ? '14 / HANGAR\nLift arriving. One ship. Too many robots.' : phase === 'run' ? 'RUN TO THE SHIP / WASD + SHIFT\nBe ready to press the displayed X, Y or Z key.' : phase === 'launch' ? 'HANGAR DEPRESSURIZING\nAll robots are being pulled into space. Launching toward the planet...' : phase === 'aboard' ? 'COCKPIT SEALED / PRESS E TO LAUNCH' : 'BREAK THROUGH THE SWARM';
+      if (status) status.textContent = assetError ? 'ROBOT ASSETS COULD NOT LOAD / E: retry' : phase === 'arrival' ? '14 / HANGAR\nLift arriving. One ship. Too many robots.' : phase === 'run' ? (isTouchActive() ? 'RUN TO THE SHIP / JOYSTICK + RUN\nTap the screen when the prompt appears.' : 'RUN TO THE SHIP / WASD + SHIFT\nBe ready to press the displayed X, Y or Z key.') : phase === 'launch' ? 'HANGAR DEPRESSURIZING\nAll robots are being pulled into space. Launching toward the planet...' : phase === 'aboard' ? 'COCKPIT SEALED / PRESS E TO LAUNCH' : 'BREAK THROUGH THE SWARM';
       updateShot(dt); cameraView();
     },
     dispose() {
       if (disposed) return; disposed = true;
       window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); window.removeEventListener('blur', onBlur); window.removeEventListener('focus', onFocus);
+      window.removeEventListener(qteTapEvent, onQteTap, true);
+      if (qteCaption) qteCaption.textContent = desktopCaption;
+      if (qteHint) qteHint.textContent = desktopHint;
       qte?.classList.add('hidden'); prompt?.classList.add('hidden'); subtitles?.classList.add('hidden'); status?.classList.add('hidden');
       if (gun) { gun.removeFromParent(); scene.add(gun); }
       robots.forEach(r => { r.mixer.stopAllAction(); r.mixer.uncacheRoot(r.root); r.root.traverse(node => { if (node instanceof THREE.SkinnedMesh) node.skeleton.dispose(); }); });

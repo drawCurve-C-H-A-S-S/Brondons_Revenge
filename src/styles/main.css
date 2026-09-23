@@ -203,6 +203,8 @@ body.quick-menu-open #credits-content { animation-play-state: paused; }
   margin: auto;
   padding: 22px;
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: auto;
   color: #e5f1fa;
   background: #091722;
   border: 1px solid #6eabc1;
@@ -238,6 +240,8 @@ body.quick-menu-open #credits-content { animation-play-state: paused; }
   max-height: 52dvh;
   overflow-y: auto;
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: auto;
   scrollbar-color: #52788b #102331;
   padding: 3px;
 }
@@ -252,6 +256,7 @@ body.quick-menu-open #credits-content { animation-play-state: paused; }
   #scene-quick-menu { padding: 14px; }
   #scene-menu-title { font-size: 18px; }
   #scene-quick-list button { padding: 7px 10px; }
+  #scene-quick-list { max-height: 45dvh; }
 }
 
 /* Credit roll */
@@ -707,4 +712,122 @@ body.space-cinematic #goggles-overlay, body.space-cinematic #goggles-status { di
   text-align: center;
   pointer-events: none;
   z-index: 110;
+}
+
+/* Touch controls for mobile */
+body.touch-device #hud,
+body.touch-device #health-bar { display: none !important; }
+body.touch-device canvas { touch-action: none; }
+#touch-controls {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1800;
+}
+#touch-controls.hidden { display: none !important; }
+body.quick-menu-open #touch-controls { display: none !important; }
+.touch-move-base {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.06);
+  left: 80px;
+  bottom: 80px;
+  transform: translate(-50%, 50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.touch-knob {
+  position: absolute;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.touch-flight-stick {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  border: 2px solid rgba(126, 206, 226, 0.3);
+  background: rgba(126, 206, 226, 0.06);
+  left: 80px;
+  bottom: 80px;
+  transform: translate(-50%, 50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+#touch-controls:not(.flight-mode) .touch-flight-stick { display: none; }
+#touch-controls.flight-mode .touch-move-base { display: none; }
+.touch-buttons-right {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 45vw;
+  justify-content: flex-end;
+  pointer-events: auto;
+}
+.touch-btn {
+  min-width: 52px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.8);
+  font: bold 11px/1 monospace;
+  text-align: center;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.touch-btn.active {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+.touch-btn-fire {
+  min-width: 72px;
+  min-height: 60px;
+  background: rgba(220, 60, 60, 0.5);
+  border-color: rgba(255, 120, 120, 0.6);
+  font-size: 13px;
+  order: -2;
+}
+.touch-btn-fire.active { background: rgba(255, 80, 80, 0.7); }
+.touch-btn-evade {
+  min-width: 72px;
+  min-height: 60px;
+  background: rgba(60, 140, 220, 0.4);
+  border-color: rgba(120, 180, 255, 0.5);
+  font-size: 13px;
+  order: -1;
+}
+.touch-btn-evade.active { background: rgba(80, 160, 255, 0.6); }
+#touch-controls:not(.flight-mode) .touch-btn-fire,
+#touch-controls:not(.flight-mode) .touch-btn-evade { display: none; }
+#touch-controls.flight-mode #touch-jump,
+#touch-controls.flight-mode #touch-sprint,
+#touch-controls.flight-mode #touch-interact,
+#touch-controls.flight-mode #touch-attack,
+#touch-controls.flight-mode #touch-crowbar,
+#touch-controls.flight-mode #touch-goggles,
+#touch-controls.flight-mode #touch-crouch { display: none; }
+@media (max-width: 480px), (max-height: 540px) {
+  .touch-btn { min-width: 44px; min-height: 38px; padding: 6px 8px; font-size: 10px; }
+  .touch-btn-fire, .touch-btn-evade { min-width: 60px; min-height: 50px; font-size: 11px; }
+  .touch-move-base, .touch-flight-stick { width: 100px; height: 100px; left: 60px; bottom: 60px; }
 }

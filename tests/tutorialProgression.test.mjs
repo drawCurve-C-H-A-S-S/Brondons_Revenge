@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'vite';
 
 let server, THREE, CANNON, PistolController, CrowbarController, GogglesController, traceShot, createBreakables, createRewardChest;
-let createPlayer, createScenePhysics, chestJSON;
+let createPlayer, createScenePhysics, chestJSON, touchControls;
 const scenes = {};
 before(async () => {
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom',
@@ -14,6 +14,7 @@ before(async () => {
   ({ THREE, CANNON } = await server.ssrLoadModule('virtual:tutorial-deps'));
   ({ PistolController, traceShot } = await server.ssrLoadModule('/scripts/pistol.ts'));
   ({ CrowbarController } = await server.ssrLoadModule('/scripts/crowbar.ts'));
+  touchControls = await server.ssrLoadModule('/scripts/touchControls.ts');
   ({ GogglesController } = await server.ssrLoadModule('/scripts/goggles.ts'));
   ({ createBreakables } = await server.ssrLoadModule('/scripts/breakables.ts'));
   ({ createRewardChest } = await server.ssrLoadModule('/scripts/rewardChest.ts'));
@@ -28,12 +29,23 @@ before(async () => {
 });
 after(async () => server?.close());
 function browser(t) {
-  const old = { window: globalThis.window, document: globalThis.document, HTMLElement: globalThis.HTMLElement, ProgressEvent: globalThis.ProgressEvent };
+  const old = { window: globalThis.window, document: globalThis.document, HTMLElement: globalThis.HTMLElement, ProgressEvent: globalThis.ProgressEvent, KeyboardEvent: globalThis.KeyboardEvent };
   class Element extends EventTarget {
-    style = {}; dataset = {}; textContent = ''; hidden = true;
-    classList = { add: () => { this.hidden = true; }, remove: () => { this.hidden = false; }, toggle: (_, value) => { this.hidden = value; } };
-    closest() { return null; } requestPointerLock() {}
+    style = {}; dataset = {}; textContent = ''; hidden = true; disabled = false;
+    classes = new Set(['hidden']);
+    classList = {
+      add: (...names) => { names.forEach(name => this.classes.add(name)); this.hidden = this.classes.has('hidden'); },
+      remove: (...names) => { names.forEach(name => this.classes.delete(name)); this.hidden = this.classes.has('hidden'); },
+      contains: name => this.classes.has(name),
+      toggle: (name, value = !this.classes.has(name)) => { this.classList[value ? 'add' : 'remove'](name); return value; },
+    };
+    closest() { return null; } requestPointerLock() {} querySelector() { return null; }
+    setAttribute(name, value) { this[name] = value; }
+    setPointerCapture() {} hasPointerCapture() { return false; } releasePointerCapture() {}
   }
+  globalThis.KeyboardEvent = class extends Event {
+    constructor(type, options = {}) { super(type, options); this.code = options.code; this.key = options.key; this.repeat = options.repeat ?? false; }
+  };
   const elements = new Map();
   globalThis.HTMLElement = Element; globalThis.ProgressEvent = class extends Event {};
   globalThis.window = Object.assign(new EventTarget(), { innerWidth: 1280, innerHeight: 720 });
@@ -86,6 +98,99 @@ test('real weapon input rejects wrong tools and breaks targets/crates in both vi
   for (let i = 0; i < 150; i++) f.breakables.update(1 / 60);
   assert.ok(!f.scene.children.some(node => node.name === 'BreakableDebris'));
   assert.ok(!f.world.bodies.includes(third.body));
+});
+
+function input(element, type, properties = {}) {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperties(event, Object.fromEntries(Object.entries(properties).map(([name, value]) => [name, { value }])));
+  element.dispatchEvent(event);
+}
+function touch(element, type, identifier = 1) {
+  input(element, type, { changedTouches: [{ identifier, target: element, clientX: 600, clientY: 300 }] });
+}
+async function mobileWeapons(t) {
+  browser(t); window.ontouchstart = null;
+  const f = fixture(t);
+  let pistol, crowbar;
+  const context = () => ({ ...f, character: null, thirdPerson: false, hasCrowbar: true,
+    targets: f.breakables.getDamageTargets(), setCharacterEquipped() {}, doorTarget: null, openDoor() {} });
+  pistol = new PistolController(() => ({ ...context(), holsterOther: () => crowbar?.holster() }), async () => ({ scene: new THREE.Group() }));
+  await pistol.ready;
+  crowbar = new CrowbarController(() => ({ ...context(), holsterOther: () => pistol.holster() }));
+  t.cleanup(() => { pistol.dispose(); crowbar.dispose(); });
+  touchControls.initTouchControls();
+  t.cleanup(() => touchControls.disposeTouchControls());
+  const attack = document.getElementById('touch-attack');
+  const pistolButton = document.getElementById('touch-pistol');
+  touch(pistolButton, 'touchstart'); touch(pistolButton, 'touchend');
+  f.camera.position.set(0, 1.3, 0); f.camera.lookAt(0, 1.3, -1);
+  const target = f.breakables.add('MobileTarget', 'pistol', new THREE.Vector3(0, 1.3, -1), new THREE.Vector3(0.8, 0.8, 0.15));
+  return { ...f, pistol, crowbar, attack, target };
+}
+
+for (const mode of ['touch', 'pointer', 'click']) {
+  test(`mobile attack breaks a target and a crate through ${mode} input without pointer lock`, async t => {
+    const f = await mobileWeapons(t);
+    const tap = () => {
+      if (mode === 'touch') { touch(f.attack, 'touchstart'); touch(f.attack, 'touchend'); }
+      else if (mode === 'pointer') {
+        input(f.attack, 'pointerdown', { pointerId: 2, pointerType: 'touch', button: 0, isPrimary: false });
+        input(f.attack, 'pointerup', { pointerId: 2 });
+      } else input(f.attack, 'click', { detail: 0, button: 0 });
+    };
+    assert.equal(document.pointerLockElement, null);
+    tap(); assert.equal(f.target.broken, true, `${mode} activation must reach the real pistol damage path`);
+    assert.equal(f.attack.textContent, 'SHOOT');
+    const crate = f.breakables.add('MobileCrate', 'crowbar', new THREE.Vector3(0, 0.6, -1.2), new THREE.Vector3(1, 1.2, 1));
+    f.camera.lookAt(0, 0.7, -1.2);
+    const crowbarButton = document.getElementById('touch-crowbar');
+    touch(crowbarButton, 'touchstart'); touch(crowbarButton, 'touchend');
+    assert.equal(f.attack.textContent, 'SWING');
+    tap(); assert.equal(crate.broken, true, `${mode} activation must reach the real crowbar damage path`);
+    f.crowbar.holster(); assert.equal(f.attack.disabled, true);
+  });
+}
+
+test('mobile attack deduplicates pointer/touch/click and USE stays E-only', async t => {
+  const f = await mobileWeapons(t);
+  const shoot = t.mock.method(f.pistol, 'shoot');
+  const swing = t.mock.method(f.crowbar, 'swing');
+  const use = document.getElementById('touch-interact');
+  let interactions = 0;
+  window.addEventListener('keydown', event => { if (event.code === 'KeyE') interactions++; });
+  touch(use, 'touchstart'); touch(use, 'touchend');
+  assert.equal(interactions, 1); assert.equal(shoot.mock.callCount(), 0); assert.equal(swing.mock.callCount(), 0);
+  input(f.attack, 'pointerdown', { pointerId: 2, pointerType: 'touch', button: 0, isPrimary: false });
+  touch(f.attack, 'touchstart', 2);
+  touch(f.attack, 'touchstart', 3);
+  input(f.attack, 'pointerup', { pointerId: 2 });
+  touch(f.attack, 'touchend', 2);
+  input(f.attack, 'click', { detail: 1, button: 0 });
+  assert.equal(shoot.mock.callCount(), 1, 'One physical press must call shoot once');
+  assert.equal(swing.mock.callCount(), 0, 'The holstered weapon must not be invoked');
+  assert.equal(f.target.broken, true);
+  assert.equal(f.attack.classList.contains('active'), false);
+});
+
+test('mobile attack guards pause/flight/disposal and releases canceled pointers', async t => {
+  const f = await mobileWeapons(t);
+  const shoot = t.mock.method(f.pistol, 'shoot');
+  const press = () => input(f.attack, 'pointerdown', { pointerId: 2, pointerType: 'touch', button: 0 });
+  const cancel = () => input(f.attack, 'pointercancel', { pointerId: 2 });
+  press(); cancel();
+  assert.equal(f.attack.classList.contains('active'), false);
+  press(); cancel(); assert.equal(shoot.mock.callCount(), 2, 'Canceled input must not leave the button held');
+  document.body.classList.add('quick-menu-open'); press(); cancel();
+  document.body.classList.remove('quick-menu-open');
+  touchControls.setTouchFlightMode(true); touch(f.attack, 'touchstart'); touch(f.attack, 'touchend');
+  touchControls.setTouchFlightMode(false);
+  assert.equal(shoot.mock.callCount(), 2, 'Hidden gameplay controls cannot attack while paused or flying');
+  touchControls.disposeTouchControls(); press(); cancel(); input(f.attack, 'click', { detail: 0 });
+  assert.equal(shoot.mock.callCount(), 2);
+  touchControls.initTouchControls(); press(); cancel();
+  assert.equal(shoot.mock.callCount(), 3, 'Reinitialization must not duplicate listeners');
+  f.pistol.dispose(); input(f.attack, 'click', { detail: 0 });
+  assert.equal(shoot.mock.callCount(), 3, 'Disposed controllers must unregister');
 });
 
 test('walls occlude breakables and distant crates cannot be hit by the crowbar', t => {

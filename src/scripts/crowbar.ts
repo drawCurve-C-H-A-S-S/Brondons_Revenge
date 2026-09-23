@@ -3,6 +3,7 @@ import * as CANNON from 'cannon-es';
 import { createCrowbar } from './items/createCrowbar.js';
 import { traceShot, type DamageTarget } from './pistol.js';
 import type { Player } from './player.js';
+import { registerTouchAttackCallback, refreshTouchAttackButton } from './touchControls.js';
 
 interface FirstPersonHands {
   update: (attackProgress: number | null) => void;
@@ -32,6 +33,7 @@ export class CrowbarController {
   private cooldown = 0;
   private swingTime = 0;
   private status: HTMLElement | null;
+  private unregisterTouchAttack: () => void;
 
   constructor(private context: () => CrowbarContext) {
     this.root.name = 'PlayerCrowbar';
@@ -42,6 +44,7 @@ export class CrowbarController {
     this.status = document.getElementById('weapon-status');
     window.addEventListener('keydown', this.onKeyDown);
     document.addEventListener('mousedown', this.onMouseDown);
+    this.unregisterTouchAttack = registerTouchAttackCallback(() => this.swing(), () => this.equipped ? 'SWING' : null);
   }
 
   private onKeyDown = (event: KeyboardEvent) => {
@@ -51,12 +54,14 @@ export class CrowbarController {
     event.preventDefault();
     if (!this.equipped) this.context().holsterOther?.();
     this.equipped = !this.equipped;
+    refreshTouchAttackButton();
     if (this.status) this.status.textContent = this.equipped
       ? 'T: holster | Left click: crowbar' : 'T: equip crowbar';
   };
 
   holster() {
     this.equipped = false;
+    refreshTouchAttackButton();
     this.context().setCharacterEquipped(false);
   }
 
@@ -65,11 +70,13 @@ export class CrowbarController {
     if (!hasCrowbar || !player?.isEnabled()) return;
     this.context().holsterOther?.();
     this.equipped = true;
+    refreshTouchAttackButton();
     if (this.status) this.status.textContent = 'T: holster | Left click: crowbar';
   }
 
   private onMouseDown = (event: MouseEvent) => {
-    if (event.button === 0 && document.pointerLockElement) this.swing();
+    const touchActive = (window as any).__touchActive === true;
+    if (event.button === 0 && (document.pointerLockElement || touchActive)) this.swing();
   };
 
   private swing() {
@@ -125,7 +132,7 @@ export class CrowbarController {
     this.swingTime = Math.max(0, this.swingTime - frame);
     const { camera, player, thirdPerson, hasCrowbar, setCharacterEquipped, firstPersonHands: handsSource } = this.context();
     const firstPersonHands = typeof handsSource === 'function' ? handsSource() : handsSource;
-    if (!hasCrowbar) this.equipped = false;
+    if (!hasCrowbar && this.equipped) { this.equipped = false; refreshTouchAttackButton(); }
     const usable = !!player?.isEnabled() && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling;
     setCharacterEquipped(this.equipped && usable);
     this.root.visible = this.equipped && !thirdPerson && usable;
@@ -146,6 +153,7 @@ export class CrowbarController {
   }
 
   dispose() {
+    this.unregisterTouchAttack();
     window.removeEventListener('keydown', this.onKeyDown);
     document.removeEventListener('mousedown', this.onMouseDown);
     this.root.removeFromParent();

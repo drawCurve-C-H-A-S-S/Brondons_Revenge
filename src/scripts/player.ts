@@ -189,7 +189,8 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   }
 
   function onMouseMove(e: MouseEvent) {
-    if (!enabled || !isPointerLocked || lookLocked) return;
+    const touchActive = !!(window as any).__touchActive;
+    if (!enabled || (!isPointerLocked && !touchActive) || lookLocked) return;
     yaw -= e.movementX * mouseSensitivity;
     pitch -= e.movementY * mouseSensitivity;
     pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch));
@@ -197,11 +198,11 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
 
   function onPointerLockChange() {
     isPointerLocked = document.pointerLockElement != null;
-    if (!isPointerLocked) clearInput();
+    if (!isPointerLocked && !(window as any).__touchActive) clearInput();
   }
 
   function onClick() {
-    if (enabled && !isPointerLocked) document.body.requestPointerLock();
+    if (enabled && !isPointerLocked && !(window as any).__touchActive) document.body.requestPointerLock();
   }
 
   window.addEventListener('keydown', onKeyDown);
@@ -448,7 +449,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     clearInput,
     dispose,
     enable: () => {
-      isPointerLocked = document.pointerLockElement != null;
+      isPointerLocked = !!(window as any).__touchActive || document.pointerLockElement != null;
       updateGroundState(false);
       enabled = true;
     },

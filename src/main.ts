@@ -26,6 +26,7 @@ import { CrowbarController } from './scripts/crowbar.js';
 import { GogglesController } from './scripts/goggles.js';
 import { createCctvSystem } from './scripts/cctv.js';
 import { createFirstPersonHands } from './scripts/firstPersonHands.js';
+import { initTouchControls, setTouchFlightMode } from './scripts/touchControls.js';
 
 // --- Renderer ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -154,6 +155,7 @@ async function initializeApp() {
   initializeControls();
   setupViewToggle();
   setupSceneQuickMenu();
+  initTouchControls();
 }
 
 // --- View toggle ---
@@ -614,10 +616,12 @@ function loadHangar14(entryState?: PlayerTransitionState) {
 function loadFlight15(entryState?: PlayerTransitionState) {
   hideScene1Skip(); retireTraversalRoom();
   activateExtension(createScene15({ entryState, onTransition: loadCrash16 }), 'scene15');
+  setTouchFlightMode(true);
 }
 
 function loadCrash16(entryState?: FlightExitState) {
   hideScene1Skip(); retireTraversalRoom();
+  setTouchFlightMode(false);
   activateExtension(createScene16({
     entryState,
     onFinished: () => document.getElementById('credits-overlay')?.classList.remove('hidden'),
@@ -912,6 +916,7 @@ function setQuickMenu(open: boolean) {
 function jumpToScene(id: number) {
   if (!SCENE_CHOICES.some(([scene]) => scene === id)) return;
   pendingSceneActions.clear(); creditsTimer = null;
+  setTouchFlightMode(false);
   clearSceneInput();
   // Detach persistent gear before the outgoing scene disposes its meshes.
   pistol.holster(); crowbar.holster(); pistol.update(0); crowbar.update(0);

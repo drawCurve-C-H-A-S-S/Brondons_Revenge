@@ -4,6 +4,7 @@ import { createScenePhysics } from '../helpers/physics/scenePhysics.js';
 import { disposeRoom } from '../helpers/scene/shipRoom.js';
 import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
 import { createEscapeShip, createEscapePod, addPlanetBackdrop } from '../scripts/items/createEscapeShip.js';
+import { consumeFlightAim, isTouchFire } from '../scripts/touchControls.js';
 
 export const FLIGHT_RULES = Object.freeze({ cruise: 200, dodgeSpeed: 52, width: 64, height: 38, planetRadius: 900 });
 const TOTAL_FIGHTERS = 18, MAX_ACTIVE = 6, PLAYER_MAX_HP = 120;
@@ -476,7 +477,14 @@ export function createScene({ entryState, onTransition }: { entryState?: PlayerT
     updateBoss(dt);
     if (phase !== 'dead' && phase !== 'victory') {
       fireCd -= dt;
-      if (firing && fireCd <= 0) { firePlayerLaser(); fireCd = 0.11; }
+      const touchAim = consumeFlightAim();
+      if (touchAim.dx !== 0 || touchAim.dy !== 0) {
+        aim.x = THREE.MathUtils.clamp(aim.x + touchAim.dx, -1, 1);
+        aim.y = THREE.MathUtils.clamp(aim.y + touchAim.dy, -1, 1);
+        showCrosshair();
+      }
+      const touchFiring = isTouchFire();
+      if ((firing || touchFiring) && fireCd <= 0) { firePlayerLaser(); fireCd = 0.11; }
       updateBolts(dt);
     }
     if (!planet.visible) { planetPosition.z = railZ + 14000; planet.position.copy(planetPosition); }

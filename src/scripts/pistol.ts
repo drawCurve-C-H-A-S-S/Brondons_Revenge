@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { loadToolModel } from '../core/loader.js';
 import type { Player } from './player.js';
+import { registerTouchAttackCallback, refreshTouchAttackButton } from './touchControls.js';
 
 export type DamageWeapon = 'pistol' | 'crowbar';
 export interface DamageTarget {
@@ -75,6 +76,7 @@ export class PistolController {
   private beamLife = 0;
   private crosshair: HTMLElement | null;
   private status: HTMLElement | null;
+  private unregisterTouchAttack: () => void;
 
   constructor(private context: () => WeaponContext, load = () => loadToolModel('Gun_Revolver')) {
     this.root.name = 'PlayerPistol';
@@ -105,6 +107,7 @@ export class PistolController {
     document.addEventListener('mousedown', this.onMouseDown);
     window.addEventListener('blur', this.clearFeedback);
     document.addEventListener('pointerlockchange', this.onPointerLockChange);
+    this.unregisterTouchAttack = registerTouchAttackCallback(() => this.shoot(), () => this.equipped ? 'SHOOT' : null);
   }
 
   private onKeyDown = (event: KeyboardEvent) => {
@@ -118,12 +121,14 @@ export class PistolController {
   };
 
   private onMouseDown = (event: MouseEvent) => {
-    if (event.button !== 0 || !document.pointerLockElement) return;
+    const touchActive = (window as any).__touchActive === true;
+    if (event.button !== 0 || (!document.pointerLockElement && !touchActive)) return;
     if (event.target instanceof HTMLElement && event.target.closest('button, input, textarea')) return;
     this.shoot();
   };
 
   private updateStatus() {
+    refreshTouchAttackButton();
     if (this.status) this.status.textContent = this.equipped
       ? (this.loaded ? 'K: holster | Left click: shoot' : 'Loading pistol...') : 'K: equip pistol';
   }
@@ -218,6 +223,7 @@ export class PistolController {
   private onPointerLockChange = () => { if (!document.pointerLockElement) this.clearFeedback(); };
 
   dispose() {
+    this.unregisterTouchAttack();
     this.disposed = true;
     window.removeEventListener('keydown', this.onKeyDown);
     document.removeEventListener('mousedown', this.onMouseDown);
