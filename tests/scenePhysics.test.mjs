@@ -34,6 +34,7 @@ function browserStubs() {
   const context = new Proxy({}, { get: (target, key) => target[key] ?? (() => {}) });
   globalThis.document = Object.assign(new EventTarget(), {
     pointerLockElement: null,
+    getElementById: () => null,
     body: { requestPointerLock() {}, appendChild() {} },
     createElement: () => ({ getContext: () => context, style: {}, remove() {} }),
   });
@@ -84,6 +85,13 @@ function frames(data, count, dt = 1 / 60, check) {
   for (let i = 0; i < count; i++) { data.updatePhysics(dt); check?.(i); }
 }
 
+function until(data, predicate, fps, check, maximumSeconds = 4) {
+  for (let i = 0; i < Math.ceil(maximumSeconds * fps) && !predicate(); i++) {
+    data.updatePhysics(1 / fps); check?.(i);
+  }
+  assert.ok(predicate(), `Traversal timed out at ${data.player.body.position.toString()}`);
+}
+
 test('actual Scene 2 upper floor supports a slightly penetrating player without false jumps', t => {
   const data = sceneFixture(t);
   data.player.setPosition(6, 5.19, 0);
@@ -105,13 +113,13 @@ for (const fps of [30, 60, 144]) {
       frames(data, fps * 2, 1 / fps, () => grounded(player, 'Stopped on slope'));
       assert.ok(player.body.position.distanceTo(stop) < 0.03, 'Idle slope drift');
       key('keydown', 'KeyW');
-      frames(data, Math.ceil(1.1 * fps), 1 / fps, () => grounded(player, 'Top transition'));
+      until(data, () => player.body.position.z > 10.3, fps, () => grounded(player, 'Top transition'));
       key('keyup', 'KeyW');
       assert.ok(player.body.position.z > 10, 'Must reach the landing');
       assert.ok(Math.abs(player.body.position.y - 5.2) < 0.015, `Must not launch above the landing: ${player.body.position.toString()}`);
       player.setRotation(0);
       key('keydown', 'KeyW');
-      frames(data, Math.ceil(2 * fps), 1 / fps, () => grounded(player, 'Descending'));
+      until(data, () => player.body.position.z < 2.3, fps, () => grounded(player, 'Descending'));
       key('keyup', 'KeyW');
       assert.ok(player.body.position.z < 2.3, 'Must return to ground floor');
       assert.ok(Math.abs(player.body.position.y - 0.3) < 0.015);
@@ -132,7 +140,8 @@ test('Scene 2 upstairs jump lands once even while Space stays held', t => {
     peak = Math.max(peak, player.body.position.y);
     if (i > 110) grounded(player, 'Landed without auto-jumping');
   });
-  assert.ok(peak > 7 && peak < 8);
+  const expectedPeak = 5.2 + PHYSICS.jumpSpeed ** 2 / (2 * Math.abs(PHYSICS.gravity));
+  assert.ok(Math.abs(peak - expectedPeak) < 0.05, `Jump peak ${peak}, expected ${expectedPeak}`);
   key('keyup', 'Space');
 });
 
@@ -194,11 +203,11 @@ test('fixed-step movement is render-rate independent and long frames are bounded
     key('keyup', 'KeyW');
     distances.push(-data.player.body.position.z);
   }
-  for (const distance of distances) assert.ok(Math.abs(distance - 6) < 0.01, `${distances}`);
+  for (const distance of distances) assert.ok(Math.abs(distance - PHYSICS.moveSpeed) < 0.01, `${distances}`);
   const start = data.player.body.position.clone();
   key('keydown', 'KeyW');
   data.updatePhysics(10);
-  assert.ok(data.player.body.position.distanceTo(start) <= 0.61);
+  assert.ok(data.player.body.position.distanceTo(start) <= PHYSICS.moveSpeed * PHYSICS.maxFrameTime + 0.01);
   grounded(data.player, 'After a long frame');
 });
 
@@ -218,7 +227,7 @@ test('real character stays in Walk_Loop climbing Scene 2 and returns to idle ups
   player.setRotation(Math.PI);
   key('keydown', 'KeyW');
   const weight = name => character.mixer._actions.find(action => action.getClip().name === name).getEffectiveWeight();
-  frames(data, 120, 1 / 60, i => {
+  until(data, () => player.body.position.z > 10.3, 60, i => {
     character.update(1 / 60, player.body.position, player.getState(), true, player.radius);
     if (i > 20) assert.ok(weight('Walk_Loop') > 0.99, 'Stairs must not select jump animation');
   });
@@ -270,7 +279,7 @@ test('stair helper works at a different position, elevation, and orientation', t
   data.player.setPosition(9.5, 2.3, -8);
   data.player.setRotation(-Math.PI / 2);
   key('keydown', 'KeyW');
-  frames(data, 90, 1 / 60, () => grounded(data.player, 'Rotated ramp'));
+  until(data, () => data.player.body.position.x > 16.5, 60, () => grounded(data.player, 'Rotated ramp'));
   assert.ok(data.player.body.position.x > 16.5);
   assert.ok(Math.abs(data.player.body.position.y - 5.3) < 0.015);
 });
@@ -350,7 +359,9 @@ for (const direction of ['2-to-3', '3-to-2']) {
       assert.ok(panels.every(panel => Math.abs(panel.position.x) > 2), 'Arrival door must already be open');
       const startZ = destination.player.body.position.z;
       frames(destination, 5);
-      assert.ok(destination.player.body.position.z < startZ - 0.4, 'Held movement continues without another keydown');
+      const expectedTravel = Math.abs(snapshot.velocity.z) * 5 / 60;
+      assert.ok(Math.abs(startZ - destination.player.body.position.z - expectedTravel) < 0.01,
+        'Held movement continues at the captured speed without another keydown');
       assert.equal(bounceCount, 0, 'Arrival must not retrigger the exit');
       const oldYaw = source.player.getState().yaw;
       const mouse = new Event('mousemove');

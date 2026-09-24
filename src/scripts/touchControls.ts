@@ -163,8 +163,8 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
 
 function onTouchStart(event: TouchEvent) {
   if (!active) return;
-  if (root?.classList.contains('hidden')) return;
-  if (document.body.classList.contains('quick-menu-open')) return;
+  if (root?.classList.contains('hidden') || document.hidden) return;
+  if (document.body.classList.contains('quick-menu-open') || document.body.classList.contains('river-run')) return;
   const width = window.innerWidth;
 
   for (const touch of Array.from(event.changedTouches)) {
@@ -200,8 +200,8 @@ function onTouchStart(event: TouchEvent) {
 }
 
 function onTouchMove(event: TouchEvent) {
-  if (!active) return;
-  if (document.body.classList.contains('quick-menu-open')) return;
+  if (!active || document.hidden) return;
+  if (document.body.classList.contains('quick-menu-open') || document.body.classList.contains('river-run')) return;
   event.preventDefault();
 
   for (const touch of Array.from(event.changedTouches)) {
@@ -259,49 +259,11 @@ function bindButton(elementId: string, code: string) {
 }
 
 function bindFire() {
-  const element = document.getElementById('touch-fire');
-  if (!element) return;
-
-  element.addEventListener('touchstart', event => {
-    event.preventDefault(); event.stopPropagation();
-    element.classList.add('active');
-    fireActive = true;
-  }, { passive: false });
-
-  element.addEventListener('touchend', event => {
-    event.preventDefault(); event.stopPropagation();
-    element.classList.remove('active');
-    fireActive = false;
-  }, { passive: false });
-
-  element.addEventListener('touchcancel', event => {
-    event.preventDefault();
-    element.classList.remove('active');
-    fireActive = false;
-  }, { passive: false });
+  bindPressControl('touch-fire', () => { fireActive = true; }, () => { fireActive = false; });
 }
 
 function bindEvade() {
-  const element = document.getElementById('touch-evade');
-  if (!element) return;
-
-  element.addEventListener('touchstart', event => {
-    event.preventDefault(); event.stopPropagation();
-    element.classList.add('active');
-    dispatchKeyDown('Space');
-  }, { passive: false });
-
-  element.addEventListener('touchend', event => {
-    event.preventDefault(); event.stopPropagation();
-    element.classList.remove('active');
-    dispatchKeyUp('Space');
-  }, { passive: false });
-
-  element.addEventListener('touchcancel', event => {
-    event.preventDefault();
-    element.classList.remove('active');
-    dispatchKeyUp('Space');
-  }, { passive: false });
+  bindButton('touch-evade', 'Space');
 }
 
 export function initTouchControls() {
@@ -425,9 +387,20 @@ function bindPressControl(elementId: string, onPress: () => void, onRelease: () 
   buttonBindings.push({ reset, dispose: () => { reset(); listeners.abort(); } });
 }
 
+/** Release scene-owned gestures before a menu, checkpoint, or movement-axis handoff. */
+export function resetTouchInput() {
+  for (const binding of buttonBindings) binding.reset();
+  releaseAllKeys(); pressedButtons.clear(); fireActive = false;
+  moveTouchId = lookTouchId = flightStickId = null; flightStickActive = false;
+  flightAimX = flightAimY = 0;
+  root?.querySelectorAll('.active').forEach(element => element.classList.remove('active'));
+  const base = root?.querySelector<HTMLElement>('.touch-move-base'); if (base) base.style.opacity = '0';
+  if (flightStickEl) flightStickEl.style.opacity = '0';
+}
+
 /** Switch the right-side input and left joystick between on-foot and flight modes. */
 export function setTouchFlightMode(enabled: boolean) {
-  for (const binding of buttonBindings) binding.reset();
+  resetTouchInput();
   flightMode = enabled;
   flightAimX = 0;
   flightAimY = 0;

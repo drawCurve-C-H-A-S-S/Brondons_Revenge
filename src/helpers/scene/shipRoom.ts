@@ -70,9 +70,12 @@ export function createSlidingPortal(scene: THREE.Scene, physics: Physics, frame:
 export function disposeRoom(scene: THREE.Scene) {
   const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>(), textures = new Set<THREE.Texture>();
   scene.traverse(node => {
+    if (node instanceof THREE.DirectionalLight || node instanceof THREE.SpotLight || node instanceof THREE.PointLight) node.shadow.dispose();
     const mesh = node as THREE.Mesh; if (mesh.geometry) geometries.add(mesh.geometry);
     if (mesh.material) for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
-      materials.add(material); const map = (material as THREE.MeshStandardMaterial).map; if (map) textures.add(map);
+      materials.add(material);
+      // Imported actors also own normal/ORM/emissive maps, not just their color atlas.
+      for (const value of Object.values(material)) if (value instanceof THREE.Texture) textures.add(value);
     }
   });
   geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); textures.forEach(t => t.dispose());

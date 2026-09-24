@@ -130,7 +130,7 @@ test('armed upper body holds and shoots while the real Subject legs keep walking
   browser(t);
   const armed = await characterFixture(t);
   const unarmed = await characterFixture(t);
-  const state = { yaw: 0, isOnGround: true, isMoving: true, jumping: false, velocityY: 0,
+  const state = { yaw: 0, pitch: 0, isOnGround: true, isMoving: true, jumping: false, velocityY: 0,
     actionRequest: null, crouching: false, sprinting: false };
   armed.weapon.setEquipped(true);
   const update = (dt = 1 / 60) => {
@@ -173,21 +173,21 @@ test('pistol is fixed to the animated grip, survives view switches, and firing c
   const camera = new THREE.PerspectiveCamera();
   camera.position.set(0, 1.6, 1.5);
   let thirdPerson = true;
-  const pistol = new PistolController(() => ({ scene, camera, world: null, player: { isEnabled: () => true },
+  const pistol = new PistolController(() => ({ scene, camera, world: null, player: { isEnabled: () => true, getState: () => ({ climbing: false, ventMode: false, boxHandling: false }) },
     character: character.model, targets: [], thirdPerson, weaponAnimation: character.weapon }), () => toolModel('Gun_Pistol'));
   t.cleanup(() => pistol.dispose());
   const shot = t.mock.method(character.weapon, 'shoot');
   await pistol.ready;
   document.pointerLockElement = document.body;
   key('KeyK');
-  character.update(1 / 60, { x: 0, y: 0.3, z: 0 }, { yaw: 0, isOnGround: true, isMoving: false }, true, 0.3);
+  character.update(1 / 60, { x: 0, y: 0.3, z: 0 }, { yaw: 0, pitch: 0, isOnGround: true, isMoving: false }, true, 0.3);
   pistol.update(0);
   assert.equal(pistol.root.parent, character.weapon.socket);
   assert.ok(pistol.root.quaternion.angleTo(new THREE.Quaternion()) < 1e-6);
   const local = pistol.root.position.clone();
   click(); click();
   assert.equal(shot.mock.callCount(), 1, 'One animation per accepted shot, including misses');
-  character.update(0.1, { x: 0, y: 0.3, z: 0 }, { yaw: 0.5, isOnGround: true, isMoving: true }, true, 0.3);
+  character.update(0.1, { x: 0, y: 0.3, z: 0 }, { yaw: 0.5, pitch: 0, isOnGround: true, isMoving: true }, true, 0.3);
   pistol.update(0.1);
   assert.deepEqual(pistol.root.position, local, 'Recoil comes from the hand animation, not independent gun rotation');
   thirdPerson = false; pistol.update(0);
@@ -427,7 +427,7 @@ test('real pistol toggles on K, fires NPC-only damage, obeys input gates, and pe
   const elements = browser(t);
   const fixture = shootingScene();
   let enabled = true;
-  let context = { ...fixture, world: null, player: { isEnabled: () => enabled }, character: null, thirdPerson: false };
+  let context = { ...fixture, world: null, player: { isEnabled: () => enabled, getState: () => ({ climbing: false, ventMode: false, boxHandling: false }) }, character: null, thirdPerson: false };
   const pistol = new PistolController(() => context, () => toolModel('Gun_Pistol'));
   t.cleanup(() => pistol.dispose());
   await pistol.ready;

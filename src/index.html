@@ -21,7 +21,7 @@
     <kbd id="escape-key">X</kbd>
     <div id="escape-timer-track"><div id="escape-timer-fill"></div></div>
     <div id="escape-action"></div>
-    <div class="escape-hint">X: shoot · Y: crowbar · Z: dodge</div>
+    <div class="escape-hint">X: shoot · Y: crowbar · Z: roll · E: launch within three seconds of boarding</div>
   </section>
   <section id="flight-hud" class="hidden" aria-label="Shuttle flight instruments">
     <div id="flight-objective">CLEAR THE INTERCEPTORS</div>
@@ -49,7 +49,7 @@
   <div id="space-enemy-count" class="hidden" aria-hidden="true"></div>
   <section id="space-boss-hud" class="hidden" aria-label="Capital ship health">
     <div id="space-boss-label">CAPITAL SHIP</div>
-    <div id="space-boss-track"><div id="space-boss-fill"></div></div>
+    <div id="space-boss-track" role="progressbar" aria-label="Encounter target health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><div id="space-boss-fill"></div></div>
   </section>
   <div id="goggles-overlay" class="hidden" aria-hidden="true"></div>
   <div id="goggles-status" role="status" aria-live="polite"></div>
@@ -113,7 +113,7 @@
     <p class="scene-menu-gear"><kbd>T</kbd> crowbar · <kbd>K</kbd> pistol · <kbd>N</kbd> goggles</p>
     <div id="scene-quick-list" role="group" aria-label="Choose a scene"></div>
     <p id="scene-menu-error" role="alert"></p>
-    <footer class="scene-menu-footer">Arrow keys to select · Enter to load · Click a scene to jump<br>Scenes 1 and 16 play as cutscenes.</footer>
+    <footer class="scene-menu-footer">Arrow keys to select · Enter to load · Click a scene to jump<br>15.5: sidescroll flight · 18: A/D lane changes and firing · 19: downstream facility approach.</footer>
   </dialog>
 
   <div id="touch-controls" class="hidden">

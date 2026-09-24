@@ -8,17 +8,39 @@ import { cargoSign } from './cargoVisuals.js';
 import { createEscapePod, createEscapeShip } from '../../scripts/items/createEscapeShip.js';
 import type { PlayerTransitionState } from '../../scripts/player.js';
 
-export interface RescueArrival { pilotState?: PlayerTransitionState; hullHealth?: number; }
+export interface RescueArrival {
+  pilotState?: PlayerTransitionState; hullHealth?: number; ambusherHealth?: number;
+  ambusherPosition?: THREE.Vector3; ambusherQuaternion?: THREE.Quaternion;
+  cameraPosition?: THREE.Vector3; cameraQuaternion?: THREE.Quaternion; cameraFov?: number;
+}
 export const RESCUE_SITE = {
-  landingOffset: new THREE.Vector3(-66, 0, 48), clearing: new THREE.Vector3(-66, 0, 60),
-  pod: new THREE.Vector3(-60, 1.05, 58), ship: new THREE.Vector3(-74, 0, 63),
-  boy: new THREE.Vector3(-57.5, 0, 57.5), player: new THREE.Vector3(-63, 0.3, 61), doorZ: -55,
+  landingOffset: new THREE.Vector3(-66, 0, 72), clearing: new THREE.Vector3(-66, 0, 84),
+  pod: new THREE.Vector3(-60, 1.05, 82), podRotation: new THREE.Euler(0, -2.06, 0.18), ship: new THREE.Vector3(-74, 0, 87),
+  boy: new THREE.Vector3(-61.8, 0, 85.4), player: new THREE.Vector3(-63, 0.3, 85), doorZ: -55,
+  bridge: new THREE.Vector3(-42, 0, 17), riverY: -1.8, riverZ: 17, riverHalfWidth: 7,
+  downstream: new THREE.Vector3(-146, 0.3, 5)
 };
 export const JUNGLE_PATH = new THREE.CatmullRomCurve3([
-  [-63, 61], [-55, 43], [-60, 28], [-38, 16], [-45, -3],
-  [-20, -18], [-24, -34], [-7, -41], [0, -51], [0, -59],
+  [-63, 85], [-59, 67], [-57, 49], [-46, 34], [-42, 26], [-42, 8],
+  [-29, -10], [-24, -30], [-7, -41], [0, -51], [0, -59],
 ].map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'centripetal');
 export const JUNGLE_ROUTE = JUNGLE_PATH.getSpacedPoints(240);
+export const RETURN_PATH = new THREE.CatmullRomCurve3([
+  [-146, 5], [-128, 1], [-105, -4], [-83, -7], [-65, -9], [-46, -8], [-29, -10]
+].map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'centripetal');
+const RETURN_ROUTE = RETURN_PATH.getSpacedPoints(70);
+/** The same handhold is visible during the river exit and on the downstream bank. */
+export function createRiverExitLog(parent: THREE.Object3D) {
+  const root = new THREE.Group(); root.name = 'DownstreamExitLog'; root.position.set(RESCUE_SITE.downstream.x, -0.85, 11);
+  const bark = new THREE.MeshStandardMaterial({ color: 0x67543b, roughness: 0.95 });
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.55, 5.4, 9), bark);
+  trunk.rotation.z = Math.PI / 2; trunk.castShadow = true; root.add(trunk);
+  for (const x of [-1.4, 1.1]) {
+    const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.25, 2.4, 6), bark);
+    branch.position.set(x, 0.35, -0.8); branch.rotation.x = -0.95; root.add(branch);
+  }
+  parent.add(root); return root;
+}
 const entryDirection = JUNGLE_PATH.getTangentAt(0);
 export const JUNGLE_ENTRY_YAW = Math.atan2(-entryDirection.x, -entryDirection.z);
 
@@ -31,7 +53,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   type PhysicsChunk = { bodies: CANNON.Body[]; bounds: THREE.Box3; active: boolean };
   const physicsChunks = new Map<string, PhysicsChunk>();
   const renderChunks: Array<{ mesh: THREE.InstancedMesh; farMesh?: THREE.InstancedMesh; range: number; shadows: boolean; detailed: boolean }> = [];
-  const distantProps: Array<{ root: THREE.Object3D; center: THREE.Vector3; range: number }> = [];
+  const distantProps: Array<{ root: THREE.Object3D; center: THREE.Vector3; range: number; farMesh?: THREE.Mesh; detailed?: boolean }> = [];
   function distanceSquared(bounds: THREE.Box3, point: Point) {
     const dx = Math.max(bounds.min.x - point.x, 0, point.x - bounds.max.x);
     const dz = Math.max(bounds.min.z - point.z, 0, point.z - bounds.max.z);
@@ -79,7 +101,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
       if (!bucket) { bucket = { x: (x + 0.5) * chunkSize, z: (z + 0.5) * chunkSize, indices: [] }; buckets.set(key, bucket); }
       bucket.indices.push(i);
     }
-    const farGeometry = canopy ? new THREE.IcosahedronGeometry(1, 0) : undefined;
+    const farGeometry = canopy ? new THREE.IcosahedronGeometry(1, 0) : source.name === 'JungleTrunks' ? new THREE.CylinderGeometry(0.65, 1, 1, 3) : undefined;
     for (const [key, bucket] of buckets) {
       const mesh = new THREE.InstancedMesh(source.geometry, source.material, bucket.indices.length);
       mesh.name = `${source.name}/${key}`; mesh.position.set(bucket.x, 0, bucket.z);
@@ -119,35 +141,109 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     return ((x - RESCUE_SITE.clearing.x) / (25 + margin)) ** 2 + ((z - RESCUE_SITE.clearing.z) / (23 + margin)) ** 2 < 1;
   }
   const facility = (x: number, z: number, margin = 0) => Math.abs(x) < 38 + margin && z < -49 + margin && z > -92 - margin;
-  const isWalkable = (x: number, z: number, radius = 0.6) => Math.abs(x) < 150 && Math.abs(z) < 150
+  const routeDistance = (x: number, z: number) => Math.min(nearestPathPoint(x, z).distance, ...RETURN_ROUTE.map(p => Math.hypot(p.x - x, p.z - z)));
+  let bridgeBroken = false;
+  const river = (z: number, margin = 0) => Math.abs(z - RESCUE_SITE.riverZ) < RESCUE_SITE.riverHalfWidth + margin;
+  const isWalkable = (x: number, z: number, radius = 0.6) => Math.abs(x) < 190 && Math.abs(z) < 118
+    && (!river(z) || (!bridgeBroken && Math.abs(x - RESCUE_SITE.bridge.x) < 2.3))
     && !facility(x, z) && !obstacles.some(o => Math.hypot(o.x - x, o.z - z) < o.radius + radius);
   const gray = new THREE.MeshStandardMaterial({ color: 0x727b80, roughness: 0.9, metalness: 0.08 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x353e43, roughness: 0.72, metalness: 0.45 });
   const trim = new THREE.MeshStandardMaterial({ color: 0xa4a9a9, roughness: 0.7, metalness: 0.3 });
   const red = new THREE.MeshStandardMaterial({ color: 0xe15848, emissive: 0xcc3024, emissiveIntensity: 1.2 });
-  const box = (s: [number, number, number], p: [number, number, number], m: THREE.Material = gray, solid = true) => roomBox(scene, physics, s, p, m, solid);
-  const groundGeometry = new THREE.PlaneGeometry(320, 320, 80, 80); groundGeometry.rotateX(-Math.PI / 2);
+  const box = (s: [number, number, number], p: [number, number, number], m: THREE.Material = gray, solid = true) => {
+      const mesh = roomBox(scene, physics, s, p, m, solid);
+      if (culling && !solid) distantProps.push({ root: mesh, center: mesh.position.clone(), range: 85 });
+      return mesh;
+    };
+  // Duplicate edge rows form river cliffs exactly at the collision banks (z=10 and z=24).
+  const terrainRows: Array<{ z: number; y: number }> = [];
+  for (let z = -120; z <= 9; z += 3) terrainRows.push({ z, y: 0 });
+  terrainRows.push({ z: 10, y: 0 }, { z: 10, y: -4.5 });
+  for (let z = 12; z < 24; z += 3) terrainRows.push({ z, y: -4.5 });
+  terrainRows.push({ z: 24, y: -4.5 }, { z: 24, y: 0 });
+  for (let z = 27; z <= 120; z += 3) terrainRows.push({ z, y: 0 });
+  const groundGeometry = new THREE.PlaneGeometry(384, 240, 128, terrainRows.length - 1); groundGeometry.rotateX(-Math.PI / 2);
   const colors = new Float32Array(groundGeometry.attributes.position.count * 3);
   for (let i = 0; i < colors.length; i += 3) {
-    const x = groundGeometry.attributes.position.getX(i / 3), z = groundGeometry.attributes.position.getZ(i / 3);
-    const n = 0.65 + random() * 0.35, soil = clearing(x, z) || nearestPathPoint(x, z).distance < 2.8;
+    const row = terrainRows[Math.floor(i / 3 / 129)], x = groundGeometry.attributes.position.getX(i / 3), z = row.z;
+    groundGeometry.attributes.position.setY(i / 3, row.y); groundGeometry.attributes.position.setZ(i / 3, z);
+    const n = 0.65 + random() * 0.35, soil = clearing(x, z) || routeDistance(x, z) < 2.8;
     colors.set(soil ? [n, n * 0.88, n * 0.66] : [n * 0.56, n * 0.86, n * 0.45], i);
   }
+  groundGeometry.computeVertexNormals();
   groundGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   const ground = new THREE.Mesh(groundGeometry, dirt); ground.receiveShadow = true; scene.add(ground);
-  physics.addBox({ x: 320, y: 2, z: 320 }, { x: 0, y: -1, z: 0 });
+  physics.addBox({ x: 384, y: 4.5, z: 96 }, { x: 0, y: -2.25, z: 72 });
+  physics.addBox({ x: 384, y: 4.5, z: 130 }, { x: 0, y: -2.25, z: -55 });
+  physics.addBox({ x: 384, y: 1, z: 14 }, { x: 0, y: -5, z: RESCUE_SITE.riverZ });
   for (const side of [-1, 1]) {
-    physics.addBox({ x: 2, y: 60, z: 320 }, { x: side * 159, y: 29, z: 0 });
-    physics.addBox({ x: 320, y: 60, z: 2 }, { x: 0, y: 29, z: side * 159 });
+    physics.addBox({ x: 2, y: 60, z: 240 }, { x: side * 191, y: 29, z: 0 });
+    physics.addBox({ x: 384, y: 60, z: 2 }, { x: 0, y: 29, z: side * 119 });
   }
+  const riverMaterial = new THREE.MeshStandardMaterial({ color: 0x34675a, roughness: 0.3, metalness: 0.35 });
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(384, 14, 96, 8), riverMaterial);
+  water.rotation.x = -Math.PI / 2; water.position.set(0, RESCUE_SITE.riverY, RESCUE_SITE.riverZ); water.name = 'JungleRiver'; scene.add(water);
+  const foamDummy = new THREE.Object3D();
+  const exitLog = createRiverExitLog(scene);
+  const foam = new THREE.InstancedMesh(new THREE.PlaneGeometry(1.6, 0.09), new THREE.MeshBasicMaterial({ color: 0xb3d2b8, transparent: true, opacity: 0.3, depthWrite: false }), 65);
+  foam.rotation.x = -Math.PI / 2; foam.position.set(0, RESCUE_SITE.riverY + 0.06, RESCUE_SITE.riverZ); foam.frustumCulled = false; scene.add(foam);
+  const bridge = new THREE.Group(); bridge.name = 'OldStoneTrailBridge'; bridge.position.copy(RESCUE_SITE.bridge); scene.add(bridge);
+  const timber = new THREE.MeshStandardMaterial({ color: 0x61513c, roughness: 0.95 });
+  const planks = Array.from({ length: 18 }, (_, i) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(4.8, 0.22, 0.94), timber); mesh.position.set(0, 0.12, -8.5 + i); mesh.castShadow = true; mesh.receiveShadow = true; bridge.add(mesh);
+    return { mesh, rest: mesh.position.clone() };
+  });
+  const supports: Array<{ mesh: THREE.Mesh; rest: THREE.Vector3 }> = [];
+  for (const x of [-2.15, 2.15]) {
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.5, 18), timber); beam.position.set(x, -0.18, 0); bridge.add(beam); supports.push({ mesh: beam, rest: beam.position.clone() });
+    for (const z of [-8, -4, 0, 4, 8]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.5, 0.2), timber); post.position.set(x, 0.7, z); bridge.add(post); supports.push({ mesh: post, rest: post.position.clone() });
+    }
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.15, 18), timber); rail.position.set(x, 1.3, 0); bridge.add(rail); supports.push({ mesh: rail, rest: rail.position.clone() });
+  }
+  const bridgeBody = physics.addBox({ x: 4.8, y: 0.3, z: 18 }, { x: RESCUE_SITE.bridge.x, y: 0.08, z: RESCUE_SITE.bridge.z });
+  // Overlap both banks and the deck; the top faces rise continuously from soil to planks.
+  for (const side of [-1, 1]) {
+    const slope = Math.atan2(0.25, 2.6);
+    const ramp = new THREE.Mesh(new THREE.BoxGeometry(4.8, 0.2, Math.hypot(2.6, 0.25)), timber);
+    ramp.rotation.x = side * slope;
+    ramp.position.set(RESCUE_SITE.bridge.x, 0.105 - 0.1 * Math.cos(slope), RESCUE_SITE.bridge.z + side * 9.9);
+    ramp.castShadow = true; ramp.receiveShadow = true; scene.add(ramp); physics.addBoxFromMesh(ramp);
+  }
+  function damageBridge(age: number) {
+    if (bridgeBroken) return;
+    const hit = THREE.MathUtils.smoothstep(age, 0, 0.45);
+    supports.forEach((part, index) => { if (part.rest.x < 0) { part.mesh.rotation.z = hit * (0.12 + index % 3 * 0.08); part.mesh.position.y = part.rest.y - hit * 0.25; } });
+    for (const plank of planks) if (plank.rest.z > 4) { plank.mesh.rotation.z = hit * 0.1; plank.mesh.position.y = plank.rest.y - hit * 0.12; }
+  }
+  function breakBridge(age: number) {
+    if (!bridgeBroken) { bridgeBroken = true; if (bridgeBody.world) physics.world.removeBody(bridgeBody); }
+    for (let i = 0; i < planks.length; i++) {
+      const p = planks[i], t = Math.max(0, age - Math.abs(i - 9) * 0.035);
+      p.mesh.position.copy(p.rest); p.mesh.position.y -= Math.min(4.8, t * t * 5); p.mesh.position.x += Math.sin(i * 5) * Math.min(1.5, t);
+      p.mesh.rotation.set(Math.min(1.5, t) * Math.sin(i), 0, Math.min(2, t) * Math.cos(i * 3));
+    }
+    supports.forEach((part, index) => {
+      const t = Math.max(0, age - index % 3 * 0.08);
+      part.mesh.position.copy(part.rest).add(new THREE.Vector3(Math.sign(part.rest.x) * Math.min(2, t), -Math.min(5.2, t * t * 4.9), Math.sin(index) * t));
+      part.mesh.rotation.set(t * Math.sin(index), t * 0.3, Math.sign(part.rest.x) * Math.min(1.8, t));
+    });
+  }
+  const farRockGeometry = new THREE.IcosahedronGeometry(1, 0);
   const rockGeometry = new THREE.DodecahedronGeometry(1, 0), rockMaterial = new THREE.MeshStandardMaterial({ color: 0x58654a, roughness: 1 });
   for (let i = 0; i < 100; i++) {
-    const x = (random() - 0.5) * 290, z = (random() - 0.5) * 280;
-    if (clearing(x, z, 2) || facility(x, z, 3) || nearestPathPoint(x, z).distance < 6) continue;
+    const x = (random() - 0.5) * 374, z = (random() - 0.5) * 230;
+    if (river(z, 3) || clearing(x, z, 2) || facility(x, z, 3) || routeDistance(x, z) < 6) continue;
     const rock = new THREE.Mesh(rockGeometry, rockMaterial); const s = 0.5 + (i % 7) * 0.32;
     rock.position.set(x, s * 0.45, z); rock.scale.set(s * 1.3, s * 0.8, s); rock.rotation.set(i, i * 0.4, 0); rock.castShadow = true; scene.add(rock);
     const bounds = new THREE.Box3().setFromObject(rock); trackStaticBody(physics.addBox(bounds.getSize(new THREE.Vector3()), bounds.getCenter(new THREE.Vector3())));
-    if (culling) { rock.updateMatrix(); rock.matrixAutoUpdate = false; distantProps.push({ root: rock, center: rock.position.clone(), range: 140 }); }
+    if (culling) {
+          rock.updateMatrix(); rock.matrixAutoUpdate = false;
+          const farMesh = new THREE.Mesh(farRockGeometry, rockMaterial); farMesh.position.copy(rock.position); farMesh.quaternion.copy(rock.quaternion); farMesh.scale.copy(rock.scale);
+          farMesh.visible = false; farMesh.updateMatrix(); farMesh.matrixAutoUpdate = false; scene.add(farMesh);
+          distantProps.push({ root: rock, center: rock.position.clone(), range: 140, farMesh, detailed: true });
+        }
     obstacles.push({ x, z, radius: bounds.getSize(new THREE.Vector3()).length() * 0.5 });
   }
   const barkCanvas = document.createElement('canvas'); barkCanvas.width = 128; barkCanvas.height = 256;
@@ -169,9 +265,9 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   function instance(mesh: THREE.InstancedMesh, index: number, position: THREE.Vector3, scale: THREE.Vector3, rotation = new THREE.Euler()) {
     dummy.position.copy(position); dummy.scale.copy(scale); dummy.rotation.copy(rotation); dummy.updateMatrix(); mesh.setMatrixAt(index, dummy.matrix);
   }
-  for (let x0 = -148; x0 <= 148; x0 += 9) for (let z0 = -148; z0 <= 148; z0 += 9) {
+  for (let x0 = -184; x0 <= 184; x0 += 9) for (let z0 = -112; z0 <= 112; z0 += 9) {
     const x = x0 + (random() - 0.5) * 5, z = z0 + (random() - 0.5) * 5;
-    if (clearing(x, z, 3) || facility(x, z, 3) || nearestPathPoint(x, z).distance < 5 || !isWalkable(x, z, 1.5)) continue;
+    if (river(z, 4) || clearing(x, z, 3) || facility(x, z, 3) || routeDistance(x, z) < 5 || !isWalkable(x, z, 1.5)) continue;
     const height = 15 + random() * 11, radius = 0.38 + random() * 0.4;
     instance(trunks, treeCount++, new THREE.Vector3(x, height / 2, z), new THREE.Vector3(radius, height, radius));
     const body = new CANNON.Body({ mass: 0, material: physics.solidMaterial, shape: new CANNON.Cylinder(radius * 0.65, radius, height, 7) });
@@ -196,8 +292,8 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   const fronds = new THREE.InstancedMesh(new THREE.ShapeGeometry(leaf, 5), new THREE.MeshStandardMaterial({ color: 0x669642, roughness: 0.9, side: THREE.DoubleSide }), 21000);
   fronds.name = 'JungleFerns'; let frondCount = 0;
   for (let i = 0; i < 3000; i++) {
-    const x = (random() - 0.5) * 305, z = (random() - 0.5) * 305;
-    if (clearing(x, z) || facility(x, z) || nearestPathPoint(x, z).distance < 2.5) continue;
+    const x = (random() - 0.5) * 379, z = (random() - 0.5) * 235;
+    if (river(z, 2) || clearing(x, z) || facility(x, z) || routeDistance(x, z) < 2.5) continue;
     const scale = 0.7 + random() * 1.1;
     for (let j = 0; j < 7; j++) {
       const angle = j / 7 * Math.PI * 2 + i;
@@ -212,6 +308,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   stones.name = 'WindingStoneTrail'; let stoneCount = 0;
   for (let i = 0; i <= steps; i++) {
     const t = i / steps, p = JUNGLE_PATH.getPointAt(t), tangent = JUNGLE_PATH.getTangentAt(t), normal = new THREE.Vector3(tangent.z, 0, -tangent.x);
+    if (river(p.z, 2)) continue;
     for (const lane of [-1, 0, 1]) {
       const size = new THREE.Vector3(1.02 + random() * 0.08, 1, 1.06 + random() * 0.1);
       const center = p.clone().addScaledVector(normal, lane * 1.12); center.y = 0;
@@ -222,6 +319,12 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     }
   }
   stones.count = stoneCount; stones.receiveShadow = true; addJungleBatch(stones, 140);
+  for (const t of [0.08, 0.34, 0.65, 0.9]) {
+    const p = RETURN_PATH.getPointAt(t);
+    box([0.18, 0.9, 0.18], [p.x, 0.45, p.z - 2.2], dark);
+    const marker = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.7, 4), new THREE.MeshStandardMaterial({ color: 0xbbd4a0, emissive: 0x425c2f, emissiveIntensity: 0.5 }));
+    marker.rotation.z = -Math.PI / 2; marker.position.set(p.x, 0.95, p.z - 2.2); scene.add(marker);
+  }
   for (const t of [0.16, 0.36, 0.57, 0.78]) {
     const p = JUNGLE_PATH.getPointAt(t), tangent = JUNGLE_PATH.getTangentAt(t);
     const x = p.x + tangent.z * 2.25, z = p.z - tangent.x * 2.25;
@@ -266,7 +369,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   }
   for (const x of [-5, 5]) box([0.2, 5, 12], [x, 2.5, -61], dark);
   box([10, 5, 0.4], [0, 2.5, -67], dark);
-  const pod = createEscapePod(); pod.position.copy(RESCUE_SITE.pod); pod.rotation.set(0, -0.25, 0.18); scene.add(pod);
+  const pod = createEscapePod(); pod.position.copy(RESCUE_SITE.pod); pod.rotation.copy(RESCUE_SITE.podRotation); scene.add(pod);
   const podTrail = pod.getObjectByName('PodTrail')!; podTrail.visible = false;
   const ship = createEscapeShip(); ship.root.position.copy(RESCUE_SITE.ship); ship.setThrust(0); ship.setFlying(false, true); scene.add(ship.root);
   const crater = new THREE.Mesh(new THREE.CircleGeometry(1, 40), new THREE.MeshStandardMaterial({ color: 0x4f3d2e, roughness: 1 }));
@@ -304,7 +407,9 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     camera.getWorldPosition(cameraPosition);
     for (const chunk of renderChunks) {
       localBounds.copy(chunk.mesh.boundingBox!).translate(chunk.mesh.position);
-      const distance = distanceSquared(localBounds, cameraPosition), visible = distance < chunk.range * chunk.range;
+      const distance = distanceSquared(localBounds, cameraPosition);
+            const wasVisible = chunk.mesh.visible || !!chunk.farMesh?.visible, range = chunk.range + (wasVisible ? 4 : -4);
+            const visible = distance < range * range;
       if (chunk.farMesh) {
         const threshold = chunk.detailed ? 64 : 56;
         chunk.detailed = distance < threshold * threshold;
@@ -315,7 +420,15 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     }
     for (const prop of distantProps) {
       const dx = prop.center.x - cameraPosition.x, dz = prop.center.z - cameraPosition.z;
-      prop.root.visible = dx * dx + dz * dz < prop.range * prop.range;
+      const distance = dx * dx + dz * dz, range = prop.range + (prop.root.visible || prop.farMesh?.visible ? 4 : -4);
+            const visible = distance < range * range;
+            if (prop.farMesh) {
+              const threshold = prop.detailed ? 54 : 46; prop.detailed = distance < threshold * threshold;
+              prop.farMesh.visible = visible && !prop.detailed;
+            }
+            prop.root.visible = visible && (!prop.farMesh || !!prop.detailed);
+            const near = Math.hypot(prop.center.x - focus.x, prop.center.z - focus.z) < 45;
+            prop.root.traverse(node => { if (node instanceof THREE.Mesh) node.castShadow = near; });
     }
     // Keep a small, stable shadow region around gameplay rather than shading the entire jungle.
     const x = Math.round(focus.x / 2) * 2, z = Math.round(focus.z / 2) * 2;
@@ -325,6 +438,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   let windTime = 0;
   return { scene, ship, pod, boy, door, turrets, ready, pathLength, nearestPathPoint, isWalkable, trackStaticBody, updateActivePhysics, activatePhysicsNear, updateVisibility, isReady: () => settled,
     setWalking(value: boolean) { if (value === walking) return; walking = value; (value ? idle : walk)?.fadeOut(0.2); (value ? walk ?? idle : idle)?.reset().fadeIn(0.2).play(); },
+    bridge, water, exitLog, damageBridge, breakBridge,
     setImpact(age: number) {
       crater.visible = age >= 0;
       for (const d of dust) {
@@ -335,9 +449,18 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
       }
     },
     update(dt: number) {
+      windTime += dt;
+      for (let i = 0; i < 65; i++) {
+        foamDummy.position.set(((i * 13.73 - windTime * 6) % 384 + 384) % 384 - 192, Math.sin(i * 17) * 6, 0);
+        foamDummy.updateMatrix(); foam.setMatrixAt(i, foamDummy.matrix);
+      }
+      foam.instanceMatrix.needsUpdate = true;
+      const positions = water.geometry.attributes.position;
+      for (let i = 0; i < positions.count; i++) positions.setZ(i, Math.sin(positions.getX(i) * 0.9 + windTime * 2) * 0.04);
+      positions.needsUpdate = true;
       if (ship.root.visible) ship.update(dt);
       if (boy.visible) mixer?.update(dt);
-      if (!culling) { windTime += dt; crowns.rotation.z = Math.sin(windTime * 0.45) * 0.001; }
+      if (!culling) crowns.rotation.z = Math.sin(windTime * 0.45) * 0.001;
     },
     dispose() {
       if (disposed) return; disposed = true; mixer?.stopAllAction();
@@ -345,7 +468,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
       scene.traverse(node => { if (node instanceof THREE.InstancedMesh) node.dispose(); });
       for (const chunk of physicsChunks.values()) for (const body of chunk.bodies) if (body.world === physics.world) physics.world.removeBody(body);
       physicsChunks.clear(); renderChunks.length = 0; distantProps.length = 0;
-      disposeRoom(scene);
+      disposeRoom(scene); farRockGeometry.dispose();
     },
   };
 }

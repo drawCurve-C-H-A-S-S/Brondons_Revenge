@@ -19,10 +19,16 @@ import type { PlayerState } from './player.js';
 interface Vec3Like { x: number; y: number; z: number; }
 
 export interface CinematicPose {
-  clip: 'Idle_Loop' | 'Sprint_Loop' | 'Pistol_Aim_Neutral' | 'Pistol_Shoot' | 'Sword_Idle' | 'Sword_Attack' | 'Roll' | 'Hit_Chest' | 'Death01' | 'Jump_Start' | 'Jump_Loop' | 'Jump_Land' | 'Sitting_Enter';
+  clip: 'Walk_Loop' | 'Float_Loop' | 'Ladder_Climb_Loop' | 'Crouch_Idle_Loop' | 'Interact' | 'Idle_Loop' | 'Sprint_Loop' | 'Pistol_Aim_Neutral' | 'Pistol_Shoot' | 'Sword_Idle' | 'Sword_Attack' | 'Roll' | 'Hit_Chest' | 'Death01' | 'Jump_Start' | 'Jump_Loop' | 'Jump_Land' | 'Sitting_Enter';
   time: number;
   duration?: number;
   loop?: boolean;
+  upperBody?: { clip: 'Pistol_Aim_Neutral' | 'Pistol_Shoot' | 'Sword_Attack'; time: number; duration?: number; yaw?: number; pitch?: number };
+  swimming?: boolean;
+  lean?: number;
+  bodyPitch?: number;
+  handTargets?: { left: Vec3Like; right: Vec3Like; weight: number };
+  footTargets?: { left: Vec3Like; right: Vec3Like; weight: number };
 }
 
 const CLIP_NAMES = [
@@ -314,6 +320,8 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     head.add(goggles);
   }
 
+  const cinematicUpperActions = new Map<string, THREE.AnimationAction>();
+  let cinematicUpper: THREE.AnimationAction | null = null;
   const cinematicActions = new Map<string, THREE.AnimationAction>();
   let cinematicAction: THREE.AnimationAction | null = null;
   let currentAction = actions.get('Idle_Loop')!;
@@ -331,6 +339,40 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     currentAction.fadeOut(0.2);
     next.reset().setEffectiveTimeScale(name === 'Sword_Attack' ? 2.8 : 1).setEffectiveWeight(1).fadeIn(0.2).play();
     currentAction = next;
+  }
+
+  const armChains = ['l', 'r'].map(suffix => ({
+    hand: model.getObjectByName(`hand_${suffix}`),
+    joints: [model.getObjectByName(`lowerarm_${suffix}`), model.getObjectByName(`upperarm_${suffix}`)],
+  }));
+  const legChains = ['l', 'r'].map(suffix => ({
+    hand: model.getObjectByName(`foot_${suffix}`),
+    joints: [model.getObjectByName(`calf_${suffix}`), model.getObjectByName(`thigh_${suffix}`)],
+  }));
+  const swimmingLegs = ['thigh_l', 'thigh_r', 'calf_l', 'calf_r'].flatMap(name => {
+    const bone = model.getObjectByName(name);
+    return bone ? [{ bone, quaternion: bone.quaternion.clone() }] : [];
+  });
+  const gripPosition = new THREE.Vector3(), jointPosition = new THREE.Vector3(), handDirection = new THREE.Vector3(), targetDirection = new THREE.Vector3();
+  const parentRotation = new THREE.Quaternion(), worldRotation = new THREE.Quaternion(), adjustment = new THREE.Quaternion();
+  function applyHandTargets(targets: NonNullable<CinematicPose['handTargets']>, chains = armChains) {
+    const weight = THREE.MathUtils.clamp(targets.weight, 0, 1);
+    model.updateMatrixWorld(true);
+    chains.forEach((chain, index) => {
+      if (!chain.hand) return;
+      gripPosition.copy(index === 0 ? targets.left : targets.right);
+      // A short CCD solve keeps each authored arm on its scene-owned handhold.
+      for (let iteration = 0; iteration < 4; iteration++) for (const joint of chain.joints) {
+        if (!joint?.parent) continue;
+        joint.getWorldPosition(jointPosition);
+        handDirection.copy(chain.hand.getWorldPosition(handDirection)).sub(jointPosition).normalize();
+        targetDirection.copy(gripPosition).sub(jointPosition).normalize();
+        adjustment.setFromUnitVectors(handDirection, targetDirection);
+        joint.getWorldQuaternion(worldRotation); joint.parent.getWorldQuaternion(parentRotation).invert();
+        worldRotation.premultiply(adjustment).premultiply(parentRotation);
+        joint.quaternion.slerp(worldRotation, weight); joint.updateWorldMatrix(false, true);
+      }
+    });
   }
 
   // ---- Per-frame update ----
@@ -435,7 +477,9 @@ export async function loadCharacter(loader = new GLTFLoader()) {
       base.bone.quaternion.copy(base.quaternion);
       base.bone.scale.copy(base.scale);
     }
+    for (const base of swimmingLegs) base.bone.quaternion.copy(base.quaternion);
     mixer.update(dt);
+    for (const base of swimmingLegs) base.quaternion.copy(base.bone.quaternion);
     for (const base of layerBones) {
       base.position.copy(base.bone.position);
       base.quaternion.copy(base.bone.quaternion);
@@ -445,6 +489,49 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     const handsFree = !climbing && !playerState.ventMode && !boxHandling;
     socket.visible = handsFree;
     crowbar.visible = crowbarEquipped && handsFree;
+    if (cinematic?.upperBody && handsFree) {
+      const layer = cinematic.upperBody;
+      let next = cinematicUpperActions.get(layer.clip);
+      if (!next) {
+        const source = THREE.AnimationClip.findByName(clips, layer.clip);
+        if (source) { next = upperMixer.clipAction(upperClip(source).clone()); cinematicUpperActions.set(layer.clip, next); }
+      }
+      if (next) {
+        if (next !== cinematicUpper) { upperMixer.stopAllAction(); next.reset().play(); cinematicUpper = next; }
+        next.paused = true;
+        next.time = Math.min(next.getClip().duration, Math.max(0, layer.time) * (layer.duration ? next.getClip().duration / layer.duration : 1));
+        upperMixer.update(0);
+        for (const { bone, pose } of layerBones) {
+          bone.position.copy(pose.position); bone.quaternion.copy(pose.quaternion); bone.scale.copy(pose.scale);
+        }
+        if (upperRoot) {
+          upperRoot.rotateY(THREE.MathUtils.clamp(layer.yaw ?? 0, -1.2, 1.2));
+          upperRoot.rotateX(-(layer.pitch ?? 0));
+        }
+      }
+    } else if (cinematicUpper) {
+      upperMixer.stopAllAction(); cinematicUpper = null;
+      if (armed) holdAction?.reset().play();
+    }
+    if (cinematic?.swimming) {
+      const cycle = cinematic.time * 3.8;
+      for (const suffix of ['l', 'r']) {
+        const sign = suffix === 'l' ? 1 : -1;
+        const thigh = model.getObjectByName(`thigh_${suffix}`);
+        const calf = model.getObjectByName(`calf_${suffix}`);
+        thigh?.rotateX(Math.sin(cycle + sign * Math.PI / 2) * 0.3);
+        calf?.rotateX(0.35 + Math.sin(cycle + sign * Math.PI / 2) * 0.2);
+        if (!cinematic.upperBody) {
+          model.getObjectByName(`upperarm_${suffix}`)?.rotateX(Math.sin(cycle) * 0.28);
+          model.getObjectByName(`lowerarm_${suffix}`)?.rotateY(sign * (0.3 + Math.cos(cycle) * 0.25));
+        }
+      }
+      model.rotation.x = 0.14;
+      model.rotation.z = cinematic.lean ?? 0;
+    }
+    if (cinematic?.bodyPitch !== undefined) model.rotation.x = cinematic.bodyPitch;
+    if (cinematic?.handTargets) applyHandTargets(cinematic.handTargets);
+    if (cinematic?.footTargets) applyHandTargets(cinematic.footTargets, legChains);
     if (armed && handsFree && !cinematic) {
       upperMixer.update(dt);
       if (shootAction?.paused) {

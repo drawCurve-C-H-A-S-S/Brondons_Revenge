@@ -4,14 +4,15 @@ import { createScenePhysics } from '../helpers/physics/scenePhysics.js';
 import { disposeRoom } from '../helpers/scene/shipRoom.js';
 import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
 import { createEscapeShip, createEscapePod, addPlanetBackdrop } from '../scripts/items/createEscapeShip.js';
-import { consumeFlightAim, isTouchFire } from '../scripts/touchControls.js';
+import { consumeFlightAim, isTouchFire, resetTouchInput } from '../scripts/touchControls.js';
 import type { LaunchState } from './scene14.js';
+import { createSidescrollPhase, SCRAMBLER_HEALTH } from './scene15-5.js';
 
 export const FLIGHT_RULES = Object.freeze({ cruise: 200, dodgeSpeed: 52, width: 64, height: 38, planetRadius: 900 });
 const TOTAL_FIGHTERS = 18, MAX_ACTIVE = 6, PLAYER_MAX_HP = 260;
-const SHOT_DAMAGE = 14, FIGHTER_HP = 42, GENERATOR_HP = 252, CORE_HP = 1120;
+const SHOT_DAMAGE = 14, FIGHTER_HP = 42, GENERATOR_HP = 315, CORE_HP = 1400;
 const FORWARD = new THREE.Vector3(0, 0, 1), MODEL_FORWARD = new THREE.Vector3(0, 0, -1);
-type Phase = 'combat' | 'bossArmor' | 'bossCore' | 'victory' | 'dead';
+type Phase = 'combat' | 'bossArrival' | 'scrambler' | 'bossArmor' | 'bossCore' | 'victory' | 'dead';
 
 export interface FlightExitState {
   shipPosition: THREE.Vector3;
@@ -61,9 +62,24 @@ function createBossMesh(): Boss {
   function box(size: [number, number, number], position: [number, number, number], material: THREE.Material = hull) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), material); mesh.position.set(...position); root.add(mesh);
   }
-  box([6, 4, 14], [0, 0, 0]); box([3, 2, 5], [0, 3, 0], armor);
+  function prow(x: number, rear: number, nose: number, width: number, tipWidth: number, height: number, tipHeight: number, material: THREE.Material) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+      x - width, -height, rear, x + width, -height, rear, x + width, height, rear, x - width, height, rear,
+      x - tipWidth, -tipHeight, nose, x + tipWidth, -tipHeight, nose, x + tipWidth, tipHeight, nose, x - tipWidth, tipHeight, nose,
+    ], 3));
+    geometry.setIndex([0, 1, 2, 0, 2, 3, 5, 4, 7, 5, 7, 6, 4, 0, 3, 4, 3, 7, 1, 5, 6, 1, 6, 2, 3, 2, 6, 3, 6, 7, 4, 5, 1, 4, 1, 0]);
+    const faceted = geometry.toNonIndexed(); faceted.computeVertexNormals(); geometry.dispose();
+    const mesh = new THREE.Mesh(faceted, material); root.add(mesh);
+  }
+  box([6, 4, 10], [0, 0, 2]); box([3, 2, 5], [0, 3, 0], armor);
+  prow(0, -3, -8.6, 3, 1.15, 2, 0.65, hull);
+  prow(0, -2.8, -8.8, 1.35, 0.55, 2.12, 0.72, armor);
   for (const x of [-6, 6]) {
-    box([6, 4.5, 10], [x, 0, 1]); box([2, 1, 5], [x, -1.8, -5], armor);
+    box([6, 4.5, 8], [x, 0, 2]);
+    prow(x, -2, -7.7, 3, 1.45, 2.25, 1.2, hull);
+    prow(x + Math.sign(x) * 2.1, -2, -9, 0.75, 0.16, 1.1, 0.3, armor);
+    box([0.18, 0.18, 4], [x + Math.sign(x) * 1.8, 1.65, -4.1], windows);
     const engine = new THREE.Mesh(new THREE.ConeGeometry(1, 5, 12), new THREE.MeshBasicMaterial({ color: 0x8877ff }));
     engine.rotation.x = -Math.PI / 2; engine.position.set(x, 0, 8); root.add(engine);
   }
@@ -104,7 +120,7 @@ function createBossMesh(): Boss {
   return { root, generators, core, shield, fireCd: 2.8, volley: 0 };
 }
 
-export function createScene({ entryState, onTransition }: { entryState?: LaunchState; onTransition: (state: FlightExitState) => void }) {
+export function createScene({ entryState, onTransition, startAt }: { entryState?: LaunchState; onTransition: (state: FlightExitState) => void; startAt?: 'scrambler' }) {
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x01040b);
   const physics = createScenePhysics(), physicsWorld = physics.world; physicsWorld.gravity.set(0, 0, 0);
   const camera = new THREE.PerspectiveCamera(76, window.innerWidth / window.innerHeight, 0.1, 50000);
@@ -124,7 +140,8 @@ export function createScene({ entryState, onTransition }: { entryState?: LaunchS
   const hud = el('flight-hud'), healthFill = el('space-health-fill'), healthLabel = el('space-health-label');
   const healthTrack = el('space-health-track'), speedLabel = el('flight-speed'), objective = el('flight-objective');
   const crosshair = el('space-crosshair'), bossHud = el('space-boss-hud'), bossFill = el('space-boss-fill');
-  const bossLabel = el('space-boss-label'), enemyCount = el('space-enemy-count'), alert = el('space-alert');
+  const bossLabel = el('space-boss-label'), bossTrack = el('space-boss-track'), enemyCount = el('space-enemy-count'), alert = el('space-alert');
+  let controlsMode = ''; 
   const damageOverlay = el('space-damage'), pausePanel = el('space-pause'), pauseTitle = el('space-pause-title'), pauseHint = el('space-pause-hint');
   const controls = el('flight-controls'), rollLabel = el('space-roll-status'), threatLabel = el('space-threat');
   const ownedHud = [hud, controls, crosshair, bossHud, enemyCount, alert, damageOverlay, pausePanel];
@@ -142,6 +159,8 @@ export function createScene({ entryState, onTransition }: { entryState?: LaunchS
   let paused = false, disposed = false, transferred = false, firing = false, cockpitView = false;
   let rollCd = 0, rollTime = 0, rollSign = 1, alertTime = 0;
   let boss: Boss | null = null, pod: THREE.Group | null = null;
+  let sidescroll: ReturnType<typeof createSidescrollPhase> | null = null;
+  let rocketCooldown = 3.2;
   const keys = new Set<string>(), velocity = new THREE.Vector2(), dash = new THREE.Vector2();
   const aim = new THREE.Vector2(0, 0), raycaster = new THREE.Raycaster(); raycaster.far = 1200;
   const fighters: Fighter[] = [];
@@ -151,6 +170,18 @@ export function createScene({ entryState, onTransition }: { entryState?: LaunchS
   type Bolt = { mesh: THREE.Mesh; velocity: THREE.Vector3; life: number; damage: number };
   type Flash = { mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>; life: number; duration: number; size: number; beam: boolean };
   const bolts: Bolt[] = [], flashes: Flash[] = [];
+  const playerShots = Array.from({ length: 96 }, () => {
+    const mesh = new THREE.Mesh(beamGeo, beamMaterial); mesh.visible = false; mesh.scale.set(0.22, 14, 0.22); scene.add(mesh);
+    return { mesh, direction: new THREE.Vector3(0, 0, 1), life: 0 };
+  });
+  const rocketGeometry = new THREE.ConeGeometry(1.3, 5, 8), rocketMaterial = new THREE.MeshBasicMaterial({ color: 0xff7050 });
+  const markerGeometry = new THREE.RingGeometry(10.5, 11, 32), markerMaterial = new THREE.MeshBasicMaterial({ color: 0xff7755, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false });
+  const rockets = Array.from({ length: 12 }, () => {
+    const mesh = new THREE.Mesh(rocketGeometry, rocketMaterial), marker = new THREE.Mesh(markerGeometry, markerMaterial);
+    const blast = new THREE.Mesh(sphereGeo, new THREE.MeshBasicMaterial({ color: 0xff7850, transparent: true, opacity: 0.8, depthWrite: false }));
+    mesh.visible = marker.visible = blast.visible = false; scene.add(mesh, marker, blast);
+    return { mesh, marker, blast, velocity: new THREE.Vector3(), target: new THREE.Vector3(), life: 0, delay: 0, blastAge: -1, damaged: false };
+  });
   const oldShipPosition = new THREE.Vector3(), temp = new THREE.Vector3();
   let audio: AudioContext | null = null;
   function unlockAudio() {
@@ -182,26 +213,38 @@ export function createScene({ entryState, onTransition }: { entryState?: LaunchS
     const mesh = new THREE.Mesh(sphereGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1, depthWrite: false }));
     mesh.position.copy(position); scene.add(mesh); flashes.push({ mesh, life: 0.5, duration: 0.5, size, beam: false });
   }
-  function clearBolts() { for (const bolt of bolts) scene.remove(bolt.mesh); bolts.length = 0; }
+  function clearBolts() {
+    for (const bolt of bolts) scene.remove(bolt.mesh); bolts.length = 0;
+    playerShots.forEach(s => { s.life = 0; s.mesh.visible = false; });
+    rockets.forEach(r => { r.life = 0; r.blastAge = -1; r.mesh.visible = r.marker.visible = r.blast.visible = false; });
+  }
+  function clearInput() {
+    keys.clear(); firing = false; velocity.set(0, 0); dash.set(0, 0); rollTime = 0;
+    aim.set(0, 0); resetTouchInput(); showCrosshair();
+  }
+  function combatLive() {
+    return phase === 'combat' || phase === 'bossArmor' || phase === 'bossCore' || (phase === 'scrambler' && !!sidescroll?.active);
+  }
+  function inputBlocked() { return document.hidden || document.body.classList.contains('quick-menu-open'); }
   function showCrosshair() {
     if (crosshair) { crosshair.style.left = `${(aim.x + 1) * 50}%`; crosshair.style.top = `${(1 - aim.y) * 50}%`; }
   }
   function setPaused(value: boolean) {
-    paused = value; firing = false; keys.clear(); velocity.set(0, 0);
+    paused = value; clearInput();
     document.body.classList.toggle('space-paused', value);
     if (value) releasePointerLock();
     updateHud();
   }
   function interactiveTarget(event: Event) { return event.target instanceof HTMLElement && !!event.target.closest('button, input, textarea, select, [contenteditable="true"]'); }
   function onKeyDown(event: KeyboardEvent) {
-    if (disposed || transferred || interactiveTarget(event)) return;
-    if (phase === 'dead') return;
-    if (event.code === 'Escape' && !event.repeat && phase !== 'victory') { event.preventDefault(); setPaused(!paused); return; }
-    if (paused || phase === 'victory') return;
+    if (disposed || transferred || interactiveTarget(event) || inputBlocked()) return;
+    if (event.code === 'Escape' && !event.repeat) { event.preventDefault(); setPaused(!paused); return; }
+    if (paused || !combatLive()) return;
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) event.preventDefault();
     keys.add(event.code);
     if (event.repeat) return;
-    if (event.code === 'KeyV') { cockpitView = !cockpitView; cameraView(); }
+    if (event.code === 'KeyV' && phase !== 'scrambler' && phase !== 'bossArrival') { cockpitView = !cockpitView; cameraView(); }
+    if ((phase === 'scrambler' && !sidescroll?.active) || phase === 'bossArrival') return;
     if (event.code === 'Space' && rollCd <= 0) {
       const x = Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'));
       const y = Number(keys.has('KeyW') || keys.has('ArrowUp')) - Number(keys.has('KeyS') || keys.has('ArrowDown'));
@@ -212,17 +255,17 @@ export function createScene({ entryState, onTransition }: { entryState?: LaunchS
   }
   function onKeyUp(event: KeyboardEvent) { keys.delete(event.code); }
   function onMouseMove(event: MouseEvent) {
-    if (disposed || paused || phase === 'dead') return;
+    if (disposed || paused || inputBlocked() || !combatLive() || phase === 'scrambler') return;
     aim.set(THREE.MathUtils.clamp(event.clientX / window.innerWidth * 2 - 1, -1, 1), THREE.MathUtils.clamp(1 - event.clientY / window.innerHeight * 2, -1, 1));
     showCrosshair();
   }
   function onMouseDown(event: MouseEvent) {
-    if (event.button !== 0 || disposed || transferred || interactiveTarget(event)) return;
+    if (event.button !== 0 || disposed || transferred || interactiveTarget(event) || inputBlocked()) return;
     if (paused) { setPaused(false); return; }
-    if (phase !== 'dead' && phase !== 'victory') { onMouseMove(event); unlockAudio(); firing = true; fireCd = 0; }
+    if (combatLive()) { onMouseMove(event); unlockAudio(); firing = true; }
   }
   function onMouseUp(event: MouseEvent) { if (event.button === 0) firing = false; }
-  function onBlur() { if (!disposed && !transferred && phase !== 'dead') setPaused(true); }
+  function onBlur() { if (!disposed && !transferred) setPaused(true); }
   function onVisibility() { if (document.hidden) onBlur(); }
   window.addEventListener('keydown', onKeyDown); window.addEventListener('keyup', onKeyUp);
   window.addEventListener('mousemove', onMouseMove); window.addEventListener('mousedown', onMouseDown); window.addEventListener('mouseup', onMouseUp);
@@ -283,19 +326,21 @@ export function createScene({ entryState, onTransition }: { entryState?: LaunchS
   }
 
   function spawnBoss(corePhase = false) {
-    boss = createBossMesh(); boss.root.position.set(0, 4, railZ + 340); scene.add(boss.root);
+    boss = createBossMesh(); boss.root.position.set(-250, 130, railZ + 1400); scene.add(boss.root);
     if (corePhase) {
       for (const target of boss.generators) { target.health = 0; target.mesh.visible = false; target.ring.visible = false; }
       boss.shield.visible = false; boss.core.mesh.visible = true; boss.core.ring.visible = true;
     }
-    phase = corePhase ? 'bossCore' : 'bossArmor'; phaseClock = 0;
-    invulnerability = 2; clearBolts();
-    announce(corePhase ? 'PHASE 2 / EXPOSED REACTOR' : 'CAPITAL SHIP / DESTROY FOUR AMBER GENERATORS', 3);
+    phase = corePhase ? 'bossCore' : 'bossArrival'; phaseClock = 0; cockpitView = false;
+    invulnerability = 2; clearBolts(); clearInput();
+    announce(corePhase ? 'FINAL PHASE / EXPOSED REACTOR' : 'CAPITAL SHIP INBOUND / UNKNOWN WEAPON CHARGING', 3.5);
   }
   function updateBoss(dt: number) {
     if (!boss || (phase !== 'bossArmor' && phase !== 'bossCore')) return;
-    boss.root.position.set(Math.sin(clock * 0.35) * 18, 4 + Math.sin(clock * 0.5) * 9, railZ + 340);
-    boss.root.rotation.z = Math.sin(clock * 0.4) * 0.04; boss.root.updateMatrixWorld(true);
+    boss.root.position.x = THREE.MathUtils.damp(boss.root.position.x, Math.sin(clock * 0.35) * 18, 2, dt);
+    boss.root.position.y = THREE.MathUtils.damp(boss.root.position.y, 4 + Math.sin(clock * 0.5) * 9, 2, dt);
+    boss.root.position.z = railZ + 340;
+    boss.root.rotation.z = THREE.MathUtils.damp(boss.root.rotation.z, Math.sin(clock * 0.4) * 0.04, 2, dt); boss.root.updateMatrixWorld(true);
     boss.fireCd -= dt;
     if (phase === 'bossCore') {
       boss.shield.visible = phaseClock % 6 < 1.7;
@@ -332,7 +377,7 @@ export function createScene({ entryState, onTransition }: { entryState?: LaunchS
     }
   }
   function damageWeakPoint(target: WeakPoint) {
-    if (!boss || target.health <= 0 || (target === boss.core && boss.shield.visible)) return;
+    if (!boss || (phase !== 'bossArmor' && phase !== 'bossCore') || target.health <= 0 || (target === boss.core && boss.shield.visible)) return;
     target.health = Math.max(0, target.health - SHOT_DAMAGE);
     if (target.health > 0) return;
     target.mesh.visible = false; target.ring.visible = false;
@@ -343,7 +388,7 @@ export function createScene({ entryState, onTransition }: { entryState?: LaunchS
       boss.fireCd = 2; clearBolts();
       announce('REACTOR EXPOSED / FIRE BETWEEN SHIELD PULSES', 3);
     } else if (phase === 'bossCore' && target === boss.core) {
-      phase = 'victory'; phaseClock = 0; firing = false; keys.clear(); clearBolts();
+      phase = 'victory'; phaseClock = 0; clearInput(); clearBolts();
       planetPosition.set(0, 200, railZ + 14000); planet.position.copy(planetPosition); planet.visible = true;
       pod = createEscapePod(); pod.position.copy(boss.root.position).add(new THREE.Vector3(0, 16, 0));
       pod.quaternion.setFromUnitVectors(MODEL_FORWARD, planetPosition.clone().sub(pod.position).normalize()); scene.add(pod);
@@ -354,23 +399,41 @@ export function createScene({ entryState, onTransition }: { entryState?: LaunchS
 
   function firePlayerLaser() {
     tone(1200, 250, 0.065, 0.018);
-    // Raycast the rendered camera, including aspect/FOV and third-person parallax.
-    scene.updateMatrixWorld(true); raycaster.setFromCamera(aim, camera);
+    const shot = playerShots.find(s => s.life <= 0); if (!shot) return;
+    scene.updateMatrixWorld(true);
+    const muzzle = phase === 'scrambler' ? ship.root.position.clone().add(new THREE.Vector3(0, 1, 10)) : ship.root.localToWorld(new THREE.Vector3(Math.sin(clock * 70) > 0 ? -2.4 : 2.4, 1.1, -3.8));
+    raycaster.setFromCamera(aim, camera);
+    if (phase === 'scrambler') shot.direction.set(0, 0, 1);
+    else {
+      const hit = raycaster.intersectObjects(shotTargets(), true).find(validShotSurface);
+      shot.direction.copy(hit?.point ?? raycaster.ray.at(950, new THREE.Vector3())).sub(muzzle).normalize();
+    }
+    shot.mesh.position.copy(muzzle); shot.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), shot.direction);
+    shot.mesh.visible = true; shot.life = 1.25;
+  }
+  function shotTargets(): THREE.Object3D[] {
     const roots: THREE.Object3D[] = fighters.filter(f => f.health > 0).map(f => f.root);
-    if (boss && (phase === 'bossArmor' || phase === 'bossCore')) roots.push(boss.root);
-    const hits = raycaster.intersectObjects(roots, true).filter(hit => {
-      let object: THREE.Object3D | null = hit.object;
-      while (object) { if (!object.visible) return false; object = object.parent; }
-      return !boss || ![...boss.generators, boss.core].some(t => t.ring === hit.object);
-    });
-    const hit = hits[0];
-    const point = hit ? hit.point : raycaster.ray.at(900, new THREE.Vector3());
-    const muzzle = ship.root.localToWorld(new THREE.Vector3(Math.sin(clock * 70) > 0 ? -2.4 : 2.4, 1.1, -3.8));
-    const beam = new THREE.Mesh(beamGeo, beamMaterial);
-    beam.position.copy(muzzle).lerp(point, 0.5); beam.scale.set(0.18, muzzle.distanceTo(point), 0.18);
-    beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), point.clone().sub(muzzle).normalize()); scene.add(beam);
-    flashes.push({ mesh: beam, life: 0.075, duration: 0.075, size: 1, beam: true });
-    if (!hit) return;
+    if (boss) roots.push(boss.root);
+    if (sidescroll?.active) roots.push(sidescroll.device);
+    return roots;
+  }
+  function validShotSurface(hit: THREE.Intersection) {
+    for (let object: THREE.Object3D | null = hit.object; object; object = object.parent) if (!object.visible) return false;
+    if (hit.object instanceof THREE.Mesh && hit.object.material instanceof THREE.Material && hit.object.material.transparent && hit.object.material.opacity < 0.2) return false;
+    return !boss || ![...boss.generators, boss.core].some(t => t.ring === hit.object);
+  }
+  function hitPlayerShot(hit: THREE.Intersection) {
+    const point = hit.point;
+    if (sidescroll?.active) {
+      for (let node: THREE.Object3D | null = hit.object; node; node = node.parent) {
+        if (node === sidescroll.device) {
+          sidescroll.damage(SHOT_DAMAGE); hitFlash = 0.12;
+          if (!sidescroll.active) { clearBolts(); clearInput(); announce('SCRAMBLER DESTROYED / RESTORING FLIGHT AXES', 3.2); }
+          return;
+        }
+      }
+      sidescroll.shieldHit(point); burst(point, 3, 0x66ff99); return;
+    }
     let fighter: Fighter | undefined;
     for (let object: THREE.Object3D | null = hit.object; object; object = object.parent) {
       fighter = fighters.find(f => f.root === object); if (fighter) break;
@@ -390,11 +453,71 @@ export function createScene({ entryState, onTransition }: { entryState?: LaunchS
       burst(point, 2, 0x77bbff); if (alertTime <= 0) announce('ARMORED / AIM AT THE GLOWING TARGETS', 0.7);
     }
   }
+  function updatePlayerShots(dt: number) {
+    scene.updateMatrixWorld(true);
+    const targets = shotTargets();
+    for (const shot of playerShots) {
+      if (shot.life <= 0) continue;
+      shot.mesh.position.z += FLIGHT_RULES.cruise * dt;
+      raycaster.set(shot.mesh.position, shot.direction); raycaster.near = 0; raycaster.far = 950 * dt + 7;
+      const hit = raycaster.intersectObjects(targets, true).find(validShotSurface);
+      shot.life -= dt;
+      if (hit) { shot.life = 0; hitPlayerShot(hit); }
+      else shot.mesh.position.addScaledVector(shot.direction, 950 * dt);
+      shot.mesh.visible = shot.life > 0;
+    }
+    raycaster.far = 1200;
+  }
+  function updateRockets(dt: number) {
+    if (boss && (phase === 'bossArmor' || phase === 'bossCore')) {
+      rocketCooldown -= dt;
+      if (rocketCooldown <= 0) {
+        rocketCooldown = phase === 'bossCore' ? 3.3 : 4.5;
+        announce('ROCKETS LOCKED / MOVE OUT OF THE ORANGE RINGS', 1.4);
+        for (const side of [-1, 1]) {
+          const rocket = rockets.find(r => r.life <= 0 && r.blastAge < 0); if (!rocket) break;
+          rocket.mesh.position.copy(boss.root.localToWorld(new THREE.Vector3(side * 6, 0, -8)));
+          rocket.target.copy(ship.root.position).add(new THREE.Vector3(side * 7 + velocity.x * 0.2, velocity.y * 0.2, 0));
+          rocket.velocity.copy(rocket.target).sub(rocket.mesh.position).normalize().multiplyScalar(220).addScaledVector(FORWARD, FLIGHT_RULES.cruise);
+          rocket.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), rocket.velocity.clone().addScaledVector(FORWARD, -FLIGHT_RULES.cruise).normalize());
+          rocket.life = 6; rocket.delay = 0.8; rocket.marker.position.copy(rocket.target); rocket.mesh.visible = rocket.marker.visible = true;
+        }
+      }
+    }
+    for (const rocket of rockets) {
+      if (rocket.blastAge >= 0) {
+        rocket.blastAge += dt; rocket.blast.position.z += FLIGHT_RULES.cruise * dt;
+        if (rocket.blastAge >= 0.55) { rocket.blastAge = -1; rocket.blast.visible = false; continue; }
+        const radius = 11 * THREE.MathUtils.smoothstep(rocket.blastAge, 0, 0.18);
+        rocket.blast.scale.setScalar(radius);
+        rocket.blast.material.opacity = 0.8 * (1 - THREE.MathUtils.smoothstep(rocket.blastAge, 0.2, 0.55));
+        if (!rocket.damaged && rocket.blast.position.distanceToSquared(ship.root.position) <= radius * radius) {
+          rocket.damaged = true; damagePlayer(26);
+          if (!combatLive()) break;
+        }
+        continue;
+      }
+      if (rocket.life <= 0) continue;
+      rocket.life -= dt; rocket.marker.position.z += FLIGHT_RULES.cruise * dt;
+      if (rocket.delay > 0) { rocket.delay -= dt; rocket.mesh.position.z += FLIGHT_RULES.cruise * dt; rocket.marker.scale.setScalar(1 + Math.sin(clock * 18) * 0.07); continue; }
+      const previous = rocket.mesh.position.clone(), before = previous.z - oldShipPosition.z;
+      rocket.mesh.position.addScaledVector(rocket.velocity, dt);
+      const after = rocket.mesh.position.z - ship.root.position.z;
+      if (before > 0 && after <= 0) {
+        const contact = before / (before - after);
+        rocket.blast.position.lerpVectors(previous, rocket.mesh.position, contact);
+        rocket.blast.position.z += FLIGHT_RULES.cruise * dt * (1 - contact);
+        rocket.blastAge = 0; rocket.damaged = false; rocket.blast.scale.setScalar(0);
+        rocket.blast.material.opacity = 0.8; rocket.blast.visible = true; rocket.life = 0;
+      }
+      if (rocket.life <= 0) rocket.mesh.visible = rocket.marker.visible = false;
+    }
+  }
   function damagePlayer(amount: number) {
-    if (invulnerability > 0 || phase === 'dead' || phase === 'victory') return;
+    if (invulnerability > 0 || phase === 'dead' || phase === 'victory' || phase === 'bossArrival' || (phase === 'scrambler' && !sidescroll?.active)) return;
     playerHp = Math.max(0, playerHp - amount); invulnerability = 0.55; damageFlash = 0.7; tone(90, 30, 0.24, 0.08);
     if (playerHp === 0) {
-      phase = 'dead'; deathClock = 1.8; paused = false; firing = false; ship.root.visible = false; keys.clear(); clearBolts(); burst(ship.root.position, 14);
+      phase = 'dead'; deathClock = 1.8; paused = false; ship.root.visible = false; clearInput(); clearBolts(); burst(ship.root.position, 14);
       document.body.classList.add('space-paused');
     }
   }
@@ -406,14 +529,16 @@ export function createScene({ entryState, onTransition }: { entryState?: LaunchS
       const relativeEnd = bolt.mesh.position.clone().sub(ship.root.position);
       // Swept collision against the moving ship prevents tunneling at low frame rates.
       const segment = new THREE.Line3(relativeStart, relativeEnd);
-      const hit = segment.closestPointToPoint(new THREE.Vector3(0, 1, 0), true, temp).distanceToSquared(new THREE.Vector3(0, 1, 0)) < 3.2 * 3.2;
-      if (hit || bolt.life <= 0 || bolt.mesh.position.z < railZ - 55) {
+      const radius = phase === 'scrambler' ? 5.5 : 3.2;
+      const hit = segment.closestPointToPoint(new THREE.Vector3(0, 1, 0), true, temp).distanceToSquared(new THREE.Vector3(0, 1, 0)) < radius * radius;
+      if (hit || bolt.life <= 0 || bolt.mesh.position.z < ship.root.position.z - 55) {
         scene.remove(bolt.mesh); bolts.splice(i, 1);
         if (hit) { damagePlayer(bolt.damage); if (phase === 'dead') break; }
       }
     }
   }
   function restartScene() {
+    sidescroll?.dispose(); sidescroll = null; rocketCooldown = 3.2;
     for (const f of fighters) { scene.remove(f.root); disposeRoomForGroup(f.root); }
     fighters.length = 0;
     if (boss) { scene.remove(boss.root); disposeRoomForGroup(boss.root); boss = null; }
@@ -431,6 +556,7 @@ export function createScene({ entryState, onTransition }: { entryState?: LaunchS
     const holder = new THREE.Scene(); holder.add(group); disposeRoom(holder); holder.remove(group);
   }
   function cameraView() {
+    if (phase === 'scrambler' && sidescroll) { sidescroll.applyCamera(); return; }
     ship.root.updateMatrixWorld(true); camera.up.set(0, 1, 0);
     if (cockpitView) {
       camera.position.copy(ship.root.position).add(new THREE.Vector3(0, 2.2, 1));
@@ -455,7 +581,7 @@ export function createScene({ entryState, onTransition }: { entryState?: LaunchS
     healthTrack?.setAttribute('aria-valuenow', String(playerHp));
     if (healthLabel) healthLabel.textContent = `${playerHp} / ${PLAYER_MAX_HP}`;
     if (speedLabel) speedLabel.textContent = `AUTO THRUST / ${Math.round(launch ? THREE.MathUtils.lerp(launch.speed, FLIGHT_RULES.cruise, THREE.MathUtils.smootherstep(clock, 0, 2.5)) : FLIGHT_RULES.cruise)} m/s`;
-    if (objective) objective.textContent = phase === 'combat' ? 'CLEAR THE INTERCEPTORS' : phase === 'bossArmor' ? 'BREAK THE FOUR SHIELD GENERATORS' : phase === 'bossCore' ? 'DESTROY THE EXPOSED REACTOR' : won ? 'FOLLOW THE ESCAPE POD' : 'HULL LOST';
+    if (objective) objective.textContent = phase === 'bossArrival' ? 'CAPITAL SHIP INBOUND' : phase === 'scrambler' ? '15.5 / DESTROY THE SIDESCROLL SCRAMBLER' : phase === 'combat' ? 'CLEAR THE INTERCEPTORS' : phase === 'bossArmor' ? 'BREAK THE FOUR SHIELD GENERATORS' : phase === 'bossCore' ? 'DESTROY THE EXPOSED REACTOR' : won ? 'FOLLOW THE ESCAPE POD' : 'HULL LOST';
     if (rollLabel) rollLabel.textContent = rollCd <= 0 ? 'SPACE / EVASIVE ROLL READY' : `ROLL RECHARGING / ${rollCd.toFixed(1)}s`;
     if (threatLabel) {
       const incoming = bolts.filter(b => b.mesh.position.z > railZ && b.mesh.position.z < railZ + 500).length;
@@ -466,14 +592,29 @@ export function createScene({ entryState, onTransition }: { entryState?: LaunchS
       enemyCount.textContent = `INTERCEPTORS ${totalKilled} / ${TOTAL_FIGHTERS}`;
       enemyCount.classList.toggle('hidden', phase !== 'combat');
     }
-    bossHud?.classList.toggle('hidden', phase !== 'bossArmor' && phase !== 'bossCore');
+    bossHud?.classList.toggle('hidden', phase !== 'bossArmor' && phase !== 'bossCore' && phase !== 'scrambler');
     if (boss) {
       const targets = phase === 'bossCore' ? [boss.core] : boss.generators;
       const health = targets.reduce((sum, t) => sum + t.health, 0), max = targets.reduce((sum, t) => sum + t.max, 0);
       if (bossFill) bossFill.style.width = `${health / max * 100}%`;
+      bossTrack?.setAttribute('aria-valuenow', String(Math.round(health / max * 100)));
+      bossTrack?.setAttribute('aria-label', phase === 'bossCore' ? 'Capital ship reactor health' : 'Capital ship shield generator health');
       if (bossLabel) bossLabel.textContent = phase === 'bossCore' ? (boss.shield.visible ? 'PHASE 2 / REACTOR SHIELD PULSE — EVADE' : 'PHASE 2 / REACTOR EXPOSED — FIRE') : `PHASE 1 / SHIELDS ${targets.filter(t => t.health > 0).length}/4`;
     }
-    crosshair?.classList.toggle('hidden', paused || dead || won);
+    if (phase === 'scrambler' && sidescroll) {
+      if (bossFill) bossFill.style.width = `${sidescroll.health / SCRAMBLER_HEALTH * 100}%`;
+      if (bossLabel) bossLabel.textContent = 'SIDESCROLL SCRAMBLER / BOSS HULL BLOCKS YOUR SHOTS';
+      bossTrack?.setAttribute('aria-valuenow', String(Math.round(sidescroll.health / SCRAMBLER_HEALTH * 100)));
+      bossTrack?.setAttribute('aria-label', 'Sidescroll Scrambler health');
+    }
+    const nextControlsMode = phase === 'scrambler' ? 'side' : 'normal';
+    if (controls && controlsMode !== nextControlsMode) {
+      controlsMode = nextControlsMode;
+      controls.innerHTML = nextControlsMode === 'side'
+        ? '<div>WASD / arrows: dodge · Hold LMB: fire straight</div><div>Space: evade · Destroy the green scrambler when exposed</div>'
+        : '<div>WASD: dodge · Mouse: aim · Hold LMB: fire</div><div>Space: evade · V: view · Esc: pause</div>';
+    }
+    crosshair?.classList.toggle('hidden', paused || dead || won || phase === 'scrambler' || phase === 'bossArrival');
     crosshair?.setAttribute('data-hit', String(hitFlash > 0));
     if (damageOverlay) damageOverlay.style.opacity = String(Math.min(0.8, damageFlash + (pct <= 0.3 ? 0.1 : 0)));
     alert?.classList.toggle('hidden', alertTime <= 0 || paused || dead);
@@ -512,6 +653,16 @@ export function createScene({ entryState, onTransition }: { entryState?: LaunchS
       railZ += (launch ? THREE.MathUtils.lerp(launch.speed, FLIGHT_RULES.cruise, THREE.MathUtils.smootherstep(clock, 0, 2.5)) : FLIGHT_RULES.cruise) * dt;
       const horizontal = Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'));
       const vertical = Number(keys.has('KeyW') || keys.has('ArrowUp')) - Number(keys.has('KeyS') || keys.has('ArrowDown'));
+      if (phase === 'scrambler' && sidescroll) {
+        const wasActive = sidescroll.active;
+        sidescroll.update(dt, railZ, horizontal, vertical, rollTime > 0);
+        if (wasActive !== sidescroll.active) { clearBolts(); clearInput(); }
+        if (sidescroll.stage === 'done') {
+          sidescroll.dispose(); sidescroll = null; phase = 'bossArmor'; phaseClock = 0;
+          clearInput(); clearBolts(); invulnerability = 1.5;
+          announce('SCRAMBLER DESTROYED / BREAK THE FOUR SHIELD GENERATORS', 3);
+        }
+      } else {
       const input = new THREE.Vector2(-horizontal, vertical); if (input.lengthSq() > 1) input.normalize();
       velocity.x = THREE.MathUtils.damp(velocity.x, input.x * FLIGHT_RULES.dodgeSpeed, 12, dt);
       velocity.y = THREE.MathUtils.damp(velocity.y, input.y * FLIGHT_RULES.dodgeSpeed, 12, dt);
@@ -520,6 +671,7 @@ export function createScene({ entryState, onTransition }: { entryState?: LaunchS
       ship.root.position.z = railZ;
       const bank = -velocity.x / FLIGHT_RULES.dodgeSpeed * 0.3 + (rollTime > 0 ? rollSign * (1 - rollTime / 0.42) * Math.PI * 2 : 0);
       ship.root.rotation.set(velocity.y / FLIGHT_RULES.dodgeSpeed * 0.1, Math.PI, bank, 'YXZ');
+      }
     }
     ship.root.visible = !cockpitView;
     ship.update(dt); ship.setThrust(1.6 + Math.sin(clock * 24) * 0.1); cameraView();
@@ -528,18 +680,30 @@ export function createScene({ entryState, onTransition }: { entryState?: LaunchS
       if (spawned < TOTAL_FIGHTERS && fighters.filter(f => f.health > 0).length < MAX_ACTIVE && spawnCd <= 0) { spawnFighter(); spawnCd = 0.8; }
       if (totalKilled === TOTAL_FIGHTERS) spawnBoss();
     }
+    if (phase === 'bossArrival' && boss) {
+      const t = THREE.MathUtils.smootherstep(phaseClock, 0, 3.8);
+      boss.root.position.set(-250 * (1 - t), 4 + 126 * (1 - t), railZ + 340 + 1060 * (1 - t));
+      boss.root.rotation.z = (1 - t) * -0.2;
+      if (phaseClock >= 3.8) {
+        clearBolts(); clearInput(); phase = 'scrambler'; phaseClock = 0; cockpitView = false;
+        sidescroll = createSidescrollPhase({ scene, camera, ship: ship.root, boss: boss.root, rail: railZ, shoot: launchBolt, burst });
+        announce('SIDESCROLL SCRAMBLER / FLIGHT AXES COMPROMISED', 4.6);
+      }
+    }
     updateBoss(dt);
-    if (phase !== 'victory') {
+    if (combatLive()) {
       fireCd -= dt;
       const touchAim = consumeFlightAim();
-      if (touchAim.dx !== 0 || touchAim.dy !== 0) {
+      if (phase !== 'scrambler' && (touchAim.dx !== 0 || touchAim.dy !== 0)) {
         aim.x = THREE.MathUtils.clamp(aim.x + touchAim.dx, -1, 1);
         aim.y = THREE.MathUtils.clamp(aim.y + touchAim.dy, -1, 1);
         showCrosshair();
       }
       const touchFiring = isTouchFire();
       if ((firing || touchFiring) && fireCd <= 0) { firePlayerLaser(); fireCd = 0.11; }
-      updateBolts(dt);
+      updatePlayerShots(dt);
+      if (combatLive()) updateBolts(dt);
+      if (combatLive()) updateRockets(dt);
     }
     if (!planet.visible) { planetPosition.z = railZ + 14000; planet.position.copy(planetPosition); }
     if (phase === 'victory' && pod) {
@@ -554,24 +718,27 @@ export function createScene({ entryState, onTransition }: { entryState?: LaunchS
     player.setPosition(ship.root.position.x, ship.root.position.y + 2, ship.root.position.z);
   }
 
-  if (!launch) for (let i = 0; i < MAX_ACTIVE; i++) spawnFighter();
+  if (!launch && !startAt) for (let i = 0; i < MAX_ACTIVE; i++) spawnFighter();
+  if (startAt === 'scrambler') { spawned = totalKilled = TOTAL_FIGHTERS; spawnBoss(); }
   ship.root.rotation.y = Math.PI; cameraView(); showCrosshair(); updateHud();
-  announce('AUTO THRUST ENGAGED / INTERCEPTORS INBOUND', 3);
+  if (!startAt) announce('AUTO THRUST ENGAGED / INTERCEPTORS INBOUND', 3);
   return {
     roomId: 'scene15', scene, camera, physicsWorld, player, ship, planet, cutsceneManager: null,
     isCinematic: () => true, hideCharacter: () => true,
+    getSceneId: () => phase === 'scrambler' || (startAt === 'scrambler' && phase === 'bossArrival') ? 'scene15.5' : 'scene15',
     getCinematicState: () => player.getState(), applyCinematicCamera: cameraView,
-    clearInput: () => { keys.clear(); firing = false; velocity.set(0, 0); },
+    clearInput,
     getFlightStatus: () => ({ speed: FLIGHT_RULES.cruise, cockpitView, paused, phase, playerHp, totalKilled, spawned, bossHp: boss ? [...boss.generators, boss.core].reduce((sum, t) => sum + t.health, 0) : 0 }),
     updatePhysics(dt: number) {
-      if (disposed || transferred || paused) return;
+      if (disposed || transferred || paused || document.hidden || document.body.classList.contains('quick-menu-open')) return;
       let remaining = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, 0.1));
       // Bounded substeps preserve dodge and projectile behavior across render rates.
       while (remaining > 0 && !disposed && !transferred) { const delta = Math.min(remaining, 1 / 120); step(delta); remaining -= delta; }
       if (!disposed && !transferred) updateHud();
     },
     dispose() {
-      if (disposed) return; disposed = true;
+      if (disposed) return; disposed = true; clearInput();
+      sidescroll?.dispose(); sidescroll = null;
       window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mousedown', onMouseDown); window.removeEventListener('mouseup', onMouseUp);
       window.removeEventListener('blur', onBlur); document.removeEventListener('visibilitychange', onVisibility); document.removeEventListener('pointerlockchange', releasePointerLock);

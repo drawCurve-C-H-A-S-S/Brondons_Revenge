@@ -10,6 +10,10 @@ const gltfLoader = new GLTFLoader();
 // Only bundle the tools used by gameplay, including their external dependencies.
 const toolAssets = import.meta.glob<string>([
   '../assets/models/Tools/Enemy_Trilobite.{gltf,bin}',
+  '../assets/models/Tools/Enemy_QuadShell.{gltf,bin}',
+  '../assets/models/Tools/T_Enemies_BaseColor_png.png',
+  '../assets/models/Tools/T_Enemies_Normal.png',
+  '../assets/models/Tools/T_Enemies_ORM.png',
   '../assets/models/Tools/Gun_Pistol.{gltf,bin}',
   '../assets/models/Tools/Gun_Revolver.{gltf,bin}',
   '../assets/models/Tools/Prop_Chest.{gltf,bin}',
@@ -21,7 +25,7 @@ const toolAssets = import.meta.glob<string>([
 const toolUrls = new Map(Object.entries(toolAssets).map(([path, url]) => [path.split('/').pop()!, url]));
 
 /** Resolve glTF dependencies through Vite in both dev and hashed production builds. */
-export async function loadToolModel(name: 'Enemy_Trilobite' | 'Gun_Pistol' | 'Gun_Revolver' | 'Prop_Chest') {
+export async function loadToolModel(name: 'Enemy_Trilobite' | 'Enemy_QuadShell' | 'Gun_Pistol' | 'Gun_Revolver' | 'Prop_Chest') {
   const url = toolUrls.get(`${name}.gltf`);
   if (!url) throw new Error(`Missing tool asset: ${name}`);
   const response = await fetch(url);
@@ -48,8 +52,19 @@ export async function loadDinoModel() {
     manager.onLoad = () => resolve();
     manager.onError = url => { failedTexture = url; };
   });
-  const model = await new FBXLoader(manager).loadAsync(dinoModelUrl);
+  const response = await fetch(dinoModelUrl);
+  if (!response.ok) throw new Error(`Dinosaur FBX: HTTP ${response.status}`);
+  const source = await response.text();
+  // Blockbench prefixes curve-node attributes with the clip name and uses P for translation.
+  // FBXLoader requires exactly R/T/S; an unrecognized P node otherwise crashes curve attachment.
+  const normalized = source.replace(/(AnimationCurveNode:\s*\d+,\s*"AnimCurveNode::)[^"\r\n]*\.([RPST])"/g,
+    (_match, prefix: string, channel: string) => `${prefix}${channel === 'P' ? 'T' : channel}"`);
+  manager.itemStart('dinosaur-parse');
+  let model: THREE.Group;
+  try { model = new FBXLoader(manager).parse(new TextEncoder().encode(normalized).buffer, ''); }
+  finally { manager.itemEnd('dinosaur-parse'); }
   await dependenciesReady;
+  for (const clip of model.animations) clip.name = clip.name.trim();
   const materials = new Set<THREE.Material>(), textures = new Set<THREE.Texture>();
   model.traverse(node => {
     if (!(node instanceof THREE.Mesh)) return;

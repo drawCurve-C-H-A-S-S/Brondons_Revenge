@@ -61,16 +61,19 @@ for (const fps of [30, 60, 144]) {
   }
   for (const id of [9, 10, 11, 13]) {
     test(`${id} and hub doorway walking preserves position, health, facing and held input at ${fps} FPS`, t => {
-      const room = fixture(t), puzzle = createState(12); let hub, final;
+      const room = fixture(t), puzzle = createState(12); let hub, final, transfer;
       if (id === 13) puzzle.exitUnlocked = true;
       const source = room(id, { puzzle, fromPassage: id === 9, defeated: id === 13 }); step(source, 2, fps);
       const door = source.passageDoor ?? source.door;
       source.player.setPosition(0.2, door.frame.y + 0.3, door.frame.z + 1.5); source.player.setRotation(0, 0.17); source.player.takeDamage(20);
-      (source.setPassageTrigger ?? source.setBackTrigger)(state => { source.dispose(); hub = room(12, { puzzle, entryState: state, from: id }); });
+      (source.setPassageTrigger ?? source.setBackTrigger)(state => { transfer = state; source.dispose(); hub = room(12, { puzzle, entryState: state, from: id }); });
       step(source, 1, fps); key('KeyW'); for (let i = 0; i < fps * 2 && !hub; i++) source.updatePhysics(1 / fps);
       assert.ok(hub); assert.ok(hub.player.captureTransition(portals[id]).heldKeys.includes('KeyW')); key('KeyW', 'keyup');
       assert.ok(angle(hub.player.getState().yaw, portals[id].yaw + Math.PI) < 1e-6); assert.equal(hub.player.getHealth(), 80); assert.equal(hub.player.getState().pitch, 0.17);
-      const local = hub.player.captureTransition(portals[id]).position; assert.ok(local.z > 0.8 && local.z < 1.1);
+      const local = hub.player.captureTransition(portals[id]).position;
+      assert.ok(Math.abs(local.x + transfer.position.x) < 1e-9);
+      assert.ok(Math.abs(local.z + transfer.position.z) < 1e-9);
+      assert.ok(Math.abs(local.z - (hub.player.radius + 0.2)) < 1e-9, 'Arrival clears the return trigger by one radius plus padding');
       hub.setDoorTrigger(id, state => { hub.dispose(); final = room(id, { puzzle, entryState: state, fromPassage: true, defeated: id === 13 }); });
       step(hub, 0.3, fps); assert.equal(final, undefined);
       hub.player.setRotation(portals[id].yaw, 0.17); key('KeyW'); for (let i = 0; i < fps * 2 && !final; i++) hub.updatePhysics(1 / fps);

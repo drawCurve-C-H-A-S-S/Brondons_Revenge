@@ -20,6 +20,8 @@ import { createScene as createScene14, type LaunchState } from './scenes/scene14
 import { createScene as createScene15, type FlightExitState } from './scenes/scene15.js';
 import { createScene as createScene16 } from './scenes/scene16.js';
 import { createScene as createScene17 } from './scenes/scene17.js';
+import { createScene as createScene18 } from './scenes/scene18.js';
+import { createScene as createScene19 } from './scenes/scene19.js';
 import type { RescueArrival } from './helpers/scene/rescueSite.js';
 import { loadCharacter } from './scripts/characterManager.js';
 import type { Player, PlayerTransitionState } from './scripts/player.js';
@@ -30,7 +32,7 @@ import { CrowbarController } from './scripts/crowbar.js';
 import { GogglesController } from './scripts/goggles.js';
 import { createCctvSystem } from './scripts/cctv.js';
 import { createFirstPersonHands } from './scripts/firstPersonHands.js';
-import { initTouchControls, setTouchFlightMode } from './scripts/touchControls.js';
+import { initTouchControls, setTouchFlightMode, resetTouchInput } from './scripts/touchControls.js';
 
 // --- Renderer ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -627,9 +629,9 @@ function loadHangar14(entryState?: PlayerTransitionState) {
   activateExtension(sceneData, 'scene14');
 }
 
-function loadFlight15(entryState?: LaunchState) {
+function loadFlight15(entryState?: LaunchState, startAt?: 'scrambler') {
   hideScene1Skip(); retireTraversalRoom();
-  activateExtension(createScene15({ entryState, onTransition: loadCrash16 }), 'scene15');
+  activateExtension(createScene15({ entryState, startAt, onTransition: loadCrash16 }), 'scene15');
   setTouchFlightMode(true);
 }
 
@@ -645,12 +647,28 @@ function loadCrash16(entryState?: FlightExitState) {
 function loadGround17(entryState?: RescueArrival) {
   hideScene1Skip(); retireTraversalRoom(); setTouchFlightMode(false);
   activateExtension(createScene17({
-    entryState,
-    onRespawn: () => loadGround17({
-      ...entryState,
-      pilotState: entryState?.pilotState ? { ...entryState.pilotState, health: PLAYER_MAX_HEALTH } : undefined,
-    }),
+    entryState, onRiver: loadRiver18,
+    onRespawn: () => loadGround17(checkpointArrival(entryState)),
   }), 'scene17');
+}
+
+function checkpointArrival(entryState?: RescueArrival): RescueArrival {
+  return { ...entryState, cameraPosition: undefined, cameraQuaternion: undefined, cameraFov: undefined,
+    pilotState: entryState?.pilotState ? { ...entryState.pilotState, health: PLAYER_MAX_HEALTH } : undefined };
+}
+
+function loadRiver18(entryState?: RescueArrival) {
+  hideScene1Skip(); retireTraversalRoom(); setTouchFlightMode(true);
+  activateExtension(createScene18({ entryState, onFinished: loadGround19,
+    onRespawn: () => loadRiver18(checkpointArrival(entryState)),
+  }), 'scene18');
+}
+
+function loadGround19(entryState?: RescueArrival) {
+  hideScene1Skip(); retireTraversalRoom(); setTouchFlightMode(false);
+  activateExtension(createScene19({ entryState,
+    onRespawn: () => loadGround19(checkpointArrival(entryState)),
+  }), 'scene19');
 }
 
 function loadPassage12(entryState?: PlayerTransitionState, from: PassageDestination = 10) {
@@ -881,7 +899,7 @@ function updatePlayerView(dt: number) {
       );
     }
     currentSceneData.updateCinematicCharacter?.(globalCharacter);
-    currentSceneData.applyCinematicCamera();
+    currentSceneData.applyCinematicCamera?.();
     return;
   }
   if (!currentPlayer.isEnabled()) return;
@@ -905,6 +923,7 @@ function updatePlayerView(dt: number) {
     // Keep the same look rotation as first-person (yaw/pitch from updateCamera) so the
     // crosshair stays centered on the aim direction instead of pointing back at the player.
   }
+  currentSceneData?.applyEntryCamera?.();
 }
 
 // --- Direct scene selection ---
@@ -913,11 +932,13 @@ const SCENE_CHOICES = [
   [5, 'Cargo hold'], [6, 'Target range'], [7, 'Cafeteria'], [8, 'Vent junction'],
   [9, 'Zero-gravity loading bay'], [10, 'Durable cargo puzzle'], [11, 'Mixed cargo puzzle'],
   [12, 'Transfer passage'], [13, 'Bay Warden boss'], [14, 'Hangar escape'],
-  [15, 'Space combat'], [16, 'Rescue landing cutscene'], [17, 'Facility approach'], 
+  [15, 'Space combat'], [15.5, 'Sidescroll Scrambler'], [16, 'Jungle crash cutscene'],
+  [17, 'Jungle bridge ambush'], [18, 'River escape'], [19, 'Facility approach'],
 ] as const;
 const quickMenu = document.getElementById('scene-quick-menu') as HTMLDialogElement;
 
 function clearSceneInput() {
+  resetTouchInput();
   currentPlayer?.clearInput();
   currentSceneData?.clearInput?.();
 }
@@ -930,7 +951,8 @@ function setQuickMenu(open: boolean) {
     if (document.pointerLockElement) document.exitPointerLock();
     quickMenu.showModal();
     const buttons = quickMenu.querySelectorAll<HTMLButtonElement>('[data-scene]');
-    buttons.forEach(button => button.setAttribute('aria-current', String(`scene${button.dataset.scene}` === activeSceneId)));
+    const currentId = currentSceneData?.getSceneId?.() ?? activeSceneId;
+    buttons.forEach(button => button.setAttribute('aria-current', String(`scene${button.dataset.scene}` === currentId)));
     const current = quickMenu.querySelector<HTMLButtonElement>('[aria-current="true"]') ?? buttons[0];
     current?.focus(); current?.scrollIntoView({ block: 'nearest' });
   } else {
@@ -971,8 +993,11 @@ function jumpToScene(id: number) {
       case 12: loadPassage12(); break;
       case 14: loadHangar14(); break;
       case 15: loadFlight15(); break;
+      case 15.5: loadFlight15(undefined, 'scrambler'); break;
       case 16: loadCrash16(); break;
       case 17: loadGround17(); break;
+      case 18: loadRiver18(); break;
+      case 19: loadGround19(); break;
     }
     const spawnedPlayer = currentSceneData?.player as Player | undefined;
     spawnedPlayer?.heal(PLAYER_MAX_HEALTH);
@@ -1101,7 +1126,7 @@ function animate() {
 
   // Physics
   if (updatePhysics) updatePhysics(delta, isThirdPerson);
-  if (playerDamageEl) playerDamageEl.style.opacity = String(currentPlayer?.getDamageFlash() ?? 0);
+  if (playerDamageEl) playerDamageEl.style.opacity = String(currentSceneData?.getDamageFlash?.() ?? currentPlayer?.getDamageFlash() ?? 0);
 
   // Cutscenes
   if (cutsceneManager) cutsceneManager.update(delta);

@@ -6,11 +6,12 @@ import * as CANNON from 'cannon-es';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createServer } from 'vite';
 
-let server, createScene, createPassage, traceShot, CrowbarController, rules, boyData;
+let server, createScene, createPassage, createPuzzleState, traceShot, CrowbarController, rules, boyData;
 before(async () => {
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
   ({ createScene } = await server.ssrLoadModule('/scenes/scene13.ts'));
   ({ createScene: createPassage } = await server.ssrLoadModule('/scenes/scene12.ts'));
+  ({ createCargoPuzzleState: createPuzzleState } = await server.ssrLoadModule('/scripts/cargoPuzzle.ts'));
   ({ traceShot } = await server.ssrLoadModule('/scripts/pistol.ts'));
   ({ CrowbarController } = await server.ssrLoadModule('/scripts/crowbar.ts'));
   ({ BOSS_RULES: rules } = await server.ssrLoadModule('/scripts/loadingBayBoss.ts'));
@@ -143,11 +144,14 @@ test('Defeat fades black particles, reveals the actual boy.glb, thanks player an
   const { data, elements } = await fixture(t, { onDefeated: () => completed++ }); step(data, 7.1); cover(data);
   const boy = data.scene.getObjectByName('FreedBoy'); assert.ok(boy); assert.equal(boy.visible, false);
   assert.ok(boy.getObjectsByProperty('isMesh', true).length > 0, 'real GLB mesh loaded');
-  for (let attempts = 0; attempts < 24 && data.boss.getStatus().health > 0; attempts++) {
+  const requiredHits = Math.ceil(rules.health / rules.headDamage);
+  let hits = 0;
+  for (let attempts = 0; attempts < requiredHits * 2 && data.boss.getStatus().health > 0; attempts++) {
     if (data.boss.getStatus().phase === 'flying') down(data);
-    if (data.boss.getStatus().phase === 'exposed') data.boss.headTarget.damage(35, 'crowbar');
-    step(data, 1.1);
+    if (data.boss.getStatus().phase === 'exposed' && data.boss.headTarget.damage(35, 'crowbar')) hits++;
+    step(data, rules.headCooldown + 0.1);
   }
+  assert.equal(hits, requiredHits, 'Defeat requires the configured number of accepted melee hits');
   assert.equal(data.boss.getStatus().health, 0, JSON.stringify(data.boss.getStatus()));
   assert.equal(data.isCinematic(), true); assert.equal(data.player.isEnabled(), false); assert.equal(boy.visible, true);
   const cloud = data.scene.getObjectByName('BossBlackParticles'); assert.equal(cloud.visible, true);
@@ -206,14 +210,15 @@ for (const fps of [30, 60, 144]) {
 }
 
 test('Player can physically climb back to passage 12 and return through the raised doorway', async t => {
-  const { data } = await fixture(t, { defeated: true });
+  const puzzle = createPuzzleState(12); puzzle.exitUnlocked = true;
+  const { data } = await fixture(t, { defeated: true, puzzle });
   data.player.setPosition(0, 0.3, -10); data.player.setRotation(0, 0.12); data.player.takeDamage(20);
   let passage, next;
-  data.setBackTrigger(state => { data.dispose(); passage = createPassage({ from: 13, entryState: state }); });
+  data.setBackTrigger(state => { data.dispose(); passage = createPassage({ from: 13, entryState: state, puzzle }); });
   key('KeyW'); for (let i = 0; i < 360 && !passage; i++) data.updatePhysics(1 / 60); key('KeyW', 'keyup');
   assert.ok(passage, 'real staircase and door are traversable'); t.cleanup(() => passage.dispose()); assert.equal(passage.player.getHealth(), 80);
   assert.ok(Math.abs(passage.player.body.position.y - 0.3) < 0.04);
-  passage.setDoorTrigger(13, state => { passage.dispose(); next = createScene({ entryState: state, loadBoy }); });
+  passage.setDoorTrigger(13, state => { passage.dispose(); next = createScene({ entryState: state, loadBoy, puzzle }); });
   passage.player.setRotation(Math.PI); key('KeyW'); for (let i = 0; i < 120 && !next; i++) passage.updatePhysics(1 / 60); key('KeyW', 'keyup');
   assert.ok(next); t.cleanup(() => next.dispose()); await next.ready;
   assert.equal(next.isCinematic(), true); assert.equal(next.player.getHealth(), 80); assert.ok(next.player.body.position.y > 3.2);

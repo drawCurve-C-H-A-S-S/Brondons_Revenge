@@ -26,6 +26,8 @@ function browser(t) {
     classList = { add: (...names) => names.forEach(n => this.classes.add(n)), remove: (...names) => names.forEach(n => this.classes.delete(n)), contains: n => this.classes.has(n), toggle: (n, force) => force ? this.classes.add(n) : this.classes.delete(n) };
     closest() { return null; }
     requestPointerLock() {}
+    setAttribute(name, value) { this[name] = String(value); }
+    removeAttribute(name) { if (name === 'style') this.style = {}; else delete this[name]; }
   }
   const elements = new Map();
   globalThis.HTMLElement = Element; globalThis.ProgressEvent = class extends Event {}; globalThis.self = globalThis;
@@ -132,6 +134,10 @@ async function hangar(t, fps = 60, withCharacter = false) {
   if (character) { room.scene.add(character.model); character.setFacing(Math.PI); t.cleanup(() => character.dispose()); }
   function frame() {
     room.updatePhysics(1 / fps, true);
+    if (['orbit', 'prompt', 'action', 'escape', 'boarding'].includes(room.getEscapeStatus().phase)) {
+      assert.ok(room.robots.every(robot => robot.root.position.x * robot.side >= 1.85),
+        'All robots, including stunned targets, stay outside the straight running lane');
+    }
     if (character) {
       const state = room.getCinematicState();
       character.weapon.setEquipped(false); character.setCrowbarEquipped(room.getCinematicWeapon() === 'crowbar');
@@ -154,12 +160,15 @@ async function hangar(t, fps = 60, withCharacter = false) {
     until(() => room.getEscapeStatus().phase === 'run');
     assert.equal(room.camera.fov, 70); assert.equal(room.getCinematicPose(), null);
     room.player.setPosition(0, 0.3, -21.9); frame();
-    assert.equal(room.getEscapeStatus().phase, 'prompt');
+    assert.equal(room.getEscapeStatus().phase, 'orbit');
+    assert.equal(room.getCinematicPose().clip, 'Sprint_Loop');
+    until(() => room.getEscapeStatus().phase === 'prompt');
+    assert.ok(room.player.body.position.z > -19, 'The camera orbit preserves forward running');
   }
   return { room, character, elements, frame, seconds, until, enterPrompt, launches, failures: () => failures };
 }
 
-for (const fps of [30, 60, 144]) test(`six action shots, boarding, and launch at ${fps} FPS`, { timeout: 30000 }, async t => {
+for (const fps of [30, 60, 144]) test(`six continuous running actions, boarding, and launch at ${fps} FPS`, { timeout: 30000 }, async t => {
   const h = await hangar(t, fps, fps === 60), { room, character } = h;
   h.enterPrompt(); const seen = new Set();
   for (let stage = 0; stage < 6; stage++) {
@@ -169,23 +178,29 @@ for (const fps of [30, 60, 144]) test(`six action shots, boarding, and launch at
     const stunned = room.robots.filter(r => r.stunned).length;
     key(expected); key(expected, 'keyup');
     assert.equal(room.getEscapeStatus().phase, 'action');
-    assert.equal(room.getEscapeStatus().shot, { KeyX: 'pistol-shoulder', KeyY: 'crowbar-profile', KeyZ: 'roll-low' }[expected]);
-    assert.ok(room.camera.position.distanceTo(before) > 0.5, 'Accepted input changes the camera angle immediately');
+    assert.equal(room.getEscapeStatus().shot, 'one-take');
+    assert.ok(room.camera.position.equals(before), 'Accepting input does not cut or advance the camera');
     h.seconds(0.7);
-    assert.equal(room.getCinematicPose().clip, { KeyX: 'Pistol_Shoot', KeyY: 'Sword_Attack', KeyZ: 'Roll' }[expected]);
+    const pose = room.getCinematicPose();
+    assert.ok(room.player.body.position.z > start.z + 0.5, 'Every attack and roll keeps moving forward');
+    assert.ok(Math.abs(room.player.body.position.x) < 1e-6, 'Actions stay in the straight escape lane');
     if (expected !== 'KeyZ') {
-      assert.ok(new THREE.Vector3().copy(room.player.body.position).distanceTo(start) < 1e-5, 'Attacks keep planted feet');
+      assert.equal(pose.clip, 'Sprint_Loop');
+      assert.equal(pose.upperBody.clip, expected === 'KeyX' ? 'Pistol_Shoot' : 'Sword_Attack');
       assert.equal(room.robots.filter(r => r.stunned).length, stunned + 1);
     } else {
-      assert.ok(room.player.body.position.z > start.z + 0.5, 'Roll travels past the attack');
+      assert.equal(pose.clip, 'Roll');
       assert.equal(room.robots.filter(r => r.stunned).length, stunned, 'Dodge does not kill its target');
     }
     const projected = new THREE.Vector3(room.player.body.position.x, room.player.body.position.y + 0.65, room.player.body.position.z).project(room.camera);
     assert.ok(Math.abs(projected.x) < 0.95 && Math.abs(projected.y) < 0.95, 'Actor remains framed by action camera');
     if (character) assert.equal(character.model.rotation.z, 0);
-    h.until(() => room.getCinematicPose().clip === 'Sprint_Loop');
-    assert.equal(room.getEscapeStatus().shot, 'sprint-tracking');
+    h.until(() => room.getCinematicPose().clip === 'Sprint_Loop' && !room.getCinematicPose().upperBody);
+    assert.equal(room.getEscapeStatus().shot, 'one-take');
     h.until(() => room.getEscapeStatus().phase !== 'action');
+    assert.equal(room.getEscapeStatus().phase, 'escape');
+    assert.equal(room.getEscapeStatus().stage, stage + 1);
+    h.until(() => room.getEscapeStatus().phase === (stage === 5 ? 'boarding' : 'prompt'));
   }
   assert.deepEqual([...seen].sort(), ['KeyX', 'KeyY', 'KeyZ']);
   assert.equal(room.getEscapeStatus().phase, 'boarding');
@@ -198,9 +213,13 @@ for (const fps of [30, 60, 144]) test(`six action shots, boarding, and launch at
   for (const shot of ['boarding-approach', 'boarding-jump', 'boarding-seat']) assert.ok(shots.has(shot), shot);
   assert.ok(peak > 2); assert.equal(room.getEscapeStatus().phase, 'aboard'); assert.ok(room.hideCharacter());
   assert.equal(room.getEscapeStatus().shot, 'cockpit');
-  assert.match(h.elements.get('interact-prompt').textContent, /Press E/);
+  assert.equal(room.getEscapeStatus().timeLeft, 3);
+  assert.equal(h.elements.get('escape-key').textContent, 'E');
+  assert.equal(h.elements.get('escape-qte').classList.contains('hidden'), false);
+  assert.match(h.elements.get('escape-qte')['aria-label'], /Press E within three seconds/);
   const beforeLaunch = room.robots.map(r => r.root.position.z);
-  key('KeyE'); key('KeyE', 'keyup'); assert.equal(room.getEscapeStatus().shot, 'launch-console');
+  key('KeyE'); key('KeyE', 'keyup'); assert.equal(room.getEscapeStatus().phase, 'launch');
+  h.frame(); assert.equal(room.getEscapeStatus().shot, 'launch-console');
   h.seconds(1); assert.equal(room.getEscapeStatus().shot, 'decompression-wide');
   h.seconds(3.4); assert.equal(room.getEscapeStatus().shot, 'launch-side');
   h.seconds(2.2); assert.equal(room.getEscapeStatus().shot, 'launch-chase');
@@ -225,6 +244,25 @@ test('paused QTE/animation/camera stay fixed; wrong keys show authored death the
   h.seconds(0.5); assert.equal(room.getCinematicPose().clip, 'Death01'); assert.equal(room.getEscapeStatus().shot, 'failure');
   h.seconds(2.3); assert.equal(h.failures(), 0, 'Death finishes before checkpoint transfer');
   h.seconds(0.6); assert.equal(h.failures(), 1); assert.equal(h.launches.length, 0);
+  h.seconds(1); assert.equal(h.failures(), 1);
+});
+
+test('missed cockpit launch window destroys the occupied shuttle and returns once', async t => {
+  const h = await hangar(t), { room } = h;
+  h.enterPrompt();
+  for (let stage = 0; stage < 6; stage++) {
+    const expected = room.getEscapeStatus().expected;
+    key(expected); key(expected, 'keyup');
+    h.until(() => room.getEscapeStatus().phase === (stage === 5 ? 'boarding' : 'prompt'));
+  }
+  h.until(() => room.getEscapeStatus().phase === 'aboard');
+  h.seconds(2.9); assert.equal(room.getEscapeStatus().phase, 'aboard');
+  h.seconds(0.2); assert.equal(room.getEscapeStatus().phase, 'failed');
+  assert.equal(room.player.getHealth(), 0); assert.ok(room.hideCharacter());
+  assert.match(h.elements.get('boss-subtitles').textContent, /SHUTTLE DESTROYED WITH PILOT ABOARD/);
+  h.seconds(0.6); assert.equal(room.ship.root.visible, false);
+  key('KeyE'); key('KeyE', 'keyup'); h.seconds(3);
+  assert.equal(h.failures(), 1); assert.equal(h.launches.length, 0);
   h.seconds(1); assert.equal(h.failures(), 1);
 });
 

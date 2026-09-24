@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { addPlanetBackdrop, createEscapePod, createEscapeShip } from '../scripts/items/createEscapeShip.js';
 import { createPlayer } from '../scripts/player.js';
+import type { CinematicPose } from '../scripts/characterManager.js';
 import { createScenePhysics } from '../helpers/physics/scenePhysics.js';
 import { disposeRoom } from '../helpers/scene/shipRoom.js';
 import type { FlightExitState } from './scene15.js';
@@ -85,13 +86,32 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
   site.boy.visible = false; site.ship.setFlying(true, true);
   const groundPoint = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z).add(RESCUE_SITE.landingOffset);
   const groundPodStart = groundPoint(-55, 100, -105);
-  const groundPodPath = new THREE.CubicBezierCurve3(groundPodStart, groundPoint(-30, 68, -55), groundPoint(0, 22, -3), RESCUE_SITE.pod);
-  let clock = 0, disposed = false, finished = false, paused = false;
-  const duration = 44;
+  const groundPodImpact = RESCUE_SITE.pod.clone().add(new THREE.Vector3(0, 0, -4));
+  const groundPodPath = new THREE.CubicBezierCurve3(groundPodStart, groundPoint(-30, 68, -55), groundPoint(0, 22, -3), groundPodImpact);
+  const groundShipHover = RESCUE_SITE.ship.clone().add(new THREE.Vector3(0, 4, 0));
+  const groundShipPath = new THREE.CubicBezierCurve3(groundPoint(-64, 115, -127), groundPoint(-40, 44, -20), RESCUE_SITE.ship.clone().add(new THREE.Vector3(0, 12, 10)), groundShipHover);
+  const revealPath = new THREE.CatmullRomCurve3([
+    groundPoint(1, 2.3, 17), new THREE.Vector3(-59, 6, 67), new THREE.Vector3(-57, 7, 49),
+    new THREE.Vector3(-46, 7, 34), new THREE.Vector3(-42, 7, 17), new THREE.Vector3(-29, 7, -10),
+    new THREE.Vector3(-24, 7, -30), new THREE.Vector3(-7, 8, -41), new THREE.Vector3(0, 12, -43), new THREE.Vector3(0, 30, -44),
+  ]);
+  const crashBits = new THREE.InstancedMesh(new THREE.BoxGeometry(0.18, 0.12, 0.35), new THREE.MeshStandardMaterial({ color: 0x898779, roughness: 0.8 }), 24);
+  crashBits.frustumCulled = false; site.scene.add(crashBits); const bitDummy = new THREE.Object3D();
+  const shipDust = Array.from({ length: 12 }, () => {
+    const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0xa58b6e, transparent: true, opacity: 0, depthWrite: false }));
+    site.scene.add(mesh); return mesh;
+  });
+  let clock = 0, disposed = false, finished = false, paused = false, animationDelta = 0;
+  const duration = 11 + 34 / 1.3;
   function groundCamera() {
-    const t = clock - 11; camera.up.set(0, 1, 0);
+    const t = (clock - 11) * 1.3; camera.up.set(0, 1, 0);
     if (t < 4) {
-      camera.position.copy(groundPoint(17, 2.2, 23)); camera.lookAt(site.pod.position); camera.fov = 62;
+      const midpoint = site.pod.position.clone().lerp(site.ship.root.position, 0.5);
+      const separation = site.pod.position.distanceTo(site.ship.root.position);
+      const distance = Math.max(28, (separation + 18) / (2 * Math.tan(THREE.MathUtils.degToRad(65 / 2)) * Math.min(1, camera.aspect)));
+      camera.position.copy(midpoint).add(new THREE.Vector3(distance * 0.75, distance * 0.23, distance * 0.85));
+      camera.position.lerp(groundPoint(17, 6, 26), THREE.MathUtils.smoothstep(t, 2.8, 4));
+      camera.lookAt(midpoint); camera.fov = 65;
     } else if (t < 11) {
       camera.position.copy(groundPoint(18 - (t - 4) * 0.5, 7, 26)); camera.lookAt(groundPoint(-2, 2.5, 12)); camera.fov = 62;
     } else if (t < 17) {
@@ -99,44 +119,85 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
     } else if (t < 23) {
       camera.position.copy(groundPoint(1, 2.3, 17)); camera.lookAt(site.boy.position.clone().add(new THREE.Vector3(0, 1.1, 0))); camera.fov = 56;
     } else {
-      const pan = THREE.MathUtils.smootherstep(t, 23, 28), handoff = THREE.MathUtils.smootherstep(t, 29, 33);
-      camera.position.lerpVectors(groundPoint(1, 2.3, 17), new THREE.Vector3(-50, 42, 52), pan);
-      const target = new THREE.Vector3().copy(site.boy.position).add(new THREE.Vector3(0, 1.1, 0)).lerp(new THREE.Vector3(0, 24, -68), pan);
-      camera.position.lerp(RESCUE_SITE.player.clone().add(new THREE.Vector3(0, 1.3, 0)), handoff);
+      const rush = THREE.MathUtils.smootherstep(t, 23, 27), pan = THREE.MathUtils.smootherstep(t, 27, 30), handoff = THREE.MathUtils.smootherstep(t, 30, 34);
+      camera.position.copy(revealPath.getPointAt(rush)).lerp(new THREE.Vector3(-55, 32, -24), pan);
+      const target = revealPath.getPointAt(Math.min(1, rush + 0.08));
+      target.lerp(new THREE.Vector3(0, 17, -65), THREE.MathUtils.smoothstep(t, 26, 28));
+      const shoulder = RESCUE_SITE.player.clone().add(new THREE.Vector3(Math.sin(JUNGLE_ENTRY_YAW) * 4, 2.5, Math.cos(JUNGLE_ENTRY_YAW) * 4));
+      camera.position.lerp(shoulder, handoff);
       const pathLook = RESCUE_SITE.player.clone().add(new THREE.Vector3(-Math.sin(JUNGLE_ENTRY_YAW) * 15, 1.3, -Math.cos(JUNGLE_ENTRY_YAW) * 15));
-      target.lerp(pathLook, handoff); camera.lookAt(target); camera.fov = THREE.MathUtils.lerp(56, 75, handoff);
+      target.lerp(pathLook, handoff); camera.lookAt(target);
+      camera.fov = THREE.MathUtils.lerp(THREE.MathUtils.lerp(56, 68, THREE.MathUtils.smoothstep(t, 23, 23.7)), 75, handoff);
     }
+    const shake = Math.max(0, 1 - Math.abs(t - 2.25) / 1.1) * 0.38;
+    camera.position.x += Math.sin(t * 71) * shake; camera.position.y += Math.cos(t * 83) * shake;
     camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
   }
   function updateGround(dt: number) {
-    const t = clock - 11; orbital.visible = false; site.scene.visible = true;
+    const t = (clock - 11) * 1.3; orbital.visible = false; site.scene.visible = true;
     scene.background = site.scene.background; scene.fog = site.scene.fog;
-    const fall = THREE.MathUtils.clamp(t / 4, 0, 1);
+    const fall = THREE.MathUtils.clamp(t / 2.05, 0, 1);
     site.pod.position.copy(groundPodPath.getPoint(fall));
-    if (t < 4) {
-      site.pod.quaternion.setFromUnitVectors(modelForward, groundPodPath.getTangent(fall).normalize()); site.pod.rotateZ(Math.sin(t * 13) * 0.2);
-    } else site.pod.rotation.set(0, -0.25, 0.18);
-    site.pod.getObjectByName('PodTrail')!.visible = t < 4;
-    site.setImpact(t - 4);
-    const land = THREE.MathUtils.smootherstep(t, 5, 10);
-    site.ship.root.visible = t >= 4.3;
-    site.ship.root.position.lerpVectors(groundPoint(-12, 48, 30), RESCUE_SITE.ship, land);
-    site.ship.root.rotation.set((1 - land) * -0.2, 0, (1 - land) * -0.15);
-    site.ship.setFlying(t < 7); site.ship.setThrust(t < 10 ? 1.4 - land * 0.9 : Math.max(0, 0.5 - (t - 10) * 0.5));
+    if (t < 2.05) {
+      site.pod.quaternion.setFromUnitVectors(modelForward, groundPodPath.getTangent(fall).normalize()); site.pod.rotateZ(Math.sin(t * 15) * 0.32);
+    } else {
+      site.pod.position.lerpVectors(groundPodImpact, RESCUE_SITE.pod, THREE.MathUtils.smoothstep(t, 2.05, 2.9));
+      const impactRotation = new THREE.Quaternion().setFromUnitVectors(modelForward, groundPodPath.getTangent(1).normalize());
+      site.pod.quaternion.slerpQuaternions(impactRotation, new THREE.Quaternion().setFromEuler(RESCUE_SITE.podRotation), THREE.MathUtils.smoothstep(t, 2.05, 2.9));
+      site.pod.rotateZ(Math.sin(t * 24) * Math.max(0, 0.16 - (t - 2.05) * 0.2));
+    }
+    site.pod.getObjectByName('PodTrail')!.visible = t < 2.1;
+    site.setImpact((t - 2.05) * 1.5);
+    const approachTime = THREE.MathUtils.clamp(t / 3.8, 0, 1), land = 1 - (1 - approachTime) ** 2;
+    site.ship.root.visible = true;
+    site.ship.root.position.copy(groundShipPath.getPoint(land));
+    if (t < 3.8) {
+      site.ship.root.quaternion.setFromUnitVectors(modelForward, groundShipPath.getTangent(land).normalize());
+      site.ship.root.quaternion.slerp(new THREE.Quaternion(), THREE.MathUtils.smootherstep(approachTime, 0.45, 1));
+      site.ship.root.rotateZ(Math.sin(approachTime * Math.PI) * -0.12);
+    } else {
+      site.ship.root.position.lerpVectors(groundShipHover, RESCUE_SITE.ship, THREE.MathUtils.smootherstep(t, 3.8, 6.6));
+      site.ship.root.rotation.set(0, 0, 0);
+    }
+    site.ship.setFlying(t < 3.5); site.ship.setThrust(t < 3.8 ? 1.4 : 1.1 * (1 - THREE.MathUtils.smoothstep(t, 5.5, 7)));
     site.ship.setCanopyOpen(THREE.MathUtils.smoothstep(t, 10, 11));
-    const exit = THREE.MathUtils.smootherstep(t, 11, 14), approach = THREE.MathUtils.smoothstep(t, 14, 17);
+    const exit = THREE.MathUtils.smootherstep(t, 11, 12.4), approach = THREE.MathUtils.smoothstep(t, 14, 17);
     const p = groundPoint(-8, 1.75, 15).lerp(groundPoint(-4, 0.3, 15), exit).lerp(RESCUE_SITE.player, approach);
+    if (t > 11 && t < 12.4) p.y += Math.sin(exit * Math.PI) * 0.6;
     player.setPosition(p.x, p.y, p.z);
-    player.setRotation(t < 17 ? -Math.PI / 2 : t < 23 ? -1 : JUNGLE_ENTRY_YAW);
+    const walkYaw = Math.atan2(groundPoint(-4, 0.3, 15).x - RESCUE_SITE.player.x, groundPoint(-4, 0.3, 15).z - RESCUE_SITE.player.z);
+    player.setRotation(t < 14 ? -Math.PI / 2 : t < 17 ? walkYaw : t < 23 ? Math.atan2(p.x - RESCUE_SITE.boy.x, p.z - RESCUE_SITE.boy.z) : JUNGLE_ENTRY_YAW);
     const emerge = THREE.MathUtils.smoothstep(t, 14, 17);
     site.pod.getObjectByName('PodHatch')!.rotation.z = -THREE.MathUtils.smoothstep(t, 13, 14.5) * 1.5;
     site.boy.visible = t >= 14;
-    site.boy.position.lerpVectors(groundPoint(6.7, 0.2, 10), RESCUE_SITE.boy, emerge);
-    site.boy.rotation.y = -0.9; site.setWalking(t >= 14 && t < 17); site.update(dt);
-    if (caption) caption.textContent = t < 4 ? 'INCOMING ESCAPE POD' : t < 7 ? 'IMPACT / SURVIVOR SIGNAL DETECTED'
-      : t < 11 ? 'LANDING IN THE JUNGLE CLEARING' : t < 17 ? 'THE HATCH IS OPENING'
+    site.pod.updateMatrixWorld(true);
+    const hatchExit = site.pod.localToWorld(new THREE.Vector3(1.2, -0.95, 0.35));
+    site.boy.position.lerpVectors(hatchExit, RESCUE_SITE.boy, emerge);
+    const walkFacing = Math.atan2(RESCUE_SITE.boy.x - hatchExit.x, RESCUE_SITE.boy.z - hatchExit.z);
+    const playerFacing = Math.atan2(player.body.position.x - site.boy.position.x, player.body.position.z - site.boy.position.z);
+    site.boy.rotation.y = walkFacing + Math.atan2(Math.sin(playerFacing - walkFacing), Math.cos(playerFacing - walkFacing)) * THREE.MathUtils.smoothstep(t, 16.5, 17.3);
+    site.setWalking(t >= 14 && t < 17); site.update(dt);
+    for (let i = 0; i < crashBits.count; i++) {
+      const age = t - 2.05, impact = groundPodImpact;
+      const speed = 2 + i % 6, angle = i * 2.4;
+      bitDummy.position.copy(impact).add(new THREE.Vector3(Math.sin(angle) * Math.max(0, age) * speed, 0, Math.cos(angle) * Math.max(0, age) * speed));
+      bitDummy.position.y = Math.max(0.08, 0.5 + age * (2 + i % 4) - 4.9 * age * age);
+      bitDummy.rotation.set(age * (i % 3 + 2), age * 2, angle);
+      bitDummy.scale.setScalar(age < 0 || age > 4 ? 0 : 1 - THREE.MathUtils.smoothstep(age, 2.5, 4));
+      bitDummy.updateMatrix(); crashBits.setMatrixAt(i, bitDummy.matrix);
+    }
+    crashBits.instanceMatrix.needsUpdate = true;
+    shipDust.forEach((mesh, i) => {
+      const wash = THREE.MathUtils.smoothstep(t, 3.5, 4.5) * (1 - THREE.MathUtils.smoothstep(t, 6.6, 8));
+      const radius = 2 + ((Math.max(0, t - 3.5) * 2 + i * 0.35) % 5);
+      mesh.visible = wash > 0;
+      mesh.position.copy(RESCUE_SITE.ship).add(new THREE.Vector3(Math.sin(i * 2.4) * radius, 0.18, Math.cos(i * 2.4) * radius));
+      mesh.scale.set(1.4, 0.22, 1.4); mesh.material.opacity = wash * 0.12;
+    });
+    if (caption) caption.textContent = t < 2.05 ? 'STAY WITH THE POD — BRAKING FOR LANDING' : t < 7 ? 'POD IMPACT / SURVIVOR SIGNAL DETECTED'
+      : t < 11 ? 'SHUTTLE LANDED / OUTER FOREST' : t < 17 ? 'THE HATCH IS OPENING'
       : t < 23 ? '"Thank you for saving me. I thought I was never getting out of there."'
-      : t < 29 ? '"The AI is in that facility beyond the trees. Follow the old stone path. Watch out for its patrols."'
+      : t < 30 ? '"The AI is experimenting in a facility somewhere in this forest. We have to find it and save our friends. Follow the old stone path."'
       : 'FOLLOW THE STONE PATH THROUGH THE JUNGLE';
     groundCamera();
   }
@@ -218,17 +279,27 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
   updateVisuals(0);
   return {
     roomId: 'scene16', scene, camera, physicsWorld, player, planet, pod, shuttle, cutsceneManager: null,
-    isCinematic: () => true, hideCharacter: () => clock < 22,
-    getCinematicState: () => ({ ...player.getState(), isMoving: clock >= 22 && clock < 28, isOnGround: true, jumping: false, climbing: false, crouching: false }),
+    isCinematic: () => true, hideCharacter: () => (clock - 11) * 1.3 < 11,
+    getCinematicDelta: () => animationDelta,
+    getCinematicState: () => ({ ...player.getState(), isMoving: (clock - 11) * 1.3 >= 11 && (clock - 11) * 1.3 < 17, isOnGround: true, jumping: false, climbing: false, crouching: false }),
+    getCinematicPose(): CinematicPose {
+      const t = (clock - 11) * 1.3;
+      if (t < 11.3) return { clip: 'Jump_Start', time: Math.max(0, t - 11), duration: 0.3 };
+      if (t < 12.4) return { clip: 'Jump_Loop', time: t - 11.3 };
+      if (t < 13) return { clip: 'Jump_Land', time: t - 12.4, duration: 0.6 };
+      return t >= 14 && t < 17 ? { clip: 'Walk_Loop', time: t - 14, loop: true } : { clip: 'Idle_Loop', time: t, loop: true };
+    },
     applyCinematicCamera: cameraView,
     updatePhysics(dt: number) {
-      if (disposed || finished || paused) return;
-      dt = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, 0.1)); clock += dt;
-      if (!site.isReady() && clock > 24) clock = 24;
+      animationDelta = 0;
+      if (disposed || finished || paused || document.hidden || document.body.classList.contains('quick-menu-open')) return;
+      dt = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, 0.1)); clock += dt; animationDelta = dt;
+      if (!site.isReady() && clock > 21) clock = 21;
       updateVisuals(dt);
       if (clock >= duration) {
         finished = true; caption?.classList.add('hidden'); document.body.classList.remove('space-cinematic');
-        onFinished({ pilotState: player.captureTransition({ x: 0, y: 0, z: 0 }), hullHealth: entryState?.hullHealth });
+        onFinished({ pilotState: player.captureTransition({ x: 0, y: 0, z: 0 }), hullHealth: entryState?.hullHealth,
+          cameraPosition: camera.position.clone(), cameraQuaternion: camera.quaternion.clone(), cameraFov: camera.fov });
       }
     },
     dispose() {

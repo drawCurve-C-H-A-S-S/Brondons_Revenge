@@ -40,6 +40,7 @@ function browser(t) {
       toggle: (name, value = !this.classes.has(name)) => { this.classList[value ? 'add' : 'remove'](name); return value; },
     };
     closest() { return null; } requestPointerLock() {} querySelector() { return null; }
+    querySelectorAll() { return []; }
     setAttribute(name, value) { this[name] = value; }
     setPointerCapture() {} hasPointerCapture() { return false; } releasePointerCapture() {}
   }
@@ -80,7 +81,11 @@ function fixture(t) {
 test('real weapon input rejects wrong tools and breaks targets/crates in both views', async t => {
   browser(t);
   const f = fixture(t);
-  const context = () => ({ ...f, character: null, thirdPerson: false, hasCrowbar: true, targets: f.breakables.getDamageTargets(), setCharacterEquipped() {}, doorTarget: null, openDoor() {} });
+  let thirdPerson = false;
+  const context = () => ({ ...f, character: null, thirdPerson, hasCrowbar: true, targets: f.breakables.getDamageTargets(), setCharacterEquipped() {}, doorTarget: null, openDoor() {} });
+  const advanceWeapons = seconds => {
+    for (let i = 0; i < Math.ceil(seconds * 60); i++) { pistol.update(1 / 60); crowbar.update(1 / 60); }
+  };
   const pistol = new PistolController(context, async () => ({ scene: new THREE.Group() })); await pistol.ready;
   const crowbar = new CrowbarController(context); t.cleanup(() => { pistol.dispose(); crowbar.dispose(); });
   const target = f.breakables.add('Target', 'pistol', new THREE.Vector3(0, 1.3, -1), new THREE.Vector3(0.8, 0.8, 0.15));
@@ -89,10 +94,11 @@ test('real weapon input rejects wrong tools and breaks targets/crates in both vi
   crowbar.equip(); click(); assert.equal(target.broken, false, 'Crowbar cannot break a pistol target'); crowbar.holster();
   key('KeyK'); assert.equal(pistol.shoot(), true); assert.equal(target.broken, true);
   const crate = f.breakables.add('Crate', 'crowbar', new THREE.Vector3(0, 0.6, -1.2), new THREE.Vector3(1, 1.2, 1));
-  f.camera.lookAt(0, 0.7, -1.2); pistol.update(0.3); pistol.shoot(); assert.equal(crate.broken, false); pistol.holster();
-  crowbar.equip(); crowbar.update(0.3); click(); assert.equal(crate.broken, true, 'First-person crowbar reaches from the body');
+  f.camera.lookAt(0, 0.7, -1.2); advanceWeapons(0.3); assert.equal(pistol.shoot(), true); assert.equal(crate.broken, false); pistol.holster();
+  crowbar.equip(); advanceWeapons(0.3); click(); assert.equal(crate.broken, true, 'First-person crowbar reaches from the body');
   const third = f.breakables.add('ThirdPersonCrate', 'crowbar', new THREE.Vector3(0, 0.6, -1.2), new THREE.Vector3(1, 1.2, 1));
-  f.camera.position.set(0.7, 1.9, 1.5); f.camera.lookAt(0, 0.7, -1.2); crowbar.update(0.3); crowbar.update(0.3); crowbar.update(0.3); click();
+  thirdPerson = true;
+  f.camera.position.set(0.7, 1.9, 1.5); f.camera.lookAt(0, 0.7, -1.2); advanceWeapons(0.3); click();
   assert.equal(third.broken, true, 'Third-person camera distance must not shorten the physical melee reach');
   assert.ok(f.scene.children.some(node => node.name === 'BreakableDebris'));
   for (let i = 0; i < 150; i++) f.breakables.update(1 / 60);
@@ -277,7 +283,7 @@ test('each scene 7 ladder crate stays cleared, and the climb prompt waits for al
   data = await room(t, 7, { clearedCrates: cleared, onCrateBroken: id => cleared.add(id) }); assert.equal(data.getDamageTargets().length, 3);
   data.getDamageTargets().forEach(item => item.damage(35, 'crowbar'));
   data.player.setPosition(4.6, 0.3, -2.95); data.setLadderTrigger(() => {}); step(data, 0.1);
-  assert.equal(elements.get('interact-prompt').textContent, 'Press E to climb'); key('KeyE'); assert.equal(data.player.getState().climbing, true);
+  assert.equal(elements.get('interact-prompt').textContent, 'E: climb / Space while climbing: zip upward'); key('KeyE'); assert.equal(data.player.getState().climbing, true);
   data.dispose(); data = await room(t, 7, { clearedCrates: cleared }); assert.equal(data.getDamageTargets().length, 0);
 });
 
