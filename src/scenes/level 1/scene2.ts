@@ -4,10 +4,10 @@
  */
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import comicVert from '../shaders/comic.vert.glsl?raw';
-import comicFrag from '../shaders/comic.frag.glsl?raw';
-import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
-import { createScenePhysics, PHYSICS, hasNearbyActor } from '../helpers/physics/scenePhysics.js';
+import comicVert from '../../shaders/comic.vert.glsl?raw';
+import comicFrag from '../../shaders/comic.frag.glsl?raw';
+import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
+import { createScenePhysics, PHYSICS, hasNearbyActor } from '../../helpers/physics/scenePhysics.js';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 
 export function createScene({ audioManager, skipWake, entryState }: {

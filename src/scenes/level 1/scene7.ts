@@ -1,12 +1,12 @@
 /** Scene 7 - Cafeteria / Galley */
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import comicVert from '../shaders/comic.vert.glsl?raw';
-import comicFrag from '../shaders/comic.frag.glsl?raw';
-import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
-import { createScenePhysics, PHYSICS } from '../helpers/physics/scenePhysics.js';
-import { LADDER } from '../utils/constants.js';
-import { createBreakables } from '../scripts/breakables.js';
+import comicVert from '../../shaders/comic.vert.glsl?raw';
+import comicFrag from '../../shaders/comic.frag.glsl?raw';
+import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
+import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
+import { LADDER } from '../../utils/constants.js';
+import { createBreakables } from '../../scripts/breakables.js';
 
 export function createScene({ entryState, clearedCrates = new Set<string>(), onCrateBroken }: {
   entryState?: PlayerTransitionState; clearedCrates?: ReadonlySet<string>; onCrateBroken?: (id: string) => void;

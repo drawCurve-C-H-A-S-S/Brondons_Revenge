@@ -9,8 +9,8 @@ import { createServer } from 'vite';
 let server, createScene, createPassage, createPuzzleState, traceShot, CrowbarController, rules, boyData;
 before(async () => {
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
-  ({ createScene } = await server.ssrLoadModule('/scenes/scene13.ts'));
-  ({ createScene: createPassage } = await server.ssrLoadModule('/scenes/scene12.ts'));
+  ({ createScene } = await server.ssrLoadModule('/scenes/level 1/scene13.ts'));
+  ({ createScene: createPassage } = await server.ssrLoadModule('/scenes/level 1/scene12.ts'));
   ({ createCargoPuzzleState: createPuzzleState } = await server.ssrLoadModule('/scripts/cargoPuzzle.ts'));
   ({ traceShot } = await server.ssrLoadModule('/scripts/pistol.ts'));
   ({ CrowbarController } = await server.ssrLoadModule('/scripts/crowbar.ts'));

@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
-import boyUrl from '../assets/models/boy.glb';
-import { createScenePhysics, PHYSICS } from '../helpers/physics/scenePhysics.js';
-import { roomBox, createSlidingPortal, disposeRoom } from '../helpers/scene/shipRoom.js';
-import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
-import { createLoadingBayBoss, type BossPillar } from '../scripts/loadingBayBoss.js';
+import boyUrl from '../../assets/models/boy.glb';
+import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
+import { roomBox, createSlidingPortal, disposeRoom } from '../../helpers/scene/shipRoom.js';
+import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
+import { createLoadingBayBoss, type BossPillar } from '../../scripts/loadingBayBoss.js';
 
 export const BOSS_ENTRY_SECONDS = 7;
 

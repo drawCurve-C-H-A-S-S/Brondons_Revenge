@@ -421,9 +421,14 @@ export async function loadCharacter(loader = new GLTFLoader()) {
         next = mixer.clipAction(clip.clone()); cinematicActions.set(cinematic.clip, next);
       }
       if (next !== cinematicAction) {
-        if (cinematicAction) cinematicAction.fadeOut(0.1);
+        // Resume the already-advancing sprint clock at full weight on this
+        // frame, including zero-delta updates; do not schedule a zero-time fade.
+        const resumeSprint = cinematicAction?.getClip().name === 'Roll' && cinematic.clip === 'Sprint_Loop';
+        if (resumeSprint) cinematicAction!.stop();
+        else if (cinematicAction) cinematicAction.fadeOut(0.1);
         else mixer.stopAllAction();
-        next.reset().setLoop(THREE.LoopOnce, 1).setEffectiveWeight(1).fadeIn(0.1).play();
+        next.reset().setLoop(THREE.LoopOnce, 1).setEffectiveWeight(1).play();
+        if (!resumeSprint) next.fadeIn(0.1);
         cinematicAction = next;
       }
       const duration = next.getClip().duration;

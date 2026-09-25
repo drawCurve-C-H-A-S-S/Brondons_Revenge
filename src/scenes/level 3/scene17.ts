@@ -1,14 +1,14 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { createScenePhysics, createGroundMotor, PHYSICS, registerPhysicsActor } from '../helpers/physics/scenePhysics.js';
-import { createRescueSite, RESCUE_SITE, JUNGLE_PATH, JUNGLE_ROUTE, RETURN_PATH, JUNGLE_ENTRY_YAW, type RescueArrival } from '../helpers/scene/rescueSite.js';
-import { createPlayer } from '../scripts/player.js';
+import { createScenePhysics, createGroundMotor, PHYSICS, registerPhysicsActor } from '../../helpers/physics/scenePhysics.js';
+import { createRescueSite, RESCUE_SITE, JUNGLE_PATH, JUNGLE_ROUTE, RETURN_PATH, JUNGLE_ENTRY_YAW, type RescueArrival } from '../../helpers/scene/rescueSite.js';
+import { createPlayer } from '../../scripts/player.js';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
-import { loadToolModel, loadDinoModel } from '../core/loader.js';
-import { disposeRoom } from '../helpers/scene/shipRoom.js';
-import type { DamageTarget, DamageWeapon } from '../scripts/pistol.js';
-import type { CinematicPose } from '../scripts/characterManager.js';
-import { createRiverAmbusher, createRiverAmbushers } from '../scripts/riverAmbusher.js';
+import { loadToolModel, loadDinoModel } from '../../core/loader.js';
+import { disposeRoom } from '../../helpers/scene/shipRoom.js';
+import type { DamageTarget, DamageWeapon } from '../../scripts/pistol.js';
+import type { CinematicPose } from '../../scripts/characterManager.js';
+import { createRiverAmbusher, createRiverAmbushers } from '../../scripts/riverAmbusher.js';
 
 /** Shared jungle encounters, with distinct bridge and downstream/facility checkpoints. */
 export function createScene({ entryState, onRespawn, onRiver, section = 'approach' }: {

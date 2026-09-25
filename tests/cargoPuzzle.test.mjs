@@ -7,7 +7,7 @@ before(async () => {
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
   logic = await server.ssrLoadModule('/scripts/cargoPuzzle.ts');
   camera = (await server.ssrLoadModule('/core/camera.ts')).applyTraversalCamera;
-  for (const id of [8, 9, 10, 11, 12]) scenes[id] = (await server.ssrLoadModule(`/scenes/scene${id}.ts`)).createScene;
+  for (const id of [8, 9, 10, 11, 12]) scenes[id] = (await server.ssrLoadModule(`/scenes/level 1/scene${id}.ts`)).createScene;
 });
 after(async () => server?.close());
 function fixture(t) {

@@ -1,14 +1,14 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
-import { loadToolModel } from '../core/loader.js';
-import { createScenePhysics, PHYSICS } from '../helpers/physics/scenePhysics.js';
-import { roomBox, disposeRoom } from '../helpers/scene/shipRoom.js';
-import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
-import type { CinematicPose } from '../scripts/characterManager.js';
-import { createEscapeShip, addPlanetBackdrop } from '../scripts/items/createEscapeShip.js';
-import type { DamageTarget } from '../scripts/pistol.js';
-import { isTouchActive } from '../scripts/touchControls.js';
+import { loadToolModel } from '../../core/loader.js';
+import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
+import { roomBox, disposeRoom } from '../../helpers/scene/shipRoom.js';
+import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
+import type { CinematicPose } from '../../scripts/characterManager.js';
+import { createEscapeShip, addPlanetBackdrop } from '../../scripts/items/createEscapeShip.js';
+import type { DamageTarget } from '../../scripts/pistol.js';
+import { isTouchActive } from '../../scripts/touchControls.js';
 
 export interface LaunchState extends PlayerTransitionState {
   launch?: { shipPosition: THREE.Vector3; shipQuaternion: THREE.Quaternion; cameraPosition: THREE.Vector3; cameraQuaternion: THREE.Quaternion; cameraFov: number; speed: number };
@@ -16,10 +16,11 @@ export interface LaunchState extends PlayerTransitionState {
 export const ESCAPE_QTE = Object.freeze({ seconds: 2.2, stages: 6, robots: 48 });
 type Phase = 'arrival' | 'run' | 'orbit' | 'escape' | 'prompt' | 'action' | 'boarding' | 'aboard' | 'launch' | 'failed';
 type EscapeKey = 'KeyX' | 'KeyY' | 'KeyZ';
+const ROLL_PLAYBACK_DURATION = 1.2;
 const ACTION_BEATS = {
   KeyX: { windup: 0.28, impact: 0.38, recover: 0.98, end: 2.15 },
   KeyY: { windup: 0.18, impact: 0.60, recover: 1.12, end: 2.25 },
-  KeyZ: { windup: 0, impact: 0.42, recover: 1.2, end: 2.2 },
+  KeyZ: { windup: 0, impact: 0.42, recover: 0.9, end: 2.2 },
 } as const;
 const BOARDING = { run: 1.05, takeoff: 1.4, land: 2.15, settle: 2.6, seated: 3.9, end: 4.5 } as const;
 
@@ -229,7 +230,9 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
     if (phase === 'escape' || phase === 'prompt') return { clip: 'Sprint_Loop', time: runTime, loop: true };
     if (phase === 'action') {
       const beats = ACTION_BEATS[actionKey];
-      if (actionKey === 'KeyZ' && clock < beats.recover) return { clip: 'Roll', time: clock, duration: beats.recover };
+      // Leave the roll early at its original playback speed. Never hold a
+      // capped frame or retime the standing recovery tail into this window.
+      if (actionKey === 'KeyZ' && clock < beats.recover) return { clip: 'Roll', time: clock, duration: ROLL_PLAYBACK_DURATION };
       const pose: CinematicPose = { clip: 'Sprint_Loop', time: runTime, loop: true };
       if (actionKey !== 'KeyZ' && clock < beats.recover) {
         const yaw = threat ? Math.atan2(threat.root.position.x - player.body.position.x, threat.root.position.z - player.body.position.z) : 0;

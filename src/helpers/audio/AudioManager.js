@@ -14,8 +14,8 @@ export class AudioManager {
     this.autoplayQueue = new Set();
     this.audioUnlocked = false;
     this.unlockAudio = this.unlockAudio.bind(this);
-    window.addEventListener('pointerdown', this.unlockAudio, { once: true });
-    window.addEventListener('keydown', this.unlockAudio, { once: true });
+    window.addEventListener('pointerdown', this.unlockAudio);
+    window.addEventListener('keydown', this.unlockAudio);
   }
 
   resolveSource(path) {
@@ -45,12 +45,18 @@ export class AudioManager {
   }
 
   playBgm() {
-    if (this.bgm) this.playAudio(this.bgm.audio);
+    if (this.bgm) this.requestAutoplay(this.bgm.audio);
+  }
+
+  pauseBgm() {
+    if (!this.bgm) return;
+    this.autoplayQueue.delete(this.bgm.audio);
+    this.bgm.audio.pause();
   }
 
   stopBgm() {
     if (!this.bgm) return;
-    this.bgm.audio.pause();
+    this.pauseBgm();
     this.bgm.audio.currentTime = 0;
     this.bgm = null;
   }
@@ -67,6 +73,7 @@ export class AudioManager {
   removeEmitter(id) {
     const entry = this.emitters.get(id);
     if (!entry) return;
+    this.autoplayQueue.delete(entry.audio);
     entry.audio.pause();
     this.emitters.delete(id);
     this.activeEmitterActors.delete(id);
@@ -102,6 +109,7 @@ export class AudioManager {
   stopEmitter(id) {
     const entry = this.emitters.get(id);
     if (!entry) return;
+    this.autoplayQueue.delete(entry.audio);
     entry.audio.pause();
     entry.audio.currentTime = 0;
   }
@@ -138,18 +146,19 @@ export class AudioManager {
   }
 
   playAudio(audio) {
-    audio.play().catch(() => {});
+    audio.play().then(() => this.autoplayQueue.delete(audio)).catch(() => {});
   }
 
   requestAutoplay(audio) {
-    if (this.audioUnlocked) this.playAudio(audio);
-    else this.autoplayQueue.add(audio);
+    // Scene entry may already be authorized by an earlier user gesture.
+    // Keep blocked requests queued until playback succeeds or is canceled.
+    this.autoplayQueue.add(audio);
+    this.playAudio(audio);
   }
 
   unlockAudio() {
     this.audioUnlocked = true;
     for (const audio of this.autoplayQueue) this.playAudio(audio);
-    this.autoplayQueue.clear();
   }
 
   dispose() {

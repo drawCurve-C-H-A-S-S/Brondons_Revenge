@@ -4,12 +4,12 @@
  */
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import comicVert from '../shaders/comic.vert.glsl?raw';
-import comicFrag from '../shaders/comic.frag.glsl?raw';
-import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
-import { createScenePhysics, PHYSICS, hasNearbyActor } from '../helpers/physics/scenePhysics.js';
-import { createBreakables } from '../scripts/breakables.js';
-import { createRewardChest } from '../scripts/rewardChest.js';
+import comicVert from '../../shaders/comic.vert.glsl?raw';
+import comicFrag from '../../shaders/comic.frag.glsl?raw';
+import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
+import { createScenePhysics, PHYSICS, hasNearbyActor } from '../../helpers/physics/scenePhysics.js';
+import { createBreakables } from '../../scripts/breakables.js';
+import { createRewardChest } from '../../scripts/rewardChest.js';
 
 export function createScene({ audioManager, entryState }: {
   audioManager?: unknown; entryState?: PlayerTransitionState;

@@ -5,9 +5,9 @@ import { createServer } from 'vite';
 let server, createScene7, createScene8, createScene9, applyTraversalCamera;
 before(async () => {
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
-  ({ createScene: createScene7 } = await server.ssrLoadModule('/scenes/scene7.ts'));
-  ({ createScene: createScene8 } = await server.ssrLoadModule('/scenes/scene8.ts'));
-  ({ createScene: createScene9 } = await server.ssrLoadModule('/scenes/scene9.ts'));
+  ({ createScene: createScene7 } = await server.ssrLoadModule('/scenes/level 1/scene7.ts'));
+  ({ createScene: createScene8 } = await server.ssrLoadModule('/scenes/level 1/scene8.ts'));
+  ({ createScene: createScene9 } = await server.ssrLoadModule('/scenes/level 1/scene9.ts'));
   ({ applyTraversalCamera } = await server.ssrLoadModule('/core/camera.ts'));
 });
 after(async () => { await server?.close(); });

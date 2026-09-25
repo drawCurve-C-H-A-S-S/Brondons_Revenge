@@ -17,12 +17,12 @@ Everything flows from `main.ts`. If you need to add a new system (physics, audio
 
 ## How to create a new scene
 
-Create a `createScene()` factory in `src/scenes/`. Use this minimal playable-scene pattern (not the old `build()` / `Player` class APIs):
+Create a `createScene()` factory in the appropriate folder under `src/scenes/`: `level 1/` holds scenes 2–14, `level 2/` holds scenes 15, 15.5 (`scene15-5.ts`), and 16, and `level 3/` holds scenes 17–19. Scene 1 remains at the root. Use this minimal playable-scene pattern from a level folder (not the old `build()` / `Player` class APIs):
 
 ```typescript
 import * as THREE from 'three';
-import { createPlayer } from '../scripts/player.js';
-import { createScenePhysics, PHYSICS } from '../helpers/physics/scenePhysics.js';
+import { createPlayer } from '../../scripts/player.js';
+import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
 
 export function createScene() {
   const scene = new THREE.Scene();
@@ -130,10 +130,10 @@ Put raw game assets here. They will be bundled into `dist/` by Vite.
 - `sounds/` -- MP3, OGG audio
 - `fonts/` -- .woff2, .ttf web fonts
 
-Import asset URLs so Vite includes them in the production build:
+Import asset URLs so Vite includes them in the production build. From a scene inside a level folder:
 
 ```typescript
-import shipUrl from '../assets/models/ship.glb';
+import shipUrl from '../../assets/models/ship.glb';
 
 loader.load(shipUrl, (gltf) => {
   scene.add(gltf.scene);

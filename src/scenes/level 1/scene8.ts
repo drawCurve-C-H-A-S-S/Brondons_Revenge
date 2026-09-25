@@ -1,11 +1,11 @@
 /** Scene 8 - A cramped maintenance vent between the galley and deck below. */
 import * as THREE from 'three';
-import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
-import { createScenePhysics, PHYSICS } from '../helpers/physics/scenePhysics.js';
-import { LADDER } from '../utils/constants.js';
-import { createCargoPuzzleState, advanceCargo, type CargoPuzzleState } from '../scripts/cargoPuzzle.js';
-import { createVentGate, cargoSign } from '../helpers/scene/cargoVisuals.js';
-import { disposeRoom } from '../helpers/scene/shipRoom.js';
+import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
+import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
+import { LADDER } from '../../utils/constants.js';
+import { createCargoPuzzleState, advanceCargo, type CargoPuzzleState } from '../../scripts/cargoPuzzle.js';
+import { createVentGate, cargoSign } from '../../helpers/scene/cargoVisuals.js';
+import { disposeRoom } from '../../helpers/scene/shipRoom.js';
 
 export function createScene({ entry = 'galley', entryState, puzzle = createCargoPuzzleState() }: { entry?: 'galley' | 'deck'; entryState?: PlayerTransitionState; puzzle?: CargoPuzzleState } = {}) {
   const scene = new THREE.Scene();

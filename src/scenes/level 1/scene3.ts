@@ -3,10 +3,10 @@
  */
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import comicVert from '../shaders/comic.vert.glsl?raw';
-import comicFrag from '../shaders/comic.frag.glsl?raw';
-import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
-import { createScenePhysics, PHYSICS, hasNearbyActor } from '../helpers/physics/scenePhysics.js';
+import comicVert from '../../shaders/comic.vert.glsl?raw';
+import comicFrag from '../../shaders/comic.frag.glsl?raw';
+import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
+import { createScenePhysics, PHYSICS, hasNearbyActor } from '../../helpers/physics/scenePhysics.js';
 
 export function createScene({ audioManager, entryState, entryDoor, hasCrowbar = false, cargoDoorUnlocked = false, onCargoDoorOpened }: {
   audioManager?: unknown; entryState?: PlayerTransitionState; entryDoor?: 'front' | 'back' | 'left' | 'right';

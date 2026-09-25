@@ -1,13 +1,13 @@
 /** Scene 9 - Twin freight lines, gravity restoration, and vent access controls. */
 import * as THREE from 'three';
-import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
-import { createScenePhysics, PHYSICS } from '../helpers/physics/scenePhysics.js';
-import { LADDER } from '../utils/constants.js';
-import { createSlidingPortal, roomBox, disposeRoom } from '../helpers/scene/shipRoom.js';
-import { createCargoMouth, createConveyor, createLever, createHandle, cargoSign } from '../helpers/scene/cargoVisuals.js';
-import { createCargoPuzzleState, advanceCargo, beltMoving, laneX, type CargoPuzzleState } from '../scripts/cargoPuzzle.js';
-import { createCargoController } from '../scripts/cargoController.js';
-import { createPuzzleCinematic } from '../scripts/puzzleCinematic.js';
+import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
+import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
+import { LADDER } from '../../utils/constants.js';
+import { createSlidingPortal, roomBox, disposeRoom } from '../../helpers/scene/shipRoom.js';
+import { createCargoMouth, createConveyor, createLever, createHandle, cargoSign } from '../../helpers/scene/cargoVisuals.js';
+import { createCargoPuzzleState, advanceCargo, beltMoving, laneX, type CargoPuzzleState } from '../../scripts/cargoPuzzle.js';
+import { createCargoController } from '../../scripts/cargoController.js';
+import { createPuzzleCinematic } from '../../scripts/puzzleCinematic.js';
 
 export function createScene({ puzzle = createCargoPuzzleState(), gravityRestored, onGravityChanged, entryState, fromPassage = false, dropFromLadder = false }: {
   puzzle?: CargoPuzzleState; gravityRestored?: boolean; onGravityChanged?: (active: boolean) => void;

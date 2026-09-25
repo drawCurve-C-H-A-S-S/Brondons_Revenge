@@ -14,7 +14,7 @@ before(async () => {
     }],
   });
   ({ THREE, GLTFLoader } = await server.ssrLoadModule('virtual:hangar-dependencies'));
-  ({ createScene: createHangar } = await server.ssrLoadModule('/scenes/scene14.ts'));
+  ({ createScene: createHangar } = await server.ssrLoadModule('/scenes/level 1/scene14.ts'));
   ({ loadCharacter } = await server.ssrLoadModule('/scripts/characterManager.ts'));
 });
 after(async () => server?.close());

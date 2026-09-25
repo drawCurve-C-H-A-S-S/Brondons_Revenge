@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { createScene as createScene2 } from '../scenes/scene2.js';
-import { createScene as createScene3 } from '../scenes/scene3.js';
-import { createScene as createScene4 } from '../scenes/scene4.js';
+import { createScene as createScene2 } from '../scenes/level 1/scene2.js';
+import { createScene as createScene3 } from '../scenes/level 1/scene3.js';
+import { createScene as createScene4 } from '../scenes/level 1/scene4.js';
 import { NPCEnemyManager } from './npc-enemy-robots.js';
 
 const FEED_SIZE = 384;

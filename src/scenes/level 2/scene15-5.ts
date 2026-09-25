@@ -88,7 +88,7 @@ export function createSidescrollPhase({ scene, camera, ship, boss, rail, shoot, 
       if (health === 0) destroy();
     },
     applyCamera: cameraView,
-    update(dt: number, railZ: number, horizontal: number, vertical: number, evade: boolean) {
+    update(dt: number, railZ: number, horizontal: number, vertical: number, evadeDirection: number) {
       if (disposed || stage === 'done') return;
       time += dt; elapsed += dt; currentRail = railZ;
       const bossTarget = new THREE.Vector3(0, Math.sin(elapsed * 0.55) * 8, railZ + 265);
@@ -111,9 +111,12 @@ export function createSidescrollPhase({ scene, camera, ship, boss, rail, shoot, 
         if (time >= 4.6) { stage = 'fight'; time = 0; pulse.style.opacity = '0'; }
       } else if (stage === 'fight') {
         boss.position.copy(bossTarget); boss.quaternion.copy(bossTargetRotation);
-        offset = THREE.MathUtils.clamp(offset + horizontal * (evade ? 140 : 65) * dt, -85, 65);
-        height = THREE.MathUtils.clamp(height + vertical * (evade ? 140 : 65) * dt, -105, 110);
-        lean = THREE.MathUtils.damp(lean, vertical * 0.18, 8, dt);
+        // Evade is a latched up/down burst in the visible plane, never a
+        // horizontal speed boost or a roll into the camera's depth axis.
+        const dodge = THREE.MathUtils.clamp(evadeDirection, -1, 1);
+        offset = THREE.MathUtils.clamp(offset + horizontal * 65 * dt, -85, 65);
+        height = THREE.MathUtils.clamp(height + (dodge ? dodge * 145 : vertical * 65) * dt, -105, 110);
+        lean = THREE.MathUtils.damp(lean, dodge ? dodge * 0.32 : vertical * 0.18, 10, dt);
         ship.position.set(0, height, railZ + offset); ship.rotation.set(-lean, Math.PI, 0);
         const presence = THREE.MathUtils.smootherstep(cycle, 0, 0.5) * (1 - THREE.MathUtils.smootherstep(cycle, 3.6, 4.2));
         device.position.copy(deviceTarget); device.visible = presence > 0.01; materialized = presence > 0.65;

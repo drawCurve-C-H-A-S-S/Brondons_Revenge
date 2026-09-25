@@ -19,8 +19,8 @@ before(async () => {
     server: { middlewareMode: true, watch: null, ws: false },
     appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] },
   });
-  ({ createScene: createScene2 } = await server.ssrLoadModule('/scenes/scene2.ts'));
-  ({ createScene: createScene3 } = await server.ssrLoadModule('/scenes/scene3.ts'));
+  ({ createScene: createScene2 } = await server.ssrLoadModule('/scenes/level 1/scene2.ts'));
+  ({ createScene: createScene3 } = await server.ssrLoadModule('/scenes/level 1/scene3.ts'));
   ({ createScenePhysics, PHYSICS } = await server.ssrLoadModule('/helpers/physics/scenePhysics.ts'));
   ({ createPlayer } = await server.ssrLoadModule('/scripts/player.ts'));
   ({ loadCharacter } = await server.ssrLoadModule('/scripts/characterManager.ts'));

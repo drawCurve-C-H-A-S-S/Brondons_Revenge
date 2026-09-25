@@ -26,7 +26,7 @@ before(async () => {
   ({ createScenePhysics } = await server.ssrLoadModule('/helpers/physics/scenePhysics.ts'));
   ({ loadCharacter } = await server.ssrLoadModule('/scripts/characterManager.ts'));
   for (const id of ['scene2', 'scene3', 'scene4']) {
-    factories[id] = (await server.ssrLoadModule(`/scenes/${id}.ts`)).createScene;
+    factories[id] = (await server.ssrLoadModule(`/scenes/level 1/${id}.ts`)).createScene;
   }
 });
 after(async () => { await server?.close(); });

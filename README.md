@@ -60,7 +60,10 @@ project-root/
       controls.ts           OrbitControls (swap for FP controls later)
       loader.ts             GLTF/GLB model and texture loader
     scenes/
-      exampleScene.ts       Example scene showing the expected interface
+      scene1.ts             Intro cutscene
+      level 1/              Scenes 2–14
+      level 2/              Scenes 15, 15.5 (scene15-5.ts), and 16
+      level 3/              Scenes 17–19
     scripts/
       player.ts             Example player controller class
     helpers/                Reusable managers (see MANAGERS.md)

@@ -1,12 +1,12 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { addPlanetBackdrop, createEscapePod, createEscapeShip } from '../scripts/items/createEscapeShip.js';
-import { createPlayer } from '../scripts/player.js';
-import type { CinematicPose } from '../scripts/characterManager.js';
-import { createScenePhysics } from '../helpers/physics/scenePhysics.js';
-import { disposeRoom } from '../helpers/scene/shipRoom.js';
+import { addPlanetBackdrop, createEscapePod, createEscapeShip } from '../../scripts/items/createEscapeShip.js';
+import { createPlayer } from '../../scripts/player.js';
+import type { CinematicPose } from '../../scripts/characterManager.js';
+import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
+import { disposeRoom } from '../../helpers/scene/shipRoom.js';
 import type { FlightExitState } from './scene15.js';
-import { createRescueSite, RESCUE_SITE, JUNGLE_ENTRY_YAW, type RescueArrival } from '../helpers/scene/rescueSite.js';
+import { createRescueSite, RESCUE_SITE, JUNGLE_ENTRY_YAW, type RescueArrival } from '../../helpers/scene/rescueSite.js';
 
 /** An uninterrupted handoff, then pursuit, atmospheric entry, and the crash. */
 export function createScene({ entryState, onFinished }: { entryState?: FlightExitState; onFinished: (arrival: RescueArrival) => void }) {

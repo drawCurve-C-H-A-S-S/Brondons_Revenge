@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { createScenePhysics } from '../helpers/physics/scenePhysics.js';
-import { RESCUE_SITE, createRescueSite, type RescueArrival } from '../helpers/scene/rescueSite.js';
-import { disposeRoom } from '../helpers/scene/shipRoom.js';
-import { createPlayer, PLAYER_MAX_HEALTH } from '../scripts/player.js';
-import { createRiverAmbushers } from '../scripts/riverAmbusher.js';
-import { isTouchFire, resetTouchInput } from '../scripts/touchControls.js';
-import { loadToolModel } from '../core/loader.js';
-import type { CinematicPose, loadCharacter } from '../scripts/characterManager.js';
+import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
+import { RESCUE_SITE, createRescueSite, type RescueArrival } from '../../helpers/scene/rescueSite.js';
+import { disposeRoom } from '../../helpers/scene/shipRoom.js';
+import { createPlayer, PLAYER_MAX_HEALTH } from '../../scripts/player.js';
+import { createRiverAmbushers } from '../../scripts/riverAmbusher.js';
+import { isTouchFire, resetTouchInput } from '../../scripts/touchControls.js';
+import { loadToolModel } from '../../core/loader.js';
+import type { CinematicPose, loadCharacter } from '../../scripts/characterManager.js';
 
 const LANES = [21, 17, 13];
 const WATER = RESCUE_SITE.riverY;

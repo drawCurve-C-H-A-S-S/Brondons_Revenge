@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { createScenePhysics } from '../helpers/physics/scenePhysics.js';
-import { disposeRoom } from '../helpers/scene/shipRoom.js';
-import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
-import { createEscapeShip, createEscapePod, addPlanetBackdrop } from '../scripts/items/createEscapeShip.js';
-import { consumeFlightAim, isTouchFire, resetTouchInput } from '../scripts/touchControls.js';
-import type { LaunchState } from './scene14.js';
+import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
+import { disposeRoom } from '../../helpers/scene/shipRoom.js';
+import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
+import { createEscapeShip, createEscapePod, addPlanetBackdrop } from '../../scripts/items/createEscapeShip.js';
+import { consumeFlightAim, isTouchFire, resetTouchInput } from '../../scripts/touchControls.js';
+import type { LaunchState } from '../level 1/scene14.js';
 import { createSidescrollPhase, SCRAMBLER_HEALTH } from './scene15-5.js';
+import { AudioManager } from '../../helpers/audio/AudioManager.js';
+import level2BgmUrl from '../../assets/bgm/Level 2.m4a?url';
 
 export const FLIGHT_RULES = Object.freeze({ cruise: 200, dodgeSpeed: 52, width: 64, height: 38, planetRadius: 900 });
 const TOTAL_FIGHTERS = 18, MAX_ACTIVE = 6, PLAYER_MAX_HP = 260;
@@ -30,10 +32,10 @@ export interface FlightExitState {
 type Fighter = {
   root: THREE.Group; eye: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   health: number; fireCd: number; laneX: number; laneY: number; seed: number;
-  state: 'attack' | 'regroup'; loop: THREE.CubicBezierCurve3 | null; loopTime: number;
+  state: 'launch' | 'attack' | 'regroup'; loop: THREE.CubicBezierCurve3 | null; loopTime: number;
 };
 type WeakPoint = { mesh: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>; ring: THREE.Mesh; health: number; max: number };
-type Boss = { root: THREE.Group; generators: WeakPoint[]; core: WeakPoint; shield: THREE.Mesh; fireCd: number; volley: number };
+type Boss = { root: THREE.Group; bow: THREE.Group; launchBays: THREE.Object3D[]; generators: WeakPoint[]; core: WeakPoint; shield: THREE.Mesh; fireCd: number; volley: number };
 
 function createFighterMesh() {
   const root = new THREE.Group(); root.name = 'SpaceFighter'; root.scale.setScalar(3.5);
@@ -55,33 +57,58 @@ function createFighterMesh() {
 
 function createBossMesh(): Boss {
   const root = new THREE.Group(); root.name = 'CapitalShip'; root.scale.setScalar(10.5);
-  const hull = new THREE.MeshStandardMaterial({ color: 0x728395, metalness: 0.65, roughness: 0.48 });
-  const armor = new THREE.MeshStandardMaterial({ color: 0x25354b, metalness: 0.75, roughness: 0.4 });
+  const hull = new THREE.MeshStandardMaterial({ color: 0x899ba8, metalness: 0.8, roughness: 0.24 });
+  const armor = new THREE.MeshStandardMaterial({ color: 0x293641, metalness: 0.75, roughness: 0.3 });
+  const trim = new THREE.MeshStandardMaterial({ color: 0xc4d2db, metalness: 0.85, roughness: 0.2 });
+  const hangarDark = new THREE.MeshStandardMaterial({ color: 0x060d13, roughness: 0.85 });
+  const bow = new THREE.Group(); bow.name = 'ArmoredProw'; root.add(bow);
+  const launchBays: THREE.Object3D[] = [];
   const windows = new THREE.MeshBasicMaterial({ color: 0x90dcff });
   const reactorGlow = new THREE.MeshBasicMaterial({ color: 0xf85458 });
   function box(size: [number, number, number], position: [number, number, number], material: THREE.Material = hull) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), material); mesh.position.set(...position); root.add(mesh);
   }
-  function prow(x: number, rear: number, nose: number, width: number, tipWidth: number, height: number, tipHeight: number, material: THREE.Material) {
+  function prow(x: number, rear: number, nose: number, width: number, height: number, material: THREE.Material, parent: THREE.Object3D = root) {
+    // Beveled armor panels converge on a single sharp leading point.
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute([
-      x - width, -height, rear, x + width, -height, rear, x + width, height, rear, x - width, height, rear,
-      x - tipWidth, -tipHeight, nose, x + tipWidth, -tipHeight, nose, x + tipWidth, tipHeight, nose, x - tipWidth, tipHeight, nose,
+      x - width * 0.72, -height, rear, x + width * 0.72, -height, rear,
+      x + width, -height * 0.65, rear, x + width, height * 0.65, rear,
+      x + width * 0.72, height, rear, x - width * 0.72, height, rear,
+      x - width, height * 0.65, rear, x - width, -height * 0.65, rear,
+      x, 0, nose,
     ], 3));
-    geometry.setIndex([0, 1, 2, 0, 2, 3, 5, 4, 7, 5, 7, 6, 4, 0, 3, 4, 3, 7, 1, 5, 6, 1, 6, 2, 3, 2, 6, 3, 6, 7, 4, 5, 1, 4, 1, 0]);
+    const indices: number[] = [];
+    for (let i = 0; i < 8; i++) indices.push(i, 8, (i + 1) % 8);
+    for (let i = 1; i < 7; i++) indices.push(0, i, i + 1);
+    geometry.setIndex(indices);
     const faceted = geometry.toNonIndexed(); faceted.computeVertexNormals(); geometry.dispose();
-    const mesh = new THREE.Mesh(faceted, material); root.add(mesh);
+    const mesh = new THREE.Mesh(faceted, material); parent.add(mesh);
   }
   box([6, 4, 10], [0, 0, 2]); box([3, 2, 5], [0, 3, 0], armor);
-  prow(0, -3, -8.6, 3, 1.15, 2, 0.65, hull);
-  prow(0, -2.8, -8.8, 1.35, 0.55, 2.12, 0.72, armor);
+  prow(0, -3, -11.2, 3, 2, hull, bow);
+  prow(0, -2.9, -10.9, 0.32, 2.08, trim, bow);
   for (const x of [-6, 6]) {
     box([6, 4.5, 8], [x, 0, 2]);
-    prow(x, -2, -7.7, 3, 1.45, 2.25, 1.2, hull);
-    prow(x + Math.sign(x) * 2.1, -2, -9, 0.75, 0.16, 1.1, 0.3, armor);
+    prow(x, -2, -8.7, 3, 2.25, hull);
+    prow(x + Math.sign(x) * 2.1, -2, -9.3, 0.75, 1.1, trim);
     box([0.18, 0.18, 4], [x + Math.sign(x) * 1.8, 1.65, -4.1], windows);
-    const engine = new THREE.Mesh(new THREE.ConeGeometry(1, 5, 12), new THREE.MeshBasicMaterial({ color: 0x8877ff }));
-    engine.rotation.x = -Math.PI / 2; engine.position.set(x, 0, 8); root.add(engine);
+    const engine = new THREE.Mesh(new THREE.ConeGeometry(1, 5, 16), new THREE.MeshBasicMaterial({ color: 0x8bceff }));
+    engine.rotation.x = Math.PI / 2; engine.position.set(x, 0, 9.6); root.add(engine);
+  }
+  // Recessed underside hangars are also the actual interceptor launch origins.
+  for (const side of [-1, 1]) {
+    const x = side * 5.6;
+    box([3.4, 0.18, 3.2], [x, -2.45, -0.8], armor);
+    box([3.4, 0.18, 3.2], [x, -4, -0.8], armor);
+    for (const edge of [-1, 1]) {
+      box([0.18, 1.55, 3.2], [x + edge * 1.6, -3.22, -0.8], hull);
+      box([0.09, 1.35, 0.09], [x + edge * 1.48, -3.22, -2.46], windows);
+    }
+    box([3.1, 1.35, 0.12], [x, -3.22, 0.7], hangarDark);
+    box([2.9, 0.08, 0.12], [x, -3.88, -2.46], windows);
+    const bay = new THREE.Object3D(); bay.name = `InterceptorLaunchBay-${side}`;
+    bay.position.set(x, -3.22, -2.65); root.add(bay); launchBays.push(bay);
   }
   // Layered armor, recessed service channels, bridge glazing, batteries, and engine bells.
   for (const side of [-1, 1]) {
@@ -114,10 +141,10 @@ function createBossMesh(): Boss {
     return { mesh, ring, health, max: health };
   }
   const generators = [-6, 6].flatMap(x => [-1.8, 1.8].map(y => target([x, y, -8.3], 1.05, GENERATOR_HP, 0xffbb44)));
-  const core = target([0, 0, -9.3], 1.65, CORE_HP, 0xff4466); core.mesh.visible = false; core.ring.visible = false;
+  const core = target([0, 0, -7.6], 1.65, CORE_HP, 0xff4466); core.mesh.visible = false; core.ring.visible = false;
   const shield = new THREE.Mesh(new THREE.SphereGeometry(1.9, 20, 12), new THREE.MeshBasicMaterial({ color: 0x66ccff, transparent: true, opacity: 0.3 }));
-  shield.position.copy(core.mesh.position); root.add(shield);
-  return { root, generators, core, shield, fireCd: 2.8, volley: 0 };
+  shield.position.copy(core.mesh.position); shield.visible = false; root.add(shield);
+  return { root, bow, launchBays, generators, core, shield, fireCd: 2.8, volley: 0 };
 }
 
 export function createScene({ entryState, onTransition, startAt }: { entryState?: LaunchState; onTransition: (state: FlightExitState) => void; startAt?: 'scrambler' }) {
@@ -157,8 +184,13 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   let deathClock = 0;
   let playerHp = PLAYER_MAX_HP, invulnerability = 0, damageFlash = 0, hitFlash = 0, fireCd = 0;
   let paused = false, disposed = false, transferred = false, firing = false, cockpitView = false;
-  let rollCd = 0, rollTime = 0, rollSign = 1, alertTime = 0;
+  let rollCd = 0, rollTime = 0, rollSign = 1, sideEvadeSign = -1, alertTime = 0;
   let boss: Boss | null = null, pod: THREE.Group | null = null;
+  let bossMotionTime = 0, bossDepth = 340;
+  const bossArrivalStart = new THREE.Vector3(), bossArrivalRotation = new THREE.Quaternion();
+  const neutralBossRotation = new THREE.Quaternion();
+  const audioManager = new AudioManager({ camera, getFile: (path: string) => path === 'level-2' ? { content: level2BgmUrl } : null });
+  let musicPaused = true;
   let sidescroll: ReturnType<typeof createSidescrollPhase> | null = null;
   let rocketCooldown = 3.2;
   const keys = new Set<string>(), velocity = new THREE.Vector2(), dash = new THREE.Vector2();
@@ -229,8 +261,14 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   function showCrosshair() {
     if (crosshair) { crosshair.style.left = `${(aim.x + 1) * 50}%`; crosshair.style.top = `${(1 - aim.y) * 50}%`; }
   }
+  function syncMusic() {
+    const shouldPause = disposed || transferred || paused || inputBlocked();
+    if (musicPaused === shouldPause) return;
+    musicPaused = shouldPause;
+    if (shouldPause) audioManager.pauseBgm(); else audioManager.playBgm();
+  }
   function setPaused(value: boolean) {
-    paused = value; clearInput();
+    paused = value; clearInput(); syncMusic();
     document.body.classList.toggle('space-paused', value);
     if (value) releasePointerLock();
     updateHud();
@@ -248,8 +286,16 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     if (event.code === 'Space' && rollCd <= 0) {
       const x = Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'));
       const y = Number(keys.has('KeyW') || keys.has('ArrowUp')) - Number(keys.has('KeyS') || keys.has('ArrowDown'));
-      rollSign = x || (ship.root.position.x > 0 ? 1 : -1);
-      dash.set(-x || (y ? 0 : -rollSign), y).normalize(); rollCd = 3; rollTime = 0.42; invulnerability = 0.45;
+      if (phase === 'scrambler') {
+        // Latch a vertical dodge, even if Space is pressed without movement.
+        const fallback = ship.root.position.y > 65 ? -1 : ship.root.position.y < -60 ? 1 : -sideEvadeSign;
+        sideEvadeSign = y || fallback;
+        dash.set(0, sideEvadeSign);
+      } else {
+        rollSign = x || (ship.root.position.x > 0 ? 1 : -1);
+        dash.set(-x || (y ? 0 : -rollSign), y).normalize();
+      }
+      rollCd = 3; rollTime = 0.42; invulnerability = 0.45;
       unlockAudio(); tone(650, 100, 0.25);
     }
   }
@@ -272,13 +318,27 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   window.addEventListener('blur', onBlur); document.addEventListener('visibilitychange', onVisibility);
   document.addEventListener('pointerlockchange', releasePointerLock);
 
+  function createCarrier() {
+    boss = createBossMesh(); boss.root.position.set(-90, 45, railZ + 1000); scene.add(boss.root);
+  }
+  function updateDistantCarrier() {
+    if (!boss || phase !== 'combat') return;
+    boss.root.position.set(-90 + Math.sin(clock * 0.11) * 24, 45 + Math.sin(clock * 0.17) * 9, railZ + 1000);
+    boss.root.rotation.set(0, Math.sin(clock * 0.13) * 0.035, Math.sin(clock * 0.1) * 0.025);
+    boss.root.updateMatrixWorld(true);
+  }
   function spawnFighter() {
+    if (!boss) return;
     const { root, eye } = createFighterMesh();
     const laneX = (spawned % 3 - 1) * 40 + (Math.random() - 0.5) * 12;
     const laneY = (Math.floor(spawned / 3) % 2 ? 1 : -1) * 22;
-    root.position.set(laneX, laneY, railZ + (spawned < MAX_ACTIVE ? 230 + spawned * 38 : 450)); scene.add(root);
-    fighters.push({ root, eye, health: FIGHTER_HP, fireCd: 0.8 + spawned % 6 * 0.35, laneX, laneY, seed: spawned * 1.7, state: 'attack', loop: null, loopTime: 0 });
-    spawned++;
+    boss.launchBays[spawned % boss.launchBays.length].getWorldPosition(root.position);
+    root.position.z -= 3; scene.add(root);
+    const start = root.position.clone(); start.z -= railZ;
+    const loop = new THREE.CubicBezierCurve3(start, start.clone().add(new THREE.Vector3(0, 0, -150)),
+      new THREE.Vector3(laneX, laneY, 600), new THREE.Vector3(laneX, laneY, 440));
+    fighters.push({ root, eye, health: FIGHTER_HP, fireCd: 0.8 + spawned % 6 * 0.35, laneX, laneY, seed: spawned * 1.7, state: 'launch', loop, loopTime: 0 });
+    burst(root.position, 4, 0x9bdfff); spawned++;
   }
   function beginRegroup(f: Fighter) {
     f.state = 'regroup'; f.loopTime = 0;
@@ -300,8 +360,8 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       if (f.health <= 0) continue;
       const previous = f.root.position.clone(); previous.z += FLIGHT_RULES.cruise * dt;
       f.root.position.z += FLIGHT_RULES.cruise * dt;
-      if (f.state === 'regroup' && f.loop) {
-        f.loopTime += dt / 3.4; f.loop.getPoint(Math.min(1, f.loopTime), f.root.position); f.root.position.z += railZ;
+      if ((f.state === 'launch' || f.state === 'regroup') && f.loop) {
+        f.loopTime += dt / (f.state === 'launch' ? 3.2 : 3.4); f.loop.getPoint(Math.min(1, f.loopTime), f.root.position); f.root.position.z += railZ;
         if (f.loopTime >= 1) { f.state = 'attack'; f.fireCd = 0.6 + Math.random(); }
       } else {
         const ahead = f.root.position.z - railZ;
@@ -326,10 +386,14 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   }
 
   function spawnBoss(corePhase = false) {
-    boss = createBossMesh(); boss.root.position.set(-250, 130, railZ + 1400); scene.add(boss.root);
+    if (!boss) return;
+    // Promote the visible carrier into the encounter without replacing or teleporting it.
+    bossArrivalStart.copy(boss.root.position); bossArrivalStart.z -= railZ;
+    bossArrivalRotation.copy(boss.root.quaternion); bossMotionTime = 0; bossDepth = 340;
     if (corePhase) {
+      boss.root.position.set(0, 4, railZ + bossDepth); boss.root.quaternion.identity();
       for (const target of boss.generators) { target.health = 0; target.mesh.visible = false; target.ring.visible = false; }
-      boss.shield.visible = false; boss.core.mesh.visible = true; boss.core.ring.visible = true;
+      boss.bow.visible = false; boss.shield.visible = false; boss.core.mesh.visible = true; boss.core.ring.visible = true;
     }
     phase = corePhase ? 'bossCore' : 'bossArrival'; phaseClock = 0; cockpitView = false;
     invulnerability = 2; clearBolts(); clearInput();
@@ -337,10 +401,19 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   }
   function updateBoss(dt: number) {
     if (!boss || (phase !== 'bossArmor' && phase !== 'bossCore')) return;
-    boss.root.position.x = THREE.MathUtils.damp(boss.root.position.x, Math.sin(clock * 0.35) * 18, 2, dt);
-    boss.root.position.y = THREE.MathUtils.damp(boss.root.position.y, 4 + Math.sin(clock * 0.5) * 9, 2, dt);
-    boss.root.position.z = railZ + 340;
-    boss.root.rotation.z = THREE.MathUtils.damp(boss.root.rotation.z, Math.sin(clock * 0.4) * 0.04, 2, dt); boss.root.updateMatrixWorld(true);
+    // Wide crossing runs, altitude changes and depth variation require active aim.
+    // This clock starts at the sidescroller exit pose and continues through core exposure.
+    bossMotionTime += dt * (phase === 'bossCore' ? 1.28 : 1);
+    const t = bossMotionTime, previousX = boss.root.position.x;
+    boss.root.position.x = THREE.MathUtils.damp(previousX, Math.sin(t * 0.65) * 78 + Math.sin(t * 1.19) * 18, 2.2, dt);
+    boss.root.position.y = THREE.MathUtils.damp(boss.root.position.y, 4 + Math.sin(t * 0.87) * 30 + Math.sin(t * 0.39) * 10, 2.2, dt);
+    bossDepth = THREE.MathUtils.damp(bossDepth, 340 + Math.sin(t * 0.45) * 38, 1.8, dt);
+    boss.root.position.z = railZ + bossDepth;
+    const strafeSpeed = (boss.root.position.x - previousX) / Math.max(dt, 0.001);
+    boss.root.rotation.x = THREE.MathUtils.damp(boss.root.rotation.x, -Math.sin(t * 0.87) * 0.06, 2, dt);
+    boss.root.rotation.y = THREE.MathUtils.damp(boss.root.rotation.y, Math.sin(t * 0.65) * 0.14, 2, dt);
+    boss.root.rotation.z = THREE.MathUtils.damp(boss.root.rotation.z, THREE.MathUtils.clamp(-strafeSpeed * 0.002, -0.14, 0.14), 2, dt);
+    boss.root.updateMatrixWorld(true);
     boss.fireCd -= dt;
     if (phase === 'bossCore') {
       boss.shield.visible = phaseClock % 6 < 1.7;
@@ -384,6 +457,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     burst(target.mesh.getWorldPosition(new THREE.Vector3()), 14);
     if (phase === 'bossArmor' && boss.generators.every(t => t.health <= 0)) {
       phase = 'bossCore'; phaseClock = 1.7;
+      boss.bow.visible = false;
       boss.shield.visible = false; boss.core.mesh.visible = true; boss.core.ring.visible = true;
       boss.fireCd = 2; clearBolts();
       announce('REACTOR EXPOSED / FIRE BETWEEN SHIELD PULSES', 3);
@@ -450,7 +524,8 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     if (target && target.health > 0 && (phase === 'bossArmor' ? target !== boss!.core : target === boss!.core)) {
       hitFlash = 0.12; burst(point, 3, 0xffffff); damageWeakPoint(target);
     } else {
-      burst(point, 2, 0x77bbff); if (alertTime <= 0) announce('ARMORED / AIM AT THE GLOWING TARGETS', 0.7);
+      burst(point, 2, 0x77bbff);
+      if (alertTime <= 0) announce(phase === 'combat' ? 'CARRIER PROTECTED / CLEAR THE INTERCEPTORS' : 'ARMORED / AIM AT THE GLOWING TARGETS', 0.7);
     }
   }
   function updatePlayerShots(dt: number) {
@@ -549,7 +624,8 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     ship.root.position.set(0, 0, 0); ship.root.rotation.set(0, Math.PI, 0); ship.root.visible = true;
     velocity.set(0, 0); dash.set(0, 0); aim.set(0, 0); rollTime = rollCd = fireCd = 0; cockpitView = false;
     planet.visible = false; phase = 'combat'; setPaused(false);
-    for (let i = 0; i < MAX_ACTIVE; i++) spawnFighter();
+    bossMotionTime = 0; bossDepth = 340; sideEvadeSign = -1;
+    createCarrier(); spawnFighter(); spawnCd = 0.8;
     cameraView(); showCrosshair(); announce('SORTIE RESTARTED / INTERCEPTORS INBOUND', 2);
   }
   function disposeRoomForGroup(group: THREE.Group) {
@@ -582,7 +658,9 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     if (healthLabel) healthLabel.textContent = `${playerHp} / ${PLAYER_MAX_HP}`;
     if (speedLabel) speedLabel.textContent = `AUTO THRUST / ${Math.round(launch ? THREE.MathUtils.lerp(launch.speed, FLIGHT_RULES.cruise, THREE.MathUtils.smootherstep(clock, 0, 2.5)) : FLIGHT_RULES.cruise)} m/s`;
     if (objective) objective.textContent = phase === 'bossArrival' ? 'CAPITAL SHIP INBOUND' : phase === 'scrambler' ? '15.5 / DESTROY THE SIDESCROLL SCRAMBLER' : phase === 'combat' ? 'CLEAR THE INTERCEPTORS' : phase === 'bossArmor' ? 'BREAK THE FOUR SHIELD GENERATORS' : phase === 'bossCore' ? 'DESTROY THE EXPOSED REACTOR' : won ? 'FOLLOW THE ESCAPE POD' : 'HULL LOST';
-    if (rollLabel) rollLabel.textContent = rollCd <= 0 ? 'SPACE / EVASIVE ROLL READY' : `ROLL RECHARGING / ${rollCd.toFixed(1)}s`;
+    if (rollLabel) rollLabel.textContent = rollCd <= 0
+      ? phase === 'scrambler' ? 'SPACE / VERTICAL DODGE READY' : 'SPACE / EVASIVE ROLL READY'
+      : `EVADE RECHARGING / ${rollCd.toFixed(1)}s`;
     if (threatLabel) {
       const incoming = bolts.filter(b => b.mesh.position.z > railZ && b.mesh.position.z < railZ + 500).length;
       threatLabel.textContent = incoming ? `INCOMING LASERS / ${incoming}` : 'WATCH FOR GREEN LASER FIRE';
@@ -611,7 +689,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     if (controls && controlsMode !== nextControlsMode) {
       controlsMode = nextControlsMode;
       controls.innerHTML = nextControlsMode === 'side'
-        ? '<div>WASD / arrows: dodge · Hold LMB: fire straight</div><div>Space: evade · Destroy the green scrambler when exposed</div>'
+        ? '<div>WASD / arrows: move | Hold LMB: fire straight</div><div>W/S + Space: dodge up/down | Space alone: alternate dodge</div>'
         : '<div>WASD: dodge · Mouse: aim · Hold LMB: fire</div><div>Space: evade · V: view · Esc: pause</div>';
     }
     crosshair?.classList.toggle('hidden', paused || dead || won || phase === 'scrambler' || phase === 'bossArrival');
@@ -655,7 +733,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       const vertical = Number(keys.has('KeyW') || keys.has('ArrowUp')) - Number(keys.has('KeyS') || keys.has('ArrowDown'));
       if (phase === 'scrambler' && sidescroll) {
         const wasActive = sidescroll.active;
-        sidescroll.update(dt, railZ, horizontal, vertical, rollTime > 0);
+        sidescroll.update(dt, railZ, horizontal, vertical, rollTime > 0 ? dash.y : 0);
         if (wasActive !== sidescroll.active) { clearBolts(); clearInput(); }
         if (sidescroll.stage === 'done') {
           sidescroll.dispose(); sidescroll = null; phase = 'bossArmor'; phaseClock = 0;
@@ -675,6 +753,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     }
     ship.root.visible = !cockpitView;
     ship.update(dt); ship.setThrust(1.6 + Math.sin(clock * 24) * 0.1); cameraView();
+    updateDistantCarrier();
     if (phase === 'combat' && (!launch || clock >= 2.5)) {
       updateFighters(dt); spawnCd -= dt;
       if (spawned < TOTAL_FIGHTERS && fighters.filter(f => f.health > 0).length < MAX_ACTIVE && spawnCd <= 0) { spawnFighter(); spawnCd = 0.8; }
@@ -682,8 +761,8 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     }
     if (phase === 'bossArrival' && boss) {
       const t = THREE.MathUtils.smootherstep(phaseClock, 0, 3.8);
-      boss.root.position.set(-250 * (1 - t), 4 + 126 * (1 - t), railZ + 340 + 1060 * (1 - t));
-      boss.root.rotation.z = (1 - t) * -0.2;
+      boss.root.position.lerpVectors(bossArrivalStart, new THREE.Vector3(0, 4, 340), t); boss.root.position.z += railZ;
+      boss.root.quaternion.slerpQuaternions(bossArrivalRotation, neutralBossRotation, t);
       if (phaseClock >= 3.8) {
         clearBolts(); clearInput(); phase = 'scrambler'; phaseClock = 0; cockpitView = false;
         sidescroll = createSidescrollPhase({ scene, camera, ship: ship.root, boss: boss.root, rail: railZ, shoot: launchBolt, burst });
@@ -709,7 +788,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     if (phase === 'victory' && pod) {
       pod.position.addScaledVector(planetPosition.clone().sub(pod.position).normalize(), dt * 320);
       if (phaseClock >= 2.8 && !transferred) {
-        transferred = true;
+        transferred = true; syncMusic();
         onTransition({ shipPosition: ship.root.position.clone(), shipQuaternion: ship.root.quaternion.clone(), podPosition: pod.position.clone(), podQuaternion: pod.quaternion.clone(), planetPosition: planetPosition.clone(), cameraPosition: camera.position.clone(), cameraQuaternion: camera.quaternion.clone(), cameraFov: camera.fov, hullHealth: playerHp, pilotState: player.captureTransition({ x: 0, y: 0, z: 0 }) });
         return;
       }
@@ -718,7 +797,10 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     player.setPosition(ship.root.position.x, ship.root.position.y + 2, ship.root.position.z);
   }
 
-  if (!launch && !startAt) for (let i = 0; i < MAX_ACTIVE; i++) spawnFighter();
+  audioManager.setBgm({ path: 'level-2', loop: true, volume: 0.45, autoplay: false });
+  syncMusic();
+  createCarrier();
+  if (!launch && !startAt) { spawnFighter(); spawnCd = 0.8; }
   if (startAt === 'scrambler') { spawned = totalKilled = TOTAL_FIGHTERS; spawnBoss(); }
   ship.root.rotation.y = Math.PI; cameraView(); showCrosshair(); updateHud();
   if (!startAt) announce('AUTO THRUST ENGAGED / INTERCEPTORS INBOUND', 3);
@@ -727,10 +809,12 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     isCinematic: () => true, hideCharacter: () => true,
     getSceneId: () => phase === 'scrambler' || (startAt === 'scrambler' && phase === 'bossArrival') ? 'scene15.5' : 'scene15',
     getCinematicState: () => player.getState(), applyCinematicCamera: cameraView,
-    clearInput,
+    clearInput, setMenuPaused: syncMusic,
     getFlightStatus: () => ({ speed: FLIGHT_RULES.cruise, cockpitView, paused, phase, playerHp, totalKilled, spawned, bossHp: boss ? [...boss.generators, boss.core].reduce((sum, t) => sum + t.health, 0) : 0 }),
     updatePhysics(dt: number) {
-      if (disposed || transferred || paused || document.hidden || document.body.classList.contains('quick-menu-open')) return;
+      if (disposed || transferred) return;
+      syncMusic();
+      if (paused || inputBlocked()) return;
       let remaining = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, 0.1));
       // Bounded substeps preserve dodge and projectile behavior across render rates.
       while (remaining > 0 && !disposed && !transferred) { const delta = Math.min(remaining, 1 / 120); step(delta); remaining -= delta; }
@@ -738,6 +822,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     },
     dispose() {
       if (disposed) return; disposed = true; clearInput();
+      audioManager.dispose();
       sidescroll?.dispose(); sidescroll = null;
       window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mousedown', onMouseDown); window.removeEventListener('mouseup', onMouseUp);

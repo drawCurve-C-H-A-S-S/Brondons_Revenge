@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { createPlayer, type PlayerTransitionState } from '../scripts/player.js';
-import { createScenePhysics, PHYSICS } from '../helpers/physics/scenePhysics.js';
-import { createSlidingPortal, roomBox, disposeRoom } from '../helpers/scene/shipRoom.js';
-import { createCargoPuzzleState, advanceCargo, plateCargo, type CargoPuzzleState } from '../scripts/cargoPuzzle.js';
-import { createCargoController } from '../scripts/cargoController.js';
-import { createSpikePlate } from '../helpers/scene/cargoVisuals.js';
+import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
+import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
+import { createSlidingPortal, roomBox, disposeRoom } from '../../helpers/scene/shipRoom.js';
+import { createCargoPuzzleState, advanceCargo, plateCargo, type CargoPuzzleState } from '../../scripts/cargoPuzzle.js';
+import { createCargoController } from '../../scripts/cargoController.js';
+import { createSpikePlate } from '../../helpers/scene/cargoVisuals.js';
 
 export type PassageDestination = 9 | 10 | 11 | 13;
 // Exiting 10 faces +X: 9 is left (-Z), 11 opposite (+X), 13 right (+Z).
