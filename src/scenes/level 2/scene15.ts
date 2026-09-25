@@ -7,6 +7,7 @@ import { createEscapeShip, createEscapePod, addPlanetBackdrop } from '../../scri
 import { consumeFlightAim, isTouchFire, resetTouchInput } from '../../scripts/touchControls.js';
 import type { LaunchState } from '../level 1/scene14.js';
 import { createSidescrollPhase, SCRAMBLER_HEALTH } from './scene15-5.js';
+import { createTopdownPhase, TOPDOWN_SCRAMBLER_HEALTH } from './scene15-75.js';
 import { AudioManager } from '../../helpers/audio/AudioManager.js';
 import level2BgmUrl from '../../assets/bgm/Level 2.m4a?url';
 
@@ -14,7 +15,7 @@ export const FLIGHT_RULES = Object.freeze({ cruise: 200, dodgeSpeed: 52, width: 
 const TOTAL_FIGHTERS = 18, MAX_ACTIVE = 6, PLAYER_MAX_HP = 260;
 const SHOT_DAMAGE = 14, FIGHTER_HP = 42, GENERATOR_HP = 315, CORE_HP = 1400;
 const FORWARD = new THREE.Vector3(0, 0, 1), MODEL_FORWARD = new THREE.Vector3(0, 0, -1);
-type Phase = 'combat' | 'bossArrival' | 'scrambler' | 'bossArmor' | 'bossCore' | 'victory' | 'dead';
+type Phase = 'combat' | 'bossArrival' | 'scrambler' | 'bossArmor' | 'topdownScrambler' | 'bossCore' | 'victory' | 'dead';
 
 export interface FlightExitState {
   shipPosition: THREE.Vector3;
@@ -147,7 +148,7 @@ function createBossMesh(): Boss {
   return { root, bow, launchBays, generators, core, shield, fireCd: 2.8, volley: 0 };
 }
 
-export function createScene({ entryState, onTransition, startAt }: { entryState?: LaunchState; onTransition: (state: FlightExitState) => void; startAt?: 'scrambler' }) {
+export function createScene({ entryState, onTransition, startAt }: { entryState?: LaunchState; onTransition: (state: FlightExitState) => void; startAt?: 'scrambler' | 'topdownScrambler' }) {
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x01040b);
   const physics = createScenePhysics(), physicsWorld = physics.world; physicsWorld.gravity.set(0, 0, 0);
   const camera = new THREE.PerspectiveCamera(76, window.innerWidth / window.innerHeight, 0.1, 50000);
@@ -192,6 +193,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   const audioManager = new AudioManager({ camera, getFile: (path: string) => path === 'level-2' ? { content: level2BgmUrl } : null });
   let musicPaused = true;
   let sidescroll: ReturnType<typeof createSidescrollPhase> | null = null;
+  let topdown: ReturnType<typeof createTopdownPhase> | null = null;
   let rocketCooldown = 3.2;
   const keys = new Set<string>(), velocity = new THREE.Vector2(), dash = new THREE.Vector2();
   const aim = new THREE.Vector2(0, 0), raycaster = new THREE.Raycaster(); raycaster.far = 1200;
@@ -254,8 +256,10 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     keys.clear(); firing = false; velocity.set(0, 0); dash.set(0, 0); rollTime = 0;
     aim.set(0, 0); resetTouchInput(); showCrosshair();
   }
+  function arcadeView() { return phase === 'scrambler' || phase === 'topdownScrambler'; }
   function combatLive() {
-    return phase === 'combat' || phase === 'bossArmor' || phase === 'bossCore' || (phase === 'scrambler' && !!sidescroll?.active);
+    return phase === 'combat' || phase === 'bossArmor' || phase === 'bossCore'
+      || (phase === 'scrambler' && !!sidescroll?.active) || (phase === 'topdownScrambler' && !!topdown?.active);
   }
   function inputBlocked() { return document.hidden || document.body.classList.contains('quick-menu-open'); }
   function showCrosshair() {
@@ -281,8 +285,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) event.preventDefault();
     keys.add(event.code);
     if (event.repeat) return;
-    if (event.code === 'KeyV' && phase !== 'scrambler' && phase !== 'bossArrival') { cockpitView = !cockpitView; cameraView(); }
-    if ((phase === 'scrambler' && !sidescroll?.active) || phase === 'bossArrival') return;
+    if (event.code === 'KeyV' && !arcadeView()) { cockpitView = !cockpitView; cameraView(); }
     if (event.code === 'Space' && rollCd <= 0) {
       const x = Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'));
       const y = Number(keys.has('KeyW') || keys.has('ArrowUp')) - Number(keys.has('KeyS') || keys.has('ArrowDown'));
@@ -291,6 +294,9 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
         const fallback = ship.root.position.y > 65 ? -1 : ship.root.position.y < -60 ? 1 : -sideEvadeSign;
         sideEvadeSign = y || fallback;
         dash.set(0, sideEvadeSign);
+      } else if (phase === 'topdownScrambler') {
+        // Screen-right is world -X in the overhead camera; default toward the center.
+        if (!topdown?.evade(-x || (ship.root.position.x > 0 ? -1 : 1))) return;
       } else {
         rollSign = x || (ship.root.position.x > 0 ? 1 : -1);
         dash.set(-x || (y ? 0 : -rollSign), y).normalize();
@@ -301,7 +307,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   }
   function onKeyUp(event: KeyboardEvent) { keys.delete(event.code); }
   function onMouseMove(event: MouseEvent) {
-    if (disposed || paused || inputBlocked() || !combatLive() || phase === 'scrambler') return;
+    if (disposed || paused || inputBlocked() || !combatLive() || arcadeView()) return;
     aim.set(THREE.MathUtils.clamp(event.clientX / window.innerWidth * 2 - 1, -1, 1), THREE.MathUtils.clamp(1 - event.clientY / window.innerHeight * 2, -1, 1));
     showCrosshair();
   }
@@ -449,6 +455,22 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       }
     }
   }
+  function beginTopdownScrambler(preview = false) {
+    if (!boss || topdown) return;
+    if (preview) {
+      spawned = totalKilled = TOTAL_FIGHTERS;
+      boss.root.position.set(0, 4, railZ + 340); boss.root.quaternion.identity();
+      boss.generators.forEach(target => { target.health = 0; target.mesh.visible = target.ring.visible = false; });
+    }
+    clearBolts(); clearInput(); fireCd = 0; rollCd = 0; cockpitView = false; ship.root.visible = true;
+    phase = 'topdownScrambler'; phaseClock = 0;
+    boss.core.mesh.visible = boss.core.ring.visible = boss.shield.visible = false;
+    boss.bow.visible = true;
+    // Keep the existing AudioManager and Level 2 loop alive through both camera transitions.
+    topdown = createTopdownPhase({ scene, camera, ship: ship.root, boss: boss.root, rail: railZ,
+      launchBays: boss.launchBays, createInterceptor: () => createFighterMesh().root, shoot: launchBolt, burst });
+    announce('SHIELD GENERATORS DESTROYED / RED SCRAMBLER LAUNCHING', 4.8);
+  }
   function damageWeakPoint(target: WeakPoint) {
     if (!boss || (phase !== 'bossArmor' && phase !== 'bossCore') || target.health <= 0 || (target === boss.core && boss.shield.visible)) return;
     target.health = Math.max(0, target.health - SHOT_DAMAGE);
@@ -456,11 +478,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     target.mesh.visible = false; target.ring.visible = false;
     burst(target.mesh.getWorldPosition(new THREE.Vector3()), 14);
     if (phase === 'bossArmor' && boss.generators.every(t => t.health <= 0)) {
-      phase = 'bossCore'; phaseClock = 1.7;
-      boss.bow.visible = false;
-      boss.shield.visible = false; boss.core.mesh.visible = true; boss.core.ring.visible = true;
-      boss.fireCd = 2; clearBolts();
-      announce('REACTOR EXPOSED / FIRE BETWEEN SHIELD PULSES', 3);
+      beginTopdownScrambler();
     } else if (phase === 'bossCore' && target === boss.core) {
       phase = 'victory'; phaseClock = 0; clearInput(); clearBolts();
       planetPosition.set(0, 200, railZ + 14000); planet.position.copy(planetPosition); planet.visible = true;
@@ -475,9 +493,9 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     tone(1200, 250, 0.065, 0.018);
     const shot = playerShots.find(s => s.life <= 0); if (!shot) return;
     scene.updateMatrixWorld(true);
-    const muzzle = phase === 'scrambler' ? ship.root.position.clone().add(new THREE.Vector3(0, 1, 10)) : ship.root.localToWorld(new THREE.Vector3(Math.sin(clock * 70) > 0 ? -2.4 : 2.4, 1.1, -3.8));
+    const muzzle = arcadeView() ? ship.root.position.clone().add(new THREE.Vector3(0, 1, phase === 'topdownScrambler' ? 18 : 10)) : ship.root.localToWorld(new THREE.Vector3(Math.sin(clock * 70) > 0 ? -2.4 : 2.4, 1.1, -3.8));
     raycaster.setFromCamera(aim, camera);
-    if (phase === 'scrambler') shot.direction.set(0, 0, 1);
+    if (arcadeView()) shot.direction.set(0, 0, 1);
     else {
       const hit = raycaster.intersectObjects(shotTargets(), true).find(validShotSurface);
       shot.direction.copy(hit?.point ?? raycaster.ray.at(950, new THREE.Vector3())).sub(muzzle).normalize();
@@ -489,6 +507,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     const roots: THREE.Object3D[] = fighters.filter(f => f.health > 0).map(f => f.root);
     if (boss) roots.push(boss.root);
     if (sidescroll?.active) roots.push(sidescroll.device);
+    if (phase === 'topdownScrambler' && topdown?.active) roots.push(...topdown.shotTargets);
     return roots;
   }
   function validShotSurface(hit: THREE.Intersection) {
@@ -498,6 +517,13 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   }
   function hitPlayerShot(hit: THREE.Intersection) {
     const point = hit.point;
+    if (phase === 'topdownScrambler' && topdown?.active) {
+      if (topdown.hit(hit.object, point, SHOT_DAMAGE)) hitFlash = 0.12;
+      if (!topdown.active) {
+        clearBolts(); clearInput(); announce('RED SCRAMBLER DESTROYED / RESTORING REACTOR APPROACH', 3.2);
+      }
+      return;
+    }
     if (sidescroll?.active) {
       for (let node: THREE.Object3D | null = hit.object; node; node = node.parent) {
         if (node === sidescroll.device) {
@@ -589,7 +615,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     }
   }
   function damagePlayer(amount: number) {
-    if (invulnerability > 0 || phase === 'dead' || phase === 'victory' || phase === 'bossArrival' || (phase === 'scrambler' && !sidescroll?.active)) return;
+    if (invulnerability > 0 || (phase === 'topdownScrambler' && topdown?.evading) || !combatLive()) return;
     playerHp = Math.max(0, playerHp - amount); invulnerability = 0.55; damageFlash = 0.7; tone(90, 30, 0.24, 0.08);
     if (playerHp === 0) {
       phase = 'dead'; deathClock = 1.8; paused = false; ship.root.visible = false; clearInput(); clearBolts(); burst(ship.root.position, 14);
@@ -604,7 +630,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       const relativeEnd = bolt.mesh.position.clone().sub(ship.root.position);
       // Swept collision against the moving ship prevents tunneling at low frame rates.
       const segment = new THREE.Line3(relativeStart, relativeEnd);
-      const radius = phase === 'scrambler' ? 5.5 : 3.2;
+      const radius = arcadeView() ? 5.5 : 3.2;
       const hit = segment.closestPointToPoint(new THREE.Vector3(0, 1, 0), true, temp).distanceToSquared(new THREE.Vector3(0, 1, 0)) < radius * radius;
       if (hit || bolt.life <= 0 || bolt.mesh.position.z < ship.root.position.z - 55) {
         scene.remove(bolt.mesh); bolts.splice(i, 1);
@@ -613,7 +639,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     }
   }
   function restartScene() {
-    sidescroll?.dispose(); sidescroll = null; rocketCooldown = 3.2;
+    sidescroll?.dispose(); sidescroll = null; topdown?.dispose(); topdown = null; rocketCooldown = 3.2;
     for (const f of fighters) { scene.remove(f.root); disposeRoomForGroup(f.root); }
     fighters.length = 0;
     if (boss) { scene.remove(boss.root); disposeRoomForGroup(boss.root); boss = null; }
@@ -633,6 +659,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   }
   function cameraView() {
     if (phase === 'scrambler' && sidescroll) { sidescroll.applyCamera(); return; }
+    if (phase === 'topdownScrambler' && topdown) { topdown.applyCamera(); return; }
     ship.root.updateMatrixWorld(true); camera.up.set(0, 1, 0);
     if (cockpitView) {
       camera.position.copy(ship.root.position).add(new THREE.Vector3(0, 2.2, 1));
@@ -657,20 +684,21 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     healthTrack?.setAttribute('aria-valuenow', String(playerHp));
     if (healthLabel) healthLabel.textContent = `${playerHp} / ${PLAYER_MAX_HP}`;
     if (speedLabel) speedLabel.textContent = `AUTO THRUST / ${Math.round(launch ? THREE.MathUtils.lerp(launch.speed, FLIGHT_RULES.cruise, THREE.MathUtils.smootherstep(clock, 0, 2.5)) : FLIGHT_RULES.cruise)} m/s`;
-    if (objective) objective.textContent = phase === 'bossArrival' ? 'CAPITAL SHIP INBOUND' : phase === 'scrambler' ? '15.5 / DESTROY THE SIDESCROLL SCRAMBLER' : phase === 'combat' ? 'CLEAR THE INTERCEPTORS' : phase === 'bossArmor' ? 'BREAK THE FOUR SHIELD GENERATORS' : phase === 'bossCore' ? 'DESTROY THE EXPOSED REACTOR' : won ? 'FOLLOW THE ESCAPE POD' : 'HULL LOST';
-    if (rollLabel) rollLabel.textContent = rollCd <= 0
-      ? phase === 'scrambler' ? 'SPACE / VERTICAL DODGE READY' : 'SPACE / EVASIVE ROLL READY'
-      : `EVADE RECHARGING / ${rollCd.toFixed(1)}s`;
+    if (objective) objective.textContent = phase === 'bossArrival' ? 'CAPITAL SHIP INBOUND' : phase === 'scrambler' ? '15.5 / DESTROY THE SIDESCROLL SCRAMBLER' : phase === 'topdownScrambler' ? '15.75 / HUNT THE RED SCRAMBLER ON THE FLANKS' : phase === 'combat' ? 'CLEAR THE INTERCEPTORS' : phase === 'bossArmor' ? 'BREAK THE FOUR SHIELD GENERATORS' : phase === 'bossCore' ? 'DESTROY THE EXPOSED REACTOR' : won ? 'FOLLOW THE ESCAPE POD' : 'HULL LOST';
+    if (rollLabel) rollLabel.textContent = phase === 'topdownScrambler' && topdown?.evading ? 'EVADING / DAMAGE IMMUNITY'
+      : rollCd <= 0
+        ? phase === 'scrambler' ? 'SPACE / VERTICAL DODGE READY' : phase === 'topdownScrambler' ? 'SPACE / LATERAL EVADE READY' : 'SPACE / EVASIVE ROLL READY'
+        : `EVADE RECHARGING / ${rollCd.toFixed(1)}s`;
     if (threatLabel) {
       const incoming = bolts.filter(b => b.mesh.position.z > railZ && b.mesh.position.z < railZ + 500).length;
       threatLabel.textContent = incoming ? `INCOMING LASERS / ${incoming}` : 'WATCH FOR GREEN LASER FIRE';
       threatLabel.classList.toggle('incoming', incoming > 0);
     }
     if (enemyCount) {
-      enemyCount.textContent = `INTERCEPTORS ${totalKilled} / ${TOTAL_FIGHTERS}`;
-      enemyCount.classList.toggle('hidden', phase !== 'combat');
+      enemyCount.textContent = phase === 'topdownScrambler' ? `CARRIER ESCORTS / ${topdown?.activeInterceptors ?? 0}` : `INTERCEPTORS ${totalKilled} / ${TOTAL_FIGHTERS}`;
+      enemyCount.classList.toggle('hidden', phase !== 'combat' && phase !== 'topdownScrambler');
     }
-    bossHud?.classList.toggle('hidden', phase !== 'bossArmor' && phase !== 'bossCore' && phase !== 'scrambler');
+    bossHud?.classList.toggle('hidden', phase !== 'bossArmor' && phase !== 'bossCore' && !arcadeView());
     if (boss) {
       const targets = phase === 'bossCore' ? [boss.core] : boss.generators;
       const health = targets.reduce((sum, t) => sum + t.health, 0), max = targets.reduce((sum, t) => sum + t.max, 0);
@@ -685,14 +713,24 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       bossTrack?.setAttribute('aria-valuenow', String(Math.round(sidescroll.health / SCRAMBLER_HEALTH * 100)));
       bossTrack?.setAttribute('aria-label', 'Sidescroll Scrambler health');
     }
-    const nextControlsMode = phase === 'scrambler' ? 'side' : 'normal';
+    if (phase === 'topdownScrambler' && topdown) {
+      const percent = topdown.health / TOPDOWN_SCRAMBLER_HEALTH * 100;
+      if (bossFill) bossFill.style.width = `${percent}%`;
+      if (bossLabel) bossLabel.textContent = topdown.stage !== 'fight' ? 'RED SCRAMBLER / REALIGNING FLIGHT AXES'
+        : topdown.targetable ? 'RED ORB EXPOSED / LINE UP AND FIRE UPWARD' : 'RED ORB RELOCATING / WATCH BOTH FLANKS';
+      bossTrack?.setAttribute('aria-valuenow', String(Math.round(percent)));
+      bossTrack?.setAttribute('aria-label', 'Top-down red scrambler health');
+    }
+    const nextControlsMode = phase === 'scrambler' ? 'side' : phase === 'topdownScrambler' ? 'top' : 'normal';
     if (controls && controlsMode !== nextControlsMode) {
       controlsMode = nextControlsMode;
       controls.innerHTML = nextControlsMode === 'side'
         ? '<div>WASD / arrows: move | Hold LMB: fire straight</div><div>W/S + Space: dodge up/down | Space alone: alternate dodge</div>'
-        : '<div>WASD: dodge · Mouse: aim · Hold LMB: fire</div><div>Space: evade · V: view · Esc: pause</div>';
+        : nextControlsMode === 'top'
+          ? '<div>WASD / arrows: move | Hold LMB: fire upward</div><div>Space: evade | A/D + Space: dodge left/right | Esc: pause</div>'
+          : '<div>WASD: dodge · Mouse: aim · Hold LMB: fire</div><div>Space: evade · V: view · Esc: pause</div>';
     }
-    crosshair?.classList.toggle('hidden', paused || dead || won || phase === 'scrambler' || phase === 'bossArrival');
+    crosshair?.classList.toggle('hidden', paused || dead || won || arcadeView() || phase === 'bossArrival');
     crosshair?.setAttribute('data-hit', String(hitFlash > 0));
     if (damageOverlay) damageOverlay.style.opacity = String(Math.min(0.8, damageFlash + (pct <= 0.3 ? 0.1 : 0)));
     alert?.classList.toggle('hidden', alertTime <= 0 || paused || dead);
@@ -740,6 +778,17 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
           clearInput(); clearBolts(); invulnerability = 1.5;
           announce('SCRAMBLER DESTROYED / BREAK THE FOUR SHIELD GENERATORS', 3);
         }
+      } else if (phase === 'topdownScrambler' && topdown) {
+        const wasActive = topdown.active;
+        topdown.update(dt, railZ, horizontal, vertical);
+        if (wasActive !== topdown.active) { clearBolts(); clearInput(); }
+        if (topdown.stage === 'done' && boss) {
+          topdown.dispose(); topdown = null; phase = 'bossCore'; phaseClock = 1.7;
+          bossMotionTime = 0; bossDepth = 340; boss.fireCd = 2; rocketCooldown = 3.2;
+          boss.bow.visible = false; boss.shield.visible = false; boss.core.mesh.visible = boss.core.ring.visible = true;
+          clearInput(); clearBolts(); invulnerability = 1.5; fireCd = 0;
+          announce('REACTOR EXPOSED / FIRE BETWEEN SHIELD PULSES', 3);
+        }
       } else {
       const input = new THREE.Vector2(-horizontal, vertical); if (input.lengthSq() > 1) input.normalize();
       velocity.x = THREE.MathUtils.damp(velocity.x, input.x * FLIGHT_RULES.dodgeSpeed, 12, dt);
@@ -773,7 +822,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     if (combatLive()) {
       fireCd -= dt;
       const touchAim = consumeFlightAim();
-      if (phase !== 'scrambler' && (touchAim.dx !== 0 || touchAim.dy !== 0)) {
+      if (!arcadeView() && (touchAim.dx !== 0 || touchAim.dy !== 0)) {
         aim.x = THREE.MathUtils.clamp(aim.x + touchAim.dx, -1, 1);
         aim.y = THREE.MathUtils.clamp(aim.y + touchAim.dy, -1, 1);
         showCrosshair();
@@ -802,15 +851,19 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   createCarrier();
   if (!launch && !startAt) { spawnFighter(); spawnCd = 0.8; }
   if (startAt === 'scrambler') { spawned = totalKilled = TOTAL_FIGHTERS; spawnBoss(); }
-  ship.root.rotation.y = Math.PI; cameraView(); showCrosshair(); updateHud();
+  ship.root.rotation.y = Math.PI; cameraView();
+  if (startAt === 'topdownScrambler') beginTopdownScrambler(true);
+  showCrosshair(); updateHud();
   if (!startAt) announce('AUTO THRUST ENGAGED / INTERCEPTORS INBOUND', 3);
   return {
     roomId: 'scene15', scene, camera, physicsWorld, player, ship, planet, cutsceneManager: null,
     isCinematic: () => true, hideCharacter: () => true,
-    getSceneId: () => phase === 'scrambler' || (startAt === 'scrambler' && phase === 'bossArrival') ? 'scene15.5' : 'scene15',
+    getSceneId: () => phase === 'topdownScrambler' ? 'scene15.75' : phase === 'scrambler' || (startAt === 'scrambler' && phase === 'bossArrival') ? 'scene15.5' : 'scene15',
     getCinematicState: () => player.getState(), applyCinematicCamera: cameraView,
     clearInput, setMenuPaused: syncMusic,
-    getFlightStatus: () => ({ speed: FLIGHT_RULES.cruise, cockpitView, paused, phase, playerHp, totalKilled, spawned, bossHp: boss ? [...boss.generators, boss.core].reduce((sum, t) => sum + t.health, 0) : 0 }),
+    getFlightStatus: () => ({ speed: FLIGHT_RULES.cruise, cockpitView, paused, phase, playerHp, totalKilled, spawned,
+      scramblerHp: topdown?.health ?? sidescroll?.health ?? 0, scramblerStage: topdown?.stage ?? sidescroll?.stage ?? null,
+      bossHp: boss ? [...boss.generators, boss.core].reduce((sum, t) => sum + t.health, 0) : 0 }),
     updatePhysics(dt: number) {
       if (disposed || transferred) return;
       syncMusic();
@@ -823,7 +876,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     dispose() {
       if (disposed) return; disposed = true; clearInput();
       audioManager.dispose();
-      sidescroll?.dispose(); sidescroll = null;
+      sidescroll?.dispose(); sidescroll = null; topdown?.dispose(); topdown = null;
       window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mousedown', onMouseDown); window.removeEventListener('mouseup', onMouseUp);
       window.removeEventListener('blur', onBlur); document.removeEventListener('visibilitychange', onVisibility); document.removeEventListener('pointerlockchange', releasePointerLock);

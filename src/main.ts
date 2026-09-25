@@ -629,7 +629,7 @@ function loadHangar14(entryState?: PlayerTransitionState) {
   activateExtension(sceneData, 'scene14');
 }
 
-function loadFlight15(entryState?: LaunchState, startAt?: 'scrambler') {
+function loadFlight15(entryState?: LaunchState, startAt?: 'scrambler' | 'topdownScrambler') {
   hideScene1Skip(); retireTraversalRoom();
   activateExtension(createScene15({ entryState, startAt, onTransition: loadCrash16 }), 'scene15');
   setTouchFlightMode(true);
@@ -932,7 +932,7 @@ const SCENE_CHOICES = [
   [5, 'Cargo hold'], [6, 'Target range'], [7, 'Cafeteria'], [8, 'Vent junction'],
   [9, 'Zero-gravity loading bay'], [10, 'Durable cargo puzzle'], [11, 'Mixed cargo puzzle'],
   [12, 'Transfer passage'], [13, 'Bay Warden boss'], [14, 'Hangar escape'],
-  [15, 'Space combat'], [15.5, 'Sidescroll Scrambler'], [16, 'Jungle crash cutscene'],
+  [15, 'Space combat'], [15.5, 'Sidescroll Scrambler'], [15.75, 'Top-down Red Scrambler'], [16, 'Jungle crash cutscene'],
   [17, 'Jungle bridge ambush'], [18, 'River escape'], [19, 'Facility approach'],
 ] as const;
 const quickMenu = document.getElementById('scene-quick-menu') as HTMLDialogElement;
@@ -995,6 +995,7 @@ function jumpToScene(id: number) {
       case 14: loadHangar14(); break;
       case 15: loadFlight15(); break;
       case 15.5: loadFlight15(undefined, 'scrambler'); break;
+      case 15.75: loadFlight15(undefined, 'topdownScrambler'); break;
       case 16: loadCrash16(); break;
       case 17: loadGround17(); break;
       case 18: loadRiver18(); break;

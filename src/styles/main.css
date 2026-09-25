@@ -510,13 +510,23 @@ body.quick-menu-open #credits-content { animation-play-state: paused; }
 body.river-run #info, body.river-run #view-toggle-btn, body.river-run #crosshair,
 body.river-run #goggles-overlay, body.river-run #goggles-status { display: none !important; }
 body.river-run #loading-bay-status { max-width: min(480px, 85vw); }
-body.side-scroll #space-crosshair, body.side-scroll #touch-view { display: none !important; }
+body.side-scroll #space-crosshair, body.side-scroll #touch-view,
+body.top-down-flight #space-crosshair, body.top-down-flight #touch-view { display: none !important; }
 .scrambler-pulse {
   position: fixed; inset: -20%; z-index: 114; pointer-events: none; opacity: 0;
   background: radial-gradient(ellipse at center, transparent 14%, #79ffac88 37%, #39f484cc 40%, transparent 44%);
   box-shadow: inset 0 0 160px #47ff91; mix-blend-mode: screen;
   transform: scale(var(--pulse-scale, 1));
 }
+.scrambler-pulse.topdown-pulse {
+  background: radial-gradient(ellipse at center, transparent 14%, #ff6b8288 37%, #fa244dcc 40%, transparent 44%);
+  box-shadow: inset 0 0 160px #ff3355;
+}
+.topdown-entry-flash {
+  position: fixed; inset: 0; z-index: 115; pointer-events: none;
+  background: #fff; opacity: calc(var(--flash-opacity, 0) * 0.96);
+}
+body.quick-menu-open .topdown-entry-flash { display: none; }
 .river-hud {
   position: fixed; top: 20px; left: 20px; max-width: min(580px, 85vw); z-index: 120;
   padding: 10px 14px; border-left: 2px solid #a9d8ac; background: #10251fbb;
@@ -538,8 +548,10 @@ body.river-run #space-cinematic-caption { bottom: 105px; }
 @media (prefers-reduced-motion: reduce) {
   #escape-qte.urgent #escape-key { animation: none; }
   .scrambler-pulse { mix-blend-mode: normal; }
+  .topdown-entry-flash { opacity: calc(var(--flash-opacity, 0) * 0.18); }
 }
 body.side-scroll #space-boss-fill { background: #71ff94; box-shadow: 0 0 15px #35dc76; }
+body.top-down-flight #space-boss-fill { background: #ff3355; box-shadow: 0 0 15px #e8294b; }
 #escape-qte.urgent #escape-timer-fill { background: #ff6a56; }
 #escape-action { min-height: 32px; font-size: 13px; line-height: 1.5; }
 .escape-hint { margin-top: 10px; font-size: 11px; color: #a4b5c5; }

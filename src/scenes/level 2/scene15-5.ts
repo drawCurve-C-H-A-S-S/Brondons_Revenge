@@ -39,6 +39,24 @@ export function createSidescrollPhase({ scene, camera, ship, boss, rail, shoot, 
   let stage: 'enter' | 'fight' | 'exit' | 'done' = 'enter';
   let time = 0, elapsed = 0, currentRail = rail, exitRail = rail, health = SCRAMBLER_HEALTH, cooldown = 1.5, volley = 0;
   let offset = -35, height = ship.position.y, lean = 0, disposed = false;
+  let appearing = true, appearanceTime = 0.5, appearanceDuration = 4.2, upper = true;
+  const orbOffset = new THREE.Vector3(0, 86, 40);
+  const random = (min: number, max: number) => THREE.MathUtils.lerp(min, max, Math.random());
+  function advanceAppearance(dt: number) {
+    const instability = 1 - health / SCRAMBLER_HEALTH;
+    // Keep early cycles readable; damage speeds them up and widens their random timing.
+    appearanceTime += dt * (1 + instability * 1.2);
+    if (appearanceTime < appearanceDuration) return;
+    appearing = !appearing; appearanceTime = 0;
+    appearanceDuration = appearing
+      ? random(THREE.MathUtils.lerp(4.2, 3.8, instability), THREE.MathUtils.lerp(4.2, 5.8, instability))
+      : random(0.6, THREE.MathUtils.lerp(0.6, 1.4, instability));
+    if (appearing) {
+      // Only change lanes while invisible, with repeated sides more likely at low health.
+      upper = Math.random() < instability ? Math.random() < 0.5 : !upper;
+      orbOffset.set(0, upper ? random(86, 86 + instability * 12) : -random(82, 82 + instability * 12), random(40 - instability * 20, 40 + instability * 20));
+    }
+  }
   function sidePose() {
     endPosition.set(-Math.max(350, 480 / Math.max(0.25, camera.aspect)), 12, currentRail + 150);
     rotationMatrix.lookAt(endPosition, new THREE.Vector3(0, 0, currentRail + 150), up);
@@ -93,8 +111,8 @@ export function createSidescrollPhase({ scene, camera, ship, boss, rail, shoot, 
       time += dt; elapsed += dt; currentRail = railZ;
       const bossTarget = new THREE.Vector3(0, Math.sin(elapsed * 0.55) * 8, railZ + 265);
       const bossTargetRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.sin(elapsed * 0.6) * 0.025));
-      const cycle = (time + 0.5) % 4.8, upper = Math.floor((time + 0.5) / 4.8) % 2 === 0;
-      const deviceTarget = new THREE.Vector3(0, bossTarget.y + (stage !== 'fight' || upper ? 86 : -82), railZ + 305);
+      if (stage === 'fight') advanceAppearance(dt);
+      const deviceTarget = bossTarget.clone().add(orbOffset);
       if (stage === 'enter') {
         const t = THREE.MathUtils.smootherstep(time, 1.1, 4.6);
         ship.position.lerpVectors(shipStart.clone().add(new THREE.Vector3(0, 0, railZ - rail)), new THREE.Vector3(0, height, railZ + offset), t);
@@ -118,11 +136,12 @@ export function createSidescrollPhase({ scene, camera, ship, boss, rail, shoot, 
         height = THREE.MathUtils.clamp(height + (dodge ? dodge * 145 : vertical * 65) * dt, -105, 110);
         lean = THREE.MathUtils.damp(lean, dodge ? dodge * 0.32 : vertical * 0.18, 10, dt);
         ship.position.set(0, height, railZ + offset); ship.rotation.set(-lean, Math.PI, 0);
-        const presence = THREE.MathUtils.smootherstep(cycle, 0, 0.5) * (1 - THREE.MathUtils.smootherstep(cycle, 3.6, 4.2));
+        const presence = appearing
+          ? THREE.MathUtils.smootherstep(appearanceTime, 0, 0.5) * (1 - THREE.MathUtils.smootherstep(appearanceTime, appearanceDuration - 0.6, appearanceDuration)) : 0;
         device.position.copy(deviceTarget); device.visible = presence > 0.01; materialized = presence > 0.65;
         device.scale.set(0.65 + presence * 0.35, 0.2 + presence * 0.8, 0.65 + presence * 0.35);
         metal.opacity = green.opacity = presence; glowMaterial.opacity = presence * 0.16; light.intensity = presence * 1800;
-        device.rotation.y = THREE.MathUtils.smootherstep(cycle, 0.85, 2.8) * Math.PI * 2;
+        device.rotation.y = THREE.MathUtils.smootherstep(appearanceTime, 0.85, appearanceDuration - 1.4) * Math.PI * 2;
         cooldown -= dt;
         if (cooldown <= 0) {
           volley++; cooldown = volley % 3 === 0 ? 1.8 : 1.25;
