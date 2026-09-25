@@ -8,17 +8,21 @@ import { loadToolModel, loadDinoModel } from '../../core/loader.js';
 import { disposeRoom } from '../../helpers/scene/shipRoom.js';
 import type { DamageTarget, DamageWeapon } from '../../scripts/pistol.js';
 import type { CinematicPose } from '../../scripts/characterManager.js';
-import { createRiverAmbusher, createRiverAmbushers } from '../../scripts/riverAmbusher.js';
+import { createRiverAmbushers } from '../../scripts/riverAmbusher.js';
+import { createJungleScrambler, createJungleScramblerPulse, PLATFORM_COURSE } from '../../helpers/scene/junglePlatformCourse.js';
 
 /** Shared jungle encounters, with distinct bridge and downstream/facility checkpoints. */
-export function createScene({ entryState, onRespawn, onRiver, section = 'approach' }: {
-  entryState?: RescueArrival; onRespawn: () => void; onRiver?: (state: RescueArrival) => void; section?: 'approach' | 'return';
+export function createScene({ entryState, onRespawn, onPlatformer, section = 'approach', loadModel = loadToolModel, loadDinosaur = loadDinoModel }: {
+  entryState?: RescueArrival; onRespawn: () => void; onPlatformer?: (state: RescueArrival) => void; section?: 'approach' | 'return';
+  loadModel?: typeof loadToolModel; loadDinosaur?: typeof loadDinoModel;
 }) {
   const returning = section === 'return';
   const spawn = returning ? RESCUE_SITE.downstream : RESCUE_SITE.player;
   const spawnYaw = returning ? 0 : JUNGLE_ENTRY_YAW;
   const physics = createScenePhysics(), physicsWorld = physics.world;
-  const site = createRescueSite(physics, { culling: true }), { scene, door, ship, pod, boy } = site;
+  const site = createRescueSite(physics, { culling: true, platformer: true,
+    activatedRelays: entryState?.platformProgress?.activatedRelays ?? (returning ? ['relay1', 'relay2', 'relay3'] : []),
+  }), { scene, door, ship, pod, boy } = site;
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 650);
   const player = createPlayer({ camera, physicsWorld, spawnPosition: spawn });
   if (entryState?.pilotState) player.restoreTransition({
@@ -27,7 +31,6 @@ export function createScene({ entryState, onRespawn, onRiver, section = 'approac
     intentionalJump: false, jumpQueued: false, bobTime: 0, bobIntensity: 0,
   }, { x: 0, y: 0, z: 0, yaw: -Math.PI });
   player.setRotation(spawnYaw); player.enable(); player.updateCamera(0);
-  if (returning) site.breakBridge(10);
   ship.setCanopyOpen(1); ship.setFlying(false, true); ship.root.userData.hullHealth = entryState?.hullHealth;
   pod.getObjectByName('PodHatch')!.rotation.z = -1.5;
   boy.rotation.y = Math.atan2(RESCUE_SITE.player.x - boy.position.x, RESCUE_SITE.player.z - boy.position.z); site.setImpact(30);
@@ -61,8 +64,16 @@ export function createScene({ entryState, onRespawn, onRiver, section = 'approac
   let disposed = false, alerted = false, doorLatched = false, completed = false, deathClock = 0;
   let elapsed = 0, arrivalClock = 0, bridgeClock = -1, paused = false, animationDelta = 0;
   const bridgeStart = new THREE.Vector3(), bridgeCamera = new THREE.Vector3(), bridgeRotation = new THREE.Quaternion();
-  const ambusher = returning ? null : createRiverAmbusher(scene);
-  if (ambusher) { ambusher.root.position.set(-54, RESCUE_SITE.riverY - 1.5, RESCUE_SITE.riverZ); ambusher.root.visible = false; }
+  const scrambler = returning ? null : createJungleScrambler(scene);
+  const scramblerPulse = returning ? null : createJungleScramblerPulse();
+  const launcher = site.scramblerLauncher!;
+  if (scrambler) { scrambler.root.position.copy(launcher.chamber); scrambler.root.visible = false; }
+  let bridgeYaw = 0, bridgeFov = 75;
+  const launchArc = new THREE.CubicBezierCurve3(launcher.muzzle.clone(), new THREE.Vector3(-10, 43, -30),
+    new THREE.Vector3(-42, 28, 12), new THREE.Vector3(-42, 5, PLATFORM_COURSE.depth));
+  const launchTrail = returning ? null : new THREE.Mesh(new THREE.ConeGeometry(0.6, 4.5, 10),
+    new THREE.MeshBasicMaterial({ color: 0x99ffbf, transparent: true, opacity: 0.55, depthWrite: false }));
+  if (launchTrail) { launchTrail.name = 'ScramblerLaunchTrail'; launchTrail.visible = false; scene.add(launchTrail); }
   const landSquad = returning ? createRiverAmbushers(scene, [125, 125, 125]) : null;
   const sentries = (landSquad?.actors ?? []).map((actor, index) => {
     const home = RETURN_PATH.getPointAt([0.22, 0.53, 0.83][index]);
@@ -72,14 +83,7 @@ export function createScene({ entryState, onRespawn, onRiver, section = 'approac
     return { actor, body, home, motor: createGroundMotor(body, 0.85), active: false, spent: false,
       aim: new THREE.Vector3(), steering: new THREE.Vector3(), steeringClock: 0, cooldown: 2 + index * 0.7, charge: -1 };
   });
-  const bridgeBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 1, 8), new THREE.MeshBasicMaterial({ color: 0xff523a }));
-  bridgeBeam.visible = false; scene.add(bridgeBeam);
-  const bridgeChips = new THREE.InstancedMesh(new THREE.BoxGeometry(0.12, 0.09, 0.26), new THREE.MeshStandardMaterial({ color: 0x947352, roughness: 1 }), 20);
-  bridgeChips.visible = false; bridgeChips.frustumCulled = false; scene.add(bridgeChips);
-  const chipDummy = new THREE.Object3D();
-  const bridgeImpacts = [new THREE.Vector3(RESCUE_SITE.bridge.x - 2.15, -0.18, 23), new THREE.Vector3(RESCUE_SITE.bridge.x, 0.1, 19)];
-  const splashMaterial = new THREE.MeshBasicMaterial({ color: 0xd7e9cf, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
-  const splash = new THREE.Mesh(new THREE.RingGeometry(0.6, 1, 24), splashMaterial); splash.rotation.x = -Math.PI / 2; splash.position.copy(RESCUE_SITE.bridge); splash.position.y = RESCUE_SITE.riverY + 0.08; scene.add(splash);
+  // The bridge remains solid; the facility now redirects the player onto its maintenance route.
   const onBlur = () => { paused = true; }, onFocus = () => { paused = false; };
   window.addEventListener('blur', onBlur); window.addEventListener('focus', onFocus);
   let spawnClock = 3, patrolLoaded = false, patrolLoadError = false, dinoLoadError = false, dinoIntroduced = false, defeatedPatrols = 0;
@@ -130,7 +134,7 @@ export function createScene({ entryState, onRespawn, onRiver, section = 'approac
       phase: 'dormant', health: maxHealth, timer: 0, cooldown: 1.5, struck: false, navigationClock: 0, goal: new THREE.Vector3(), speed: dino ? 3.65 : 3.2 + index * 0.25,
       steeringClock: 0, steering: new THREE.Vector3(), animationClock: 0 });
   }
-  const patrolReady = loadToolModel('Enemy_Trilobite').then(gltf => {
+  const patrolReady = loadModel('Enemy_Trilobite').then(gltf => {
     if (disposed) { releaseTemplate(gltf.scene); return; }
     const template = gltf.scene, bounds = new THREE.Box3().setFromObject(template), size = bounds.getSize(new THREE.Vector3());
     template.scale.multiplyScalar(1.65 / Math.max(size.x, size.y, size.z, 0.001));
@@ -139,7 +143,7 @@ export function createScene({ entryState, onRespawn, onRiver, section = 'approac
     for (let i = 0; i < 4; i++) addEnemy(template, gltf.animations, 'robot', i);
     template.visible = false; template.name = 'JunglePatrolTemplate'; scene.add(template); templates.push(template); patrolLoaded = true;
   }).catch(error => { if (!disposed) { patrolLoadError = true; console.error('[Scene 17] Could not load jungle patrols:', error); } });
-  const dinoReady = loadDinoModel().then(fbx => {
+  const dinoReady = loadDinosaur().then(fbx => {
     if (disposed) { releaseTemplate(fbx.scene); return; }
     // Normalize a wrapper, leaving the FBX's animated hierarchy and local transforms intact.
     const template = new THREE.Group(); template.add(fbx.scene); template.updateMatrixWorld(true);
@@ -482,77 +486,64 @@ export function createScene({ entryState, onRespawn, onRiver, section = 'approac
     if (document.pointerLockElement) document.exitPointerLock();
   }
   function bridgeView() {
-    if (bridgeClock < 0) return;
-    const p = new THREE.Vector3().copy(player.body.position);
-    const reveal = THREE.MathUtils.smootherstep(bridgeClock, 0, 2);
-    const targetPosition = new THREE.Vector3(-35, 4, 27);
-    const target = p.clone().lerp(ambusher?.root.position.clone().add(new THREE.Vector3(0, 1.7, 0)) ?? p, bridgeClock < 3 ? 0.45 : 0.1);
-    camera.position.lerpVectors(bridgeCamera, targetPosition, reveal); camera.lookAt(target);
-    if (bridgeClock < 1) camera.quaternion.slerpQuaternions(bridgeRotation, camera.quaternion.clone(), THREE.MathUtils.smoothstep(bridgeClock, 0, 1));
-    if (bridgeClock > 3.1) {
-      const t = THREE.MathUtils.smootherstep(bridgeClock, 3.1, 5.2);
-      camera.position.lerp(p.clone().add(new THREE.Vector3(8, 4.5, 0)), t);
-      camera.lookAt(p.clone().add(new THREE.Vector3(-6, 0.8, 0)));
-    }
-    camera.updateMatrixWorld(true);
+    if (bridgeClock < 0 || !scrambler) return;
+    const reveal = THREE.MathUtils.smootherstep(bridgeClock, 0, 1.7);
+    const chase = THREE.MathUtils.smootherstep(bridgeClock, 3.3, 4.2);
+    const orbit = THREE.MathUtils.smootherstep(bridgeClock, 6.4, 8.6);
+    const facilityCamera = launcher.muzzle.clone().add(new THREE.Vector3(8, 4, Math.max(17, 10 / camera.aspect)));
+    const chaseCamera = scrambler.root.position.clone().add(new THREE.Vector3(10, 5, Math.max(14, 9 / camera.aspect)));
+    camera.position.lerpVectors(bridgeCamera, facilityCamera, reveal).lerp(chaseCamera, chase);
+    const sideFocus = new THREE.Vector3(player.body.position.x - 3, 1.43, PLATFORM_COURSE.depth);
+    const sidePosition = sideFocus.clone().add(new THREE.Vector3(0, 3.7, -Math.max(23, 14 / Math.max(0.25, camera.aspect))));
+    camera.position.lerp(sidePosition, orbit);
+    const target = launcher.muzzle.clone().lerp(scrambler.root.position, chase).lerp(sideFocus, orbit);
+    camera.lookAt(target);
+    camera.quaternion.slerpQuaternions(bridgeRotation, camera.quaternion.clone(), reveal);
+    camera.fov = THREE.MathUtils.lerp(THREE.MathUtils.lerp(bridgeFov, 48, reveal), 50, orbit);
+    camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
   }
   function updateBridge(dt: number) {
-    if (ambusher && !ambusher.loaded && !ambusher.error) {
-      if (caption) { caption.classList.remove('hidden'); caption.textContent = 'SOMETHING IS MOVING BELOW THE BRIDGE...'; }
-      return;
-    }
     bridgeClock += dt;
-    if (bridgeClock >= 2.3 && bridgeClock < 3.1) site.damageBridge(bridgeClock - 2.3);
-    bridgeChips.visible = bridgeClock >= 2.3 && bridgeClock < 4.05;
-    if (bridgeChips.visible) {
-      for (let i = 0; i < bridgeChips.count; i++) {
-        const age = bridgeClock - (i < 10 ? 2.3 : 2.85), angle = i * 2.4;
-        chipDummy.position.copy(bridgeImpacts[i < 10 ? 0 : 1]);
-        chipDummy.position.add(new THREE.Vector3(Math.sin(angle) * age * 2, age * (2 + i % 3) - 4.9 * age * age, Math.cos(angle) * age * 2));
-        chipDummy.rotation.set(age * 7, angle, age * 4); chipDummy.scale.setScalar(age < 0 || age > 1.2 ? 0 : 1 - age / 1.2);
-        chipDummy.updateMatrix(); bridgeChips.setMatrixAt(i, chipDummy.matrix);
-      }
-      bridgeChips.instanceMatrix.needsUpdate = true;
-    }
-    const p = bridgeStart.clone().lerp(new THREE.Vector3(-42, 0.53, 20), THREE.MathUtils.smootherstep(bridgeClock, 0, 2.2));
-    p.y = Math.max(bridgeStart.y, 0.3 + 0.23 * THREE.MathUtils.clamp((28.2 - p.z) / 2.6, 0, 1));
-    if (bridgeClock > 3.1) {
-      const fall = bridgeClock - 3.1;
-      p.y = Math.max(RESCUE_SITE.riverY - 0.7, 0.53 - 4.9 * fall * fall);
-      p.z = THREE.MathUtils.lerp(20, 17, THREE.MathUtils.smoothstep(fall, 0, 1.5));
-      site.breakBridge(fall);
-      splash.scale.setScalar(1 + Math.max(0, fall - 0.7) * 3);
-      splashMaterial.opacity = fall < 0.7 ? 0 : Math.max(0, 0.8 - (fall - 0.7) * 0.7);
-    }
+    const walk = THREE.MathUtils.smootherstep(bridgeClock, 0, 1.8);
+    const p = bridgeStart.clone().lerp(new THREE.Vector3(-42, 0.53, PLATFORM_COURSE.depth), walk);
+    p.y = 0.3 + 0.23 * THREE.MathUtils.clamp((28.2 - p.z) / 2.6, 0, 1);
     player.setPosition(p.x, p.y, p.z);
-    if (ambusher) {
-      ambusher.root.visible = bridgeClock >= 0.8;
-      ambusher.aimAt(bridgeClock < 3.3 ? bridgeImpacts[bridgeClock < 2.6 ? 0 : 1] : p);
-      ambusher.charge(bridgeClock < 3.3 ? THREE.MathUtils.clamp((bridgeClock - 1.3) / 0.9, 0, 1) : 0);
-      const shooting = (bridgeClock > 2.3 && bridgeClock < 2.55) || (bridgeClock > 2.85 && bridgeClock < 3.3);
-      if (shooting && !bridgeBeam.visible) ambusher.fire();
-      bridgeBeam.visible = shooting;
-      if (shooting) {
-        ambusher.root.updateMatrixWorld(true);
-        const from = ambusher.muzzle.getWorldPosition(new THREE.Vector3()), to = bridgeImpacts[bridgeClock < 2.6 ? 0 : 1];
-        const direction = to.clone().sub(from);
-        bridgeBeam.position.copy(from).lerp(to, 0.5); bridgeBeam.scale.y = direction.length();
-        bridgeBeam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+    player.setRotation(THREE.MathUtils.lerp(bridgeYaw, Math.PI / 2, THREE.MathUtils.smootherstep(bridgeClock, 1.8, 4.2)));
+    launcher.setOpen(THREE.MathUtils.smootherstep(bridgeClock, 1.7, 2.7));
+    launcher.setCharge(bridgeClock < 3.3 ? THREE.MathUtils.smootherstep(bridgeClock, 1.7, 3.1) : 1 - THREE.MathUtils.smootherstep(bridgeClock, 3.3, 3.9));
+    launcher.setBurst(bridgeClock - 3.3);
+    if (scrambler) {
+      scrambler.root.visible = bridgeClock >= 1.7;
+      if (bridgeClock < 3.3) scrambler.root.position.lerpVectors(launcher.chamber, launcher.muzzle, THREE.MathUtils.smootherstep(bridgeClock, 2.7, 3.3));
+      else scrambler.root.position.copy(launchArc.getPoint(THREE.MathUtils.smootherstep(bridgeClock, 3.3, 6.4)));
+      scrambler.update(dt);
+      if (launchTrail) {
+        launchTrail.visible = bridgeClock >= 3.3 && bridgeClock < 6.4;
+        const tangent = launchArc.getTangent(THREE.MathUtils.smootherstep(bridgeClock, 3.3, 6.4));
+        launchTrail.position.copy(scrambler.root.position).addScaledVector(tangent, -2.25);
+        launchTrail.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent);
       }
-      ambusher.update(dt);
     }
-    if (caption) { caption.classList.remove('hidden'); caption.textContent = bridgeClock < 1.6 ? 'THE OLD BRIDGE...' : bridgeClock < 3.1 ? 'SOMETHING IS MOVING IN THE WATER!' : 'THE SUPPORTS ARE GONE!'; }
+    scramblerPulse?.update(bridgeClock - 6.4);
+    if (caption) {
+      caption.classList.remove('hidden');
+      caption.textContent = bridgeClock < 1.7 ? 'FACILITY DEFENSE SYSTEM / LAUNCH BAY ACTIVATING'
+        : bridgeClock < 3.3 ? 'SCRAMBLER CHARGING / LAUNCH SHUTTERS OPEN'
+        : bridgeClock < 6.4 ? 'SCRAMBLER LAUNCHED / INBOUND TO THE BRIDGE'
+        : 'SPACE HAS SHIFTED / KEEP UP WITH THE CAMERA';
+    }
     bridgeView();
-    if (bridgeClock >= 5.2 && !completed) {
+    if (bridgeClock >= 8.6 && !completed) {
       completed = true;
-      onRiver?.({ ...entryState, pilotState: player.captureTransition({ x: 0, y: 0, z: 0 }), ambusherHealth: ambusher?.health ?? 125,
-        ambusherPosition: ambusher?.root.position.clone(), ambusherQuaternion: ambusher?.root.quaternion.clone(),
+      onPlatformer?.({ ...entryState, pilotState: player.captureTransition({ x: 0, y: 0, z: 0 }),
+        platformProgress: { checkpoint: 'bridge', activatedRelays: [], defeatedRobots: [] },
+        scramblerPosition: scrambler?.root.position.clone(), scramblerQuaternion: scrambler?.root.quaternion.clone(),
         cameraPosition: camera.position.clone(), cameraQuaternion: camera.quaternion.clone(), cameraFov: camera.fov });
     }
   }
   syncNearbyPhysics(); site.updateVisibility(camera, player.body.position); updateHud();
   return {
-    roomId: returning ? 'scene19' : 'scene17', scene, camera, physics, physicsWorld, player, ship, pod, boy, door, enemies, ready: Promise.all([site.ready, patrolReady, dinoReady, ambusher?.ready, landSquad?.ready]), cutsceneManager: null,
+    roomId: returning ? 'scene19' : 'scene17', scene, camera, physics, physicsWorld, player, ship, pod, boy, door, enemies, ready: Promise.all([site.ready, patrolReady, dinoReady, landSquad?.ready]), cutsceneManager: null,
     get robots() { return enemies.filter(enemy => enemy.kind === 'robot'); },
     get dinosaurs() { return enemies.filter(enemy => enemy.kind === 'dino'); },
     getDamageTargets: (): DamageTarget[] => completed || bridgeClock >= 0 || deathClock > 0 ? [] : [
@@ -563,13 +554,10 @@ export function createScene({ entryState, onRespawn, onRiver, section = 'approac
     ],
     isCinematic: () => completed || bridgeClock >= 0 || deathClock > 0,
     getCinematicDelta: () => animationDelta,
-    getCinematicState: () => completed || bridgeClock >= 0 || deathClock > 0 ? { ...player.getState(), yaw: bridgeClock > 3.5 ? Math.PI / 2 : 0, isMoving: bridgeClock >= 0 && bridgeClock < 2.2, isOnGround: bridgeClock >= 0 && bridgeClock < 3.1, jumping: false, climbing: false } : null,
+    getCinematicState: () => completed || bridgeClock >= 0 || deathClock > 0 ? { ...player.getState(), isMoving: bridgeClock >= 0 && bridgeClock < 1.8, isOnGround: true, jumping: false, climbing: false } : null,
     getCinematicPose(): CinematicPose | null {
       if (bridgeClock < 0) return null;
-      if (bridgeClock < 2.2) return { clip: 'Walk_Loop', time: bridgeClock, loop: true };
-      if (bridgeClock < 3.1) return { clip: 'Idle_Loop', time: bridgeClock, loop: true };
-      if (bridgeClock < 4) return { clip: 'Jump_Loop', time: bridgeClock - 3.1 };
-      return { clip: 'Float_Loop', time: bridgeClock - 4, swimming: true, loop: true };
+      return { clip: bridgeClock < 1.8 ? 'Walk_Loop' : 'Idle_Loop', time: bridgeClock, loop: true };
     },
     applyCinematicCamera: bridgeView,
     applyEntryCamera() {
@@ -598,8 +586,9 @@ export function createScene({ entryState, onRespawn, onRiver, section = 'approac
       arrivalClock += dt;
       const p = player.body.position;
       playerRoute = site.nearestPathPoint(p.x, p.z);
-      if (!returning && p.z < 28.3 && p.z > 10 && Math.abs(p.x - RESCUE_SITE.bridge.x) < 2.1) {
+      if (!returning && player.getState().isOnGround && p.z < 28.3 && p.z > 10 && Math.abs(p.x - RESCUE_SITE.bridge.x) < 2.1) {
         bridgeStart.copy(p); bridgeCamera.copy(camera.position); bridgeRotation.copy(camera.quaternion);
+        bridgeYaw = player.getState().yaw; bridgeFov = camera.fov;
         bridgeClock = 0; stopDefense(); freezePlayer(); player.body.collisionResponse = false; status?.classList.add('hidden');
         updateBridge(0); return;
       }
@@ -627,7 +616,7 @@ export function createScene({ entryState, onRespawn, onRiver, section = 'approac
       updateHud();
     },
     dispose() {
-      if (disposed) return; disposed = true; unregister(); stopDefense(); ambusher?.dispose(); landSquad?.dispose();
+      if (disposed) return; disposed = true; unregister(); stopDefense(); scramblerPulse?.dispose(); landSquad?.dispose();
       window.removeEventListener('blur', onBlur); window.removeEventListener('focus', onFocus);
       scene.onBeforeRender = () => {}; physicsFocus.length = 0;
       status?.classList.add('hidden'); caption?.classList.add('hidden'); prompt?.classList.add('hidden');

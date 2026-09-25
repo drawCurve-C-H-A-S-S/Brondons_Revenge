@@ -105,9 +105,9 @@ const THIRD_PERSON_RIGHT = 0.7;
 
 const pistol = new PistolController(() => ({
   scene: activeScene, camera: activeCamera, world: currentSceneData?.physicsWorld ?? null,
-  player: cargoPuzzle.handle === 'carried' ? null : currentPlayer, character: globalCharacter?.model ?? null,
+  player: cargoPuzzle.handle === 'carried' || currentSceneData?.ownsWeaponInput ? null : currentPlayer, character: globalCharacter?.model ?? null,
   thirdPerson: isThirdPerson, targets: [...npcManager.getDamageTargets(), ...(currentSceneData?.getDamageTargets?.() ?? [])],
-  weaponAnimation: globalCharacter?.weapon,
+  weaponAnimation: currentSceneData?.ownsWeaponInput ? undefined : globalCharacter?.weapon,
   holsterOther: () => crowbarController?.holster(),
 }));
 
@@ -115,7 +115,7 @@ const crowbar = new CrowbarController(() => ({
   scene: activeScene,
   camera: activeCamera,
   world: currentSceneData?.physicsWorld ?? null,
-  player: cargoPuzzle.handle === 'carried' ? null : currentPlayer,
+  player: cargoPuzzle.handle === 'carried' || currentSceneData?.ownsWeaponInput ? null : currentPlayer,
   character: globalCharacter?.model ?? null,
   thirdPerson: isThirdPerson,
   hasCrowbar,
@@ -128,7 +128,7 @@ const crowbar = new CrowbarController(() => ({
 }));
 crowbarController = crowbar;
 const goggles = new GogglesController(() => ({
-  player: currentPlayer, scene: currentSceneData,
+  player: currentSceneData?.ownsWeaponInput ? null : currentPlayer, scene: currentSceneData,
   setCharacterEquipped: active => globalCharacter?.setGogglesEquipped(active),
 }));
 
@@ -178,6 +178,7 @@ function setupViewToggle() {
 }
 
 function toggleView() {
+  if (currentSceneData?.ownsWeaponInput) return;
   isThirdPerson = !isThirdPerson;
   const btn = document.getElementById('view-toggle-btn');
   if (btn) btn.textContent = isThirdPerson ? '1st Person' : '3rd Person';
@@ -647,7 +648,7 @@ function loadCrash16(entryState?: FlightExitState) {
 function loadGround17(entryState?: RescueArrival) {
   hideScene1Skip(); retireTraversalRoom(); setTouchFlightMode(false);
   activateExtension(createScene17({
-    entryState, onRiver: loadRiver18,
+    entryState, onPlatformer: loadPlatformer18,
     onRespawn: () => loadGround17(checkpointArrival(entryState)),
   }), 'scene17');
 }
@@ -657,10 +658,10 @@ function checkpointArrival(entryState?: RescueArrival): RescueArrival {
     pilotState: entryState?.pilotState ? { ...entryState.pilotState, health: PLAYER_MAX_HEALTH } : undefined };
 }
 
-function loadRiver18(entryState?: RescueArrival) {
-  hideScene1Skip(); retireTraversalRoom(); setTouchFlightMode(true);
+function loadPlatformer18(entryState?: RescueArrival) {
+  hideScene1Skip(); retireTraversalRoom(); setTouchFlightMode(false);
   activateExtension(createScene18({ entryState, onFinished: loadGround19,
-    onRespawn: () => loadRiver18(checkpointArrival(entryState)),
+    onRespawn: state => loadPlatformer18(checkpointArrival(state)),
   }), 'scene18');
 }
 
@@ -889,7 +890,7 @@ function updatePlayerView(dt: number) {
   if (cinematicState) {
     // Remove ordinary weapon presentation before the scene applies its scripted props.
     pistol.update(dt); crowbar.update(dt);
-    globalCharacter?.weapon.setEquipped(false);
+    globalCharacter?.weapon.setEquipped(!!currentSceneData.ownsWeaponInput && currentSceneData.getCinematicWeapon?.() === 'pistol');
     globalCharacter?.setCrowbarEquipped(currentSceneData.getCinematicWeapon?.() === 'crowbar');
     if (globalCharacter) {
       if (currentSceneData.hideCharacter?.()) globalCharacter.model.visible = false;
@@ -905,9 +906,17 @@ function updatePlayerView(dt: number) {
   if (!currentPlayer.isEnabled()) return;
   // Always start from the base camera, including the first render after a scene swap.
   const state = currentPlayer.getState();
-  const traversalView = isThirdPerson || state.climbing || state.boxHandling;
+  const traversalView = isThirdPerson || !!currentSceneData?.forceThirdPerson || state.climbing || state.boxHandling;
+  const sceneWeapon = !!currentSceneData?.ownsWeaponInput;
+  if (sceneWeapon) {
+    pistol.update(0); crowbar.update(0);
+    globalCharacter?.weapon.setEquipped(currentSceneData.getCinematicWeapon?.() === 'pistol');
+    globalCharacter?.setCrowbarEquipped(currentSceneData.getCinematicWeapon?.() === 'crowbar');
+  }
   currentPlayer.updateCamera(0, traversalView);
-  globalCharacter?.update(dt, currentPlayer.body.position, state, traversalView, currentPlayer.radius);
+  globalCharacter?.update(sceneWeapon ? currentSceneData.getCinematicDelta?.() ?? dt : dt,
+    currentPlayer.body.position, state, traversalView, currentPlayer.radius);
+  if (sceneWeapon) currentSceneData.updateCinematicCharacter?.(globalCharacter);
   if (applyTraversalCamera(activeCamera, currentPlayer, traversalView)) return;
   if (traversalView) {
     // Forward is the direction the player faces (matches getMoveDirection's W vector).
@@ -933,7 +942,7 @@ const SCENE_CHOICES = [
   [9, 'Zero-gravity loading bay'], [10, 'Durable cargo puzzle'], [11, 'Mixed cargo puzzle'],
   [12, 'Transfer passage'], [13, 'Bay Warden boss'], [14, 'Hangar escape'],
   [15, 'Space combat'], [15.5, 'Sidescroll Scrambler'], [15.75, 'Top-down Red Scrambler'], [16, 'Jungle crash cutscene'],
-  [17, 'Jungle bridge ambush'], [18, 'River escape'], [19, 'Facility approach'],
+  [17, 'Jungle bridge scrambler'], [18, 'Jungle platformer'], [19, 'Facility approach'],
 ] as const;
 const quickMenu = document.getElementById('scene-quick-menu') as HTMLDialogElement;
 
@@ -998,7 +1007,7 @@ function jumpToScene(id: number) {
       case 15.75: loadFlight15(undefined, 'topdownScrambler'); break;
       case 16: loadCrash16(); break;
       case 17: loadGround17(); break;
-      case 18: loadRiver18(); break;
+      case 18: loadPlatformer18(); break;
       case 19: loadGround19(); break;
     }
     const spawnedPlayer = currentSceneData?.player as Player | undefined;
@@ -1147,7 +1156,7 @@ function animate() {
   goggles.update();
   updatePlayerView(delta);
 
-  if (!sceneOwnsControls) { pistol.update(delta); crowbar.update(delta); }
+  if (!sceneOwnsControls && !currentSceneData?.ownsWeaponInput) { pistol.update(delta); crowbar.update(delta); }
   document.getElementById('weapon-status')?.classList.toggle('hidden', cargoPuzzle.handle === 'carried');
   heldSwitchHandle.visible = cargoPuzzle.handle === 'carried' && !sceneOwnsControls && !!currentPlayer?.isEnabled();
   if (heldSwitchHandle.visible && currentPlayer && activeScene && activeCamera) {
@@ -1169,7 +1178,7 @@ function animate() {
   // Render
   if (activeScene && activeCamera) {
     renderer.render(currentSceneData?.getRenderScene?.() ?? activeScene, activeCamera);
-    if (!sceneOwnsControls && cargoPuzzle.handle !== 'carried') crowbar.renderFirstPerson(renderer);
+    if (!sceneOwnsControls && !currentSceneData?.ownsWeaponInput && cargoPuzzle.handle !== 'carried') crowbar.renderFirstPerson(renderer);
   }
 }
 

@@ -507,9 +507,10 @@ body.quick-menu-open #credits-content { animation-play-state: paused; }
 #escape-qte #escape-action, #escape-qte #escape-timer-track {
   position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);
 }
-body.river-run #info, body.river-run #view-toggle-btn, body.river-run #crosshair,
-body.river-run #goggles-overlay, body.river-run #goggles-status { display: none !important; }
-body.river-run #loading-bay-status { max-width: min(480px, 85vw); }
+body.jungle-platformer #info, body.jungle-platformer #view-toggle-btn,
+body.jungle-platformer #health-bar, body.jungle-platformer-side #crosshair,
+body.jungle-platformer #weapon-status, body.jungle-platformer #goggles-overlay,
+body.jungle-platformer #goggles-status { display: none !important; }
 body.side-scroll #space-crosshair, body.side-scroll #touch-view,
 body.top-down-flight #space-crosshair, body.top-down-flight #touch-view { display: none !important; }
 .scrambler-pulse {
@@ -527,28 +528,45 @@ body.top-down-flight #space-crosshair, body.top-down-flight #touch-view { displa
   background: #fff; opacity: calc(var(--flash-opacity, 0) * 0.96);
 }
 body.quick-menu-open .topdown-entry-flash { display: none; }
-.river-hud {
-  position: fixed; top: 20px; left: 20px; max-width: min(580px, 85vw); z-index: 120;
-  padding: 10px 14px; border-left: 2px solid #a9d8ac; background: #10251fbb;
+.jungle-scrambler-flash {
+  position: fixed; inset: 0; z-index: 115; pointer-events: none;
+  background: #d6ffe6; opacity: calc(var(--flash-opacity, 0) * 0.24);
+}
+.platformer-hud {
+  position: fixed; top: 20px; left: 20px; max-width: min(650px, 90vw); z-index: 120;
+  padding: 10px 14px; border-left: 2px solid #a9d8ac; background: #10251fe6;
   color: #dcf1d8; font: 12px/1.8 monospace; white-space: pre-line; pointer-events: none;
 }
-.river-lane-controls { display: none; }
-body.touch-device .river-lane-controls {
-  display: flex; gap: 18px; position: fixed; left: 22px; bottom: 28px; z-index: 1801;
+.platformer-health-track { height: 8px; margin-top: 7px; background: #293d37; }
+.platformer-health-fill { height: 100%; background: #ffbd75; }
+.platformer-health-track.exposed .platformer-health-fill { background: #79ffac; }
+.platformer-retry {
+  position: fixed; left: 50%; bottom: 22%; transform: translateX(-50%); z-index: 1801;
+  padding: 14px 20px; border: 1px solid #c4dfc5; border-radius: 8px;
+  color: #e1ffe1; background: #183d2b; font: bold 13px monospace; cursor: pointer;
 }
-.river-lane-controls button {
-  width: 64px; height: 60px; border: 1px solid #c4dfc5; border-radius: 8px;
-  color: #e1ffe1; background: #183d2bcc; font-size: 24px; touch-action: none;
+body.jungle-platformer-side:not(.quick-menu-open) canvas { cursor: none; }
+.platformer-crosshair {
+  position: fixed; width: 18px; height: 18px; transform: translate(-50%, -50%);
+  color: #fff; filter: drop-shadow(0 0 2px #000); pointer-events: none; z-index: 1500;
 }
-body.river-run #touch-view, body.river-run #touch-evade,
-body.river-run #touch-flight-stick, body.river-run .touch-move-base { display: none !important; }
-body.quick-menu-open .river-lane-controls, body.quick-menu-open .river-hud { display: none !important; }
-body.river-run #space-cinematic-caption { bottom: 105px; }
-@media (max-width: 700px) { .river-hud { top: 8px; left: 8px; padding: 8px; font-size: 10px; } }
+.platformer-crosshair::before, .platformer-crosshair::after { content: ''; position: absolute; background: currentColor; }
+.platformer-crosshair::before { width: 18px; height: 2px; top: 8px; left: 0; }
+.platformer-crosshair::after { width: 2px; height: 18px; top: 0; left: 8px; }
+.platformer-crosshair[data-hit="true"] { color: #ff5555; }
+body.quick-menu-open .platformer-crosshair,
+body.quick-menu-open .platformer-hud, body.quick-menu-open .platformer-retry,
+body.quick-menu-open .jungle-scrambler-pulse, body.quick-menu-open .jungle-scrambler-flash { display: none !important; }
+body.jungle-platformer #space-cinematic-caption { bottom: 34%; }
+@media (max-width: 700px), (max-height: 540px) {
+  .platformer-hud { top: 8px; left: 8px; padding: 8px; font-size: 10px; }
+}
 @media (prefers-reduced-motion: reduce) {
   #escape-qte.urgent #escape-key { animation: none; }
   .scrambler-pulse { mix-blend-mode: normal; }
   .topdown-entry-flash { opacity: calc(var(--flash-opacity, 0) * 0.18); }
+  .jungle-scrambler-flash { opacity: calc(var(--flash-opacity, 0) * 0.06); }
+  .jungle-scrambler-pulse { background: none; box-shadow: inset 0 0 80px #47ff9144; transform: none; }
 }
 body.side-scroll #space-boss-fill { background: #71ff94; box-shadow: 0 0 15px #35dc76; }
 body.top-down-flight #space-boss-fill { background: #ff3355; box-shadow: 0 0 15px #e8294b; }
@@ -866,6 +884,11 @@ body.quick-menu-open #touch-controls { display: none !important; }
 .touch-btn-evade.active { background: rgba(80, 160, 255, 0.6); }
 #touch-controls:not(.flight-mode) .touch-btn-fire,
 #touch-controls:not(.flight-mode) .touch-btn-evade { display: none; }
+body.jungle-platformer #touch-controls .touch-btn:not(#touch-jump):not(#touch-fire):not(#touch-menu):not(#touch-crouch):not(#touch-pistol):not(#touch-crowbar):not(#touch-sprint),
+body.jungle-platformer-side #touch-sprint, body.jungle-platformer #touch-flight-stick { display: none !important; }
+body.jungle-platformer #touch-controls:not(.flight-mode) #touch-fire { display: block; }
+body.jungle-platformer #touch-jump { min-width: 72px; min-height: 60px; }
+body.jungle-platformer .touch-buttons-right { gap: 10px; max-width: min(360px, 48vw); }
 #touch-controls.flight-mode #touch-jump,
 #touch-controls.flight-mode #touch-sprint,
 #touch-controls.flight-mode #touch-interact,

@@ -13,6 +13,7 @@ let createScenePhysics;
 let createPlayer;
 let PHYSICS;
 let loadCharacter;
+let createJunglePlatformCourse, COURSE_PLATFORMS, PLATFORM_COURSE, courseX, disposeRoom;
 
 before(async () => {
   server = await createServer({
@@ -24,21 +25,28 @@ before(async () => {
   ({ createScenePhysics, PHYSICS } = await server.ssrLoadModule('/helpers/physics/scenePhysics.ts'));
   ({ createPlayer } = await server.ssrLoadModule('/scripts/player.ts'));
   ({ loadCharacter } = await server.ssrLoadModule('/scripts/characterManager.ts'));
+  ({ createJunglePlatformCourse, COURSE_PLATFORMS, PLATFORM_COURSE, courseX } = await server.ssrLoadModule('/helpers/scene/junglePlatformCourse.ts'));
+  ({ disposeRoom } = await server.ssrLoadModule('/helpers/scene/shipRoom.ts'));
 });
 after(async () => { await server?.close(); });
 
 function browserStubs() {
   const oldWindow = globalThis.window;
   const oldDocument = globalThis.document;
+  const oldHTMLElement = globalThis.HTMLElement;
+  globalThis.HTMLElement = class extends EventTarget { closest() { return null; } };
+  const classes = new Set();
   globalThis.window = Object.assign(new EventTarget(), { innerWidth: 1280, innerHeight: 720 });
   const context = new Proxy({}, { get: (target, key) => target[key] ?? (() => {}) });
   globalThis.document = Object.assign(new EventTarget(), {
     pointerLockElement: null,
     getElementById: () => null,
-    body: { requestPointerLock() {}, appendChild() {} },
+    body: { requestPointerLock() {}, appendChild() {}, classList: {
+      contains: name => classes.has(name), add: name => classes.add(name), remove: name => classes.delete(name),
+    } },
     createElement: () => ({ getContext: () => context, style: {}, remove() {} }),
   });
-  return () => { globalThis.window = oldWindow; globalThis.document = oldDocument; };
+  return () => { globalThis.window = oldWindow; globalThis.document = oldDocument; globalThis.HTMLElement = oldHTMLElement; };
 }
 
 function key(type, code) {
@@ -414,6 +422,119 @@ test('door handoff preserves an airborne jump without jumping again on held Spac
   } finally {
     next.dispose();
   }
+});
+
+function platformFixture(t, activated = []) {
+  const scene = new THREE.Scene();
+  let course;
+  const data = simpleFixture(t, physics => { course = createJunglePlatformCourse(scene, physics, activated); });
+  data.player.setSideScrollDepth(PLATFORM_COURSE.depth);
+  data.player.setPosition(courseX(0), 0.23 + PHYSICS.playerRadius, PLATFORM_COURSE.depth);
+  t.after(() => disposeRoom(scene));
+  return { ...data, course, scene };
+}
+
+for (const fps of [30, 60, 144]) {
+  test(`Jungle course: every required gap and upward landing at ${fps} FPS`, t => {
+    const data = platformFixture(t, ['relay1', 'relay2', 'relay3']);
+    for (let i = 1; i < COURSE_PLATFORMS.length; i++) {
+      const before = COURSE_PLATFORMS[i - 1], after = COURSE_PLATFORMS[i];
+      const gap = after.from - before.to;
+      assert.ok(gap <= 3 && after.top - before.top <= 1, 'Authored baseline jump limits');
+      if (gap <= 0) continue;
+      data.player.clearInput();
+      data.player.setPosition(courseX(before.to - 0.65), before.top + PHYSICS.playerRadius, PLATFORM_COURSE.depth);
+      grounded(data.player, `Takeoff ${before.id}`);
+      key('keydown', 'KeyD'); key('keydown', 'Space');
+      frames(data, Math.ceil(fps * 1.1), 1 / fps);
+      key('keyup', 'KeyD');
+      frames(data, fps, 1 / fps);
+      grounded(data.player, `Landing ${after.id}`);
+      assert.ok(Math.abs(data.player.body.position.y - after.top - PHYSICS.playerRadius) < 0.03);
+      assert.equal(data.player.body.position.z, PLATFORM_COURSE.depth);
+      frames(data, fps, 1 / fps, () => grounded(data.player, 'Held Space must not retrigger'));
+      key('keyup', 'Space');
+    }
+  });
+
+  test(`Jungle platforms support their visible tops and leave real gaps at ${fps} FPS`, t => {
+    const data = platformFixture(t, ['relay1', 'relay2', 'relay3']);
+    for (const deck of COURSE_PLATFORMS) {
+      data.player.setPosition(courseX((deck.from + deck.to) / 2), deck.top + PHYSICS.playerRadius, PLATFORM_COURSE.depth);
+      frames(data, fps, 1 / fps, () => grounded(data.player, deck.id));
+      assert.ok(Math.abs(data.player.body.position.y - deck.top - PHYSICS.playerRadius) < 0.03);
+    }
+    for (const ledge of data.course.dodgeLedges) {
+      data.player.setPosition(ledge.position.x, 2.1 + PHYSICS.playerRadius, PLATFORM_COURSE.depth);
+      frames(data, fps, 1 / fps, () => grounded(data.player, ledge.name));
+    }
+    data.player.setPosition(courseX(8), 0.53, PLATFORM_COURSE.depth);
+    assert.equal(data.player.getState().isOnGround, false);
+    frames(data, fps, 1 / fps);
+    assert.ok(data.player.body.position.y < -2, 'Missing a jump cannot find a phantom floor');
+  });
+
+  test(`Jungle dry exit stays supported through the downstream ramp at ${fps} FPS`, t => {
+    const data = platformFixture(t);
+    data.player.setSideScrollDepth(null);
+    data.player.setPosition(-146, 1.6, 17); data.player.setRotation(0);
+    key('keydown', 'KeyW');
+    until(data, () => data.player.body.position.z < 5.6, fps, () => grounded(data.player, 'Dry exit'), 4);
+    key('keyup', 'KeyW');
+    assert.ok(data.player.body.position.y < 0.5);
+  });
+}
+
+test('side controls are facing-independent, depth-locked, and restore ordinary movement', t => {
+  const data = platformFixture(t), { player } = data;
+  document.pointerLockElement = document.body;
+  document.dispatchEvent(new Event('pointerlockchange'));
+  for (const code of ['KeyW', 'KeyS', 'KeyC', 'ShiftLeft', 'Digit9']) key('keydown', code);
+  assert.equal(player.requestAction('Interact'), false);
+  const mouse = new Event('mousemove');
+  Object.defineProperties(mouse, { movementX: { value: 100 }, movementY: { value: 100 } });
+  window.dispatchEvent(mouse);
+  assert.equal(player.getState().yaw, Math.PI / 2); assert.equal(player.getState().pitch, 0);
+  key('keydown', 'ArrowRight');
+  player.body.velocity.z = 5; player.body.force.z = 100;
+  frames(data, 30);
+  assert.ok(player.body.position.x < courseX(0) - 2);
+  assert.equal(player.body.position.z, PLATFORM_COURSE.depth);
+  assert.equal(player.getState().crouching, false); assert.equal(player.getState().sprinting, false);
+  key('keyup', 'ArrowRight'); key('keydown', 'ArrowLeft');
+  const turn = player.body.position.x;
+  frames(data, 15); key('keyup', 'ArrowLeft');
+  assert.ok(player.body.position.x > turn); assert.equal(player.getState().yaw, -Math.PI / 2);
+  const stopped = player.body.position.x; frames(data, 30);
+  assert.ok(Math.abs(player.body.position.x - stopped) < 0.01);
+  player.setSideScrollDepth(null); player.setRotation(0);
+  player.setPosition(-146, 1.6, 17);
+  key('keydown', 'KeyW'); frames(data, 15); key('keyup', 'KeyW');
+  assert.ok(player.body.position.z < 16.1, 'Normal W movement works after release');
+});
+
+test('relay crossings have no collider until settled and checkpoints restore them once', t => {
+  const data = platformFixture(t), relay = data.course.relays[0];
+  const count = data.physics.world.bodies.length;
+  assert.equal(relay.body.world, null);
+  assert.equal(data.course.damageRelay(relay.id, NaN), false);
+  for (let i = 0; i < 3; i++) assert.equal(data.course.damageRelay(relay.id, 25), true);
+  data.course.update(0.5);
+  assert.equal(relay.body.world, null); assert.ok(relay.platform.position.y > relay.top);
+  data.player.setPosition(relay.platform.position.x, relay.top + PHYSICS.playerRadius, PLATFORM_COURSE.depth);
+  assert.equal(data.player.getState().isOnGround, false);
+  data.course.update(0.7);
+  assert.equal(relay.body.world, data.physics.world);
+  assert.equal(data.physics.world.bodies.length, count + 1);
+  assert.ok(Math.abs(relay.platform.position.y + 0.2 - relay.top) < 1e-9);
+  data.course.update(10); data.course.activateRelay(relay.id); data.course.update(10);
+  assert.equal(data.physics.world.bodies.length, count + 1, 'No duplicate body registration');
+  const restoredScene = new THREE.Scene(), restoredPhysics = createScenePhysics();
+  try {
+    const restored = createJunglePlatformCourse(restoredScene, restoredPhysics, data.course.getActivated());
+    assert.equal(restored.relays[0].deployment, 1);
+    assert.equal(restored.relays[0].body.world, restoredPhysics.world);
+  } finally { restoredPhysics.dispose(); disposeRoom(restoredScene); }
 });
 
 test('scene disposal removes old player listeners and physics bodies', t => {

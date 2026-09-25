@@ -7,10 +7,13 @@ import { createSlidingPortal, roomBox, disposeRoom } from './shipRoom.js';
 import { cargoSign } from './cargoVisuals.js';
 import { createEscapePod, createEscapeShip } from '../../scripts/items/createEscapeShip.js';
 import type { PlayerTransitionState } from '../../scripts/player.js';
+import { createJunglePlatformCourse, createFacilityScramblerLauncher, type PlatformProgress } from './junglePlatformCourse.js';
 
 export interface RescueArrival {
-  pilotState?: PlayerTransitionState; hullHealth?: number; ambusherHealth?: number;
-  ambusherPosition?: THREE.Vector3; ambusherQuaternion?: THREE.Quaternion;
+  pilotState?: PlayerTransitionState; hullHealth?: number;
+  platformProgress?: PlatformProgress;
+  scramblerPosition?: THREE.Vector3; scramblerQuaternion?: THREE.Quaternion;
+  scramblerDestroyed?: boolean;
   cameraPosition?: THREE.Vector3; cameraQuaternion?: THREE.Quaternion; cameraFov?: number;
 }
 export const RESCUE_SITE = {
@@ -45,7 +48,9 @@ const entryDirection = JUNGLE_PATH.getTangentAt(0);
 export const JUNGLE_ENTRY_YAW = Math.atan2(-entryDirection.x, -entryDirection.z);
 
 /** Scene-owned resources with identical placement in the landing film and playable exterior. */
-export function createRescueSite(physics: ReturnType<typeof createScenePhysics>, { culling = false }: { culling?: boolean } = {}) {
+export function createRescueSite(physics: ReturnType<typeof createScenePhysics>, { culling = false, platformer = false, activatedRelays = [] }: {
+  culling?: boolean; platformer?: boolean; activatedRelays?: readonly string[];
+} = {}) {
   const scene = new THREE.Scene(); scene.background = new THREE.Color(culling ? 0x698475 : 0x9cae98); scene.fog = new THREE.Fog(0x698475, culling ? 45 : 55, culling ? 132 : 230);
   physics.world.broadphase = new CANNON.SAPBroadphase(physics.world);
   const chunkSize = 32;
@@ -198,9 +203,13 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   for (const x of [-2.15, 2.15]) {
     const beam = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.5, 18), timber); beam.position.set(x, -0.18, 0); bridge.add(beam); supports.push({ mesh: beam, rest: beam.position.clone() });
     for (const z of [-8, -4, 0, 4, 8]) {
+      if (platformer && x < 0 && z === 0) continue;
       const post = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.5, 0.2), timber); post.position.set(x, 0.7, z); bridge.add(post); supports.push({ mesh: post, rest: post.position.clone() });
     }
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.15, 18), timber); rail.position.set(x, 1.3, 0); bridge.add(rail); supports.push({ mesh: rail, rest: rail.position.clone() });
+    for (const z of platformer && x < 0 ? [-5.5, 5.5] : [0]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.15, platformer && x < 0 ? 7 : 18), timber);
+      rail.position.set(x, 1.3, z); bridge.add(rail); supports.push({ mesh: rail, rest: rail.position.clone() });
+    }
   }
   const bridgeBody = physics.addBox({ x: 4.8, y: 0.3, z: 18 }, { x: RESCUE_SITE.bridge.x, y: 0.08, z: RESCUE_SITE.bridge.z });
   // Overlap both banks and the deck; the top faces rise continuously from soil to planks.
@@ -230,6 +239,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
       part.mesh.rotation.set(t * Math.sin(index), t * 0.3, Math.sign(part.rest.x) * Math.min(1.8, t));
     });
   }
+  const platformCourse = platformer ? createJunglePlatformCourse(scene, physics, activatedRelays) : null;
   const farRockGeometry = new THREE.IcosahedronGeometry(1, 0);
   const rockGeometry = new THREE.DodecahedronGeometry(1, 0), rockMaterial = new THREE.MeshStandardMaterial({ color: 0x58654a, roughness: 1 });
   for (let i = 0; i < 100; i++) {
@@ -351,6 +361,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     box([9, 4, 9], [x, 26, -72], dark); box([9.4, 0.3, 9.4], [x, 28, -72], trim, false);
     const aerial = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 12, 10), trim); aerial.position.set(x, 30, -72); scene.add(aerial);
   }
+  const scramblerLauncher = platformer ? createFacilityScramblerLauncher(scene) : null;
   const turrets = [-11, 11].map(x => {
     box([2, 1, 2], [x, 6, -53.6], dark);
     const root = new THREE.Group(); root.position.set(x, 6.8, -53.25); scene.add(root);
@@ -438,7 +449,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   let windTime = 0;
   return { scene, ship, pod, boy, door, turrets, ready, pathLength, nearestPathPoint, isWalkable, trackStaticBody, updateActivePhysics, activatePhysicsNear, updateVisibility, isReady: () => settled,
     setWalking(value: boolean) { if (value === walking) return; walking = value; (value ? idle : walk)?.fadeOut(0.2); (value ? walk ?? idle : idle)?.reset().fadeIn(0.2).play(); },
-    bridge, water, exitLog, damageBridge, breakBridge,
+    bridge, water, exitLog, damageBridge, breakBridge, platformCourse, scramblerLauncher,
     setImpact(age: number) {
       crater.visible = age >= 0;
       for (const d of dust) {
@@ -450,6 +461,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     },
     update(dt: number) {
       windTime += dt;
+      platformCourse?.update(dt);
       for (let i = 0; i < 65; i++) {
         foamDummy.position.set(((i * 13.73 - windTime * 6) % 384 + 384) % 384 - 192, Math.sin(i * 17) * 6, 0);
         foamDummy.updateMatrix(); foam.setMatrixAt(i, foamDummy.matrix);

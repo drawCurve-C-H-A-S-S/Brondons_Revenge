@@ -113,6 +113,8 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   let ventTurnAngle = Math.PI;
   let boxHandling = false;
   let lookLocked = false;
+  let sideScrollDepth: number | null = null;
+  let inputLocked = false;
   let sprinting = false;
   let health = PLAYER_MAX_HEALTH;
   let lastDamageAt = -Infinity;
@@ -142,7 +144,13 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
 
   // --- Input ---
   function onKeyDown(e: KeyboardEvent) {
-    if (!enabled || blockedKeys.has(e.code) || (e.repeat && !keys[e.code])) return;
+    if (!enabled || inputLocked || blockedKeys.has(e.code) || (e.repeat && !keys[e.code])) return;
+    if (sideScrollDepth !== null) {
+      if (document.hidden || document.body.classList.contains('quick-menu-open') ||
+        !['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyC'].includes(e.code) ||
+        (e.target instanceof HTMLElement && e.target.closest('button, input, textarea, select, [contenteditable="true"]'))) return;
+      e.preventDefault();
+    }
     if (e.code === 'Space' || (ventMode && ['KeyA', 'KeyD'].includes(e.code))) e.preventDefault();
     // Remember held movement during scripted traversal, but never queue a jump/action.
     if (climbing) { keys[e.code] = true; return; }
@@ -188,7 +196,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   }
 
   function requestAction(action: PlayerActionName) {
-    if (!enabled || !isOnGround || boxHandling || actionRequest) return false;
+    if (!enabled || inputLocked || !isOnGround || boxHandling || actionRequest || (sideScrollDepth !== null && action !== 'Sword_Attack')) return false;
     actionRequest = action;
     actionRequestLife = 3;
     return true;
@@ -196,7 +204,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
 
   function onMouseMove(e: MouseEvent) {
     const touchActive = !!(window as any).__touchActive;
-    if (!enabled || (!isPointerLocked && !touchActive) || lookLocked) return;
+    if (!enabled || inputLocked || (!isPointerLocked && !touchActive) || lookLocked || sideScrollDepth !== null) return;
     yaw -= e.movementX * mouseSensitivity;
     pitch -= e.movementY * mouseSensitivity;
     pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch));
@@ -208,7 +216,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   }
 
   function onClick() {
-    if (enabled && !isPointerLocked && !(window as any).__touchActive) document.body.requestPointerLock();
+    if (enabled && !inputLocked && sideScrollDepth === null && !isPointerLocked && !(window as any).__touchActive) document.body.requestPointerLock();
   }
 
   window.addEventListener('keydown', onKeyDown);
@@ -220,6 +228,10 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
 
   // --- Movement direction ---
   function getMoveDirection(): { x: number; z: number } | null {
+    if (sideScrollDepth !== null) {
+      const right = Number(!!(keys.KeyD || keys.ArrowRight)) - Number(!!(keys.KeyA || keys.ArrowLeft));
+      return right ? { x: -right, z: 0 } : null;
+    }
     if (ventMode && turnRemaining !== 0) return null;
     const fwd = (keys['KeyW'] ? 1 : 0) - (keys['KeyS'] ? 1 : 0);
     const right = ventMode ? 0 : (keys['KeyD'] ? 1 : 0) - (keys['KeyA'] ? 1 : 0);
@@ -294,6 +306,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
 
   function beforePhysicsStep(_dt: number) {
     if (!enabled) return;
+    if (inputLocked) { playerBody.velocity.set(0, 0, 0); return; }
     if (climbing) {
       playerBody.velocity.set(0, 0, 0);
       playerBody.force.set(0, 0, 0);
@@ -307,6 +320,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     }
     sprinting = !crouchForced && !boxHandling && !!(keys['ShiftLeft'] || keys['ShiftRight']);
     const moveDir = getMoveDirection();
+    if (sideScrollDepth !== null && moveDir) yaw = moveDir.x < 0 ? Math.PI / 2 : -Math.PI / 2;
     const desired = new CANNON.Vec3(moveDir?.x ?? 0, 0, moveDir?.z ?? 0);
     if (floating) {
       desired.y = (keys['Space'] ? 1 : 0) - (keys['KeyC'] ? 1 : 0);
@@ -345,6 +359,11 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   }
 
   function afterPhysicsStep() {
+    if (sideScrollDepth !== null) {
+      playerBody.position.z = sideScrollDepth;
+      playerBody.velocity.z = 0;
+      playerBody.aabbNeedsUpdate = true;
+    }
     if (enabled && !climbing) updateGroundState(true);
   }
 
@@ -543,6 +562,17 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       updateGroundState(false);
     },
     setLookLocked: (locked: boolean) => { lookLocked = locked; },
+    setInputLocked: (locked: boolean) => { inputLocked = locked; if (locked) clearInput(); },
+    setSideScrollDepth: (depth: number | null) => {
+      if (depth !== null && !Number.isFinite(depth)) return;
+      clearInput(); sideScrollDepth = depth;
+      playerBody.linearFactor.set(1, 1, depth === null ? 1 : 0);
+      crouching = crouchForced = sprinting = false;
+      if (depth !== null) {
+        playerBody.position.z = depth; playerBody.aabbNeedsUpdate = true;
+        yaw = Math.PI / 2; pitch = 0;
+      }
+    },
     // Damage is ignored once dead; the caller (main.ts) handles respawning.
     takeDamage: (amount: number) => {
       if (!enabled || health <= 0 || !Number.isFinite(amount) || amount <= 0) return;
@@ -559,7 +589,8 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     getDamageFlash: () => Math.max(0, 0.72 - (performance.now() - lastDamageAt) / 650),
     requestAction,
     getState: (): PlayerState => ({
-      isMoving: enabled && !climbing && (floating ? playerBody.velocity.lengthSquared() > 0.04 : getMoveDirection() !== null),
+      isMoving: enabled && !climbing && (floating ? playerBody.velocity.lengthSquared() > 0.04
+        : sideScrollDepth !== null ? getMoveDirection() !== null && Math.abs(playerBody.velocity.x) > 0.05 : getMoveDirection() !== null),
       isOnGround,
       jumping: !isOnGround && intentionalJump && playerBody.velocity.y > 0.1,
       yaw,

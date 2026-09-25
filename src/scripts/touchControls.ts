@@ -25,6 +25,8 @@ let lookLastX = 0;
 let lookLastY = 0;
 let flightAimX = 0;
 let flightAimY = 0;
+let platformerAimX = 0;
+let platformerAimY = 0;
 
 // Flight-mode joystick visual
 let flightStickActive = false;
@@ -164,7 +166,7 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
 function onTouchStart(event: TouchEvent) {
   if (!active) return;
   if (root?.classList.contains('hidden') || document.hidden) return;
-  if (document.body.classList.contains('quick-menu-open') || document.body.classList.contains('river-run')) return;
+  if (document.body.classList.contains('quick-menu-open')) return;
   const width = window.innerWidth;
 
   for (const touch of Array.from(event.changedTouches)) {
@@ -201,7 +203,7 @@ function onTouchStart(event: TouchEvent) {
 
 function onTouchMove(event: TouchEvent) {
   if (!active || document.hidden) return;
-  if (document.body.classList.contains('quick-menu-open') || document.body.classList.contains('river-run')) return;
+  if (document.body.classList.contains('quick-menu-open')) return;
   event.preventDefault();
 
   for (const touch of Array.from(event.changedTouches)) {
@@ -220,6 +222,9 @@ function onTouchMove(event: TouchEvent) {
         flightAimY -= dy * FLIGHT_AIM_SENSITIVITY;
         flightAimX = Math.max(-1, Math.min(1, flightAimX));
         flightAimY = Math.max(-1, Math.min(1, flightAimY));
+      } else if (document.body.classList.contains('jungle-platformer-side')) {
+        platformerAimX += dx;
+        platformerAimY += dy;
       } else {
         window.dispatchEvent(new MouseEvent('mousemove', {
           movementX: dx * LOOK_SENSITIVITY,
@@ -301,7 +306,7 @@ export function initTouchControls() {
 
 function bindAttack() {
   bindPressControl('touch-attack', () => {
-    if (flightMode) return;
+    if (flightMode || document.body.classList.contains('jungle-platformer')) return;
     refreshTouchAttackButton();
     const weapon = [...touchAttacks].find(entry => entry.label() !== null);
     weapon?.attack();
@@ -320,7 +325,10 @@ function bindPressControl(elementId: string, onPress: () => void, onRelease: () 
   const consume = (event: Event) => { event.preventDefault(); event.stopPropagation(); };
   const allowed = () => active && !!root && !root.classList.contains('hidden')
     && !(element as HTMLButtonElement).disabled && !document.hidden
-    && !document.body.classList.contains('quick-menu-open');
+    && !document.body.classList.contains('quick-menu-open')
+    && (!document.body.classList.contains('jungle-platformer') ||
+      ['touch-jump', 'touch-fire', 'touch-menu', 'touch-crouch', 'touch-pistol', 'touch-crowbar'].includes(elementId) ||
+      (!document.body.classList.contains('jungle-platformer-side') && elementId === 'touch-sprint'));
   const reset = () => {
     const previous = press;
     press = null;
@@ -392,7 +400,7 @@ export function resetTouchInput() {
   for (const binding of buttonBindings) binding.reset();
   releaseAllKeys(); pressedButtons.clear(); fireActive = false;
   moveTouchId = lookTouchId = flightStickId = null; flightStickActive = false;
-  flightAimX = flightAimY = 0;
+  flightAimX = flightAimY = platformerAimX = platformerAimY = 0;
   root?.querySelectorAll('.active').forEach(element => element.classList.remove('active'));
   const base = root?.querySelector<HTMLElement>('.touch-move-base'); if (base) base.style.opacity = '0';
   if (flightStickEl) flightStickEl.style.opacity = '0';
@@ -425,6 +433,13 @@ export function consumeFlightAim(): { dx: number; dy: number } {
   const dy = flightAimY;
   flightAimX = 0;
   flightAimY = 0;
+  return { dx, dy };
+}
+
+/** Screen-space reticle movement, separate from ordinary camera look. */
+export function consumePlatformerAim(): { dx: number; dy: number } {
+  const dx = platformerAimX, dy = platformerAimY;
+  platformerAimX = platformerAimY = 0;
   return { dx, dy };
 }
 
