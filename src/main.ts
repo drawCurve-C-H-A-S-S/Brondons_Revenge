@@ -30,6 +30,7 @@ import { NPCEnemyManager } from './scripts/npc-enemy-robots.js';
 import { PistolController } from './scripts/pistol.js';
 import { CrowbarController } from './scripts/crowbar.js';
 import { GogglesController } from './scripts/goggles.js';
+import { LightsaberController } from './scripts/lightsaber.js';
 import { createCctvSystem } from './scripts/cctv.js';
 import { createFirstPersonHands } from './scripts/firstPersonHands.js';
 import { initTouchControls, setTouchFlightMode, resetTouchInput } from './scripts/touchControls.js';
@@ -95,6 +96,9 @@ const clearedLadderCrates = new Set<string>();
 const cargoAccess = () => ({ hasCrowbar, cargoDoorUnlocked, onCargoDoorOpened: () => { cargoDoorUnlocked = true; } });
 const ladderAccess = () => ({ clearedCrates: clearedLadderCrates, onCrateBroken: (id: string) => { clearedLadderCrates.add(id); } });
 let crowbarController: CrowbarController | null = null;
+// --- Lightsaber pickup (scene12 chest, persists once collected) ---
+let hasLightsaber = false;
+let lightsaberController: LightsaberController | null = null;
 let firstPersonHands: Awaited<ReturnType<typeof createFirstPersonHands>> | null = null;
 
 // --- View toggle (first-person / third-person) ---
@@ -127,6 +131,22 @@ const crowbar = new CrowbarController(() => ({
   firstPersonHands: () => firstPersonHands,
 }));
 crowbarController = crowbar;
+const lightsaber = new LightsaberController(() => ({
+  scene: activeScene,
+  camera: activeCamera,
+  world: currentSceneData?.physicsWorld ?? null,
+  player: cargoPuzzle.handle === 'carried' ? null : currentPlayer,
+  character: globalCharacter?.model ?? null,
+  thirdPerson: isThirdPerson,
+  hasLightsaber,
+  targets: [...npcManager.getDamageTargets(), ...(currentSceneData?.getDamageTargets?.() ?? [])],
+  setCharacterEquipped: (equipped: boolean) => globalCharacter?.setLightsaberEquipped(equipped),
+  doorTarget: currentSceneData?.forwardDoorTarget ?? null,
+  openDoor: () => { currentSceneData?.hitForwardDoor?.(); currentSceneData?.hitCargoDoor?.(); },
+  holsterOther: () => { crowbar.holster(); pistol.holster(); },
+  firstPersonHands: () => firstPersonHands,
+}));
+lightsaberController = lightsaber;
 const goggles = new GogglesController(() => ({
   player: currentPlayer, scene: currentSceneData,
   setCharacterEquipped: active => globalCharacter?.setGogglesEquipped(active),
@@ -673,7 +693,7 @@ function loadGround19(entryState?: RescueArrival) {
 
 function loadPassage12(entryState?: PlayerTransitionState, from: PassageDestination = 10) {
   retireTraversalRoom();
-  const sceneData = createScene12({ entryState, from, puzzle: cargoPuzzle });
+  const sceneData = createScene12({ entryState, from, puzzle: cargoPuzzle, onLightsaberCollected: () => { hasLightsaber = true; lightsaber.equip(); } });
   activateExtension(sceneData, 'scene12');
   for (const id of [9, 10, 11, 13] as const) sceneData.setDoorTrigger(id, state => {
     if (id === 9) { retireTraversalRoom(); loadScene9(state, true); }
@@ -967,7 +987,7 @@ function jumpToScene(id: number) {
   setTouchFlightMode(false);
   clearSceneInput();
   // Detach persistent gear before the outgoing scene disposes its meshes.
-  pistol.holster(); crowbar.holster(); pistol.update(0); crowbar.update(0);
+  pistol.holster(); crowbar.holster(); lightsaber.holster(); pistol.update(0); crowbar.update(0); lightsaber.update(0);
   globalCharacter?.model.removeFromParent();
   if (currentSceneData === scene1Data) { currentSceneData?.dispose?.(); scene1Data = null; }
   retireTraversalRoom();
@@ -976,7 +996,7 @@ function jumpToScene(id: number) {
   hideScene1Skip();
   for (const overlay of ['credits-overlay', 'menu-buttons', 'crowbar-overlay', 'boss-hud', 'boss-subtitles', 'escape-qte', 'loading-bay-status', 'space-cinematic-caption']) document.getElementById(overlay)?.classList.add('hidden');
   const fade = document.getElementById('fade-overlay'); fade?.classList.remove('active', 'black'); fade?.classList.add('hidden');
-  hasCrowbar = true; goggles.collect();
+  hasCrowbar = true; hasLightsaber = true; goggles.collect();
   if (id >= 8 && id <= 12) cargoPuzzle = createCargoPuzzleState(id);
   if (id === 13) bayBossDefeated = false;
   try {
@@ -1147,7 +1167,7 @@ function animate() {
   goggles.update();
   updatePlayerView(delta);
 
-  if (!sceneOwnsControls) { pistol.update(delta); crowbar.update(delta); }
+  if (!sceneOwnsControls) { pistol.update(delta); crowbar.update(delta); lightsaber.update(delta); }
   document.getElementById('weapon-status')?.classList.toggle('hidden', cargoPuzzle.handle === 'carried');
   heldSwitchHandle.visible = cargoPuzzle.handle === 'carried' && !sceneOwnsControls && !!currentPlayer?.isEnabled();
   if (heldSwitchHandle.visible && currentPlayer && activeScene && activeCamera) {
@@ -1169,7 +1189,7 @@ function animate() {
   // Render
   if (activeScene && activeCamera) {
     renderer.render(currentSceneData?.getRenderScene?.() ?? activeScene, activeCamera);
-    if (!sceneOwnsControls && cargoPuzzle.handle !== 'carried') crowbar.renderFirstPerson(renderer);
+    if (!sceneOwnsControls && cargoPuzzle.handle !== 'carried') { crowbar.renderFirstPerson(renderer); lightsaber.renderFirstPerson(renderer); }
   }
 }
 

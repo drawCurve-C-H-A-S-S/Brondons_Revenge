@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import ualModelUrl from '../assets/models/Subject.glb';
 import { createCrowbar } from './items/createCrowbar.js';
+import { createLightsaber } from './items/createLightsaber.js';
 import { LADDER } from '../utils/constants.js';
 import { createGoggles } from './rewardChest.js';
 
@@ -308,6 +309,13 @@ export async function loadCharacter(loader = new GLTFLoader()) {
   let crowbarEquipped = false;
   rightHand?.add(crowbar);
 
+  const lightsaber = createLightsaber();
+  lightsaber.position.set(0, 0, 0);
+  lightsaber.rotation.set(-Math.PI / 2, 0, 0);
+  lightsaber.visible = false;
+  let lightsaberEquipped = false;
+  rightHand?.add(lightsaber);
+
   const goggles = createGoggles();
   goggles.visible = false;
   const head = model.getObjectByName('head');
@@ -494,6 +502,7 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     const handsFree = !climbing && !playerState.ventMode && !boxHandling;
     socket.visible = handsFree;
     crowbar.visible = crowbarEquipped && handsFree;
+    lightsaber.visible = lightsaberEquipped && handsFree;
     if (cinematic?.upperBody && handsFree) {
       const layer = cinematic.upperBody;
       let next = cinematicUpperActions.get(layer.clip);
@@ -565,6 +574,7 @@ export async function loadCharacter(loader = new GLTFLoader()) {
 
   function dispose() {
     crowbar.removeFromParent();
+    lightsaber.removeFromParent();
     goggles.removeFromParent();
     const gogglesMaterials = new Set<THREE.Material>();
     goggles.traverse(node => {
@@ -581,6 +591,7 @@ export async function loadCharacter(loader = new GLTFLoader()) {
   return {
     model, mixer, update, setFacing, weapon, crowbar,
     setCrowbarEquipped: (equipped: boolean) => { crowbarEquipped = equipped; crowbar.visible = equipped; },
+    setLightsaberEquipped: (equipped: boolean) => { lightsaberEquipped = equipped; lightsaber.visible = equipped; },
     setGogglesEquipped: (equipped: boolean) => { goggles.visible = equipped; },
     dispose,
   };

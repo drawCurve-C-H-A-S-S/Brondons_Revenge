@@ -4,7 +4,7 @@ import { loadToolModel } from '../core/loader.js';
 import type { Player } from './player.js';
 import { registerTouchAttackCallback, refreshTouchAttackButton } from './touchControls.js';
 
-export type DamageWeapon = 'pistol' | 'crowbar';
+export type DamageWeapon = 'pistol' | 'crowbar' | 'lightsaber';
 export interface DamageTarget {
   root: THREE.Object3D;
   body?: CANNON.Body;

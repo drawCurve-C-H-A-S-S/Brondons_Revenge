@@ -37,7 +37,7 @@ let flightKnobEl: HTMLElement | null = null;
 // Button press tracking
 const pressedButtons = new Set<string>();
 let fireActive = false;
-type AttackLabel = 'SHOOT' | 'SWING';
+type AttackLabel = 'SHOOT' | 'SWING' | 'SLASH';
 const touchAttacks = new Set<{ attack: () => boolean; label: () => AttackLabel | null }>();
 const buttonBindings: Array<{ reset: () => void; dispose: () => void }> = [];
 

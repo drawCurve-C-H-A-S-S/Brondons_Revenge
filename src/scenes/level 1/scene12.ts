@@ -5,6 +5,7 @@ import { createSlidingPortal, roomBox, disposeRoom } from '../../helpers/scene/s
 import { createCargoPuzzleState, advanceCargo, plateCargo, type CargoPuzzleState } from '../../scripts/cargoPuzzle.js';
 import { createCargoController } from '../../scripts/cargoController.js';
 import { createSpikePlate } from '../../helpers/scene/cargoVisuals.js';
+import { createRewardChest } from '../../scripts/rewardChest.js';
 
 export type PassageDestination = 9 | 10 | 11 | 13;
 // Exiting 10 faces +X: 9 is left (-Z), 11 opposite (+X), 13 right (+Z).
@@ -14,7 +15,7 @@ export const PASSAGE_PORTALS = {
   11: { x: 4, y: 0, z: 0, yaw: -Math.PI / 2 },
   13: { x: 0, y: 0, z: 10, yaw: Math.PI },
 } as const;
-export function createScene({ entryState, from = 10, puzzle = createCargoPuzzleState() }: { entryState?: PlayerTransitionState; from?: PassageDestination; puzzle?: CargoPuzzleState } = {}) {
+export function createScene({ entryState, from = 10, puzzle = createCargoPuzzleState(), onLightsaberCollected }: { entryState?: PlayerTransitionState; from?: PassageDestination; puzzle?: CargoPuzzleState; onLightsaberCollected?: () => void } = {}) {
   if (from === 10 || from === 11) puzzle.shortcutUnlocked = true;
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x121c25);
   const physics = createScenePhysics(), physicsWorld = physics.world;
@@ -49,12 +50,21 @@ export function createScene({ entryState, from = 10, puzzle = createCargoPuzzleS
   const trap = createSpikePlate(scene); trap.update(puzzle.revealed ? 1 : 0, 0, puzzle.exitUnlocked);
   const wireMaterial = new THREE.MeshStandardMaterial({ color: 0xf0b24b, emissive: 0x72420a });
   roomBox(scene, physics, [0.05, 0.012, 8.8], [0, 0.016, 5.5], wireMaterial, false);
+  // Lightsaber chest (east side, visible on entry)
+  const lightsaberChest = createRewardChest({
+    scene, world: physicsWorld, player,
+    position: new THREE.Vector3(2.5, 0, 0),
+    reward: 'lightsaber',
+    unlocked: () => puzzle.exitUnlocked,
+    onCollect: () => { onLightsaberCollected?.(); return true; },
+    removeOnCollect: true,
+  });
   let disposed = false, strikeTime = 0, cooldown = 0;
   let trapState: 'hidden' | 'ready' | 'striking' | 'cooldown' | 'solved' = puzzle.exitUnlocked ? 'solved' : puzzle.revealed ? 'ready' : 'hidden';
   const prompt = document.getElementById('interact-prompt'), status = document.getElementById('loading-bay-status');
   function onKey(event: KeyboardEvent) { if (event.code === 'KeyE' && !event.repeat && player.isEnabled()) cargo.interact(); }
   window.addEventListener('keydown', onKey);
-  return { roomId: 'transfer-passage', scene, camera, physicsWorld, player, doors, cargo, puzzle, trap, cutsceneManager: null,
+  return { roomId: 'transfer-passage', scene, camera, physicsWorld, player, doors, cargo, puzzle, trap, lightsaberChest, cutsceneManager: null,
     getTrapState: () => trapState, getDamageTargets: cargo.getDamageTargets, setGogglesActive: cargo.setHighlighted, clearInput: cargo.release,
     setDoorTrigger(id: PassageDestination, callback: (state: PlayerTransitionState) => void) {
       doors.get(id)!.setTrigger(state => { if (id === 10 || id === 11) callback(cargo.transfer(state, PASSAGE_PORTALS[id], id)); else { cargo.release(); callback(state); } });
@@ -63,6 +73,7 @@ export function createScene({ entryState, from = 10, puzzle = createCargoPuzzleS
       if (disposed) return;
       dt = Number.isFinite(dt) ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime)) : 0;
       advanceCargo(puzzle, dt); cargo.update(dt); physics.step(dt, player, thirdPerson); cargo.update(0);
+      lightsaberChest.update(dt);
       cooldown = Math.max(0, cooldown - dt); strikeTime = Math.max(0, strikeTime - dt);
       if (puzzle.revealed && !puzzle.exitUnlocked) {
         const crate = plateCargo(puzzle, 12), p = player.body.position;
@@ -80,6 +91,6 @@ export function createScene({ entryState, from = 10, puzzle = createCargoPuzzleS
       if (status) { status.classList.remove('hidden'); status.textContent = puzzle.exitUnlocked ? '12 / BAY WARDEN DOOR UNLOCKED' : puzzle.revealed ? '12 / AUXILIARY LOCK\nThe spike destroys wooden cargo. Bring a reinforced crate.\nLeave the side-room doors supported with spare crates.' : '12 / TRANSFER HUB\nThe loading-bay shortcut is now open.\nActivate the floor plate in room 11 to reveal the auxiliary lock.'; }
       for (const [id, door] of doors) { door.update(dt, player, allowed(id)); if (disposed) break; }
     },
-    dispose() { if (disposed) return; disposed = true; window.removeEventListener('keydown', onKey); prompt?.classList.add('hidden'); status?.classList.add('hidden'); cargo.dispose(); player.dispose(); physics.dispose(); disposeRoom(scene); },
+    dispose() { if (disposed) return; disposed = true; window.removeEventListener('keydown', onKey); prompt?.classList.add('hidden'); status?.classList.add('hidden'); lightsaberChest.dispose(); cargo.dispose(); player.dispose(); physics.dispose(); disposeRoom(scene); },
   };
 }
