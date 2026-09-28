@@ -34,6 +34,7 @@ import { LightsaberController } from './scripts/lightsaber.js';
 import { createCctvSystem } from './scripts/cctv.js';
 import { createFirstPersonHands } from './scripts/firstPersonHands.js';
 import { initTouchControls, setTouchFlightMode, resetTouchInput } from './scripts/touchControls.js';
+import { GogglesPostProcess } from './scripts/gogglesPostProcess.js';
 
 // --- Renderer ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -45,6 +46,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 document.body.appendChild(renderer.domElement);
 const cctv = createCctvSystem(renderer);
+const gogglesPostProcess = new GogglesPostProcess(renderer);
 
 // --- Audio Manager stub ---
 const audioManager = null;
@@ -150,6 +152,7 @@ lightsaberController = lightsaber;
 const goggles = new GogglesController(() => ({
   player: currentPlayer, scene: currentSceneData,
   setCharacterEquipped: active => globalCharacter?.setGogglesEquipped(active),
+  onToggle: active => gogglesPostProcess.setActive(active),
 }));
 
 // --- Controls ---
@@ -1081,6 +1084,7 @@ window.addEventListener('resize', () => {
   const w = window.innerWidth;
   const h = window.innerHeight;
   renderer.setSize(w, h);
+  gogglesPostProcess.resize(w, h);
   if (activeCamera) {
     activeCamera.aspect = w / h;
     activeCamera.updateProjectionMatrix();
@@ -1188,7 +1192,7 @@ function animate() {
 
   // Render
   if (activeScene && activeCamera) {
-    renderer.render(currentSceneData?.getRenderScene?.() ?? activeScene, activeCamera);
+    gogglesPostProcess.render(currentSceneData?.getRenderScene?.() ?? activeScene, activeCamera);
     if (!sceneOwnsControls && cargoPuzzle.handle !== 'carried') { crowbar.renderFirstPerson(renderer); lightsaber.renderFirstPerson(renderer); }
   }
 }
