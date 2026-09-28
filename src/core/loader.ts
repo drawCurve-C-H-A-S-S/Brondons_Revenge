@@ -1,9 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
-import dinoModelUrl from '../assets/models/Dino/QB-10_Monster.fbx';
-import dinoTextureUrl from '../assets/models/Dino/QB-10_Monster2.png';
+import dinoModelUrl from '../assets/models/Dino/dino.glb';
 
 const gltfLoader = new GLTFLoader();
 
@@ -11,18 +9,16 @@ const gltfLoader = new GLTFLoader();
 const toolAssets = import.meta.glob<string>([
   '../assets/models/Tools/Enemy_Trilobite.{gltf,bin}',
   '../assets/models/Tools/Enemy_QuadShell.{gltf,bin}',
-  '../assets/models/Tools/T_Enemies_BaseColor_png.png',
-  '../assets/models/Tools/T_Enemies_Normal.png',
-  '../assets/models/Tools/T_Enemies_ORM.png',
   '../assets/models/Tools/Gun_Pistol.{gltf,bin}',
   '../assets/models/Tools/Gun_Revolver.{gltf,bin}',
   '../assets/models/Tools/Prop_Chest.{gltf,bin}',
-  '../assets/models/Tools/T_Enemies_Large_*.png',
-  '../assets/models/Tools/T_Guns_Batch1_*.png',
-  '../assets/models/Tools/T_Guns_Batch2_*.png',
-  '../assets/models/Tools/T_Props_Batch2_*.png',
+  '../assets/textures/*.png',
 ], { eager: true, query: '?url', import: 'default' });
 const toolUrls = new Map(Object.entries(toolAssets).map(([path, url]) => [path.split('/').pop()!, url]));
+gltfLoader.manager.setURLModifier(url => {
+  const filename = decodeURIComponent(url).split(/[?#]/, 1)[0].split(/[\\/]/).pop();
+  return filename ? toolUrls.get(filename) ?? url : url;
+});
 
 /** Resolve glTF dependencies through Vite in both dev and hashed production builds. */
 export async function loadToolModel(name: 'Enemy_Trilobite' | 'Enemy_QuadShell' | 'Gun_Pistol' | 'Gun_Revolver' | 'Prop_Chest') {
@@ -40,57 +36,13 @@ export async function loadToolModel(name: 'Enemy_Trilobite' | 'Enemy_QuadShell' 
   return gltfLoader.parseAsync(JSON.stringify(json), '');
 }
 
-/** The exported FBX references a missing alternate atlas and the author's absolute disk paths. */
+/** Load the rig and animation together so cloned dinosaurs can share the source asset. */
 export async function loadDinoModel() {
-  const manager = new THREE.LoadingManager();
-  manager.setURLModifier(url => {
-    const filename = decodeURIComponent(url.replace(/\\/g, '/').split('/').pop() ?? '').split(/[?#]/)[0];
-    return /^QB-10_Monster2?\.png$/i.test(filename) ? dinoTextureUrl : url;
+  const gltf = await gltfLoader.loadAsync(dinoModelUrl);
+  gltf.scene.traverse(node => {
+    if (node instanceof THREE.Mesh) { node.castShadow = true; node.receiveShadow = true; }
   });
-  let failedTexture: string | undefined;
-  const dependenciesReady = new Promise<void>(resolve => {
-    manager.onLoad = () => resolve();
-    manager.onError = url => { failedTexture = url; };
-  });
-  const response = await fetch(dinoModelUrl);
-  if (!response.ok) throw new Error(`Dinosaur FBX: HTTP ${response.status}`);
-  const source = await response.text();
-  // Blockbench prefixes curve-node attributes with the clip name and uses P for translation.
-  // FBXLoader requires exactly R/T/S; an unrecognized P node otherwise crashes curve attachment.
-  const normalized = source.replace(/(AnimationCurveNode:\s*\d+,\s*"AnimCurveNode::)[^"\r\n]*\.([RPST])"/g,
-    (_match, prefix: string, channel: string) => `${prefix}${channel === 'P' ? 'T' : channel}"`);
-  manager.itemStart('dinosaur-parse');
-  let model: THREE.Group;
-  try { model = new FBXLoader(manager).parse(new TextEncoder().encode(normalized).buffer, ''); }
-  finally { manager.itemEnd('dinosaur-parse'); }
-  await dependenciesReady;
-  for (const clip of model.animations) clip.name = clip.name.trim();
-  const materials = new Set<THREE.Material>(), textures = new Set<THREE.Texture>();
-  model.traverse(node => {
-    if (!(node instanceof THREE.Mesh)) return;
-    node.castShadow = true; node.receiveShadow = true; node.frustumCulled = true;
-    for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
-      materials.add(material);
-      const surface = material as THREE.MeshPhongMaterial;
-      surface.color?.setHex(0xffffff);
-      if (surface.map) textures.add(surface.map);
-    }
-  });
-  if (failedTexture) {
-    const geometries = new Set<THREE.BufferGeometry>();
-    model.traverse(node => {
-      if (node instanceof THREE.Mesh) geometries.add(node.geometry);
-      if (node instanceof THREE.SkinnedMesh) node.skeleton.dispose();
-    });
-    geometries.forEach(geometry => geometry.dispose()); materials.forEach(material => material.dispose()); textures.forEach(texture => texture.dispose());
-    throw new Error(`Dinosaur texture could not load: ${failedTexture}`);
-  }
-  for (const texture of textures) {
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.magFilter = THREE.NearestFilter; texture.minFilter = THREE.NearestMipmapLinearFilter;
-    texture.generateMipmaps = true; texture.needsUpdate = true;
-  }
-  return { scene: model, animations: model.animations };
+  return { scene: gltf.scene, animations: gltf.animations };
 }
 
 // Set up Draco decoder for compressed models

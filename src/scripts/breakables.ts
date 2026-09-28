@@ -9,15 +9,48 @@ export interface Breakable extends DamageTarget {
   broken: boolean;
 }
 
+export function createBreakableDebris(scene: THREE.Scene, color = 0x998575) {
+  const debris: Array<{ mesh: THREE.Mesh; velocity: THREE.Vector3; life: number }> = [];
+  const geometry = new THREE.BoxGeometry(1, 1, 1);
+  const material = new THREE.MeshStandardMaterial({ color, roughness: 0.9 });
+  return {
+    emit(position: THREE.Vector3, size: THREE.Vector3) {
+      for (let i = 0; i < 10; i++) {
+        const shard = new THREE.Mesh(geometry, material);
+        shard.name = 'BreakableDebris';
+        shard.scale.set(size.x * 0.22, size.y * 0.22, size.z * 0.22);
+        shard.position.copy(position).add(new THREE.Vector3((Math.random() - 0.5) * size.x, (Math.random() - 0.5) * size.y, (Math.random() - 0.5) * size.z));
+        scene.add(shard);
+        debris.push({ mesh: shard, velocity: new THREE.Vector3((Math.random() - 0.5) * 3, 1.5 + Math.random(), (Math.random() - 0.5) * 3), life: 2 });
+      }
+    },
+    update(dt: number) {
+      dt = Number.isFinite(dt) ? THREE.MathUtils.clamp(dt, 0, 0.1) : 0;
+      for (let i = debris.length - 1; i >= 0; i--) {
+        const piece = debris[i];
+        piece.life -= dt;
+        piece.velocity.y -= 9.82 * dt;
+        piece.mesh.position.addScaledVector(piece.velocity, dt);
+        if (piece.mesh.position.y < 0.06) { piece.mesh.position.y = 0.06; piece.velocity.set(0, 0, 0); }
+        piece.mesh.rotation.x += dt * 2; piece.mesh.rotation.z += dt;
+        if (piece.life < 0.5) piece.mesh.scale.multiplyScalar(Math.exp(-6 * dt));
+        if (piece.life <= 0) { piece.mesh.removeFromParent(); debris.splice(i, 1); }
+      }
+    },
+    dispose() {
+      for (const piece of debris) piece.mesh.removeFromParent();
+      debris.length = 0; geometry.dispose(); material.dispose();
+    },
+  };
+}
+
 /** Scene-owned destructibles: collider, hit target, scan material, and short-lived debris. */
 export function createBreakables(scene: THREE.Scene, world: CANNON.World) {
   const objects: Breakable[] = [];
-  const debris: Array<{ mesh: THREE.Mesh; velocity: THREE.Vector3; life: number }> = [];
+  const debris = createBreakableDebris(scene);
   const originals = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
   const red = new THREE.MeshStandardMaterial({ color: 0xff2424, emissive: 0xff0808, emissiveIntensity: 0.65 });
   const yellow = new THREE.MeshStandardMaterial({ color: 0xffd629, emissive: 0xffb800, emissiveIntensity: 0.6 });
-  const shardGeometry = new THREE.BoxGeometry(1, 1, 1);
-  const shardMaterial = new THREE.MeshStandardMaterial({ color: 0x998575, roughness: 0.9 });
   let disposed = false;
   let scanning = false;
 
@@ -59,14 +92,7 @@ export function createBreakables(scene: THREE.Scene, world: CANNON.World) {
         item.broken = true;
         root.removeFromParent();
         world.removeBody(body);
-        for (let i = 0; i < 10; i++) {
-          const shard = new THREE.Mesh(shardGeometry, shardMaterial);
-          shard.name = 'BreakableDebris';
-          shard.scale.set(size.x * 0.22, size.y * 0.22, size.z * 0.22);
-          shard.position.copy(position).add(new THREE.Vector3((Math.random() - 0.5) * size.x, (Math.random() - 0.5) * size.y, (Math.random() - 0.5) * size.z));
-          scene.add(shard);
-          debris.push({ mesh: shard, velocity: new THREE.Vector3((Math.random() - 0.5) * 3, 1.5 + Math.random(), (Math.random() - 0.5) * 3), life: 2 });
-        }
+        debris.emit(position, size);
         onBreak?.(id);
         return true;
       },
@@ -86,17 +112,7 @@ export function createBreakables(scene: THREE.Scene, world: CANNON.World) {
   }
 
   function update(dt: number) {
-    dt = Number.isFinite(dt) ? THREE.MathUtils.clamp(dt, 0, 0.1) : 0;
-    for (let i = debris.length - 1; i >= 0; i--) {
-      const piece = debris[i];
-      piece.life -= dt;
-      piece.velocity.y -= 9.82 * dt;
-      piece.mesh.position.addScaledVector(piece.velocity, dt);
-      if (piece.mesh.position.y < 0.06) { piece.mesh.position.y = 0.06; piece.velocity.set(0, 0, 0); }
-      piece.mesh.rotation.x += dt * 2; piece.mesh.rotation.z += dt;
-      if (piece.life < 0.5) piece.mesh.scale.multiplyScalar(Math.exp(-6 * dt));
-      if (piece.life <= 0) { piece.mesh.removeFromParent(); debris.splice(i, 1); }
-    }
+    debris.update(dt);
   }
 
   function dispose() {
@@ -114,9 +130,9 @@ export function createBreakables(scene: THREE.Scene, world: CANNON.World) {
         (Array.isArray(original) ? original : [original]).forEach(mat => materials.add(mat));
       });
     }
-    debris.forEach(piece => piece.mesh.removeFromParent()); debris.length = 0;
+    debris.dispose();
     geometries.forEach(geometry => geometry.dispose()); materials.forEach(material => material.dispose());
-    originals.clear(); red.dispose(); yellow.dispose(); shardGeometry.dispose(); shardMaterial.dispose();
+    originals.clear(); red.dispose(); yellow.dispose();
   }
 
   return { add, objects, getDamageTargets: () => objects.filter(item => !item.broken),

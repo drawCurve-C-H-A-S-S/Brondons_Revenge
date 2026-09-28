@@ -90,12 +90,20 @@ export function createSidescrollPhase({ scene, camera, ship, boss, rail, shoot, 
     exitBoss.copy(boss.position); exitBossRotation.copy(boss.quaternion);
     exitRail = currentRail; stage = 'exit'; time = 0;
   }
+  function glowProgress() { return THREE.MathUtils.clamp(time / 0.95, 0, 1); }
+  function getPixelArtStrength() {
+    if (stage === 'enter') return THREE.MathUtils.clamp((time - 0.8) / 0.35, 0, 1);
+    if (stage === 'fight') return 1;
+    if (stage === 'exit') return 1 - glowProgress();
+    return 0;
+  }
   document.body.classList.add('side-scroll');
   return {
     device,
     get stage() { return stage; },
     get health() { return health; },
     get active() { return stage === 'fight'; },
+    get pixelArtStrength() { return getPixelArtStrength(); },
     shieldHit(point: THREE.Vector3) {
       if (stage !== 'fight') return;
       shieldTime = 0.55; shieldContact.copy(point).sub(boss.position);
@@ -124,8 +132,10 @@ export function createSidescrollPhase({ scene, camera, ship, boss, rail, shoot, 
         device.position.copy(boss.position).add(new THREE.Vector3(0, 42 + launch * 90, launch * 90));
         device.position.lerp(deviceTarget, THREE.MathUtils.smootherstep(time, 1.8, 4.6));
         const pulseProgress = THREE.MathUtils.clamp((time - 0.8) / 2, 0, 1);
-        pulse.style.setProperty('--pulse-scale', String(0.08 + pulseProgress * 2.8));
-        pulse.style.opacity = String(Math.sin(Math.PI * pulseProgress) * 0.7);
+        const releaseProgress = THREE.MathUtils.clamp((time - 3.65) / 0.95, 0, 1);
+        const releaseGlow = Math.sin(Math.PI * releaseProgress);
+        pulse.style.setProperty('--pulse-scale', String(0.08 + pulseProgress * 2.8 + releaseProgress * 2));
+        pulse.style.opacity = String(Math.max(Math.sin(Math.PI * pulseProgress) * 0.7, releaseGlow * 0.9));
         if (time >= 4.6) { stage = 'fight'; time = 0; pulse.style.opacity = '0'; }
       } else if (stage === 'fight') {
         boss.position.copy(bossTarget); boss.quaternion.copy(bossTargetRotation);
@@ -158,13 +168,14 @@ export function createSidescrollPhase({ scene, camera, ship, boss, rail, shoot, 
         }
       } else {
         const t = THREE.MathUtils.smootherstep(time, 0, 3.2);
+        const releaseProgress = glowProgress();
         ship.position.lerpVectors(exitShip.clone().add(new THREE.Vector3(0, 0, railZ - exitRail)), new THREE.Vector3(0, THREE.MathUtils.clamp(height, -30, 30), railZ), t);
         ship.scale.copy(startScale).multiplyScalar(2.6 - t * 1.6);
         ship.quaternion.slerpQuaternions(exitShipRotation, neutralShipRotation, t);
         boss.position.lerpVectors(exitBoss.clone().add(new THREE.Vector3(0, 0, railZ - exitRail)), new THREE.Vector3(0, 4, railZ + 340), t);
         boss.quaternion.slerpQuaternions(exitBossRotation, new THREE.Quaternion(), t);
-        pulse.style.setProperty('--pulse-scale', String(0.15 + t * 3));
-        pulse.style.opacity = String(Math.sin(Math.PI * t) * 0.35);
+        pulse.style.setProperty('--pulse-scale', String(0.08 + releaseProgress * 4.8));
+        pulse.style.opacity = String(Math.sin(Math.PI * releaseProgress) * 0.9);
         if (time >= 3.2) { stage = 'done'; ship.scale.copy(startScale); document.body.classList.remove('side-scroll'); }
       }
       shieldTime = Math.max(0, shieldTime - dt);

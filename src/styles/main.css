@@ -508,7 +508,7 @@ body.quick-menu-open #credits-content { animation-play-state: paused; }
   position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);
 }
 body.jungle-platformer #info, body.jungle-platformer #view-toggle-btn,
-body.jungle-platformer #health-bar, body.jungle-platformer-side #crosshair,
+body.jungle-platformer-side #crosshair,
 body.jungle-platformer #weapon-status, body.jungle-platformer #goggles-overlay,
 body.jungle-platformer #goggles-status { display: none !important; }
 body.side-scroll #space-crosshair, body.side-scroll #touch-view,
@@ -523,11 +523,6 @@ body.top-down-flight #space-crosshair, body.top-down-flight #touch-view { displa
   background: radial-gradient(ellipse at center, transparent 14%, #ff6b8288 37%, #fa244dcc 40%, transparent 44%);
   box-shadow: inset 0 0 160px #ff3355;
 }
-.topdown-entry-flash {
-  position: fixed; inset: 0; z-index: 115; pointer-events: none;
-  background: #fff; opacity: calc(var(--flash-opacity, 0) * 0.96);
-}
-body.quick-menu-open .topdown-entry-flash { display: none; }
 .jungle-scrambler-flash {
   position: fixed; inset: 0; z-index: 115; pointer-events: none;
   background: #d6ffe6; opacity: calc(var(--flash-opacity, 0) * 0.24);
@@ -885,7 +880,7 @@ body.quick-menu-open #touch-controls { display: none !important; }
 #touch-controls:not(.flight-mode) .touch-btn-fire,
 #touch-controls:not(.flight-mode) .touch-btn-evade { display: none; }
 body.jungle-platformer #touch-controls .touch-btn:not(#touch-jump):not(#touch-fire):not(#touch-menu):not(#touch-crouch):not(#touch-pistol):not(#touch-crowbar):not(#touch-sprint),
-body.jungle-platformer-side #touch-sprint, body.jungle-platformer #touch-flight-stick { display: none !important; }
+body.jungle-platformer #touch-flight-stick { display: none !important; }
 body.jungle-platformer #touch-controls:not(.flight-mode) #touch-fire { display: block; }
 body.jungle-platformer #touch-jump { min-width: 72px; min-height: 60px; }
 body.jungle-platformer .touch-buttons-right { gap: 10px; max-width: min(360px, 48vw); }

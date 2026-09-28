@@ -227,7 +227,7 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
     applyCinematicCamera,
     onPlayerDeath() {
       if (!onRespawn) return false;
-      if (!deathClock) { deathClock = 1.4; freeze(); if (subtitles) { subtitles.textContent = 'WARDEN CHECKPOINT / RESTARTING'; subtitles.classList.remove('hidden'); } }
+      if (!deathClock) { deathClock = 2.5; freeze(); if (subtitles) { subtitles.textContent = 'WARDEN CHECKPOINT / RESTARTING'; subtitles.classList.remove('hidden'); } }
       return true;
     },
     updatePhysics(dt: number, thirdPerson = false) {

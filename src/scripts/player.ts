@@ -147,7 +147,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     if (!enabled || inputLocked || blockedKeys.has(e.code) || (e.repeat && !keys[e.code])) return;
     if (sideScrollDepth !== null) {
       if (document.hidden || document.body.classList.contains('quick-menu-open') ||
-        !['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyC'].includes(e.code) ||
+        !['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyC', 'ShiftLeft', 'ShiftRight'].includes(e.code) ||
         (e.target instanceof HTMLElement && e.target.closest('button, input, textarea, select, [contenteditable="true"]'))) return;
       e.preventDefault();
     }

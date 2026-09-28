@@ -6,12 +6,13 @@ import * as CANNON from 'cannon-es';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createServer } from 'vite';
 
-let server, createScene, createBridge, courseX, touch;
+let server, createScene, createBridge, createReturn, courseX, touch;
 before(async () => {
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false },
     appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
   ({ createScene } = await server.ssrLoadModule('/scenes/level 3/scene18.ts'));
   ({ createScene: createBridge } = await server.ssrLoadModule('/scenes/level 3/scene17.ts'));
+  ({ createScene: createReturn } = await server.ssrLoadModule('/scenes/level 3/scene19.ts'));
   ({ courseX } = await server.ssrLoadModule('/helpers/scene/junglePlatformCourse.ts'));
   touch = await server.ssrLoadModule('/scripts/touchControls.ts');
 });
@@ -137,6 +138,14 @@ for (const fps of [30, 60, 144]) {
     const { data, finishes } = await fixture(t, { entryState: bossEntry() }); step(data, 1.3, fps);
     const warden = target(data, 'Platform-warden'), orb = target(data, 'FacilitySidescrollScrambler');
     assert.equal(orb.damage(25, 'pistol'), false); assert.equal(warden.damage(25, 'pistol'), false);
+    data.player.setPosition(courseX(104), 1.6, 17); step(data, 1.1, fps);
+    for (let i = 0; i < 8; i++) {
+      assert.equal(orb.damage(25, 'pistol'), true);
+      assert.equal(data.getPlatformerStatus().orbHealth, 175 - i * 25);
+    }
+    until(data, () => data.getPlatformerStatus().phase === 'boss', fps, 7);
+    assert.equal(data.getPlatformerStatus().bossShielded, false);
+    assert.equal(warden.damage(25, 'pistol'), false, 'Warden is invulnerable while charging');
     until(data, () => data.getPlatformerStatus().bossStage === 'open', fps);
     assert.equal(warden.damage(35, 'crowbar'), false); assert.equal(warden.damage(NaN, 'pistol'), false);
     assert.equal(warden.damage(25, 'pistol'), true);
@@ -144,22 +153,21 @@ for (const fps of [30, 60, 144]) {
     step(data, 0.25, fps); assert.equal(warden.damage(25, 'pistol'), false);
     until(data, () => data.getPlatformerStatus().bossStage === 'open', fps);
     assert.equal(data.getPlatformerStatus().bossVolley, 1, 'Attack alternates from ground pulse to burst');
-    while (data.getPlatformerStatus().bossHealth > 0) assert.equal(warden.damage(25, 'pistol'), true);
-    assert.equal(data.getPlatformerStatus().phase, 'scrambler');
+    while (data.getPlatformerStatus().bossHealth > 0) {
+      until(data, () => data.getPlatformerStatus().bossStage === 'open', fps);
+      assert.equal(warden.damage(25, 'pistol'), true);
+    }
+    assert.equal(data.getPlatformerStatus().phase, 'cleared');
     assert.equal(data.getPlatformerStatus().shots.hostile, 0);
     assert.equal(finishes.length, 0, 'Boss defeat alone cannot finish');
-    assert.equal(orb.damage(25, 'pistol'), false, 'Orb must finish descending');
-    data.player.setPosition(courseX(104), 1.6, 17); step(data, 1.4, fps);
+    data.player.setPosition(courseX(104), 1.6, 9); step(data, 1 / fps, fps);
     data.player.heal(100); data.player.takeDamage(33);
-    for (let i = 0; i < 3; i++) {
-      assert.equal(orb.damage(25, 'pistol'), true);
-      assert.equal(data.getPlatformerStatus().orbHealth, 50 - i * 25);
-    }
+    const expectedHealth = data.player.getHealth();
     const camera = data.camera.position.clone(); data.updatePhysics(1 / fps);
     assert.equal(data.getPlatformerStatus().phase, 'exit');
     assert.ok(data.camera.position.distanceTo(camera) < 0.2, 'Exit captures the side camera, not the ordinary physics camera');
     step(data, 5, fps); step(data, 2, fps);
-    assert.equal(finishes.length, 1); assert.equal(finishes[0].pilotState.health, 67);
+    assert.equal(finishes.length, 1); assert.equal(finishes[0].pilotState.health, expectedHealth);
     assert.deepEqual(finishes[0].pilotState.heldKeys, []); assert.equal(finishes[0].scramblerDestroyed, true);
     assert.ok(Math.abs(finishes[0].pilotState.position.x + 146) < 1e-6);
     assert.ok(Math.abs(finishes[0].pilotState.position.z - 5) < 1e-6);
@@ -186,13 +194,26 @@ test('Checkpoint restart restores saved relays/robots, full health and a fresh u
   t.cleanup(() => restored.dispose()); await restored.ready; step(restored, 1.3);
   assert.equal(restored.getPlatformerStatus().phase, 'traversal'); assert.equal(restored.player.getHealth(), 100);
   assert.equal(restored.course.relays[0].deployment, 1); assert.equal(restored.course.relays[1].deployment, 0);
-  assert.equal(restored.getPlatformerStatus().bossHealth, 600); assert.equal(restored.getPlatformerStatus().orbHealth, 75);
+  assert.equal(restored.getPlatformerStatus().bossHealth, 600); assert.equal(restored.getPlatformerStatus().orbHealth, 200);
   assert.equal(restored.player.getState().isMoving, false); assert.equal(restored.player.getState().jumping, false);
+});
+
+test('Scene 18 plays the complete death pose while the camera pulls away', async t => {
+  const { data, respawns } = await fixture(t); step(data, 1.3);
+  data.player.setPosition(courseX(36), -4, 17); data.updatePhysics(1 / 60);
+  assert.equal(data.getPlatformerStatus().phase, 'death');
+  assert.equal(data.getCinematicPose().clip, 'Death01');
+  const initialZ = data.camera.position.z;
+  step(data, 1.5);
+  assert.ok(data.camera.position.z < initialZ - 4, 'death camera pulls farther from the platform');
+  assert.equal(respawns.length, 0);
+  step(data, 0.8); assert.equal(respawns.length, 0);
+  step(data, 0.3); assert.equal(respawns.length, 1);
 });
 
 test('Swept held fire hits the nearest robot and cannot shoot through solid cover', async t => {
   const { data } = await fixture(t); step(data, 1.3);
-  data.player.setPosition(courseX(10), 1.1, 17);
+  data.player.setPosition(courseX(10), 1.65, 17);
   const robot = target(data, 'Platform-patrol1');
   const wall = data.physics.addBox({ x: 0.2, y: 4, z: 3 }, { x: courseX(10.8), y: 2, z: 17 });
   document.pointerLockElement = document.body;
@@ -238,7 +259,7 @@ test('Mobile joystick, JUMP and held FIRE work simultaneously without touch-look
   assert.equal(data.player.getState().jumping, true); assert.ok(data.getPlatformerStatus().shots.friendly > 0);
   assert.equal(touch.isTouchFire(), true); assert.equal(ordinary.mock.callCount(), 0);
   gesture('touchstart', 5, 800); gesture('touchmove', 5, 1000);
-  assert.equal(data.player.getState().yaw, Math.PI / 2); assert.equal(data.player.getState().pitch, 0);
+  assert.equal(data.player.getState().yaw, Math.PI / 2); assert.ok(Math.abs(data.player.getState().pitch) < 1e-8);
   window.dispatchEvent(new Event('blur')); assert.equal(touch.isTouchFire(), false);
   assert.equal(data.player.getState().isMoving, false);
 });
@@ -281,7 +302,7 @@ test('Late asset completion after disposal releases its resources and cannot rec
   assert.equal(data.scene.children.some(node => node.name.startsWith('Platform-')), false);
 });
 
-test('Scene 17 launches over the intact bridge, preserves health/camera and hands off once', async t => {
+test('Scene 17 collapses the bridge on impact, preserves health/camera and hands off once', async t => {
   browser(t); const states = [];
   const data = createBridge({ loadModel: async () => asset(), loadDinosaur: async () => asset(), onRespawn() {}, onPlatformer: state => states.push(state) });
   t.cleanup(() => data.dispose()); await data.ready;
@@ -297,7 +318,88 @@ test('Scene 17 launches over the intact bridge, preserves health/camera and hand
   assert.ok(states[0].cameraPosition.distanceTo(data.camera.position) < 1e-9);
   assert.ok(states[0].scramblerPosition.distanceTo(new THREE.Vector3(-42, 5, 17)) < 1e-9);
   assert.deepEqual(states[0].platformProgress, { checkpoint: 'bridge', activatedRelays: [], defeatedRobots: [] });
-  assert.ok(data.physicsWorld.bodies.some(b => b.type === CANNON.Body.STATIC && b.position.x === -42 && b.position.z === 17 && b.position.y === 0.08));
+  assert.equal(data.physicsWorld.bodies.some(b => b.type === CANNON.Body.STATIC && b.position.x === -42 && b.position.z === 17 && b.position.y === 0.08), false);
+});
+
+for (const [label, position] of [
+  ['17', [-82, 49]], ['19', [-120, -27]],
+]) test(`Scene ${label} dinosaurs load only off path, stun on obstacles and kill on contact`, async t => {
+  browser(t);
+  let loads = 0;
+  const dino = asset(true); dino.animations = [new THREE.AnimationClip('Animation', 9, [])];
+  const data = (label === '17' ? createBridge : createReturn)({ loadModel: async () => asset(), loadDinosaur: async () => { loads++; return dino; }, onRespawn() {} });
+  t.cleanup(() => data.dispose()); await data.ready;
+  step(data, 0.2);
+  assert.equal(loads, 0);
+  assert.equal(data.dinosaurs.length, 0);
+  data.player.setPosition(position[0], 0.3, position[1]);
+  data.updatePhysics(1 / 60);
+  await Promise.resolve();
+  assert.equal(loads, 1);
+  step(data, 0.2);
+  const enemy = data.dinosaurs.find(actor => actor.phase === 'chasing');
+  assert.ok(enemy, 'off-path entry spawns a chasing dinosaur');
+  assert.equal(enemy.actions.get('Run')?.getClip().name, 'Animation');
+  assert.equal(data.getDamageTargets().some(target => target.root === enemy.root), false);
+  const obstacle = data.physicsWorld.bodies.find(body => body.type === CANNON.Body.STATIC && body.shapes.some(shape => shape instanceof CANNON.Cylinder));
+  assert.ok(obstacle, 'jungle trees have physical colliders');
+  let trunk, trunkIndex;
+  for (const mesh of data.scene.children.filter(node => node.name.startsWith('JungleTrunks/'))) {
+    const matrix = new THREE.Matrix4();
+    for (let index = 0; index < mesh.count; index++) {
+      mesh.getMatrixAt(index, matrix);
+      if (Math.hypot(matrix.elements[12] + mesh.position.x - obstacle.position.x, matrix.elements[14] + mesh.position.z - obstacle.position.z) < 0.01) {
+        trunk = mesh; trunkIndex = index; break;
+      }
+    }
+    if (trunk) break;
+  }
+  assert.ok(trunk, 'struck tree has a matching rendered trunk');
+  const originalTrunk = new THREE.Matrix4(); trunk.getMatrixAt(trunkIndex, originalTrunk);
+  enemy.body.dispatchEvent({ type: 'collide', body: obstacle, contact: { getImpactVelocityAlongNormal: () => -8 } });
+  assert.equal(enemy.phase, 'stunned');
+  assert.equal(enemy.timer, 10);
+  data.player.setPosition(enemy.body.position.x + 1.5, 0.3, enemy.body.position.z);
+  data.updatePhysics(1 / 60);
+  assert.equal(data.physicsWorld.bodies.includes(obstacle), false, 'fallen tree collider is removed');
+  step(data, 0.4);
+  const tiltedTrunk = new THREE.Matrix4(); trunk.getMatrixAt(trunkIndex, tiltedTrunk);
+  assert.notDeepEqual(tiltedTrunk.elements, originalTrunk.elements, 'trunk tips with its canopy');
+  assert.ok(data.player.getHealth() > 0, 'stunned dinosaurs cannot kill');
+  data.player.setPosition(position[0], 0.3, position[1]);
+  enemy.timer = 0.001;
+  data.updatePhysics(1 / 60);
+  assert.equal(enemy.phase, 'chasing');
+  data.player.setPosition(...(label === '17' ? [-57, 0.3, 49] : [-120, 0.3, 0]));
+  data.updatePhysics(1 / 60);
+  assert.equal(enemy.body.velocity.x, 0, 'stone paths end pursuit');
+  data.player.setPosition(enemy.body.position.x, 0.3, enemy.body.position.z);
+  data.updatePhysics(1 / 60);
+  assert.equal(data.player.getHealth(), 0);
+});
+
+test('Dinosaur impact shatters jungle rocks with level-one box debris', async t => {
+  browser(t);
+  const data = createBridge({ loadModel: async () => asset(), loadDinosaur: async () => asset(true), onRespawn() {} });
+  t.cleanup(() => data.dispose()); await data.ready;
+  data.player.setPosition(-82, 0.3, 49); data.updatePhysics(1 / 60);
+  await Promise.resolve(); step(data, 0.2);
+  const enemy = data.dinosaurs.find(actor => actor.phase === 'chasing'); assert.ok(enemy);
+  const rock = data.scene.children.filter(node => node.geometry?.type === 'DodecahedronGeometry')
+    .sort((a, b) => a.position.distanceToSquared(enemy.root.position) - b.position.distanceToSquared(enemy.root.position))[0];
+  assert.ok(rock);
+  assert.ok(rock.position.distanceTo(enemy.root.position) < 45);
+  data.player.setPosition(rock.position.x + 2, 0.3, rock.position.z + 2);
+  data.updatePhysics(1 / 60);
+  const rockBody = data.physicsWorld.bodies.find(body => body.type === CANNON.Body.STATIC
+    && Math.hypot(body.position.x - rock.position.x, body.position.z - rock.position.z) < 0.01 && Math.abs(body.position.y - rock.position.y) < 2);
+  assert.ok(rockBody, 'rock physics is streamed in near the player');
+  enemy.phase = 'chasing';
+  enemy.body.dispatchEvent({ type: 'collide', body: rockBody, contact: { getImpactVelocityAlongNormal: () => 8 } });
+  data.updatePhysics(1 / 60);
+  assert.equal(rock.visible, false);
+  assert.equal(data.physicsWorld.bodies.includes(rockBody), false);
+  assert.equal(data.scene.children.filter(node => node.name === 'BreakableDebris').length, 10);
 });
 
 test('Routing and presentation keep scene 19 defenses and normal weapon/view ownership intact', async () => {
@@ -309,9 +411,9 @@ test('Routing and presentation keep scene 19 defenses and normal weapon/view own
   assert.match(main, /onRespawn: state => loadPlatformer18\(checkpointArrival\(state\)\)/);
   assert.match(main, /weaponAnimation: currentSceneData\?\.ownsWeaponInput \? undefined/);
   assert.match(main, /function toggleView\(\)\s*\{\s*if \(currentSceneData\?\.ownsWeaponInput\) return/);
-  assert.match(returnScene, /section: 'return'/); assert.doesNotMatch(bridge, /site\.breakBridge\(/);
+  assert.match(returnScene, /section: 'return'/); assert.match(bridge, /site\.breakBridge\(/);
   for (const behavior of ['updateSentries', 'updateDefense', 'updatePatrols', 'doorLatched', 'applyEntryCamera']) assert.ok(bridge.includes(behavior));
   assert.doesNotMatch(css, /river-run|river-hud|river-lane-controls/);
   assert.match(css, /jungle-platformer #touch-controls:not\(\.flight-mode\) #touch-fire \{ display: block/);
-  assert.match(html, /18: A\/D or arrows move, Space jumps/);
+  assert.match(html, /18: keep up with the camera; A\/D or arrows move, Space jumps/);
 });

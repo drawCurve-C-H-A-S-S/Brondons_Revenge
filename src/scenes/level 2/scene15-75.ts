@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { predictsCollision } from '../../helpers/scene/flightCollision.js';
 
 export const TOPDOWN_SCRAMBLER_HEALTH = 420;
 const SHIELD_WIDTH = 118, ORB_RADIUS = 18, PLAYER_WIDTH = 190;
@@ -8,16 +9,17 @@ const MODEL_FORWARD = new THREE.Vector3(0, 0, -1);
 type Options = {
   scene: THREE.Scene; camera: THREE.PerspectiveCamera; ship: THREE.Group; boss: THREE.Group; rail: number;
   launchBays: THREE.Object3D[]; createInterceptor: () => THREE.Group;
-  shoot: (from: THREE.Vector3, to: THREE.Vector3, damage: number, speed?: number) => void;
+  shootLaser: (from: THREE.Vector3, to: THREE.Vector3, damage: number, speed?: number) => void;
   burst: (position: THREE.Vector3, size: number, color?: number) => void;
 };
 type Escort = {
   root: THREE.Group; health: number; active: boolean; age: number; fireCd: number;
-  launch: THREE.Vector3; path: THREE.CubicBezierCurve3;
+  launch: THREE.Vector3; path: THREE.CubicBezierCurve3; lastPosition: THREE.Vector3;
+  evadeOffsetX: number; evadeCooldown: number; evadeRollTime: number; evadeSign: number;
 };
 
 /** Scene 15.75 shares scene 15's world, music, projectiles and persistent hull health. */
-export function createTopdownPhase({ scene, camera, ship, boss, rail, launchBays, createInterceptor, shoot, burst }: Options) {
+export function createTopdownPhase({ scene, camera, ship, boss, rail, launchBays, createInterceptor, shootLaser, burst }: Options) {
   const device = new THREE.Group(); device.name = 'TopdownRedScrambler'; device.visible = false; scene.add(device);
   const red = new THREE.MeshBasicMaterial({ color: 0xff334f, transparent: true, opacity: 0 });
   const metal = new THREE.MeshStandardMaterial({ color: 0x5a2633, metalness: 0.8, roughness: 0.28, transparent: true, opacity: 0 });
@@ -41,9 +43,6 @@ export function createTopdownPhase({ scene, camera, ship, boss, rail, launchBays
   evadeHalo.name = 'TopdownEvadeHalo'; evadeHalo.rotation.x = -Math.PI / 2; evadeHalo.visible = false; scene.add(evadeHalo);
   const pulse = document.createElement('div'); pulse.className = 'scrambler-pulse topdown-pulse';
   pulse.setAttribute('aria-hidden', 'true'); document.body.appendChild(pulse);
-  const entryFlash = document.createElement('div'); entryFlash.className = 'topdown-entry-flash';
-  entryFlash.setAttribute('aria-hidden', 'true'); entryFlash.style.setProperty('--flash-opacity', '1');
-  document.body.appendChild(entryFlash);
   document.body.classList.add('top-down-flight');
 
   const random = (min: number, max: number) => THREE.MathUtils.lerp(min, max, Math.random());
@@ -59,9 +58,12 @@ export function createTopdownPhase({ scene, camera, ship, boss, rail, launchBays
   const exitShip = new THREE.Vector3(), exitShipRotation = new THREE.Quaternion(), exitBoss = new THREE.Vector3();
   const bossTarget = new THREE.Vector3(), orbOffset = new THREE.Vector3(), deviceTarget = new THREE.Vector3();
   const escorts: Escort[] = [];
+  const escortPosition = new THREE.Vector3(), escortVelocity = new THREE.Vector3();
+  const playerPosition = new THREE.Vector3(), relativePosition = new THREE.Vector3(), relativeVelocity = new THREE.Vector3();
+  const playerVelocity = new THREE.Vector3(), escortDirection = new THREE.Vector3(), roll = new THREE.Quaternion();
   let stage: 'enter' | 'fight' | 'exit' | 'done' = 'enter';
   let currentRail = rail, time = 0, elapsed = 0, health = TOPDOWN_SCRAMBLER_HEALTH, disposed = false;
-  let lateral = 0, offset = -35, lean = 0, shieldTime = 0, cooldown = 1.7, volley = 0;
+  let lateral = 0, offset = -35, lean = 0, shieldTime = 0;
   let appearing = true, appearanceTime = 0, appearanceDuration = random(4.2, 6.2), targetable = false;
   let spawnCooldown = 1.8, spawned = 0;
   let evadeTime = EVADE_DURATION, evadeDirection = 1, evadeStart = 0, evadeEnd = 0;
@@ -107,6 +109,13 @@ export function createTopdownPhase({ scene, camera, ship, boss, rail, launchBays
     exitBoss.copy(relative(boss.position, currentRail));
     stage = 'exit'; time = 0; shieldTime = 0; ripple.visible = false; evadeHalo.visible = false;
   }
+  function releaseProgress() { return THREE.MathUtils.clamp(time / 0.95, 0, 1); }
+  function pixelArtStrength() {
+    if (stage === 'enter') return THREE.MathUtils.clamp((time - 0.7) / 0.4, 0, 1);
+    if (stage === 'fight') return 1;
+    if (stage === 'exit') return 1 - releaseProgress();
+    return 0;
+  }
   function spawnEscort() {
     if (spawned >= ESCORT_LIMIT || escorts.filter(f => f.active).length >= 3) return;
     const bay = launchBays[spawned % launchBays.length]; if (!bay) return;
@@ -115,30 +124,50 @@ export function createTopdownPhase({ scene, camera, ship, boss, rail, launchBays
     const launch = relative(root.position, currentRail), side = Math.sign(launch.x) || 1;
     const start = new THREE.Vector3(side * 145, 1, boss.position.z - currentRail - 48);
     const lane = random(-160, 160);
-    escorts.push({ root, health: 42, active: true, age: 0, fireCd: 1.4 + random(0, 0.5), launch,
+    escorts.push({ root, health: 42, active: true, age: 0, fireCd: 1.4 + random(0, 0.5), launch, lastPosition: launch.clone(),
+      evadeOffsetX: 0, evadeCooldown: 0, evadeRollTime: 0, evadeSign: 1,
       path: new THREE.CubicBezierCurve3(start, new THREE.Vector3(side * 170, 1, 155), new THREE.Vector3(lane, 1, 70), new THREE.Vector3(lane, 1, -105)) });
     burst(root.position, 5, 0xff8c9d); spawned++;
   }
-  function updateEscorts(dt: number) {
+  function updateEscorts(dt: number, currentPlayerVelocity: THREE.Vector3) {
     spawnCooldown -= dt;
     if (spawnCooldown <= 0) { spawnEscort(); spawnCooldown = spawned % 2 ? 1.1 : random(4.5, 6.5); }
+    playerPosition.set(ship.position.x, ship.position.y, ship.position.z - currentRail);
+    playerVelocity.copy(currentPlayerVelocity);
     for (const escort of escorts) {
       if (!escort.active) continue;
       escort.age += dt;
-      let direction: THREE.Vector3;
       if (escort.age < 0.9) {
         const t = THREE.MathUtils.smootherstep(escort.age, 0, 0.9);
-        escort.root.position.lerpVectors(escort.launch, escort.path.v0, t);
-        direction = escort.path.v0.clone().sub(escort.launch).normalize();
+        escortPosition.lerpVectors(escort.launch, escort.path.v0, t);
       } else {
         const t = Math.min(1, (escort.age - 0.9) / 5.2);
-        escort.path.getPoint(t, escort.root.position); direction = escort.path.getTangent(t);
+        escort.path.getPoint(t, escortPosition);
       }
-      escort.root.position.z += currentRail;
-      escort.root.quaternion.setFromUnitVectors(MODEL_FORWARD, direction);
+      escortVelocity.subVectors(escortPosition, escort.lastPosition).divideScalar(Math.max(dt, 1e-4));
+      escort.lastPosition.copy(escortPosition);
+      relativePosition.subVectors(escortPosition, playerPosition);
+      relativeVelocity.subVectors(escortVelocity, playerVelocity);
+      escort.evadeCooldown = Math.max(0, escort.evadeCooldown - dt);
+      escort.evadeRollTime = Math.max(0, escort.evadeRollTime - dt);
+      if (escortPosition.z < playerPosition.z - 38) escort.evadeOffsetX = THREE.MathUtils.damp(escort.evadeOffsetX, 0, 2.5, dt);
+      if (escort.evadeCooldown <= 0 && predictsCollision(relativePosition, relativeVelocity, 0.8, 24)) {
+        escort.evadeSign = Math.sign(relativePosition.x) || (escortVelocity.x >= 0 ? -1 : 1);
+        escort.evadeOffsetX = escort.evadeSign * 48;
+        escort.evadeCooldown = 1.8;
+        escort.evadeRollTime = EVADE_DURATION;
+      }
+      escort.root.position.set(escortPosition.x + escort.evadeOffsetX, escortPosition.y, escortPosition.z + currentRail);
+      escortDirection.copy(escortVelocity).normalize();
+      escort.root.quaternion.setFromUnitVectors(MODEL_FORWARD, escortDirection);
+      if (escort.evadeRollTime > 0) {
+        const progress = 1 - escort.evadeRollTime / EVADE_DURATION;
+        roll.setFromAxisAngle(MODEL_FORWARD, -escort.evadeSign * (1 - progress) * Math.PI * 2);
+        escort.root.quaternion.multiply(roll);
+      }
       escort.fireCd -= dt;
       if (escort.age >= 0.9 && escort.fireCd <= 0 && escort.root.position.z > ship.position.z + 45) {
-        shoot(escort.root.position.clone(), ship.position.clone().add(new THREE.Vector3(0, 1, 0)), 10, 155);
+        shootLaser(escort.root.position.clone(), ship.position.clone().add(new THREE.Vector3(0, 1, 0)), 10, 155);
         escort.fireCd = random(1.5, 2.2);
       }
       if (escort.age >= 6.1) { escort.active = false; escort.root.visible = false; }
@@ -168,6 +197,7 @@ export function createTopdownPhase({ scene, camera, ship, boss, rail, launchBays
   return {
     get stage() { return stage; },
     get active() { return stage === 'fight'; },
+    get pixelArtStrength() { return pixelArtStrength(); },
     get evading() { return stage === 'fight' && evadeTime < EVADE_DURATION; },
     evade(direction: number) {
       if (disposed || stage !== 'fight' || evadeTime < EVADE_DURATION || !Number.isFinite(direction)) return false;
@@ -214,7 +244,6 @@ export function createTopdownPhase({ scene, camera, ship, boss, rail, launchBays
         ship.scale.copy(startScale).multiplyScalar(1 + t * 1.6);
         boss.position.lerpVectors(atRail(startBoss), bossTarget, t);
         boss.quaternion.slerpQuaternions(startBossRotation, neutralRotation, t);
-        // The destruction flash reveals an emerging orb and shield, not fully formed meshes.
         const lift = THREE.MathUtils.smootherstep(time, 0.15, 1.7);
         const reveal = THREE.MathUtils.smootherstep(time, 0.25, 1.25);
         deviceTarget.copy(boss.position).add(orbOffset);
@@ -223,15 +252,15 @@ export function createTopdownPhase({ scene, camera, ship, boss, rail, launchBays
         device.visible = reveal > 0.01; device.scale.setScalar(0.15 + reveal * 0.85);
         red.opacity = metal.opacity = reveal; glowMaterial.opacity = reveal * 0.16; light.intensity = reveal * 1500;
         // Use encounter time so pausing freezes the flash together with the camera.
-        entryFlash.style.setProperty('--flash-opacity', String(1 - THREE.MathUtils.smootherstep(time, 0.08, 1.1)));
         const wave = THREE.MathUtils.clamp((time - 0.7) / 3.2, 0, 1);
         pulse.style.setProperty('--pulse-scale', String(0.1 + wave * 3)); pulse.style.opacity = String(Math.sin(wave * Math.PI) * 0.4);
         if (time >= ENTER_DURATION) {
-          stage = 'fight'; time = 0; appearanceTime = 0.32; targetable = true; pulse.style.opacity = '0'; entryFlash.remove();
+          stage = 'fight'; time = 0; appearanceTime = 0.32; targetable = true; pulse.style.opacity = '0';
         }
       } else if (stage === 'fight') {
         // In this overhead view +Z is screen-up and -X is screen-right.
         const input = new THREE.Vector2(-horizontal, vertical); if (input.lengthSq() > 1) input.normalize();
+        const previousLateral = lateral, previousOffset = offset;
         const evading = evadeTime < EVADE_DURATION;
         evadeTime = Math.min(EVADE_DURATION, evadeTime + dt);
         const evadeProgress = THREE.MathUtils.smootherstep(evadeTime, 0, EVADE_DURATION);
@@ -242,23 +271,16 @@ export function createTopdownPhase({ scene, camera, ship, boss, rail, launchBays
         lean = THREE.MathUtils.damp(lean, evading ? 0 : input.x * -0.24, 10, dt);
         const roll = evading ? -evadeDirection * Math.PI * 2 * evadeProgress : 0;
         ship.position.set(lateral, 0, currentRail + offset); ship.rotation.set(0, Math.PI, lean + roll, 'YXZ');
+        playerVelocity.set((lateral - previousLateral) / Math.max(dt, 1e-4), 0, (offset - previousOffset) / Math.max(dt, 1e-4));
         const evadeGlow = evading ? Math.sin(evadeProgress * Math.PI) : 0;
         evadeHalo.visible = evadeGlow > 0.01;
         evadeHalo.position.copy(ship.position); evadeHalo.position.y = 1;
         evadeHalo.scale.setScalar(1 + evadeGlow * 0.2); evadeMaterial.opacity = evadeGlow * 0.65;
         boss.position.copy(bossTarget); boss.quaternion.copy(neutralRotation);
-        updateOrb(dt); updateEscorts(dt);
-        cooldown -= dt;
-        if (cooldown <= 0) {
-          volley++; cooldown = random(1.15, 1.65);
-          const sides = volley % 3 === 0 ? [-1, 1] : [volley % 2 ? -1 : 1];
-          for (const side of sides) {
-            const from = new THREE.Vector3(boss.position.x + side * 72, 1, boss.position.z - 105);
-            for (const x of [-26, 0, 26]) shoot(from, ship.position.clone().add(new THREE.Vector3(x, 1, 0)), 12, 165);
-          }
-        }
+        updateOrb(dt); updateEscorts(dt, playerVelocity);
       } else {
         const t = THREE.MathUtils.smootherstep(time, 0, EXIT_DURATION);
+        const release = releaseProgress();
         ship.position.lerpVectors(atRail(exitShip), new THREE.Vector3(0, 0, currentRail), t);
         ship.quaternion.slerpQuaternions(exitShipRotation, shipRotation, t);
         ship.scale.copy(startScale).multiplyScalar(2.6 - t * 1.6);
@@ -267,7 +289,7 @@ export function createTopdownPhase({ scene, camera, ship, boss, rail, launchBays
           escort.root.position.z += (200 + 220 * t) * dt; escort.root.position.y += 100 * dt;
           escort.root.scale.setScalar(3.5 * 1.65 * (1 - t));
         }
-        pulse.style.setProperty('--pulse-scale', String(0.15 + t * 3)); pulse.style.opacity = String(Math.sin(t * Math.PI) * 0.3);
+        pulse.style.setProperty('--pulse-scale', String(0.1 + release * 3)); pulse.style.opacity = String(Math.sin(release * Math.PI) * 0.4);
         if (time >= EXIT_DURATION) { stage = 'done'; ship.scale.copy(startScale); }
       }
       shieldTime = Math.max(0, shieldTime - dt);
@@ -286,7 +308,7 @@ export function createTopdownPhase({ scene, camera, ship, boss, rail, launchBays
     },
     dispose() {
       if (disposed) return; disposed = true;
-      pulse.remove(); entryFlash.remove(); document.body.classList.remove('top-down-flight'); ship.scale.copy(startScale); camera.up.copy(normalUp);
+      pulse.remove(); document.body.classList.remove('top-down-flight'); ship.scale.copy(startScale); camera.up.copy(normalUp);
       const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>();
       for (const root of [device, shield, ripple, evadeHalo, ...escorts.map(f => f.root)]) {
         root.removeFromParent();

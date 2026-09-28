@@ -33,6 +33,7 @@ import { GogglesController } from './scripts/goggles.js';
 import { createCctvSystem } from './scripts/cctv.js';
 import { createFirstPersonHands } from './scripts/firstPersonHands.js';
 import { initTouchControls, setTouchFlightMode, resetTouchInput } from './scripts/touchControls.js';
+import { PixelArtPass } from './core/PixelArtPass.js';
 
 // --- Renderer ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -44,6 +45,8 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 document.body.appendChild(renderer.domElement);
 const cctv = createCctvSystem(renderer);
+const pixelArtPass = new PixelArtPass();
+pixelArtPass.precompile(renderer);
 
 // --- Audio Manager stub ---
 const audioManager = null;
@@ -61,6 +64,12 @@ let activeSceneId = 'scene1';
 let quickMenuOpen = false;
 let nextSceneActionId = 0;
 const pendingSceneActions = new Map<number, { remaining: number; run: () => void }>();
+
+function renderGameScene(scene: THREE.Scene, camera: THREE.Camera) {
+  const strength = currentSceneData?.getPixelArtStrength?.() ?? 0;
+  if (strength > 0) pixelArtPass.render(renderer, renderer.render.bind(renderer), scene, camera, strength);
+  else renderer.render(scene, camera);
+}
 
 // Scene delays advance with the game loop, so the scene menu freezes them too.
 function scheduleSceneAction(run: () => void, delayMs: number) {
@@ -886,6 +895,23 @@ function transitionBackToScene3FromRight(entryState: PlayerTransitionState) {
 
 function updatePlayerView(dt: number) {
   if (!currentPlayer || !activeCamera) return;
+  if (deathPresentation?.player === currentPlayer) {
+    const { elapsed, position, rotation, fov } = deathPresentation;
+    pistol.update(dt); crowbar.update(dt);
+    globalCharacter?.weapon.setEquipped(false); globalCharacter?.setCrowbarEquipped(false);
+    globalCharacter?.update(dt, currentPlayer.body.position, currentPlayer.getState(), true, currentPlayer.radius,
+      { clip: 'Death01', time: elapsed });
+    const yaw = currentPlayer.getState().yaw, focus = new THREE.Vector3().copy(currentPlayer.body.position);
+    focus.y += 0.55;
+    const back = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+    const target = focus.clone().addScaledVector(back, 6.5).add(new THREE.Vector3(1.2, 2.8, 0));
+    const reveal = THREE.MathUtils.smootherstep(elapsed, 0, 1.5);
+    activeCamera.position.lerpVectors(position, target, reveal);
+    const view = activeCamera.clone(); view.position.copy(target); view.lookAt(focus);
+    activeCamera.quaternion.slerpQuaternions(rotation, view.quaternion, reveal);
+    activeCamera.fov = THREE.MathUtils.lerp(fov, 78, reveal); activeCamera.updateProjectionMatrix();
+    return;
+  }
   const cinematicState = currentSceneData?.getCinematicState?.();
   if (cinematicState) {
     // Remove ordinary weapon presentation before the scene applies its scripted props.
@@ -1083,6 +1109,8 @@ const healthFillEl = document.getElementById('health-bar-fill');
 const healthLabelEl = document.getElementById('health-bar-label');
 const healthBarEl = document.getElementById('health-bar');
 const playerDamageEl = document.getElementById('player-damage');
+let deathPresentation: { player: Player; elapsed: number; managed: boolean;
+  position: THREE.Vector3; rotation: THREE.Quaternion; fov: number } | null = null;
 let frameCount = 0;
 let fpsTime = 0;
 
@@ -1096,7 +1124,7 @@ function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
   if (quickMenuOpen) {
-    if (activeScene && activeCamera) renderer.render(currentSceneData?.getRenderScene?.() ?? activeScene, activeCamera);
+    if (activeScene && activeCamera) renderGameScene(currentSceneData?.getRenderScene?.() ?? activeScene, activeCamera);
     return;
   }
   advanceSceneActions(Math.min(delta, 0.1));
@@ -1113,6 +1141,7 @@ function animate() {
 
   // Health bar + death/respawn
   if (currentPlayer) {
+    if (deathPresentation && deathPresentation.player !== currentPlayer) deathPresentation = null;
     const health = currentPlayer.getHealth();
     const pct = Math.max(0, health / PLAYER_MAX_HEALTH);
     if (healthFillEl) {
@@ -1121,11 +1150,20 @@ function animate() {
       healthFillEl.classList.toggle('mid', pct > 0.3 && pct <= 0.6);
     }
     if (healthLabelEl) healthLabelEl.textContent = `${Math.max(0, Math.ceil(health))} / ${PLAYER_MAX_HEALTH}`;
-    if (currentPlayer.isEnabled() && health <= 0 && !currentSceneData?.onPlayerDeath?.()) respawnAtCapsule();
+    if (currentPlayer.isEnabled() && health <= 0 && !deathPresentation) {
+      const managed = !!currentSceneData?.onPlayerDeath?.();
+      deathPresentation = { player: currentPlayer, elapsed: 0, managed, position: activeCamera!.position.clone(),
+        rotation: activeCamera!.quaternion.clone(), fov: activeCamera!.fov };
+      if (!managed) currentPlayer.disable();
+    }
+    if (deathPresentation) {
+      deathPresentation.elapsed += Math.min(delta, 0.1);
+      if (!deathPresentation.managed && deathPresentation.elapsed >= 2.5) { deathPresentation = null; respawnAtCapsule(); }
+    }
   }
   if (healthBarEl) {
     const inScene1 = currentSceneData === scene1Data && !currentPlayer?.isEnabled();
-    const inCutscene = !!cutsceneManager || !!currentSceneData?.isCinematic?.();
+    const inCutscene = !!cutsceneManager || !!deathPresentation || !!currentSceneData?.isCinematic?.();
     healthBarEl.style.display = (inScene1 || inCutscene) ? 'none' : '';
   }
 
@@ -1144,11 +1182,11 @@ function animate() {
   const crosshair = document.getElementById('crosshair');
   if (crosshair) {
     const inScene1 = currentSceneData === scene1Data && !currentPlayer?.isEnabled();
-    const inCutscene = !!cutsceneManager || !!currentSceneData?.isCinematic?.();
+    const inCutscene = !!cutsceneManager || !!deathPresentation || !!currentSceneData?.isCinematic?.();
     crosshair.style.display = (inScene1 || inCutscene) ? 'none' : '';
   }
 
-  const sceneOwnsControls = !!currentSceneData?.isCinematic?.();
+  const sceneOwnsControls = !!deathPresentation || !!currentSceneData?.isCinematic?.();
   document.getElementById('info')?.classList.toggle('hidden', sceneOwnsControls);
   document.getElementById('view-toggle-btn')?.classList.toggle('hidden', sceneOwnsControls);
 
@@ -1177,7 +1215,7 @@ function animate() {
 
   // Render
   if (activeScene && activeCamera) {
-    renderer.render(currentSceneData?.getRenderScene?.() ?? activeScene, activeCamera);
+    renderGameScene(currentSceneData?.getRenderScene?.() ?? activeScene, activeCamera);
     if (!sceneOwnsControls && !currentSceneData?.ownsWeaponInput && cargoPuzzle.handle !== 'carried') crowbar.renderFirstPerson(renderer);
   }
 }

@@ -8,12 +8,14 @@ import { consumeFlightAim, isTouchFire, resetTouchInput } from '../../scripts/to
 import type { LaunchState } from '../level 1/scene14.js';
 import { createSidescrollPhase, SCRAMBLER_HEALTH } from './scene15-5.js';
 import { createTopdownPhase, TOPDOWN_SCRAMBLER_HEALTH } from './scene15-75.js';
+import { predictsCollision } from '../../helpers/scene/flightCollision.js';
 import { AudioManager } from '../../helpers/audio/AudioManager.js';
 import level2BgmUrl from '../../assets/bgm/Level 2.m4a?url';
 
 export const FLIGHT_RULES = Object.freeze({ cruise: 200, dodgeSpeed: 52, width: 64, height: 38, planetRadius: 900 });
 const TOTAL_FIGHTERS = 18, MAX_ACTIVE = 6, PLAYER_MAX_HP = 260;
 const SHOT_DAMAGE = 14, FIGHTER_HP = 42, GENERATOR_HP = 315, CORE_HP = 1400;
+const FIGHTER_EVADE_DURATION = 0.42;
 const FORWARD = new THREE.Vector3(0, 0, 1), MODEL_FORWARD = new THREE.Vector3(0, 0, -1);
 type Phase = 'combat' | 'bossArrival' | 'scrambler' | 'bossArmor' | 'topdownScrambler' | 'bossCore' | 'victory' | 'dead';
 
@@ -34,6 +36,7 @@ type Fighter = {
   root: THREE.Group; eye: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   health: number; fireCd: number; laneX: number; laneY: number; seed: number;
   state: 'launch' | 'attack' | 'regroup'; loop: THREE.CubicBezierCurve3 | null; loopTime: number;
+  evadeOffset: THREE.Vector2; evadeCooldown: number; evadeRollTime: number; evadeSign: number;
 };
 type WeakPoint = { mesh: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>; ring: THREE.Mesh; health: number; max: number };
 type Boss = { root: THREE.Group; bow: THREE.Group; launchBays: THREE.Object3D[]; generators: WeakPoint[]; core: WeakPoint; shield: THREE.Mesh; fireCd: number; volley: number };
@@ -214,7 +217,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     const mesh = new THREE.Mesh(rocketGeometry, rocketMaterial), marker = new THREE.Mesh(markerGeometry, markerMaterial);
     const blast = new THREE.Mesh(sphereGeo, new THREE.MeshBasicMaterial({ color: 0xff7850, transparent: true, opacity: 0.8, depthWrite: false }));
     mesh.visible = marker.visible = blast.visible = false; scene.add(mesh, marker, blast);
-    return { mesh, marker, blast, velocity: new THREE.Vector3(), target: new THREE.Vector3(), life: 0, delay: 0, blastAge: -1, damaged: false };
+    return { mesh, marker, blast, velocity: new THREE.Vector3(), target: new THREE.Vector3(), life: 0, delay: 0, blastAge: -1, blastRadius: 11, damaged: false };
   });
   const oldShipPosition = new THREE.Vector3(), temp = new THREE.Vector3();
   let audio: AudioContext | null = null;
@@ -343,7 +346,8 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     const start = root.position.clone(); start.z -= railZ;
     const loop = new THREE.CubicBezierCurve3(start, start.clone().add(new THREE.Vector3(0, 0, -150)),
       new THREE.Vector3(laneX, laneY, 600), new THREE.Vector3(laneX, laneY, 440));
-    fighters.push({ root, eye, health: FIGHTER_HP, fireCd: 0.8 + spawned % 6 * 0.35, laneX, laneY, seed: spawned * 1.7, state: 'launch', loop, loopTime: 0 });
+    fighters.push({ root, eye, health: FIGHTER_HP, fireCd: 0.8 + spawned % 6 * 0.35, laneX, laneY, seed: spawned * 1.7, state: 'launch', loop, loopTime: 0,
+      evadeOffset: new THREE.Vector2(), evadeCooldown: 0, evadeRollTime: 0, evadeSign: 1 });
     burst(root.position, 4, 0x9bdfff); spawned++;
   }
   function beginRegroup(f: Fighter) {
@@ -362,19 +366,37 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     burst(from, 3, 0x88ffbb);
   }
   function updateFighters(dt: number) {
+    const relativePosition = new THREE.Vector3(), relativeVelocity = new THREE.Vector3();
+    const roll = new THREE.Quaternion();
     for (const f of fighters) {
       if (f.health <= 0) continue;
       const previous = f.root.position.clone(); previous.z += FLIGHT_RULES.cruise * dt;
       f.root.position.z += FLIGHT_RULES.cruise * dt;
+      f.evadeCooldown = Math.max(0, f.evadeCooldown - dt);
+      f.evadeRollTime = Math.max(0, f.evadeRollTime - dt);
       if ((f.state === 'launch' || f.state === 'regroup') && f.loop) {
         f.loopTime += dt / (f.state === 'launch' ? 3.2 : 3.4); f.loop.getPoint(Math.min(1, f.loopTime), f.root.position); f.root.position.z += railZ;
         if (f.loopTime >= 1) { f.state = 'attack'; f.fireCd = 0.6 + Math.random(); }
       } else {
         const ahead = f.root.position.z - railZ;
         f.root.position.z -= 85 * dt;
-        if (ahead > 90) {
-          f.root.position.x = THREE.MathUtils.damp(f.root.position.x, f.laneX * 0.45 + ship.root.position.x * 0.5 + Math.sin(clock * 1.8 + f.seed) * 12, 1.2, dt);
-          f.root.position.y = THREE.MathUtils.damp(f.root.position.y, f.laneY * 0.65 + Math.cos(clock * 1.5 + f.seed) * 8, 1.2, dt);
+        if (ahead < -20) f.evadeOffset.multiplyScalar(Math.exp(-2 * dt));
+        if (ahead > 90 || f.evadeOffset.lengthSq() > 1) {
+          const dodgeRate = f.evadeOffset.lengthSq() > 1 ? 5 : 1.2;
+          f.root.position.x = THREE.MathUtils.damp(f.root.position.x,
+            f.laneX * 0.45 + ship.root.position.x * 0.5 + Math.sin(clock * 1.8 + f.seed) * 12 + f.evadeOffset.x, dodgeRate, dt);
+          f.root.position.y = THREE.MathUtils.damp(f.root.position.y,
+            f.laneY * 0.65 + Math.cos(clock * 1.5 + f.seed) * 8 + f.evadeOffset.y, dodgeRate, dt);
+        }
+        relativePosition.subVectors(f.root.position, ship.root.position);
+        relativeVelocity.set((f.root.position.x - previous.x) / dt - velocity.x - (rollTime > 0 ? dash.x * 85 : 0),
+          (f.root.position.y - previous.y) / dt - velocity.y - (rollTime > 0 ? dash.y * 85 : 0),
+          (f.root.position.z - previous.z) / dt);
+        if (f.state === 'attack' && f.evadeCooldown <= 0 && predictsCollision(relativePosition, relativeVelocity, 0.72, 25)) {
+          f.evadeSign = Math.sign(relativePosition.x) || (Math.sin(f.seed) >= 0 ? 1 : -1);
+          f.evadeOffset.set(f.evadeSign * 42, 0);
+          f.evadeCooldown = 1.8;
+          f.evadeRollTime = FIGHTER_EVADE_DURATION;
         }
         f.fireCd -= dt;
         const canFire = ahead > 105 && ahead < 460;
@@ -387,7 +409,14 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
         if (ahead < -55) beginRegroup(f);
       }
       const direction = f.root.position.clone().sub(previous).normalize();
-      if (direction.lengthSq() > 0) f.root.quaternion.setFromUnitVectors(MODEL_FORWARD, direction);
+      if (direction.lengthSq() > 0) {
+        f.root.quaternion.setFromUnitVectors(MODEL_FORWARD, direction);
+        if (f.evadeRollTime > 0) {
+          const progress = 1 - f.evadeRollTime / FIGHTER_EVADE_DURATION;
+          roll.setFromAxisAngle(MODEL_FORWARD, -f.evadeSign * (1 - progress) * Math.PI * 2);
+          f.root.quaternion.multiply(roll);
+        }
+      }
     }
   }
 
@@ -463,12 +492,13 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       boss.generators.forEach(target => { target.health = 0; target.mesh.visible = target.ring.visible = false; });
     }
     clearBolts(); clearInput(); fireCd = 0; rollCd = 0; cockpitView = false; ship.root.visible = true;
+    rocketCooldown = 2.4;
     phase = 'topdownScrambler'; phaseClock = 0;
     boss.core.mesh.visible = boss.core.ring.visible = boss.shield.visible = false;
     boss.bow.visible = true;
     // Keep the existing AudioManager and Level 2 loop alive through both camera transitions.
     topdown = createTopdownPhase({ scene, camera, ship: ship.root, boss: boss.root, rail: railZ,
-      launchBays: boss.launchBays, createInterceptor: () => createFighterMesh().root, shoot: launchBolt, burst });
+      launchBays: boss.launchBays, createInterceptor: () => createFighterMesh().root, shootLaser: launchBolt, burst });
     announce('SHIELD GENERATORS DESTROYED / RED SCRAMBLER LAUNCHING', 4.8);
   }
   function damageWeakPoint(target: WeakPoint) {
@@ -570,17 +600,19 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     raycaster.far = 1200;
   }
   function updateRockets(dt: number) {
-    if (boss && (phase === 'bossArmor' || phase === 'bossCore')) {
+    if (boss && (phase === 'bossCore' || phase === 'topdownScrambler')) {
       rocketCooldown -= dt;
       if (rocketCooldown <= 0) {
-        rocketCooldown = phase === 'bossCore' ? 3.3 : 4.5;
-        announce('ROCKETS LOCKED / MOVE OUT OF THE ORANGE RINGS', 1.4);
+        rocketCooldown = 3.3;
+        announce(phase === 'topdownScrambler' ? 'CARRIER MISSILES INBOUND / EVADE THE BLASTS' : 'ROCKETS LOCKED / MOVE OUT OF THE ORANGE RINGS', 1.4);
         for (const side of [-1, 1]) {
           const rocket = rockets.find(r => r.life <= 0 && r.blastAge < 0); if (!rocket) break;
           rocket.mesh.position.copy(boss.root.localToWorld(new THREE.Vector3(side * 6, 0, -8)));
-          rocket.target.copy(ship.root.position).add(new THREE.Vector3(side * 7 + velocity.x * 0.2, velocity.y * 0.2, 0));
+          const targetX = phase === 'topdownScrambler' ? side * 14 : side * 7 + velocity.x * 0.2;
+          rocket.target.copy(ship.root.position).add(new THREE.Vector3(targetX, velocity.y * 0.2, 0));
           rocket.velocity.copy(rocket.target).sub(rocket.mesh.position).normalize().multiplyScalar(220).addScaledVector(FORWARD, FLIGHT_RULES.cruise);
           rocket.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), rocket.velocity.clone().addScaledVector(FORWARD, -FLIGHT_RULES.cruise).normalize());
+          rocket.blastRadius = phase === 'topdownScrambler' ? 18 : 11;
           rocket.life = 6; rocket.delay = 0.8; rocket.marker.position.copy(rocket.target); rocket.mesh.visible = rocket.marker.visible = true;
         }
       }
@@ -589,7 +621,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       if (rocket.blastAge >= 0) {
         rocket.blastAge += dt; rocket.blast.position.z += FLIGHT_RULES.cruise * dt;
         if (rocket.blastAge >= 0.55) { rocket.blastAge = -1; rocket.blast.visible = false; continue; }
-        const radius = 11 * THREE.MathUtils.smoothstep(rocket.blastAge, 0, 0.18);
+        const radius = rocket.blastRadius * THREE.MathUtils.smoothstep(rocket.blastAge, 0, 0.18);
         rocket.blast.scale.setScalar(radius);
         rocket.blast.material.opacity = 0.8 * (1 - THREE.MathUtils.smoothstep(rocket.blastAge, 0.2, 0.55));
         if (!rocket.damaged && rocket.blast.position.distanceToSquared(ship.root.position) <= radius * radius) {
@@ -859,6 +891,11 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     roomId: 'scene15', scene, camera, physicsWorld, player, ship, planet, cutsceneManager: null,
     isCinematic: () => true, hideCharacter: () => true,
     getSceneId: () => phase === 'topdownScrambler' ? 'scene15.75' : phase === 'scrambler' || (startAt === 'scrambler' && phase === 'bossArrival') ? 'scene15.5' : 'scene15',
+    getPixelArtStrength: () => {
+      if (phase === 'scrambler' && sidescroll) return sidescroll.pixelArtStrength;
+      if (phase === 'topdownScrambler' && topdown) return topdown.pixelArtStrength;
+      return 0;
+    },
     getCinematicState: () => player.getState(), applyCinematicCamera: cameraView,
     clearInput, setMenuPaused: syncMusic,
     getFlightStatus: () => ({ speed: FLIGHT_RULES.cruise, cockpitView, paused, phase, playerHp, totalKilled, spawned,

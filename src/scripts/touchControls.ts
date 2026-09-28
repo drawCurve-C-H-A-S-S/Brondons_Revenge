@@ -327,8 +327,7 @@ function bindPressControl(elementId: string, onPress: () => void, onRelease: () 
     && !(element as HTMLButtonElement).disabled && !document.hidden
     && !document.body.classList.contains('quick-menu-open')
     && (!document.body.classList.contains('jungle-platformer') ||
-      ['touch-jump', 'touch-fire', 'touch-menu', 'touch-crouch', 'touch-pistol', 'touch-crowbar'].includes(elementId) ||
-      (!document.body.classList.contains('jungle-platformer-side') && elementId === 'touch-sprint'));
+      ['touch-jump', 'touch-fire', 'touch-menu', 'touch-crouch', 'touch-pistol', 'touch-crowbar', 'touch-sprint'].includes(elementId));
   const reset = () => {
     const previous = press;
     press = null;

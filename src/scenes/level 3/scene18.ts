@@ -20,7 +20,7 @@ type Actor = {
   cooldown: number; charge: number; deathTime: number; hitTime: number; aim: THREE.Vector3;
   signal: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
 };
-const BOSS_HEALTH = 600, ORB_HEALTH = 75, DEPTH = PLATFORM_COURSE.depth;
+const BOSS_HEALTH = 600, ORB_HEALTH = 200, DEPTH = PLATFORM_COURSE.depth;
 const SCROLL_SPEED = 2.1;
 const smooth = THREE.MathUtils.smootherstep;
 const copyProgress = (value: PlatformProgress): PlatformProgress => ({ ...value,
@@ -33,7 +33,8 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
 }) {
   let saved: PlatformProgress = copyProgress(entryState?.platformProgress ?? { checkpoint: 'bridge', activatedRelays: [], defeatedRobots: [] });
   const physics = createScenePhysics(), physicsWorld = physics.world;
-  const site = createRescueSite(physics, { culling: true, platformer: true, activatedRelays: saved.activatedRelays });
+  const site = createRescueSite(physics, { culling: true, platformer: true, activatedRelays: saved.activatedRelays,
+    ascendingPillars: true, bridgeBrokenAtStart: true });
   const { scene } = site, course = site.platformCourse!;
   site.setImpact(30); site.ship.setCanopyOpen(1); site.pod.getObjectByName('PodHatch')!.rotation.z = -1.5;
   const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.05, 260);
@@ -48,13 +49,14 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   player.body.collisionFilterMask &= ~2;
   player.body.type = CANNON.Body.KINEMATIC; player.body.updateMassProperties();
   let phase: Phase = 'entry', phaseTime = 0, elapsed = 0, lastDelta = 0, disposed = false, paused = false, transferred = false;
-  let firing = false, fireCooldown = 0, pendingShot = false, invulnerability = 0, damageFlash = 0;
+  let firing = false, shotRequested = false, touchFiring = false, fireCooldown = 0, pendingShot = false, invulnerability = 0, damageFlash = 0;
   let equipped: DamageWeapon = 'pistol', normalSpace = false, aimMoved = false, laserLife = 0;
   const aimNdc = new THREE.Vector2(0.25, 0), aimPoint = new THREE.Vector3(), aimRay = new THREE.Raycaster();
   const aimPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -DEPTH);
   const renderedCamera = camera.clone();
   let loadedCount = 0, assetError = '', deathReason = '', checkpointNotice = 0;
-  let orbHealth = ORB_HEALTH, bossTime = 0, bossStage: 'charge' | 'attack' | 'open' | 'recover' = 'charge', bossVolley = 0, burstShots = 0;
+  let orbHealth = ORB_HEALTH, scramblerDeathGlow = -1, deathPixelArtStrength = 0;
+  let bossTime = 0, bossStage: 'charge' | 'attack' | 'open' | 'recover' = 'charge', bossVolley = 0, burstShots = 0;
   const actors: Actor[] = [], templates: THREE.Group[] = [];
   let boss: Actor | null = null, gun: THREE.Group | null = null;
   let character: Awaited<ReturnType<typeof loadCharacter>> = null;
@@ -67,8 +69,9 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   let scrollDistance = checkpoint.u + 3;
   const entryCamera = entryState?.cameraPosition?.clone(), entryRotation = entryState?.cameraQuaternion?.clone();
   const exitStart = new THREE.Vector3(), exitCamera = new THREE.Vector3(), exitRotation = new THREE.Quaternion();
+  const deathCamera = new THREE.Vector3(), deathRotation = new THREE.Quaternion();
   const warpCamera = new THREE.Vector3(), warpRotation = new THREE.Quaternion();
-  let exitFov = 75, exitYaw = 0;
+  let exitFov = 75, exitYaw = 0, deathFov = 75;
   const up = new THREE.Vector3(0, 1, 0), ray = new THREE.Ray(), contact = new THREE.Vector3(), direction = new THREE.Vector3();
   const oldPoint = new THREE.Vector3(), nextPoint = new THREE.Vector3(), hitBounds = new THREE.Box3();
   const shotGeometry = new THREE.SphereGeometry(0.09, 8, 6);
@@ -103,7 +106,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   function blocked() { return disposed || paused || document.hidden || document.body.classList.contains('quick-menu-open'); }
   function armedPhase() { return phase === 'traversal' || phase === 'scrambler' || phase === 'boss' || phase === 'cleared'; }
   function live() { return !blocked() && armedPhase() && player.getHealth() > 0; }
-  function clearInput() { firing = false; pendingShot = false; player.clearInput(); resetTouchInput(); }
+  function clearInput() { firing = shotRequested = touchFiring = pendingShot = false; player.clearInput(); resetTouchInput(); }
   function freeze() {
     clearInput(); player.disable(); player.body.velocity.set(0, 0, 0); player.body.force.set(0, 0, 0);
     player.body.type = CANNON.Body.KINEMATIC; player.body.updateMassProperties();
@@ -124,7 +127,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
     if (!live() || event.repeat || (event.target instanceof HTMLElement && event.target.closest('button, input, textarea, select, [contenteditable="true"]'))) return;
     if (event.code === 'KeyK' || event.code === 'KeyT') {
       event.preventDefault(); equipped = event.code === 'KeyT' ? 'crowbar' : 'pistol';
-      firing = pendingShot = false; fireCooldown = 0.2;
+      firing = shotRequested = pendingShot = false; touchFiring = isTouchFire(); fireCooldown = 0.2;
     }
   };
   function moveReticle(dx: number, dy: number) {
@@ -142,7 +145,10 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   };
   const mouseDown = (event: MouseEvent) => {
     if (event.button === 0 && live() && (event.target instanceof HTMLCanvasElement || document.pointerLockElement) &&
-      !(event.target instanceof HTMLElement && event.target.closest('button, input, dialog'))) firing = true;
+      !(event.target instanceof HTMLElement && event.target.closest('button, input, dialog'))) {
+      if (!firing && equipped === 'pistol' && fireCooldown <= 0) shotRequested = true;
+      firing = true;
+    }
   };
   const mouseUp = (event: MouseEvent) => { if (event.button === 0) firing = false; };
   const blur = () => { paused = true; clearInput(); }, focusWindow = () => { paused = false; };
@@ -176,7 +182,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
     signal.position.set(0, big ? 3.3 : 1.5, -0.45); signal.visible = false; root.add(signal);
     const actor: Actor = { id, root, body, motor: createGroundMotor(body, radius), mixer: new THREE.AnimationMixer(model), clips, animation: '',
       health: big ? BOSS_HEALTH : defeated.has(id) ? 0 : 75, boss: big, from, to, direction: 1,
-      cooldown: 1.5, charge: -1, deathTime: 0, hitTime: 0, aim: new THREE.Vector3(), signal };
+      cooldown: 0.8, charge: -1, deathTime: 0, hitTime: 0, aim: new THREE.Vector3(), signal };
     if (!actor.health) { root.visible = false; physicsWorld.removeBody(body); }
     else animate(actor, 'Idle');
     actors.push(actor); return actor;
@@ -193,7 +199,11 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
       template.traverse(node => { if (node instanceof THREE.Mesh) node.castShadow = node.receiveShadow = true; });
       if (big) boss = makeActor(template, asset.animations, 'warden', 100, 106, 1.3, true);
       else for (const placement of COURSE_ROBOTS) {
-        const platform = COURSE_PLATFORMS.find(item => item.id === placement.platform)!;
+        const floatingPlatform: Record<string, { from: number; to: number; top: number }> = {
+          step1: { from: 10, to: 14, top: 0.8 },
+          step2: { from: 15, to: 18, top: 1.95 },
+        };
+        const platform = floatingPlatform[placement.platform] ?? COURSE_PLATFORMS.find(item => item.id === placement.platform)!;
         makeActor(template, asset.animations, placement.id, platform.from + 1, platform.to - 1, platform.top);
       }
       template.visible = false; templates.push(template); scene.add(template); loadedCount++;
@@ -210,8 +220,18 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   }).catch(error => { if (!disposed) { assetError = 'Pistol could not load'; console.error('[Platformer]', error); } });
 
   function burst(point: THREE.Vector3) { impact.position.copy(point); impact.visible = true; impactTime = 0.22; }
+  function pixelArtStrength() {
+    if (phase === 'death') return deathPixelArtStrength;
+    if (phase === 'entry') return THREE.MathUtils.clamp(phaseTime / 0.35, 0, 1);
+    if (phase === 'traversal') return 1;
+    if (phase !== 'scrambler') return 0;
+    if (orbHealth > 0) return 1;
+    return scramblerDeathGlow >= 0 ? 1 - THREE.MathUtils.smootherstep(scramblerDeathGlow, 0, 1.2) : 0;
+  }
   function die(reason: string) {
     if (phase === 'death' || phase === 'done' || phase === 'exit' || phase === 'entry') return;
+    deathPixelArtStrength = pixelArtStrength();
+    deathCamera.copy(renderedCamera.position); deathRotation.copy(renderedCamera.quaternion); deathFov = renderedCamera.fov;
     phase = 'death'; phaseTime = 0; deathReason = reason; clearShots(); freeze();
   }
   function hurt(amount: number) {
@@ -225,7 +245,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   }
   function damageActor(actor: Actor, amount: number, weapon?: DamageWeapon) {
     if (!live() || (weapon !== 'pistol' && weapon !== 'crowbar') || !Number.isFinite(amount) || amount <= 0 || actor.health <= 0) return false;
-    if (actor.boss && (phase !== 'boss' || orbHealth > 0)) return false;
+    if (actor.boss && (weapon !== 'pistol' || phase !== 'boss' || orbHealth > 0 || bossStage !== 'open')) return false;
     actor.health = Math.max(0, actor.health - amount); actor.hitTime = 0.25;
     if (!actor.boss) { actor.charge = -1; actor.cooldown = 1.2; }
     burst(actor.root.position.clone().add(new THREE.Vector3(0, 1, 0)));
@@ -239,7 +259,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   function damageOrb(amount: number, weapon?: DamageWeapon) {
     if (!live() || phase !== 'scrambler' || courseDistance(player.body.position.x) < 94 || phaseTime < 1 || orbHealth <= 0 || weapon !== 'pistol' || !Number.isFinite(amount) || amount <= 0) return false;
     orbHealth = Math.max(0, orbHealth - amount); burst(scrambler.root.position);
-    if (!orbHealth) { scrambler.root.visible = false; bossShield.visible = false; clearShots(); clearInput(); invulnerability = 2; }
+    if (!orbHealth) { scramblerDeathGlow = 0; scrambler.root.visible = false; bossShield.visible = false; clearShots(); clearInput(); invulnerability = 2; }
     return true;
   }
   function damageTargets(): DamageTarget[] {
@@ -308,7 +328,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
       actor.hitTime = Math.max(0, actor.hitTime - dt);
       if (actor.boss) { if (phase !== 'boss' && phase !== 'scrambler') actor.motor.drive(0, 0, 0); continue; }
       const distance = Math.abs(actor.body.position.x - p.x), u = courseDistance(actor.body.position.x);
-      const halfView = Math.max(23, 14 / Math.max(0.25, camera.aspect)) * Math.tan(25 * Math.PI / 180) * camera.aspect;
+      const halfView = Math.max(16, 10 / Math.max(0.25, camera.aspect)) * Math.tan(25 * Math.PI / 180) * camera.aspect;
       if (normalSpace || distance > 17 || Math.abs(actor.body.position.x - focus.x) > halfView - 1) {
         actor.motor.drive(0, 0, 0); actor.charge = -1; animate(actor, 'Idle'); continue;
       }
@@ -319,10 +339,10 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
         actor.root.rotation.y = actor.aim.x < actor.root.position.x ? -Math.PI / 2 : Math.PI / 2;
         if (actor.charge <= 0) {
           fire(actor.root.position.clone().add(new THREE.Vector3(0, 1.05, 0)), actor.aim, false);
-          actor.charge = -1; actor.cooldown = 2.8; animate(actor, 'Attack', true);
+          actor.charge = -1; actor.cooldown = 1.6; animate(actor, 'Attack', true);
         }
       } else if (distance < 11 && actor.cooldown <= 0) {
-        actor.charge = 0.85; actor.aim.copy(p).add(new THREE.Vector3(0, 0.8, 0)); animate(actor, 'Charge');
+        actor.charge = 0.45; actor.aim.copy(p).add(new THREE.Vector3(0, 0.8, 0)); animate(actor, 'Charge');
       } else {
         if (u >= actor.to) actor.direction = -1; if (u <= actor.from) actor.direction = 1;
         actor.motor.drive(-actor.direction, 0, 1.15); actor.root.rotation.y = actor.direction > 0 ? -Math.PI / 2 : Math.PI / 2;
@@ -412,10 +432,14 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
       player.setRotation(offset.x < 0 ? Math.PI / 2 : -Math.PI / 2, Math.atan2(offset.y, Math.abs(offset.x)));
     }
     if (phase === 'traversal') {
-      const halfView = Math.max(23, 14 / Math.max(0.25, camera.aspect)) * Math.tan(25 * Math.PI / 180) * camera.aspect;
+      const halfView = Math.max(16, 10 / Math.max(0.25, camera.aspect)) * Math.tan(25 * Math.PI / 180) * camera.aspect;
       if (courseDistance(player.body.position.x) > scrollDistance + halfView - 2) player.body.velocity.x = Math.max(0, player.body.velocity.x);
     }
-    if ((firing || isTouchFire()) && fireCooldown <= 0) useWeapon();
+    const touchHeld = isTouchFire();
+    if (touchHeld && !touchFiring && equipped === 'pistol' && fireCooldown <= 0) shotRequested = true;
+    touchFiring = touchHeld;
+    if ((equipped === 'crowbar' ? firing || touchHeld : shotRequested) && fireCooldown <= 0) useWeapon();
+    shotRequested = false;
     updateActors(dt); if (live()) updateShots(dt);
   }
   const unregister = registerPhysicsActor(physicsWorld, { body: player.body, beforePhysicsStep: combatStep, afterPhysicsStep() {
@@ -448,11 +472,24 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
     clearShots(); freeze(); player.setSideScrollDepth(null);
   }
   function cameraView() {
+    if (phase === 'death') {
+      const playerPosition = player.body.position, target = new THREE.Vector3(playerPosition.x, playerPosition.y + 0.6, playerPosition.z);
+      const yaw = player.getState().yaw;
+      const destination = normalSpace ? target.clone().add(new THREE.Vector3(Math.sin(yaw) * 7, 2.8, Math.cos(yaw) * 7))
+        : target.clone().add(new THREE.Vector3(0, 3.7, -Math.max(23, 14 / Math.max(0.25, camera.aspect)) - 7));
+      const reveal = smooth(phaseTime, 0, 1.5), view = camera.clone();
+      view.position.copy(destination); view.lookAt(target);
+      camera.position.lerpVectors(deathCamera, destination, reveal);
+      camera.quaternion.slerpQuaternions(deathRotation, view.quaternion, reveal);
+      camera.fov = THREE.MathUtils.lerp(deathFov, 78, reveal);
+      camera.updateProjectionMatrix(); camera.updateMatrixWorld(true); renderedCamera.copy(camera);
+      return;
+    }
     if (normalSpace && phase !== 'exit' && phase !== 'done') {
       camera.position.copy(renderedCamera.position); camera.quaternion.copy(renderedCamera.quaternion); camera.fov = renderedCamera.fov;
       camera.updateProjectionMatrix(); camera.updateMatrixWorld(true); return;
     }
-    const side = new THREE.Vector3(focus.x, focus.y + 3.7, DEPTH - Math.max(23, 14 / Math.max(0.25, camera.aspect)));
+    const side = new THREE.Vector3(focus.x, focus.y + 3.7, DEPTH - Math.max(16, 14 / Math.max(0.25, camera.aspect)));
     camera.position.copy(side); camera.up.set(0, 1, 0); camera.lookAt(focus); camera.fov = 50;
     if (phase === 'entry' && entryCamera && entryRotation) {
       const t = smooth(phaseTime, 0, 1.2), rotation = camera.quaternion.clone();
@@ -460,7 +497,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
       camera.fov = THREE.MathUtils.lerp(entryState?.cameraFov ?? 50, 50, t);
     } else if (phase === 'exit' || (phase === 'done' && orbHealth === 0)) {
       const t = smooth(phaseTime, 0, 3.8);
-      camera.position.lerpVectors(exitCamera, new THREE.Vector3(-145.3, 1.9, 6.5), t);
+      camera.position.lerpVectors(exitCamera, new THREE.Vector3(RESCUE_SITE.downstream.x + 0.7, 1.9, RESCUE_SITE.downstream.z), t);
       camera.quaternion.slerpQuaternions(exitRotation, new THREE.Quaternion(), t); camera.fov = THREE.MathUtils.lerp(exitFov, 75, t);
     }
     camera.updateProjectionMatrix(); camera.updateMatrixWorld(true); renderedCamera.copy(camera);
@@ -478,9 +515,9 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   function updateHud() {
     const objective = phase === 'boss' ? `BRIDGE WARDEN ${boss?.health ?? BOSS_HEALTH} / ${BOSS_HEALTH} | SHIELD DOWN / ${bossStage === 'open' ? 'ATTACK NOW' : bossVolley % 2 ? 'BURST INCOMING / KEEP MOVING' : 'LOW PULSE / JUMP'}`
       : phase === 'scrambler' ? `SCRAMBLER ${orbHealth} / ${ORB_HEALTH} | ${orbHealth ? 'WARDEN SHIELDED / AIM UP AT THE GREEN ORB' : 'SIGNAL LOST / LAND TO RESTORE 3D'}`
-      : phase === 'cleared' ? 'WARDEN DEFEATED / REACH THE LIT ARENA EXIT'
+      : phase === 'cleared' ? 'WARDEN DEFEATED / REACH THE ROCK STAIRS TO THE FOREST'
       : `KEEP UP WITH THE CAMERA | RELAYS ${course.getActivated().length} / 3 | CHECKPOINT: ${saved.checkpoint.toUpperCase()}${checkpointNotice > 0 ? ' / SAVED' : ''}`;
-    hudText.textContent = `18 / JUNGLE PLATFORMER | HEALTH ${Math.ceil(player.getHealth())} / ${PLAYER_MAX_HEALTH}\n${objective}\n${normalSpace ? 'WASD: move | Mouse / right drag: look' : 'A/D or arrows: move | Mouse / right drag: aim'}\nSpace: jump | C: crouch | K: laser gun | T: crowbar | Hold click / FIRE: ${equipped === 'crowbar' ? 'swing' : 'shoot'}`;
+    hudText.textContent = `18 / JUNGLE PLATFORMER | HEALTH ${Math.ceil(player.getHealth())} / ${PLAYER_MAX_HEALTH}\n${objective}\n${normalSpace ? 'WASD: move | Mouse / right drag: look' : 'A/D or arrows: move | Mouse / right drag: aim'}\nSpace: jump | Shift: sprint | C: crouch | K: laser gun | T: crowbar | ${equipped === 'crowbar' ? 'Hold click / FIRE: swing' : 'Click / tap FIRE: shoot'}`;
     reticle.classList.toggle('hidden', !live() || normalSpace);
     reticle.style.left = `${(aimNdc.x + 1) * 50}%`; reticle.style.top = `${(1 - aimNdc.y) * 50}%`;
     healthTrack.classList.toggle('hidden', phase !== 'boss' && phase !== 'scrambler');
@@ -527,6 +564,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
       aim: aimNdc.toArray(), bossShielded: orbHealth > 0, loaded: loadedCount === 3, assetError,
       activatedRelays: course.getActivated(), defeatedRobots: [...defeated],
       shots: { friendly: laserLife > 0 ? 1 : 0, hostile: shots.filter(shot => shot.life > 0).length } }),
+    getPixelArtStrength: pixelArtStrength,
     onPlayerDeath() { die('HIT BY FACILITY DEFENSES'); return true; },
     updatePhysics(dt: number) {
       lastDelta = 0;
@@ -553,6 +591,12 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
           clearInput(); invulnerability = 1; pulse.update(-1);
         }
       }
+      if (phase === 'scrambler') {
+        if (orbHealth === 0 && scramblerDeathGlow >= 0) {
+          scramblerDeathGlow = Math.min(1.2, scramblerDeathGlow + dt);
+          pulse.update(scramblerDeathGlow);
+        }
+      }
       if (live()) {
         if (!normalSpace) {
           const aim = consumePlatformerAim(); if (aim.dx || aim.dy) moveReticle(aim.dx, aim.dy);
@@ -565,19 +609,19 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
           if (u >= 51 && u <= 58 && saved.checkpoint === 'bridge') saveCheckpoint('middle');
           if (u >= 91 && u <= 107) { saveCheckpoint('boss'); phase = 'scrambler'; phaseTime = 0; bossTime = 0; }
         }
-        if (phase === 'scrambler' && orbHealth === 0 && player.getState().isOnGround && u >= 94 && u <= 107) beginWarp();
-        if (phase === 'cleared' && player.getState().isOnGround && u >= 103.5 && u <= 104.5 && Math.abs(player.body.position.z - DEPTH) < 1.2) beginExit();
+        if (phase === 'scrambler' && orbHealth === 0 && scramblerDeathGlow >= 1.2 && player.getState().isOnGround && u >= 94 && u <= 107) beginWarp();
+        if (phase === 'cleared' && player.getState().isOnGround && u >= 103.5 && u <= 104.5 && player.body.position.z >= 7 && player.body.position.z <= 11) beginExit();
         if (phase === 'traversal') {
           scrollDistance += SCROLL_SPEED * dt; focus.x = courseX(scrollDistance);
         } else if (phase === 'scrambler') focus.x = THREE.MathUtils.damp(focus.x, courseX(100.5), 2, dt);
         if (!normalSpace && player.getState().isOnGround) focus.y = THREE.MathUtils.damp(focus.y, player.body.position.y - player.radius + 1.2, 5, dt);
       }
-      if (phase === 'death' && phaseTime >= 1.8) { restart(); return; }
+      if (phase === 'death' && phaseTime >= 2.5) { restart(); return; }
       if (phase === 'exit') {
         const t = smooth(phaseTime, 0, 1.6), bank = smooth(phaseTime, 1.6, 3.8);
-        const x = THREE.MathUtils.lerp(exitStart.x, -146, t);
-        const z = phaseTime < 1.6 ? THREE.MathUtils.lerp(exitStart.z, DEPTH, t) : THREE.MathUtils.lerp(DEPTH, 5, bank);
-        const y = phaseTime < 1.6 ? THREE.MathUtils.lerp(exitStart.y, 1.6, t) : 0.3 + 1.3 * THREE.MathUtils.clamp((z - 5) / 5, 0, 1);
+        const x = THREE.MathUtils.lerp(exitStart.x, RESCUE_SITE.downstream.x, t);
+        const z = phaseTime < 1.6 ? THREE.MathUtils.lerp(exitStart.z, 9, t) : THREE.MathUtils.lerp(9, RESCUE_SITE.downstream.z, bank);
+        const y = player.radius + 1.3 * THREE.MathUtils.clamp((z - RESCUE_SITE.downstream.z) / 5, 0, 1);
         player.setPosition(x, y, z); player.setRotation(THREE.MathUtils.lerp(exitYaw, 0, smooth(phaseTime, 0, 1.6)));
       }
       for (const actor of actors) {
@@ -623,7 +667,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
       document.removeEventListener('visibilitychange', visibility); document.removeEventListener('pointerlockchange', unlock);
       retry.removeEventListener('click', retryClick); retry.remove(); hud.remove(); reticle.remove(); caption?.classList.add('hidden');
       document.body.classList.remove('jungle-platformer', 'jungle-platformer-side');
-      character?.weapon.setEquipped(false); character?.setCrowbarEquipped(false); if (gun) { gun.removeFromParent(); scene.add(gun); }
+      character?.weapon.setEquipped(false); character?.setCrowbarEquipped?.(false); if (gun) { gun.removeFromParent(); scene.add(gun); }
       if (character?.model.parent === scene) character.model.removeFromParent();
       for (const actor of actors) { actor.mixer.stopAllAction(); actor.mixer.uncacheRoot(actor.mixer.getRoot()); }
       for (const root of [...actors.map(actor => actor.root), ...templates]) root.traverse(node => { if (node instanceof THREE.SkinnedMesh) node.skeleton.dispose(); });
