@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { applyTraversalCamera } from './core/camera.js';
+import { createSceneMinimap } from './core/renderer.js';
 import { createScene as createScene1 } from './scenes/scene1.js';
 import { createScene as createScene2 } from './scenes/level 1/scene2.js';
 import { createScene as createScene3 } from './scenes/level 1/scene3.js';
@@ -30,10 +31,14 @@ import { NPCEnemyManager } from './scripts/npc-enemy-robots.js';
 import { PistolController } from './scripts/pistol.js';
 import { CrowbarController } from './scripts/crowbar.js';
 import { GogglesController } from './scripts/goggles.js';
+import { GogglesPostProcess } from './scripts/gogglesPostProcess.js';
+import { LightsaberController } from './scripts/lightsaber.js';
 import { createCctvSystem } from './scripts/cctv.js';
 import { createFirstPersonHands } from './scripts/firstPersonHands.js';
 import { initTouchControls, setTouchFlightMode, resetTouchInput } from './scripts/touchControls.js';
 import { PixelArtPass } from './core/PixelArtPass.js';
+import { RetroConsolePass } from './core/RetroConsolePass.js';
+import { getAudioSettings, setAudioVolume, setAudioMenuPaused } from './helpers/audio/AudioManager.js';
 
 // --- Renderer ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -45,8 +50,12 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 document.body.appendChild(renderer.domElement);
 const cctv = createCctvSystem(renderer);
+const gogglesPostProcess = new GogglesPostProcess(renderer);
 const pixelArtPass = new PixelArtPass();
 pixelArtPass.precompile(renderer);
+const retroConsolePass = new RetroConsolePass();
+retroConsolePass.precompile(renderer);
+const minimap = createSceneMinimap(renderer, document.getElementById('minimap')!);
 
 // --- Audio Manager stub ---
 const audioManager = null;
@@ -66,6 +75,21 @@ let nextSceneActionId = 0;
 const pendingSceneActions = new Map<number, { remaining: number; run: () => void }>();
 
 function renderGameScene(scene: THREE.Scene, camera: THREE.Camera) {
+  goggles.update();
+  gogglesPostProcess.render(scene, camera, () => {
+    renderSceneEffects(scene, camera);
+    if (!deathPresentation && !currentSceneData?.isCinematic?.() && !currentSceneData?.ownsWeaponInput && cargoPuzzle.handle !== 'carried') {
+      crowbar.renderFirstPerson(renderer);
+      lightsaber.renderFirstPerson(renderer);
+    }
+  });
+}
+function renderSceneEffects(scene: THREE.Scene, camera: THREE.Camera) {
+  const retroStrength = currentSceneData?.getRetroConsoleStrength?.() ?? 0;
+  if (retroStrength > 0) {
+    retroConsolePass.render(renderer, renderer.render.bind(renderer), scene, camera, retroStrength);
+    return;
+  }
   const strength = currentSceneData?.getPixelArtStrength?.() ?? 0;
   if (strength > 0) pixelArtPass.render(renderer, renderer.render.bind(renderer), scene, camera, strength);
   else renderer.render(scene, camera);
@@ -104,6 +128,8 @@ const clearedLadderCrates = new Set<string>();
 const cargoAccess = () => ({ hasCrowbar, cargoDoorUnlocked, onCargoDoorOpened: () => { cargoDoorUnlocked = true; } });
 const ladderAccess = () => ({ clearedCrates: clearedLadderCrates, onCrateBroken: (id: string) => { clearedLadderCrates.add(id); } });
 let crowbarController: CrowbarController | null = null;
+let hasLightsaber = false;
+let lightsaberController: LightsaberController | null = null;
 let firstPersonHands: Awaited<ReturnType<typeof createFirstPersonHands>> | null = null;
 
 // --- View toggle (first-person / third-person) ---
@@ -117,7 +143,7 @@ const pistol = new PistolController(() => ({
   player: cargoPuzzle.handle === 'carried' || currentSceneData?.ownsWeaponInput ? null : currentPlayer, character: globalCharacter?.model ?? null,
   thirdPerson: isThirdPerson, targets: [...npcManager.getDamageTargets(), ...(currentSceneData?.getDamageTargets?.() ?? [])],
   weaponAnimation: currentSceneData?.ownsWeaponInput ? undefined : globalCharacter?.weapon,
-  holsterOther: () => crowbarController?.holster(),
+  holsterOther: () => { crowbarController?.holster(); lightsaberController?.holster(); },
 }));
 
 const crowbar = new CrowbarController(() => ({
@@ -132,13 +158,30 @@ const crowbar = new CrowbarController(() => ({
   setCharacterEquipped: (equipped: boolean) => globalCharacter?.setCrowbarEquipped(equipped),
   doorTarget: currentSceneData?.forwardDoorTarget ?? null,
   openDoor: () => { currentSceneData?.hitForwardDoor?.(); currentSceneData?.hitCargoDoor?.(); },
-  holsterOther: () => pistol.holster(),
+  holsterOther: () => { pistol.holster(); lightsaberController?.holster(); },
   firstPersonHands: () => firstPersonHands,
 }));
 crowbarController = crowbar;
+const lightsaber = new LightsaberController(() => ({
+  scene: activeScene,
+  camera: activeCamera,
+  world: currentSceneData?.physicsWorld ?? null,
+  player: cargoPuzzle.handle === 'carried' || currentSceneData?.ownsWeaponInput || currentSceneData?.isCinematic?.() || deathPresentation ? null : currentPlayer,
+  character: globalCharacter?.model ?? null,
+  thirdPerson: isThirdPerson || !!currentSceneData?.forceThirdPerson,
+  hasLightsaber,
+  attackClips: globalCharacter?.lightsaberAttacks,
+  targets: [...npcManager.getDamageTargets(), ...(currentSceneData?.getDamageTargets?.() ?? [])],
+  setCharacterEquipped: equipped => globalCharacter?.setLightsaberEquipped(equipped),
+  openDoor: () => { currentSceneData?.hitForwardDoor?.(); currentSceneData?.hitCargoDoor?.(); },
+  holsterOther: () => { crowbar.holster(); pistol.holster(); },
+  firstPersonHands: () => firstPersonHands,
+}));
+lightsaberController = lightsaber;
 const goggles = new GogglesController(() => ({
-  player: currentSceneData?.ownsWeaponInput ? null : currentPlayer, scene: currentSceneData,
+  player: currentSceneData?.ownsWeaponInput || currentSceneData?.isCinematic?.() || deathPresentation ? null : currentPlayer, scene: currentSceneData,
   setCharacterEquipped: active => globalCharacter?.setGogglesEquipped(active),
+  onToggle: active => gogglesPostProcess.setActive(active),
 }));
 
 // --- Controls ---
@@ -173,29 +216,121 @@ async function initializeApp() {
   initTouchControls();
 }
 
-// --- View toggle ---
-function setupViewToggle() {
-  const toggleBtn = document.getElementById('view-toggle-btn');
-  if (toggleBtn) {
-    toggleBtn.addEventListener('click', toggleView);
+// Control cards are introduced once per play session, including across respawns.
+type ControlCard = { key: string; title: string; lines: string[]; touch: string[]; scene?: string };
+const seenControls = new Set<string>();
+let controlQueue: ControlCard[] = [];
+let shownControl: ControlCard | null = null;
+let controlTime = 0;
+const controlCard = document.getElementById('control-card')!;
+const lessons: Record<string, Omit<ControlCard, 'key' | 'scene'>> = {
+  basics: { title: 'You’re awake', lines: ['WASD — walk · Shift — sprint', 'Mouse — look · Click the world to capture the mouse', 'Space — jump · C — crouch · E — interact', 'K — equip pistol · Left click — shoot', 'V or the view button — switch first / third person · M — pause'], touch: ['Drag on the left to walk; drag on the right to look.', 'RUN, JUMP, CROUCH and USE are your movement controls.', 'PISTOL equips your gun; SHOOT fires it.', 'Tap VIEW to switch first / third person · MENU to pause.'] },
+  pistol: { title: 'Pistol', lines: ['K — equip / holster', 'Left click — shoot at your crosshair'], touch: ['PISTOL — equip / holster', 'SHOOT — fire at your crosshair'] },
+  crowbar: { title: 'Crowbar acquired', lines: ['T — equip / holster', 'Left click — swing at your crosshair'], touch: ['CROW — equip / holster', 'SWING — attack at your crosshair'] },
+  lightsaber: { title: 'Lightsaber acquired', lines: ['L — equip / holster', 'Left click — slash at your crosshair'], touch: ['SABER — equip / holster', 'SLASH — attack at your crosshair'] },
+  goggles: { title: 'Scanner goggles acquired', lines: ['N — wear / remove goggles'], touch: ['GOGGLES — wear / remove'] },
+  vent: { title: 'Vent traversal', lines: ['W / S — crawl forward / backward', 'A / D — turn at junctions', 'E — use a ladder · Space — drop while descending'], touch: ['Left stick — crawl and turn at junctions', 'USE — take a ladder · JUMP — drop while descending'] },
+  cargo: { title: 'Handling cargo', lines: ['E — grab / release a nearby box', 'WASD — move while holding it'], touch: ['USE — grab / release a nearby box', 'Left stick — move the box'] },
+  flight: { title: 'Flight controls', lines: ['WASD — dodge · Mouse — aim', 'Hold left click — fire · Space — evade', 'V or the view button — cockpit / chase camera · M — pause'], touch: ['Left stick — dodge · Right drag — aim', 'Hold FIRE — shoot · EVADE — dodge', 'VIEW — cockpit / chase camera · MENU — pause']},
+  flightSide: { title: 'Sidescroll flight', lines: ['WASD / arrows — move · Hold left click — fire straight', 'W / S + Space — dodge up / down'], touch: ['Left stick — move · Hold FIRE — fire straight', 'Stick up / down + EVADE — vertical dodge'] },
+  flightTop: { title: 'Top-down flight', lines: ['WASD / arrows — move · Hold left click — fire upward', 'A / D + Space — evade left / right'], touch: ['Left stick — move · Hold FIRE — fire upward', 'Stick left / right + EVADE — lateral dodge'] },
+  jungle: { title: 'Back on the ground', lines: ['WASD — walk · Shift — sprint · Space — jump', 'K — pistol · T — crowbar · Left click — attack', 'V or the view button — change view'], touch: ['Left stick — walk · Right drag — look', 'RUN / JUMP — sprint and jump', 'PISTOL / CROW — select weapon · SHOOT / SWING — attack', 'VIEW — change view'] },
+  platformer: { title: 'Platforming controls', lines: ['A / D or arrows — move · Space — jump', 'Shift — sprint · C — crouch', 'Mouse — aim · K — gun · T — crowbar', 'Hold left click — attack'], touch: ['Left stick — move · JUMP — jump', 'RUN — sprint · CROUCH — crouch', 'Right drag — aim · PISTOL / CROW — select weapon', 'Hold FIRE — attack'] },
+};
+function introduceControls(key: string, scene?: string) {
+  if (seenControls.has(key) || controlQueue.some(card => card.key === key) || shownControl?.key === key) return;
+  controlQueue.push({ ...lessons[key], key, scene });
+}
+function dismissControls() {
+  shownControl = null; controlTime = 0; controlCard.classList.add('hidden');
+}
+function enterHudScene(id: string) {
+  document.body.dataset.scene = id;
+  dismissControls();
+  controlQueue = controlQueue.filter(card => !card.scene);
+  minimap.reset();
+  const key = id === 'scene2' ? 'basics' : id === 'scene8' ? 'vent'
+    : id === 'scene10' || id === 'scene11' ? 'cargo' : id === 'scene15' ? 'flight'
+    : id === 'scene17' || id === 'scene19' ? 'jungle' : id === 'scene18' ? 'platformer' : null;
+  if (key) introduceControls(key, id);
+}
+function updateControlCard(dt: number) {
+  const ready = activeSceneId !== 'scene1' && !quickMenuOpen && !deathPresentation
+    && (currentSceneData?.controlsReady?.() ?? (!!currentPlayer?.isEnabled() && !currentSceneData?.isCinematic?.()))
+    && document.getElementById('fade-overlay')?.classList.contains('hidden');
+  const flightScene = currentSceneData?.getSceneId?.();
+  if (ready && flightScene === 'scene15.5') introduceControls('flightSide', 'scene15');
+  if (ready && flightScene === 'scene15.75') introduceControls('flightTop', 'scene15');
+  if (!ready) { controlCard.classList.add('hidden'); return; }
+  if (!shownControl && controlQueue.length) {
+    shownControl = controlQueue.shift()!;
+    seenControls.add(shownControl.key);
+    controlTime = 18;
+    document.getElementById('control-card-title')!.textContent = shownControl.title;
+    const lines = document.body.classList.contains('touch-device') ? shownControl.touch : shownControl.lines;
+    document.getElementById('control-card-content')!.replaceChildren(...lines.map(text => {
+      const line = document.createElement('p'); line.textContent = text; return line;
+    }));
   }
-  window.addEventListener('keydown', (e: KeyboardEvent) => {
-    if (e.code === 'KeyV' && currentPlayer && currentPlayer.isEnabled()) {
-      toggleView();
-    }
-  });
+  if (shownControl) {
+    controlCard.classList.remove('hidden');
+    controlTime -= Math.min(dt, 0.1);
+    if (controlTime <= 0) dismissControls();
+  }
+}
+function renderMinimap() {
+  // Level 2 (flight scene15 and crash scene16) scenes never show the map overlay.
+  if (activeSceneId === 'scene1' || activeSceneId === 'scene15' || activeSceneId === 'scene16'
+    || !activeScene || !currentPlayer) { minimap.hide(); return; }
+  const state = currentSceneData?.getMinimapState?.();
+  minimap.render(currentSceneData?.getRenderScene?.() ?? activeScene,
+    state?.position ?? currentPlayer.body.position, state?.yaw ?? currentPlayer.getState().yaw,
+    state?.object ?? globalCharacter?.model ?? null, { ...currentSceneData?.minimap, ...state });
 }
 
+// --- View toggle ---
+function setupViewToggle() {
+  const toggleBtn = document.getElementById('view-toggle-btn')!;
+  toggleBtn.addEventListener('click', event => { event.stopPropagation(); toggleView(); toggleBtn.blur(); });
+  document.getElementById('control-card-close')!.addEventListener('click', event => { event.stopPropagation(); dismissControls(); });
+  for (const node of [toggleBtn, controlCard]) {
+    for (const type of ['mousedown', 'mouseup', 'pointerdown', 'pointerup']) node.addEventListener(type, event => event.stopPropagation());
+  }
+  window.addEventListener('keydown', (event: KeyboardEvent) => {
+    if (event.repeat || quickMenuOpen || (event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable="true"]'))) return;
+    if (event.code === 'KeyH' && shownControl) { event.preventDefault(); dismissControls(); }
+    // Scenes with their own camera input consume V themselves.
+    if (event.code === 'KeyV' && !currentSceneData?.toggleView) toggleView();
+  });
+}
+function canToggleView() {
+  if (activeSceneId === 'scene1' || quickMenuOpen || deathPresentation) return false;
+  return currentSceneData?.canToggleView?.() ?? (!!currentPlayer?.isEnabled()
+    && !currentSceneData?.isCinematic?.() && !currentSceneData?.forceThirdPerson && !currentSceneData?.ownsWeaponInput);
+}
+function updateViewButton() {
+  document.getElementById('touch-lightsaber')?.classList.toggle('hidden', !hasLightsaber || !!currentSceneData?.ownsWeaponInput || !!currentSceneData?.isCinematic?.());
+  const btn = document.getElementById('view-toggle-btn') as HTMLButtonElement;
+  const state = currentPlayer?.getState();
+  const third = currentSceneData?.isThirdPersonView?.() ?? (isThirdPerson || !!currentSceneData?.forceThirdPerson
+    || !!currentSceneData?.isCinematic?.() || !!state?.climbing || !!state?.boxHandling);
+  btn.dataset.view = third ? '3' : '1';
+  btn.disabled = !canToggleView();
+  btn.title = btn.disabled ? 'Camera controlled by this scene' : `Switch to ${third ? 'first' : 'third'} person (V)`;
+  btn.setAttribute('aria-label', `${third ? 'Third' : 'First'}-person camera. ${btn.title}`);
+}
 function toggleView() {
-  if (currentSceneData?.ownsWeaponInput) return;
-  isThirdPerson = !isThirdPerson;
-  const btn = document.getElementById('view-toggle-btn');
-  if (btn) btn.textContent = isThirdPerson ? '1st Person' : '3rd Person';
+  if (!canToggleView()) return;
+  if (currentSceneData?.toggleView) currentSceneData.toggleView();
+  else isThirdPerson = !isThirdPerson;
+  updateViewButton();
 }
 
 // --- Load Scene 1 ---
 function loadScene1() {
   activeSceneId = 'scene1'; currentPlayer = null;
+  enterHudScene('scene1');
+  document.getElementById('quit-btn')!.textContent = "DON’T PLAY";
   currentSceneData = createScene1({ audioManager });
   scene1Data = currentSceneData;
   activeScene = currentSceneData.scene;
@@ -270,8 +405,7 @@ function showMenuButtons() {
     transitionToScene2();
   });
   document.getElementById('quit-btn')!.addEventListener('click', () => {
-    menuButtons.classList.add('hidden');
-    if (orbitControls) orbitControls.enabled = true;
+    document.getElementById('quit-btn')!.textContent = 'YOU DON’T HAVE A CHOICE.';
   });
 }
 
@@ -424,9 +558,7 @@ function loadScene4(entryState?: PlayerTransitionState, entryDoor: 'back' | 'fro
     onChestCollected: () => {
       hasCrowbar = true;
       crowbar.equip();
-      const overlay = document.getElementById('crowbar-overlay');
-      overlay?.classList.remove('hidden');
-      scheduleSceneAction(() => overlay?.classList.add('hidden'), 4500);
+      introduceControls('crowbar');
     },
   });
   enterManagedScene('scene4', sceneData);
@@ -514,16 +646,19 @@ function hideScene1Skip() {
 }
 
 function enterManagedScene(id: string, sceneData: any) {
+  lightsaber.detach();
   heldSwitchHandle.removeFromParent();
   globalCharacter?.model.removeFromParent();
   npcManager.enterScene(id, sceneData);
   activeSceneId = id;
+  enterHudScene(id);
   const damage = document.getElementById('player-damage');
   if (damage) damage.style.opacity = '0';
 }
 
 function retireTraversalRoom() {
   // The persistent character is not scene-owned geometry.
+  lightsaber.detach();
   heldSwitchHandle.removeFromParent();
   globalCharacter?.model.removeFromParent();
   npcManager.leaveScene();
@@ -617,7 +752,7 @@ function loadExtensionRoom(id: 10 | 11 | 13, entryState?: PlayerTransitionState,
   const options = { entryState, fromPassage, puzzle: cargoPuzzle };
   const sceneData = id === 10 ? createScene10(options)
     : id === 11 ? createScene11(options) : createScene13({
-      ...options, defeated: bayBossDefeated, checkpoint,
+      ...options, defeated: bayBossDefeated, checkpoint, renderer,
       onDefeated: () => { bayBossDefeated = true; }, onDescend: loadHangar14,
       onRespawn: () => loadExtensionRoom(13, undefined, false, true),
     });
@@ -683,7 +818,9 @@ function loadGround19(entryState?: RescueArrival) {
 
 function loadPassage12(entryState?: PlayerTransitionState, from: PassageDestination = 10) {
   retireTraversalRoom();
-  const sceneData = createScene12({ entryState, from, puzzle: cargoPuzzle });
+  const sceneData = createScene12({ entryState, from, puzzle: cargoPuzzle, hasLightsaber,
+    onLightsaberCollected: () => { hasLightsaber = true; lightsaber.equip(); introduceControls('lightsaber'); },
+  });
   activateExtension(sceneData, 'scene12');
   for (const id of [9, 10, 11, 13] as const) sceneData.setDoorTrigger(id, state => {
     if (id === 9) { retireTraversalRoom(); loadScene9(state, true); }
@@ -817,7 +954,8 @@ function transitionBackToScene3FromLeft(entryState: PlayerTransitionState) {
 function loadScene6(entryState?: PlayerTransitionState) {
   console.log('Loading scene 6...');
 
-  const sceneData = createScene6({ audioManager, entryState, gogglesCollected: goggles.isCollected(), onGogglesCollected: () => goggles.collect() });
+  const sceneData = createScene6({ audioManager, entryState, gogglesCollected: goggles.isCollected(),
+    onGogglesCollected: () => { goggles.collect(); introduceControls('goggles'); } });
   enterManagedScene('scene6', sceneData);
   currentSceneData = sceneData;
   activeScene = currentSceneData.scene;
@@ -898,7 +1036,7 @@ function updatePlayerView(dt: number) {
   if (deathPresentation?.player === currentPlayer) {
     const { elapsed, position, rotation, fov } = deathPresentation;
     pistol.update(dt); crowbar.update(dt);
-    globalCharacter?.weapon.setEquipped(false); globalCharacter?.setCrowbarEquipped(false);
+    globalCharacter?.weapon.setEquipped(false); globalCharacter?.setCrowbarEquipped(false); globalCharacter?.setLightsaberEquipped(false);
     globalCharacter?.update(dt, currentPlayer.body.position, currentPlayer.getState(), true, currentPlayer.radius,
       { clip: 'Death01', time: elapsed });
     const yaw = currentPlayer.getState().yaw, focus = new THREE.Vector3().copy(currentPlayer.body.position);
@@ -918,6 +1056,7 @@ function updatePlayerView(dt: number) {
     pistol.update(dt); crowbar.update(dt);
     globalCharacter?.weapon.setEquipped(!!currentSceneData.ownsWeaponInput && currentSceneData.getCinematicWeapon?.() === 'pistol');
     globalCharacter?.setCrowbarEquipped(currentSceneData.getCinematicWeapon?.() === 'crowbar');
+    globalCharacter?.setLightsaberEquipped(false);
     if (globalCharacter) {
       if (currentSceneData.hideCharacter?.()) globalCharacter.model.visible = false;
       else globalCharacter.update(
@@ -938,6 +1077,7 @@ function updatePlayerView(dt: number) {
     pistol.update(0); crowbar.update(0);
     globalCharacter?.weapon.setEquipped(currentSceneData.getCinematicWeapon?.() === 'pistol');
     globalCharacter?.setCrowbarEquipped(currentSceneData.getCinematicWeapon?.() === 'crowbar');
+    globalCharacter?.setLightsaberEquipped(false);
   }
   currentPlayer.updateCamera(0, traversalView);
   globalCharacter?.update(sceneWeapon ? currentSceneData.getCinematicDelta?.() ?? dt : dt,
@@ -971,38 +1111,131 @@ const SCENE_CHOICES = [
   [17, 'Jungle bridge scrambler'], [18, 'Jungle platformer'], [19, 'Facility approach'],
 ] as const;
 const quickMenu = document.getElementById('scene-quick-menu') as HTMLDialogElement;
+const pauseMenu = document.getElementById('pause-menu') as HTMLDialogElement;
+const developerPassword = document.getElementById('developer-password') as HTMLInputElement;
+const developerError = document.getElementById('developer-password-error')!;
+type MenuScreen = 'home' | 'sound' | 'controls' | 'developer' | 'scenes';
+let menuScreen: MenuScreen | null = null;
+let controlsReturnScreen: 'home' | 'scenes' = 'home';
+// Memory only: survives menus and scene changes, but resets on browser refresh.
+let developerUnlocked = false;
+let resumePointerTarget: HTMLElement | null = null;
 
 function clearSceneInput() {
   resetTouchInput();
   currentPlayer?.clearInput();
   currentSceneData?.clearInput?.();
 }
-function setQuickMenu(open: boolean) {
-  if (open === quickMenuOpen) return;
-  quickMenuOpen = open;
+function renderControlsReference() {
+  const owned = new Set<string>(['pistol']);
+  if (hasCrowbar) owned.add('crowbar');
+  if (hasLightsaber) owned.add('lightsaber');
+  if (goggles.isCollected()) owned.add('goggles');
+  const touch = document.body.classList.contains('touch-device');
+  document.getElementById('pause-controls-description')!.textContent = developerUnlocked
+    ? 'Developer mode: all tool and tutorial controls are available.'
+    : 'Controls for your tools and tutorials you have already seen.';
+  const entries = Object.entries(lessons)
+    .filter(([key]) => developerUnlocked || owned.has(key) || seenControls.has(key))
+    .map(([key, lesson]) => {
+      const section = document.createElement('section');
+      section.className = 'pause-control-entry';
+      const heading = document.createElement('h2');
+      heading.id = `pause-control-${key}`;
+      heading.textContent = lesson.title;
+      section.setAttribute('aria-labelledby', heading.id);
+      section.appendChild(heading);
+      for (const text of touch ? lesson.touch : lesson.lines) {
+        const line = document.createElement('p');
+        line.textContent = text;
+        section.appendChild(line);
+      }
+      return section;
+    });
+  const list = document.getElementById('pause-controls-list')!;
+  list.replaceChildren(...entries);
+  list.scrollTop = 0;
+}
+function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
+  if (screen === 'developer' && developerUnlocked) screen = 'scenes';
+  if (screen === menuScreen) return;
+  const prologue = activeSceneId === 'scene1';
+  if (prologue && (screen === 'sound' || (screen === 'controls' && !developerUnlocked))) return;
+  if (screen === 'scenes' && (!quickMenuOpen || !developerUnlocked)) return;
+  if (screen === 'controls') controlsReturnScreen = menuScreen === 'scenes' ? 'scenes' : 'home';
+  const wasOpen = quickMenuOpen;
+  menuScreen = screen;
+  quickMenuOpen = screen !== null;
+  pauseMenu.dataset.screen = screen ?? '';
+  developerPassword.value = '';
+  developerPassword.removeAttribute('aria-invalid');
+  developerError.textContent = '';
+  if (!wasOpen && quickMenuOpen) {
+    resumePointerTarget = document.pointerLockElement as HTMLElement | null;
+    if (resumePointerTarget) document.exitPointerLock();
+    document.getElementById('scene-menu-error')!.textContent = '';
+  }
   clearSceneInput();
-  document.body.classList.toggle('quick-menu-open', open);
-  currentSceneData?.setMenuPaused?.(open);
-  if (open) {
-    if (document.pointerLockElement) document.exitPointerLock();
-    quickMenu.showModal();
+  document.body.classList.toggle('quick-menu-open', quickMenuOpen);
+  if (quickMenuOpen) setAudioMenuPaused(true);
+  currentSceneData?.setMenuPaused?.(quickMenuOpen);
+  if (!quickMenuOpen) setAudioMenuPaused(false);
+
+  const dialog = screen === 'scenes' ? quickMenu : screen ? pauseMenu : null;
+  for (const other of [pauseMenu, quickMenu]) {
+    if (other !== dialog && other.open) other.close();
+  }
+  if (!dialog) {
+    renderer.domElement.focus();
+    const target = resumePointerTarget;
+    resumePointerTarget = null;
+    if (restorePointer && target?.isConnected && currentPlayer?.isEnabled()
+      && !currentSceneData?.isCinematic?.() && !document.body.classList.contains('touch-device')) {
+      try { void Promise.resolve(target.requestPointerLock()).catch(() => {}); } catch { /* Click the world to recapture if denied. */ }
+    }
+    return;
+  }
+  if (screen !== 'scenes') {
+    document.getElementById('pause-menu-title')!.textContent = screen === 'controls' ? (developerUnlocked ? 'All Controls' : 'Controls')
+      : screen === 'sound' ? 'Sound' : screen === 'developer' || prologue ? 'Developer Mode' : 'Pause';
+    document.getElementById('pause-home')!.classList.toggle('hidden', screen !== 'home');
+    document.getElementById('pause-sound-panel')!.classList.toggle('hidden', screen !== 'sound');
+    document.getElementById('pause-controls-panel')!.classList.toggle('hidden', screen !== 'controls');
+    document.getElementById('pause-developer-form')!.classList.toggle('hidden', screen !== 'developer');
+    for (const id of ['pause-resume', 'pause-sound', 'pause-controls']) document.getElementById(id)!.classList.toggle('hidden', prologue);
+    if (screen === 'controls') renderControlsReference();
+    if (screen === 'sound') {
+      const settings = getAudioSettings();
+      for (const channel of ['bgm', 'sfx'] as const) {
+        const value = String(Math.round(settings[channel] * 100));
+        (document.getElementById(`${channel}-volume`) as HTMLInputElement).value = value;
+        document.getElementById(`${channel}-volume-value`)!.textContent = `${value}%`;
+      }
+    }
+  }
+  if (!dialog.open) dialog.showModal();
+  if (screen === 'scenes') {
     const buttons = quickMenu.querySelectorAll<HTMLButtonElement>('[data-scene]');
     const currentId = currentSceneData?.getSceneId?.() ?? activeSceneId;
     buttons.forEach(button => button.setAttribute('aria-current', String(`scene${button.dataset.scene}` === currentId)));
     const current = quickMenu.querySelector<HTMLButtonElement>('[aria-current="true"]') ?? buttons[0];
     current?.focus(); current?.scrollIntoView({ block: 'nearest' });
   } else {
-    quickMenu.close();
-    renderer.domElement.focus();
+    const focusId = screen === 'controls' ? 'pause-controls-list' : screen === 'sound' ? 'bgm-volume'
+      : screen === 'developer' ? 'developer-password' : prologue ? 'pause-developer' : 'pause-resume';
+    document.getElementById(focusId)?.focus();
   }
 }
+function backFromMenu() {
+  setPauseMenu(menuScreen === 'home' ? null : menuScreen === 'controls' ? controlsReturnScreen : 'home');
+}
 function jumpToScene(id: number) {
-  if (!SCENE_CHOICES.some(([scene]) => scene === id)) return;
+  if (menuScreen !== 'scenes' || !developerUnlocked || !SCENE_CHOICES.some(([scene]) => scene === id)) return;
   pendingSceneActions.clear(); creditsTimer = null;
   setTouchFlightMode(false);
   clearSceneInput();
   // Detach persistent gear before the outgoing scene disposes its meshes.
-  pistol.holster(); crowbar.holster(); pistol.update(0); crowbar.update(0);
+  pistol.holster(); crowbar.holster(); lightsaber.holster(); pistol.update(0); crowbar.update(0); lightsaber.update(0);
   globalCharacter?.model.removeFromParent();
   if (currentSceneData === scene1Data) { currentSceneData?.dispose?.(); scene1Data = null; }
   retireTraversalRoom();
@@ -1011,7 +1244,8 @@ function jumpToScene(id: number) {
   hideScene1Skip();
   for (const overlay of ['credits-overlay', 'menu-buttons', 'crowbar-overlay', 'boss-hud', 'boss-subtitles', 'escape-qte', 'loading-bay-status', 'space-cinematic-caption']) document.getElementById(overlay)?.classList.add('hidden');
   const fade = document.getElementById('fade-overlay'); fade?.classList.remove('active', 'black'); fade?.classList.add('hidden');
-  hasCrowbar = true; goggles.collect();
+  // Developer spawn grants the tools but equips nothing; the player selects them per scene.
+  hasCrowbar = true; hasLightsaber = true; goggles.collect(false);
   if (id >= 8 && id <= 12) cargoPuzzle = createCargoPuzzleState(id);
   if (id === 13) bayBossDefeated = false;
   try {
@@ -1038,9 +1272,9 @@ function jumpToScene(id: number) {
     }
     const spawnedPlayer = currentSceneData?.player as Player | undefined;
     spawnedPlayer?.heal(PLAYER_MAX_HEALTH);
-    pistol.equip(); goggles.update(); updatePlayerView(0);
+    goggles.update(); updatePlayerView(0);
     document.getElementById('scene-menu-error')!.textContent = '';
-    setQuickMenu(false);
+    setPauseMenu(null, false);
   } catch (error) {
     console.error('Scene jump failed:', error);
     document.getElementById('scene-menu-error')!.textContent = 'Unable to load that scene. Choose another scene to continue.';
@@ -1053,39 +1287,92 @@ function setupSceneQuickMenu() {
     const button = document.createElement('button'); button.type = 'button'; button.dataset.scene = String(id);
     button.textContent = `${String(id).padStart(2, '0')} / ${label}`; list.appendChild(button);
   }
+  pauseMenu.addEventListener('click', event => {
+    event.stopPropagation();
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
+    if (button?.id === 'pause-resume' || button?.id === 'pause-close') setPauseMenu(null);
+    else if (button?.id === 'pause-sound') setPauseMenu('sound');
+    else if (button?.id === 'pause-controls') setPauseMenu('controls');
+    else if (button?.id === 'pause-developer') setPauseMenu('developer');
+    else if (button?.hasAttribute('data-pause-back')) backFromMenu();
+  });
+  for (const channel of ['bgm', 'sfx'] as const) {
+    const slider = document.getElementById(`${channel}-volume`) as HTMLInputElement;
+    slider.addEventListener('input', () => {
+      setAudioVolume(channel, slider.valueAsNumber / 100);
+      document.getElementById(`${channel}-volume-value`)!.textContent = `${slider.value}%`;
+    });
+  }
+  document.getElementById('pause-developer-form')!.addEventListener('submit', event => {
+    event.preventDefault(); event.stopPropagation();
+    if (menuScreen !== 'developer' || !pauseMenu.open) return;
+    // This is a local testing convenience, not a security boundary.
+    if (developerPassword.value !== 'brondon') {
+      developerPassword.value = '';
+      developerPassword.setAttribute('aria-invalid', 'true');
+      developerError.textContent = 'Incorrect password. Try again.';
+      developerPassword.focus();
+      return;
+    }
+    developerUnlocked = true;
+    setPauseMenu('scenes');
+  });
+  developerPassword.addEventListener('input', () => {
+    developerPassword.removeAttribute('aria-invalid');
+    developerError.textContent = '';
+  });
   quickMenu.addEventListener('click', event => {
     event.stopPropagation();
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
     if (button?.dataset.scene) jumpToScene(Number(button.dataset.scene));
-    else if (button?.id === 'scene-quick-close') setQuickMenu(false);
+    else if (button?.id === 'scene-quick-controls') setPauseMenu('controls');
+    else if (button?.id === 'scene-quick-close') setPauseMenu('home');
   });
-  quickMenu.addEventListener('cancel', event => { event.preventDefault(); setQuickMenu(false); });
-  quickMenu.addEventListener('close', () => { if (quickMenuOpen) setQuickMenu(false); });
-  window.addEventListener('keydown', event => {
-    const enter = event.code === 'Enter' || event.code === 'NumpadEnter';
-    if (!quickMenuOpen) {
-      if (!enter || event.repeat || (event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable="true"]'))) return;
-      event.preventDefault(); event.stopImmediatePropagation(); setQuickMenu(true); return;
+  for (const dialog of [pauseMenu, quickMenu]) {
+    dialog.addEventListener('cancel', event => { event.preventDefault(); backFromMenu(); });
+    for (const type of ['keydown', 'keyup', 'mousedown', 'mouseup', 'mousemove', 'pointerdown', 'pointerup', 'pointermove', 'touchstart', 'touchmove', 'touchend', 'wheel']) {
+      dialog.addEventListener(type, event => event.stopPropagation());
     }
-    event.stopImmediatePropagation();
-    if (event.code === 'Tab') return;
-    event.preventDefault();
-    if (event.code === 'Escape') { setQuickMenu(false); return; }
-    const buttons = Array.from(quickMenu.querySelectorAll<HTMLButtonElement>('[data-scene]'));
-    const focused = document.activeElement as HTMLButtonElement | null;
-    if (enter && !event.repeat) {
-      if (focused?.dataset.scene) jumpToScene(Number(focused.dataset.scene)); else setQuickMenu(false);
-    } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.code)) {
+  }
+  pauseMenu.addEventListener('close', () => {
+    if (!pauseMenu.open && menuScreen !== null && menuScreen !== 'scenes') setPauseMenu(null, false);
+  });
+  quickMenu.addEventListener('close', () => {
+    if (!quickMenu.open && menuScreen === 'scenes') setPauseMenu('home');
+  });
+  const insideMenu = (event: Event) => event.target instanceof Node
+    && (pauseMenu.contains(event.target) || quickMenu.contains(event.target));
+  window.addEventListener('keydown', event => {
+    const editing = event.target instanceof HTMLElement
+      && event.target.closest('input:not([type="range"]), textarea, select, [contenteditable="true"]');
+    if (event.code === 'KeyM' && !editing && !event.ctrlKey && !event.altKey && !event.metaKey) {
+      event.preventDefault(); event.stopImmediatePropagation();
+      if (!event.repeat) setPauseMenu(quickMenuOpen ? null : 'home');
+      return;
+    }
+    if (!quickMenuOpen) return;
+    if (event.code === 'Escape') {
+      event.preventDefault(); event.stopImmediatePropagation();
+      if (!event.repeat) backFromMenu();
+      return;
+    }
+    if (menuScreen === 'scenes' && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.code)) {
+      event.preventDefault(); event.stopImmediatePropagation();
+      const buttons = Array.from(quickMenu.querySelectorAll<HTMLButtonElement>('[data-scene]'));
+      const focused = document.activeElement as HTMLButtonElement | null;
       const index = Math.max(0, buttons.indexOf(focused!));
       const next = event.code === 'Home' ? 0 : event.code === 'End' ? buttons.length - 1 : (index + (event.code === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
       buttons[next].focus(); buttons[next].scrollIntoView({ block: 'nearest' });
+      return;
     }
+    if (!insideMenu(event)) event.stopImmediatePropagation();
   }, true);
   // Capture before scene input handlers; native dialog scrolling/focus still works.
-  for (const type of ['keyup', 'mousedown', 'mouseup', 'mousemove', 'pointerdown', 'pointerup', 'wheel']) {
-    window.addEventListener(type, event => { if (quickMenuOpen) event.stopImmediatePropagation(); }, true);
+  for (const type of ['keyup', 'click', 'mousedown', 'mouseup', 'mousemove', 'pointerdown', 'pointerup', 'pointermove', 'touchstart', 'touchmove', 'touchend', 'wheel']) {
+    window.addEventListener(type, event => {
+      if (quickMenuOpen && !insideMenu(event)) event.stopImmediatePropagation();
+    }, true);
   }
-  document.getElementById('scene-menu-hint')?.classList.remove('hidden');
 }
 
 // --- Start ---
@@ -1104,15 +1391,12 @@ window.addEventListener('resize', () => {
 
 // --- Game loop ---
 const clock = new THREE.Clock();
-const fpsEl = document.getElementById('fps')!;
 const healthFillEl = document.getElementById('health-bar-fill');
 const healthLabelEl = document.getElementById('health-bar-label');
 const healthBarEl = document.getElementById('health-bar');
 const playerDamageEl = document.getElementById('player-damage');
 let deathPresentation: { player: Player; elapsed: number; managed: boolean;
   position: THREE.Vector3; rotation: THREE.Quaternion; fov: number } | null = null;
-let frameCount = 0;
-let fpsTime = 0;
 
 /** Reloads scene 2, whose wake-up sequence always spawns the player at the capsule. */
 function respawnAtCapsule() {
@@ -1124,20 +1408,13 @@ function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
   if (quickMenuOpen) {
+    controlCard.classList.add('hidden');
     if (activeScene && activeCamera) renderGameScene(currentSceneData?.getRenderScene?.() ?? activeScene, activeCamera);
+    renderMinimap();
     return;
   }
   advanceSceneActions(Math.min(delta, 0.1));
   if (!scene1SkipVisible) document.getElementById('skip-btn')?.classList.add('hidden');
-
-  // FPS counter
-  frameCount++;
-  fpsTime += delta;
-  if (fpsTime >= 0.5) {
-    fpsEl.textContent = `FPS: ${Math.round(frameCount / fpsTime)}`;
-    frameCount = 0;
-    fpsTime = 0;
-  }
 
   // Health bar + death/respawn
   if (currentPlayer) {
@@ -1150,6 +1427,7 @@ function animate() {
       healthFillEl.classList.toggle('mid', pct > 0.3 && pct <= 0.6);
     }
     if (healthLabelEl) healthLabelEl.textContent = `${Math.max(0, Math.ceil(health))} / ${PLAYER_MAX_HEALTH}`;
+    healthBarEl?.setAttribute('aria-valuenow', String(Math.max(0, Math.ceil(health))));
     if (currentPlayer.isEnabled() && health <= 0 && !deathPresentation) {
       const managed = !!currentSceneData?.onPlayerDeath?.();
       deathPresentation = { player: currentPlayer, elapsed: 0, managed, position: activeCamera!.position.clone(),
@@ -1161,11 +1439,7 @@ function animate() {
       if (!deathPresentation.managed && deathPresentation.elapsed >= 2.5) { deathPresentation = null; respawnAtCapsule(); }
     }
   }
-  if (healthBarEl) {
-    const inScene1 = currentSceneData === scene1Data && !currentPlayer?.isEnabled();
-    const inCutscene = !!cutsceneManager || !!deathPresentation || !!currentSceneData?.isCinematic?.();
-    healthBarEl.style.display = (inScene1 || inCutscene) ? 'none' : '';
-  }
+  if (healthBarEl) healthBarEl.style.display = activeSceneId === 'scene1' ? 'none' : '';
 
   // Record pursuit before stepping the active world; retired worlds step separately.
   npcManager.update(delta);
@@ -1187,15 +1461,15 @@ function animate() {
   }
 
   const sceneOwnsControls = !!deathPresentation || !!currentSceneData?.isCinematic?.();
-  document.getElementById('info')?.classList.toggle('hidden', sceneOwnsControls);
-  document.getElementById('view-toggle-btn')?.classList.toggle('hidden', sceneOwnsControls);
+  updateViewButton();
+  updateControlCard(delta);
 
   // Character animations + view
   goggles.update();
   updatePlayerView(delta);
 
   if (!sceneOwnsControls && !currentSceneData?.ownsWeaponInput) { pistol.update(delta); crowbar.update(delta); }
-  document.getElementById('weapon-status')?.classList.toggle('hidden', cargoPuzzle.handle === 'carried');
+  lightsaber.update(delta);
   heldSwitchHandle.visible = cargoPuzzle.handle === 'carried' && !sceneOwnsControls && !!currentPlayer?.isEnabled();
   if (heldSwitchHandle.visible && currentPlayer && activeScene && activeCamera) {
     activeScene.add(heldSwitchHandle);
@@ -1216,7 +1490,7 @@ function animate() {
   // Render
   if (activeScene && activeCamera) {
     renderGameScene(currentSceneData?.getRenderScene?.() ?? activeScene, activeCamera);
-    if (!sceneOwnsControls && !currentSceneData?.ownsWeaponInput && cargoPuzzle.handle !== 'carried') crowbar.renderFirstPerson(renderer);
+    renderMinimap();
   }
 }
 

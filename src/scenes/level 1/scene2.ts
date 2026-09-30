@@ -762,6 +762,13 @@ export function createScene({ audioManager, skipWake, entryState }: {
 
   return {
     scene, camera, physicsWorld, updatePhysics,
+    minimap: {
+      bounds: { minX: -roomWidth / 2, maxX: roomWidth / 2, minZ: -roomDepth / 2, maxZ: roomDepth / 2 },
+      floor: 0, upperFloor: floor2Y,
+      stairs: [{ x: stairCenterL, z: roomDepth / 2 - walkwayWidth - stairRun / 2 },
+        { x: stairCenterR, z: roomDepth / 2 - walkwayWidth - stairRun / 2 }],
+    },
+    controlsReady: () => wakePhase === 'done' && player.isEnabled(),
     cutsceneManager: null,
     player,
     npcSafeZone: new THREE.Box3(

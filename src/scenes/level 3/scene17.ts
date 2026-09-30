@@ -10,6 +10,8 @@ import type { DamageTarget, DamageWeapon } from '../../scripts/pistol.js';
 import type { CinematicPose } from '../../scripts/characterManager.js';
 import { createRiverAmbushers } from '../../scripts/riverAmbusher.js';
 import { createJungleScrambler, createJungleScramblerPulse, PLATFORM_COURSE } from '../../helpers/scene/junglePlatformCourse.js';
+import { AudioManager } from '../../helpers/audio/AudioManager.js';
+import jungleBgmUrl from '../../assets/bgm/DonRevJungleLoop.m4a?url';
 
 /** Shared jungle encounters, with distinct bridge and downstream/facility checkpoints. */
 export function createScene({ entryState, onRespawn, onPlatformer, section = 'approach', loadModel = loadToolModel, loadDinosaur = loadDinoModel }: {
@@ -24,6 +26,8 @@ export function createScene({ entryState, onRespawn, onPlatformer, section = 'ap
     activatedRelays: entryState?.platformProgress?.activatedRelays ?? (returning ? ['relay1', 'relay2', 'relay3'] : []),
   }), { scene, door, ship, pod, boy } = site;
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 650);
+  const audioManager = new AudioManager({ camera, getFile: (path: string) => path === 'jungle-loop' ? { content: jungleBgmUrl } : null });
+  audioManager.setBgm({ path: 'jungle-loop', loop: true, volume: 0.5, autoplay: true });
   const player = createPlayer({ camera, physicsWorld, spawnPosition: spawn });
   if (entryState?.pilotState) player.restoreTransition({
     ...entryState.pilotState, position: spawn, velocity: { x: 0, y: 0, z: 0 },
@@ -232,7 +236,7 @@ export function createScene({ entryState, onRespawn, onPlatformer, section = 'ap
   }
   function damageJungleEnemy(enemy: JungleEnemy, amount: number, weapon?: DamageWeapon) {
     if (disposed || completed || !player.isEnabled() || player.getHealth() <= 0 || enemy.phase === 'dormant' || enemy.phase === 'dying'
-      || !Number.isFinite(amount) || amount <= 0 || (weapon !== 'pistol' && weapon !== 'crowbar')) return false;
+      || !Number.isFinite(amount) || amount <= 0 || (weapon !== 'pistol' && weapon !== 'crowbar' && weapon !== 'lightsaber')) return false;
     if (enemy.kind === 'dino') return false;
     enemy.health = Math.max(0, enemy.health - amount); enemy.ring.visible = false;
     if (!enemy.health) {
@@ -391,7 +395,7 @@ export function createScene({ entryState, onRespawn, onPlatformer, section = 'ap
   }
   function damageSentry(sentry: typeof sentries[number], amount: number, weapon?: DamageWeapon) {
     if (disposed || completed || deathClock > 0 || !player.isEnabled() || player.getHealth() <= 0 || !sentry.active
-      || (weapon !== 'pistol' && weapon !== 'crowbar') || !sentry.actor.damage(amount)) return false;
+      || (weapon !== 'pistol' && weapon !== 'crowbar' && weapon !== 'lightsaber') || !sentry.actor.damage(amount)) return false;
     if (sentry.actor.health === 0) {
       sentry.charge = -1; sentry.body.collisionResponse = false;
       sentry.body.type = CANNON.Body.KINEMATIC; sentry.body.velocity.set(0, 0, 0); sentry.body.force.set(0, 0, 0); sentry.body.updateMassProperties();
@@ -533,14 +537,9 @@ export function createScene({ entryState, onRespawn, onPlatformer, section = 'ap
     },
   });
   function updateHud() {
-    if (!status || completed || deathClock > 0 || bridgeClock >= 0) return;
-    const distance = Math.ceil(Math.hypot(player.body.position.x, player.body.position.z - RESCUE_SITE.doorZ));
-    status.textContent = doorLatched ? 'FACILITY ACCESS OPEN\nRUN THROUGH THE DOOR'
-      : alerted ? `FACILITY DEFENSES ACTIVE / ${distance} m\nKEEP MOVING — SHIFT TO SPRINT TO THE ENTRANCE`
-      : `${returning ? '19 / RETURN TO THE STONE PATH ON YOUR RIGHT' : '17 / FOLLOW THE STONE PATH TO THE BRIDGE'} / ${Math.ceil(returning ? site.pathLength * (1 - playerRoute.index / (JUNGLE_ROUTE.length - 1)) : Math.hypot(player.body.position.x - RESCUE_SITE.bridge.x, player.body.position.z - RESCUE_SITE.bridge.z))} m\n${enemies.filter(r => r.kind === 'robot' && r.phase !== 'dormant' && r.phase !== 'dying').length} ROBOTS / ${enemies.filter(r => r.kind === 'dino' && r.phase !== 'dormant' && r.phase !== 'dying').length} DINOSAURS NEARBY / ${defeatedPatrols} DEFEATED${returning ? ` / ${sentries.filter(s => s.active && s.actor.health > 0).length} RANGED QUADSHELLS` : ''}\nK: PISTOL / T: CROWBAR / SHIFT: SPRINT${patrolLoadError ? '\nROBOT MODEL COULD NOT LOAD' : ''}${dinoLoadError ? '\nDINOSAUR MODEL COULD NOT LOAD' : ''}${sentries.some(s => s.actor.error) ? '\nQUADSHELL MODEL COULD NOT LOAD' : ''}`;
+    if (completed || deathClock > 0 || bridgeClock >= 0) return;
     const nearBoy = !returning && arrivalClock < 7 && Math.hypot(player.body.position.x - boy.position.x, player.body.position.z - boy.position.z) < 12;
     caption?.classList.toggle('hidden', !nearBoy);
-    status.classList.toggle('hidden', nearBoy);
     if (nearBoy && caption) caption.textContent = '"I will stay with the ships. Follow the stone path. Watch for robots — and something much bigger in the trees."';
   }
   function finish() {
@@ -617,6 +616,7 @@ export function createScene({ entryState, onRespawn, onPlatformer, section = 'ap
   syncNearbyPhysics(); site.updateVisibility(camera, player.body.position); updateHud();
   return {
     roomId: returning ? 'scene19' : 'scene17', scene, camera, physics, physicsWorld, player, ship, pod, boy, door, enemies, ready: Promise.all([site.ready, patrolReady, landSquad?.ready]), cutsceneManager: null,
+    minimap: { radius: 48, floor: 0, prepare: site.prepareMinimap },
     get robots() { return enemies.filter(enemy => enemy.kind === 'robot'); },
     get dinosaurs() { return enemies.filter(enemy => enemy.kind === 'dino'); },
     getDamageTargets: (): DamageTarget[] => completed || bridgeClock >= 0 || deathClock > 0 ? [] : [
@@ -709,6 +709,7 @@ export function createScene({ entryState, onRespawn, onPlatformer, section = 'ap
       }
       for (const template of templates) template.traverse(node => { if (node instanceof THREE.SkinnedMesh) node.skeleton.dispose(); });
       player.dispose(); physics.dispose(); site.dispose();
+      audioManager.dispose();
       spawnGeometry.dispose(); spawnMaterial.dispose();
     },
   };

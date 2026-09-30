@@ -534,8 +534,24 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     sun.target.position.set(x, 0, z); sun.position.set(x - 40, 90, z + 30);
     sun.target.updateMatrixWorld(); sun.updateMatrixWorld();
   }
+  function prepareMinimap(focus: Point, radius: number) {
+    const visibility: Array<[THREE.Object3D, boolean]> = [];
+    const show = (object: THREE.Object3D, visible: boolean) => { visibility.push([object, object.visible]); object.visible = visible; };
+    // Map visibility is independent of the gameplay camera and never streams physics.
+    for (const chunk of renderChunks) {
+      localBounds.copy(chunk.mesh.boundingBox!).translate(chunk.mesh.position);
+      const visible = distanceSquared(localBounds, focus) < radius * radius;
+      show(chunk.mesh, visible);
+      if (chunk.farMesh) show(chunk.farMesh, false);
+    }
+    for (const prop of distantProps) {
+      show(prop.root, Math.hypot(prop.center.x - focus.x, prop.center.z - focus.z) < radius + 12);
+      if (prop.farMesh) show(prop.farMesh, false);
+    }
+    return () => { for (const [object, visible] of visibility) object.visible = visible; };
+  }
   let windTime = 0;
-  return { scene, ship, pod, boy, door, turrets, ready, pathLength, nearestPathPoint, isWalkable, trackStaticBody, updateActivePhysics, activatePhysicsNear, updateVisibility, isReady: () => settled,
+  return { scene, ship, pod, boy, door, turrets, ready, pathLength, nearestPathPoint, isWalkable, trackStaticBody, updateActivePhysics, activatePhysicsNear, updateVisibility, prepareMinimap, isReady: () => settled,
     distanceToSafePath: (x: number, z: number) => routeDistance(x, z), isJungleObstacleBody: (body: CANNON.Body) => obstacleVisuals.has(body), breakJungleObstacle,
     setWalking(value: boolean) { if (value === walking) return; walking = value; (value ? idle : walk)?.fadeOut(0.2); (value ? walk ?? idle : idle)?.reset().fadeIn(0.2).play(); },
     bridge, water, exitLog, damageBridge, breakBridge, platformCourse, scramblerLauncher,

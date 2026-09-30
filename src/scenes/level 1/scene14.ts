@@ -9,6 +9,8 @@ import type { CinematicPose } from '../../scripts/characterManager.js';
 import { createEscapeShip, addPlanetBackdrop } from '../../scripts/items/createEscapeShip.js';
 import type { DamageTarget } from '../../scripts/pistol.js';
 import { isTouchActive } from '../../scripts/touchControls.js';
+import { AudioManager } from '../../helpers/audio/AudioManager.js';
+import bgmUrl from '../../assets/bgm/DonRevBGM1.m4a?url';
 
 export interface LaunchState extends PlayerTransitionState {
   launch?: { shipPosition: THREE.Vector3; shipQuaternion: THREE.Quaternion; cameraPosition: THREE.Vector3; cameraQuaternion: THREE.Quaternion; cameraFov: number; speed: number };
@@ -57,6 +59,8 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
   const sun = new THREE.DirectionalLight(0xb9d8ff, 3); sun.position.set(-20, 50, 30); scene.add(sun);
   for (const z of [-25, -5, 15]) { const light = new THREE.PointLight(0xb3def7, 180, 40); light.position.set(0, 12, z); scene.add(light); }
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 5000);
+  const audioManager = new AudioManager({ camera, getFile: (path: string) => path === 'bgm1' ? { content: bgmUrl } : null });
+  audioManager.setBgm({ path: 'bgm1', loop: true, volume: 0.5, autoplay: true });
   const player = createPlayer({ camera, physicsWorld, spawnPosition: { x: 0, y: 3.3, z: -29 } }); player.enable();
   if (entryState) player.restoreTransition({ ...entryState, position: { x: 0, y: 3.3, z: -29 }, velocity: { x: 0, y: 0, z: 0 }, yaw: Math.PI, pitch: 0, heldKeys: [], crouching: false, intentionalJump: false, jumpQueued: false }, { x: 0, y: 0, z: 0, yaw: -Math.PI });
   player.setRotation(Math.PI); player.disable(); player.body.type = CANNON.Body.KINEMATIC; player.body.updateMassProperties();
@@ -124,7 +128,7 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
         root.traverse(n => { if (n instanceof THREE.Mesh) { n.castShadow = true; n.receiveShadow = true; } });
         const body = new CANNON.Body({ type: CANNON.Body.KINEMATIC, mass: 0, shape: new CANNON.Box(new CANNON.Vec3(0.55, 0.5, 0.65)) }); body.position.set(root.position.x, 0.5, root.position.z); physicsWorld.addBody(body);
         const robot: Robot = { root, body, mixer: new THREE.AnimationMixer(root), clips: gltf.animations, side: column < 4 ? -1 : 1, stunned: false, health: 75, vacuum: new THREE.Vector3(),
-          target: { root, body, damage(amount, weapon) { if (disposed || phase !== 'run' || robot.stunned || !Number.isFinite(amount) || amount <= 0 || (weapon !== 'pistol' && weapon !== 'crowbar')) return false; robot.health -= amount; if (robot.health <= 0) stopRobot(robot); return true; } } };
+          target: { root, body, damage(amount, weapon) { if (disposed || phase !== 'run' || robot.stunned || !Number.isFinite(amount) || amount <= 0 || (weapon !== 'pistol' && weapon !== 'crowbar' && weapon !== 'lightsaber')) return false; robot.health -= amount; if (robot.health <= 0) stopRobot(robot); return true; } } };
         robots.push(robot); playRobot(robot, 'Walk'); robot.mixer.update(i * 0.13);
       }
       loaded = true;
@@ -468,6 +472,7 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
         }
         if (clock > 3.2) { transferred = true; onFailure(); return; }
       }
+      audioManager.update();
       ship.update(dt); updateRobots(dt * motionScale); physics.step(dt, player, thirdPerson);
       if (status) status.textContent = assetError ? 'ROBOT ASSETS COULD NOT LOAD / E: retry' : phase === 'arrival' ? '14 / HANGAR\nLift arriving. One ship. Too many robots.' : phase === 'run' ? (isTouchActive() ? 'RUN TO THE SHIP / JOYSTICK + RUN\nTap the screen when the prompt appears.' : 'RUN TO THE SHIP / WASD + SHIFT\nBe ready to press the displayed X, Y or Z key.') : phase === 'launch' ? 'HANGAR DEPRESSURIZING\nAll robots are being pulled into space. Launching toward the planet...' : phase === 'aboard' ? 'COCKPIT SEALED / PRESS E TO LAUNCH' : 'BREAK THROUGH THE SWARM';
       updateShot(dt); cameraView();
@@ -482,7 +487,7 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
       prompt?.classList.add('hidden'); subtitles?.classList.add('hidden'); status?.classList.add('hidden');
       if (gun) { gun.removeFromParent(); scene.add(gun); }
       robots.forEach(r => { r.mixer.stopAllAction(); r.mixer.uncacheRoot(r.root); r.root.traverse(node => { if (node instanceof THREE.SkinnedMesh) node.skeleton.dispose(); }); });
-      player.dispose(); physics.dispose(); disposeRoom(scene);
+      audioManager.dispose(); player.dispose(); physics.dispose(); disposeRoom(scene);
     },
   };
 }

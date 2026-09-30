@@ -137,6 +137,12 @@ for (const fps of [30, 60, 144]) {
   test(`Boss shield, two-second window, three orb hits and exactly one dry exit at ${fps} FPS`, async t => {
     const { data, finishes } = await fixture(t, { entryState: bossEntry() }); step(data, 1.3, fps);
     const warden = target(data, 'Platform-warden'), orb = target(data, 'FacilitySidescrollScrambler');
+    const waitForOpen = () => {
+      for (let i = 0; i < fps * 8 && data.getPlatformerStatus().bossStage !== 'open'; i++) {
+        data.player.heal(100); data.updatePhysics(1 / fps);
+      }
+      assert.equal(data.getPlatformerStatus().bossStage, 'open', 'Warden did not enter its vulnerable window');
+    };
     assert.equal(orb.damage(25, 'pistol'), false); assert.equal(warden.damage(25, 'pistol'), false);
     data.player.setPosition(courseX(104), 1.6, 17); step(data, 1.1, fps);
     for (let i = 0; i < 8; i++) {
@@ -146,15 +152,15 @@ for (const fps of [30, 60, 144]) {
     until(data, () => data.getPlatformerStatus().phase === 'boss', fps, 7);
     assert.equal(data.getPlatformerStatus().bossShielded, false);
     assert.equal(warden.damage(25, 'pistol'), false, 'Warden is invulnerable while charging');
-    until(data, () => data.getPlatformerStatus().bossStage === 'open', fps);
+    waitForOpen();
     assert.equal(warden.damage(35, 'crowbar'), false); assert.equal(warden.damage(NaN, 'pistol'), false);
     assert.equal(warden.damage(25, 'pistol'), true);
     step(data, 1.8, fps); assert.equal(data.getPlatformerStatus().bossStage, 'open');
     step(data, 0.25, fps); assert.equal(warden.damage(25, 'pistol'), false);
-    until(data, () => data.getPlatformerStatus().bossStage === 'open', fps);
+    waitForOpen();
     assert.equal(data.getPlatformerStatus().bossVolley, 1, 'Attack alternates from ground pulse to burst');
     while (data.getPlatformerStatus().bossHealth > 0) {
-      until(data, () => data.getPlatformerStatus().bossStage === 'open', fps);
+      waitForOpen();
       assert.equal(warden.damage(25, 'pistol'), true);
     }
     assert.equal(data.getPlatformerStatus().phase, 'cleared');
@@ -198,10 +204,16 @@ test('Checkpoint restart restores saved relays/robots, full health and a fresh u
   assert.equal(restored.player.getState().isMoving, false); assert.equal(restored.player.getState().jumping, false);
 });
 
-test('Scene 18 plays the complete death pose while the camera pulls away', async t => {
+test('A river fall triggers an animated shark attack before the death pose', async t => {
   const { data, respawns } = await fixture(t); step(data, 1.3);
+  const shark = data.scene.getObjectByName('RiverShark-0');
+  assert.ok(shark, 'River sharks load before Scene 18 gameplay begins');
+  assert.notEqual(shark.position.z, 17, 'Sharks wait at the river edge outside the rock path');
   data.player.setPosition(courseX(36), -4, 17); data.updatePhysics(1 / 60);
-  assert.equal(data.getPlatformerStatus().phase, 'death');
+  assert.equal(data.getPlatformerStatus().phase, 'sharkAttack');
+  assert.equal(data.player.getHealth(), 0);
+  assert.ok(data.getRetroConsoleStrength() > 0);
+  step(data, 0.95); assert.equal(data.getPlatformerStatus().phase, 'death');
   assert.equal(data.getCinematicPose().clip, 'Death01');
   const initialZ = data.camera.position.z;
   step(data, 1.5);
@@ -312,7 +324,7 @@ test('Scene 17 collapses the bridge on impact, preserves health/camera and hands
   assert.ok(data.camera.position.distanceTo(start) < 1e-9);
   step(data, 2); const clock = data.getCinematicPose().time;
   window.dispatchEvent(new Event('blur')); step(data, 2); assert.equal(data.getCinematicPose().time, clock);
-  window.dispatchEvent(new Event('focus')); step(data, 4);
+  window.dispatchEvent(new Event('focus')); step(data, 6);
   assert.equal(states.length, 1); assert.equal(states[0].pilotState.health, 81);
   assert.ok(Math.abs(states[0].pilotState.position.y - 0.53) < 1e-9);
   assert.ok(states[0].cameraPosition.distanceTo(data.camera.position) < 1e-9);

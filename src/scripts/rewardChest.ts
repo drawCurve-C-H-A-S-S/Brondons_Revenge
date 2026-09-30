@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { loadToolModel } from '../core/loader.js';
 import type { Player } from './player.js';
+import { createLightsaber } from './items/createLightsaber.js';
 
 export function createGoggles() {
   const root = new THREE.Group(); root.name = 'ScannerGoggles';
@@ -40,7 +41,7 @@ function disposeObject(root: THREE.Object3D) {
 /** One reward per visit; the caller owns cross-visit reward persistence. */
 export function createRewardChest({ scene, world, player, position, reward, unlocked, onCollect, removeOnCollect = false }: {
   scene: THREE.Scene; world: CANNON.World; player: Player; position: THREE.Vector3;
-  reward: 'goggles' | 'health'; unlocked: () => boolean; onCollect: () => boolean; removeOnCollect?: boolean;
+  reward: 'goggles' | 'health' | 'lightsaber'; unlocked: () => boolean; onCollect: () => boolean; removeOnCollect?: boolean;
 }, load = () => loadToolModel('Prop_Chest')) {
   const root = new THREE.Group(); root.name = `${reward}Chest`; root.position.copy(position); scene.add(root);
   // A usable fallback avoids locking progression if an optional model fails to load.
@@ -54,7 +55,7 @@ export function createRewardChest({ scene, world, player, position, reward, unlo
   const body = new CANNON.Body({ mass: 0 });
   body.addShape(new CANNON.Box(new CANNON.Vec3(0.7, 0.4, 0.425)));
   body.position.set(position.x, position.y + 0.4, position.z); world.addBody(body);
-  const loot = reward === 'goggles' ? createGoggles() : new THREE.Group();
+  const loot = reward === 'goggles' ? createGoggles() : reward === 'lightsaber' ? createLightsaber() : new THREE.Group();
   if (reward === 'health') {
     const box = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 0.22), new THREE.MeshStandardMaterial({ color: 0xf0f4ee }));
     loot.add(box);
@@ -95,9 +96,11 @@ export function createRewardChest({ scene, world, player, position, reward, unlo
 
   function near() { return player.body.position.distanceTo(new CANNON.Vec3(position.x, position.y + player.radius, position.z)) <= 1.8; }
   function onKeyDown(event: KeyboardEvent) {
-    if (event.code !== 'KeyE' || event.repeat || disposed || collected || opening > 0 || !player.isEnabled() || !near() || !unlocked()) return;
+    if (event.code !== 'KeyE' || event.repeat || event.defaultPrevented || disposed || collected || opening > 0 || !player.isEnabled() || player.getState().boxHandling || !near() || !unlocked()) return;
+    if (document.hidden || document.body.classList.contains('quick-menu-open') ||
+      (event.target instanceof HTMLElement && event.target.closest('button, dialog, input, textarea, select, [contenteditable="true"]'))) return;
     if (reward === 'health' && player.getHealth() >= 100) return;
-    event.preventDefault(); player.requestAction('Interact');
+    event.preventDefault(); event.stopImmediatePropagation(); player.requestAction('Interact');
     opening = 0.001; loot.visible = true; hidePrompt();
     if (openAction && mixer) { mixer.stopAllAction(); openAction.reset().play(); }
   }
@@ -116,9 +119,9 @@ export function createRewardChest({ scene, world, player, position, reward, unlo
         if (collected && removeOnCollect) { root.removeFromParent(); world.removeBody(body); }
       }
     }
-    if (player.isEnabled() && near() && !collected && opening === 0 && prompt) {
-      prompt.textContent = !unlocked() ? (reward === 'goggles' ? 'Destroy every wall target with the pistol' : 'Break the crates with your crowbar')
-        : reward === 'health' && player.getHealth() >= 100 ? 'Health is full' : `Press E to open chest — ${reward === 'goggles' ? 'scanner goggles' : '+15 HP'}`;
+    if (player.isEnabled() && !player.getState().boxHandling && near() && !collected && opening === 0 && prompt) {
+      prompt.textContent = !unlocked() ? (reward === 'goggles' ? 'Destroy every wall target with the pistol' : reward === 'lightsaber' ? 'Unlock the Bay Warden door' : 'Break the crates with your crowbar')
+        : reward === 'health' && player.getHealth() >= 100 ? 'Health is full' : `Press E to open chest — ${reward === 'goggles' ? 'scanner goggles' : reward === 'lightsaber' ? 'lightsaber' : '+15 HP'}`;
       prompt.classList.remove('hidden'); ownsPrompt = true;
     } else hidePrompt();
   }
@@ -129,5 +132,5 @@ export function createRewardChest({ scene, world, player, position, reward, unlo
     if (body.world === world) world.removeBody(body);
     disposeObject(root);
   }
-  return { root, body, ready, update, dispose, isCollected: () => collected };
+  return { root, body, ready, update, dispose, isCollected: () => collected, isPromptVisible: () => ownsPrompt };
 }

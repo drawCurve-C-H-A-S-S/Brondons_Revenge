@@ -136,7 +136,7 @@ export class CrowbarController {
     const usable = !!player?.isEnabled() && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling;
     setCharacterEquipped(this.equipped && usable);
     this.root.visible = this.equipped && !thirdPerson && usable;
-    firstPersonHands?.update(this.swingTime > 0 ? 1 - this.swingTime / 0.16 : null);
+    if (this.equipped && usable && !thirdPerson) firstPersonHands?.update(this.swingTime > 0 ? 1 - this.swingTime / 0.16 : null);
     if (!camera || !this.root.visible) {
       this.root.removeFromParent();
       return;

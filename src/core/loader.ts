@@ -1,14 +1,34 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
+import { clone as cloneRig } from 'three/addons/utils/SkeletonUtils.js';
+import subjectModelUrl from '../assets/models/Subject.glb';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import dinoModelUrl from '../assets/models/Dino/dino.glb';
+import sharkModelUrl from '../assets/models/Dino/Shark.glb';
 
 const gltfLoader = new GLTFLoader();
+const playerLoader = new GLTFLoader();
+const playerTemplates = new WeakMap<GLTFLoader, Promise<GLTF>>();
+
+/** Decode the player asset once; each view gets an independent skeleton and mixer. */
+export async function loadPlayerModel(loader = playerLoader) {
+  let pending = playerTemplates.get(loader);
+  if (!pending) {
+    pending = loader.loadAsync(subjectModelUrl).catch(error => {
+      playerTemplates.delete(loader);
+      throw error;
+    });
+    playerTemplates.set(loader, pending);
+  }
+  const template = await pending;
+  return { ...template, scene: cloneRig(template.scene), animations: template.animations.slice() };
+}
 
 // Only bundle the tools used by gameplay, including their external dependencies.
 const toolAssets = import.meta.glob<string>([
   '../assets/models/Tools/Enemy_Trilobite.{gltf,bin}',
   '../assets/models/Tools/Enemy_QuadShell.{gltf,bin}',
+  '../assets/models/Tools/Enemy_EyeDrone.{gltf,bin}',
   '../assets/models/Tools/Gun_Pistol.{gltf,bin}',
   '../assets/models/Tools/Gun_Revolver.{gltf,bin}',
   '../assets/models/Tools/Prop_Chest.{gltf,bin}',
@@ -21,7 +41,7 @@ gltfLoader.manager.setURLModifier(url => {
 });
 
 /** Resolve glTF dependencies through Vite in both dev and hashed production builds. */
-export async function loadToolModel(name: 'Enemy_Trilobite' | 'Enemy_QuadShell' | 'Gun_Pistol' | 'Gun_Revolver' | 'Prop_Chest') {
+export async function loadToolModel(name: 'Enemy_Trilobite' | 'Enemy_QuadShell' | 'Enemy_EyeDrone' | 'Gun_Pistol' | 'Gun_Revolver' | 'Prop_Chest') {
   const url = toolUrls.get(`${name}.gltf`);
   if (!url) throw new Error(`Missing tool asset: ${name}`);
   const response = await fetch(url);
@@ -39,6 +59,15 @@ export async function loadToolModel(name: 'Enemy_Trilobite' | 'Enemy_QuadShell' 
 /** Load the rig and animation together so cloned dinosaurs can share the source asset. */
 export async function loadDinoModel() {
   const gltf = await gltfLoader.loadAsync(dinoModelUrl);
+  gltf.scene.traverse(node => {
+    if (node instanceof THREE.Mesh) { node.castShadow = true; node.receiveShadow = true; }
+  });
+  return { scene: gltf.scene, animations: gltf.animations };
+}
+
+/** Load the rigged river shark together with its authored swim animation. */
+export async function loadSharkModel() {
+  const gltf = await gltfLoader.loadAsync(sharkModelUrl);
   gltf.scene.traverse(node => {
     if (node instanceof THREE.Mesh) { node.castShadow = true; node.receiveShadow = true; }
   });

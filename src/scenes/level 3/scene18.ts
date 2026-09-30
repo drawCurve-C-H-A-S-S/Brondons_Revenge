@@ -8,11 +8,14 @@ import { COURSE_PLATFORMS, COURSE_ROBOTS, PLATFORM_COURSE, courseX, courseDistan
 import { disposeRoom } from '../../helpers/scene/shipRoom.js';
 import { createPlayer, PLAYER_MAX_HEALTH } from '../../scripts/player.js';
 import { isTouchFire, consumePlatformerAim, resetTouchInput } from '../../scripts/touchControls.js';
-import { loadToolModel } from '../../core/loader.js';
+import { loadSharkModel, loadToolModel } from '../../core/loader.js';
 import type { CinematicPose, loadCharacter } from '../../scripts/characterManager.js';
 import { traceShot, type DamageTarget, type DamageWeapon } from '../../scripts/pistol.js';
+import { AudioManager } from '../../helpers/audio/AudioManager.js';
+import jungleBgmUrl from '../../assets/bgm/DonRevJungleLoop.m4a?url';
 
-type Phase = 'entry' | 'traversal' | 'scrambler' | 'warp' | 'boss' | 'cleared' | 'exit' | 'death' | 'done';
+type Phase = 'entry' | 'traversal' | 'scrambler' | 'warp' | 'boss' | 'cleared' | 'sharkAttack' | 'exit' | 'death' | 'done';
+type RiverShark = { root: THREE.Group; mixer: THREE.AnimationMixer; baseY: number; baseZ: number; side: number; phase: number };
 type Actor = {
   id: string; root: THREE.Group; body: CANNON.Body; motor: ReturnType<typeof createGroundMotor>;
   mixer: THREE.AnimationMixer; clips: THREE.AnimationClip[]; animation: string;
@@ -27,9 +30,10 @@ const copyProgress = (value: PlatformProgress): PlatformProgress => ({ ...value,
   activatedRelays: [...value.activatedRelays], defeatedRobots: [...value.defeatedRobots] });
 
 /** Scene-owned combat/camera over the shared dynamic player and fixed-step ground physics. */
-export function createScene({ entryState, onRespawn, onFinished, loadModel = loadToolModel }: {
+export function createScene({ entryState, onRespawn, onFinished, loadModel = loadToolModel, loadShark = loadSharkModel }: {
   entryState?: RescueArrival; onRespawn: (state: RescueArrival) => void; onFinished: (state: RescueArrival) => void;
   loadModel?: typeof loadToolModel;
+  loadShark?: typeof loadSharkModel;
 }) {
   let saved: PlatformProgress = copyProgress(entryState?.platformProgress ?? { checkpoint: 'bridge', activatedRelays: [], defeatedRobots: [] });
   const physics = createScenePhysics(), physicsWorld = physics.world;
@@ -38,6 +42,8 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   const { scene } = site, course = site.platformCourse!;
   site.setImpact(30); site.ship.setCanopyOpen(1); site.pod.getObjectByName('PodHatch')!.rotation.z = -1.5;
   const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.05, 260);
+  const audioManager = new AudioManager({ camera, getFile: (path: string) => path === 'jungle-loop' ? { content: jungleBgmUrl } : null });
+  audioManager.setBgm({ path: 'jungle-loop', loop: true, volume: 0.5, autoplay: true });
   const checkpoint = PLATFORM_COURSE.checkpoints[saved.checkpoint];
   const spawn = new THREE.Vector3(courseX(checkpoint.u), checkpoint.top + PHYSICS.playerRadius, DEPTH);
   const player = createPlayer({ camera, physicsWorld, spawnPosition: spawn });
@@ -54,8 +60,9 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   const aimNdc = new THREE.Vector2(0.25, 0), aimPoint = new THREE.Vector3(), aimRay = new THREE.Raycaster();
   const aimPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -DEPTH);
   const renderedCamera = camera.clone();
+  const sharkCameraStart = new THREE.Vector3(), sharkCameraRotation = new THREE.Quaternion();
   let loadedCount = 0, assetError = '', deathReason = '', checkpointNotice = 0;
-  let orbHealth = ORB_HEALTH, scramblerDeathGlow = -1, deathPixelArtStrength = 0;
+  let orbHealth = ORB_HEALTH, scramblerDeathGlow = -1, deathRetroStrength = 0;
   let bossTime = 0, bossStage: 'charge' | 'attack' | 'open' | 'recover' = 'charge', bossVolley = 0, burstShots = 0;
   const actors: Actor[] = [], templates: THREE.Group[] = [];
   let boss: Actor | null = null, gun: THREE.Group | null = null;
@@ -82,6 +89,42 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   const shots = Array.from({ length: 48 }, () => {
     const mesh = new THREE.Mesh(shotGeometry, hostileMaterial); mesh.visible = false; scene.add(mesh);
     return { mesh, life: 0, wave: false, velocity: new THREE.Vector3() };
+  });
+  const sharks: RiverShark[] = [];
+  let sharkTemplate: THREE.Group | null = null, sharkAnimations: THREE.AnimationClip[] = [], sharksReady = false;
+  let bitingShark: RiverShark | null = null;
+  const sharkReady = loadShark().then(asset => {
+    if (disposed) { releaseAsset(asset.scene); sharksReady = true; return; }
+    asset.scene.updateMatrixWorld(true);
+    const bounds = new THREE.Box3().setFromObject(asset.scene), size = bounds.getSize(new THREE.Vector3());
+    if (bounds.isEmpty() || ![...bounds.min.toArray(), ...bounds.max.toArray()].every(Number.isFinite)
+      || Math.max(size.x, size.y, size.z) <= 0) {
+      releaseAsset(asset.scene); sharksReady = true; throw new Error('Shark model has invalid geometry');
+    }
+    const center = bounds.getCenter(new THREE.Vector3()), scale = 4.4 / Math.max(size.x, size.z);
+    asset.scene.scale.setScalar(scale);
+    asset.scene.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
+    asset.scene.updateMatrixWorld(true); sharkTemplate = asset.scene; sharkAnimations = asset.animations;
+    const placements = [
+      { u: 8, side: -1 }, { u: 18, side: 1 }, { u: 36, side: -1 },
+      { u: 48, side: 1 }, { u: 67, side: -1 }, { u: 84, side: 1 }, { u: 97, side: -1 },
+    ];
+    for (const [index, placement] of placements.entries()) {
+      const model = clone(sharkTemplate), root = new THREE.Group();
+      root.name = `RiverShark-${index}`; root.add(model);
+      const baseY = RESCUE_SITE.riverY - 0.62, baseZ = RESCUE_SITE.riverZ + placement.side * 5.2;
+      root.position.set(courseX(placement.u), baseY, baseZ);
+      root.rotation.y = placement.side > 0 ? Math.PI : 0;
+      root.traverse(node => { if (node instanceof THREE.Mesh) { node.castShadow = true; node.receiveShadow = true; } });
+      scene.add(root);
+      const mixer = new THREE.AnimationMixer(root), swim = sharkAnimations[0];
+      if (swim) mixer.clipAction(swim).setLoop(THREE.LoopRepeat, Infinity).play();
+      sharks.push({ root, mixer, baseY, baseZ, side: placement.side, phase: index * 1.7 });
+    }
+    sharksReady = true;
+  }).catch(error => {
+    if (!disposed) console.warn('[Scene 18] Could not load river sharks:', error);
+    sharksReady = true;
   });
   const impactMaterial = new THREE.MeshBasicMaterial({ color: 0xa9ffd0, transparent: true, opacity: 0, depthWrite: false });
   const impact = new THREE.Mesh(new THREE.SphereGeometry(0.35, 10, 8), impactMaterial); impact.visible = false; scene.add(impact);
@@ -220,8 +263,8 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   }).catch(error => { if (!disposed) { assetError = 'Pistol could not load'; console.error('[Platformer]', error); } });
 
   function burst(point: THREE.Vector3) { impact.position.copy(point); impact.visible = true; impactTime = 0.22; }
-  function pixelArtStrength() {
-    if (phase === 'death') return deathPixelArtStrength;
+  function retroConsoleStrength() {
+    if (phase === 'death' || phase === 'sharkAttack') return deathRetroStrength;
     if (phase === 'entry') return THREE.MathUtils.clamp(phaseTime / 0.35, 0, 1);
     if (phase === 'traversal') return 1;
     if (phase !== 'scrambler') return 0;
@@ -230,9 +273,33 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   }
   function die(reason: string) {
     if (phase === 'death' || phase === 'done' || phase === 'exit' || phase === 'entry') return;
-    deathPixelArtStrength = pixelArtStrength();
+    deathRetroStrength = retroConsoleStrength();
     deathCamera.copy(renderedCamera.position); deathRotation.copy(renderedCamera.quaternion); deathFov = renderedCamera.fov;
     phase = 'death'; phaseTime = 0; deathReason = reason; clearShots(); freeze();
+  }
+  function startSharkAttack() {
+    if (phase === 'sharkAttack' || phase === 'death') return;
+    if (!sharks.length) { die('SWEPT AWAY BY THE RIVER'); return; }
+    bitingShark = sharks.reduce((nearest, shark) =>
+      shark.root.position.distanceToSquared(player.body.position) < nearest.root.position.distanceToSquared(player.body.position) ? shark : nearest);
+    deathRetroStrength = retroConsoleStrength();
+    sharkCameraStart.copy(renderedCamera.position); sharkCameraRotation.copy(renderedCamera.quaternion);
+    player.takeDamage(player.getHealth()); freeze(); phase = 'sharkAttack'; phaseTime = 0;
+  }
+  function updateSharks(dt: number) {
+    for (const shark of sharks) {
+      const attacking = phase === 'sharkAttack' && shark === bitingShark;
+      shark.mixer.update(dt * (attacking ? 1.8 : 1));
+      if (!attacking) {
+        shark.root.position.y = shark.baseY + Math.sin(elapsed * 1.8 + shark.phase) * 0.035;
+        continue;
+      }
+      const lunge = smooth(phaseTime, 0, 0.28), recoil = smooth(phaseTime, 0.52, 0.82);
+      const approach = lunge * (1 - recoil * 0.2);
+      shark.root.position.z = THREE.MathUtils.lerp(shark.baseZ, DEPTH, approach);
+      shark.root.position.y = shark.baseY + approach * 1.15;
+      shark.root.rotation.x = -shark.side * approach * 0.14;
+    }
   }
   function hurt(amount: number) {
     if (!live() || invulnerability > 0) return;
@@ -485,11 +552,23 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
       camera.updateProjectionMatrix(); camera.updateMatrixWorld(true); renderedCamera.copy(camera);
       return;
     }
+    if (phase === 'sharkAttack' && bitingShark) {
+      const target = new THREE.Vector3(player.body.position.x, RESCUE_SITE.riverY + 0.2, DEPTH);
+      const closePosition = new THREE.Vector3((bitingShark.root.position.x + target.x) / 2 + 2.2,
+        RESCUE_SITE.riverY + 2.8, DEPTH - 6.5);
+      const view = camera.clone(); view.position.copy(closePosition); view.lookAt(target);
+      const blend = smooth(phaseTime, 0, 0.32);
+      camera.position.lerpVectors(sharkCameraStart, closePosition, blend);
+      camera.quaternion.slerpQuaternions(sharkCameraRotation, view.quaternion, blend);
+      camera.fov = THREE.MathUtils.lerp(50, 43, blend);
+      camera.updateProjectionMatrix(); camera.updateMatrixWorld(true); renderedCamera.copy(camera);
+      return;
+    }
     if (normalSpace && phase !== 'exit' && phase !== 'done') {
       camera.position.copy(renderedCamera.position); camera.quaternion.copy(renderedCamera.quaternion); camera.fov = renderedCamera.fov;
       camera.updateProjectionMatrix(); camera.updateMatrixWorld(true); return;
     }
-    const side = new THREE.Vector3(focus.x, focus.y + 3.7, DEPTH - Math.max(16, 14 / Math.max(0.25, camera.aspect)));
+    const side = new THREE.Vector3(focus.x, focus.y + 3.7, DEPTH - Math.max(10, 14 / Math.max(0.25, camera.aspect)));
     camera.position.copy(side); camera.up.set(0, 1, 0); camera.lookAt(focus); camera.fov = 50;
     if (phase === 'entry' && entryCamera && entryRotation) {
       const t = smooth(phaseTime, 0, 1.2), rotation = camera.quaternion.clone();
@@ -513,11 +592,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
     camera.updateProjectionMatrix(); camera.updateMatrixWorld(true); renderedCamera.copy(camera);
   }
   function updateHud() {
-    const objective = phase === 'boss' ? `BRIDGE WARDEN ${boss?.health ?? BOSS_HEALTH} / ${BOSS_HEALTH} | SHIELD DOWN / ${bossStage === 'open' ? 'ATTACK NOW' : bossVolley % 2 ? 'BURST INCOMING / KEEP MOVING' : 'LOW PULSE / JUMP'}`
-      : phase === 'scrambler' ? `SCRAMBLER ${orbHealth} / ${ORB_HEALTH} | ${orbHealth ? 'WARDEN SHIELDED / AIM UP AT THE GREEN ORB' : 'SIGNAL LOST / LAND TO RESTORE 3D'}`
-      : phase === 'cleared' ? 'WARDEN DEFEATED / REACH THE ROCK STAIRS TO THE FOREST'
-      : `KEEP UP WITH THE CAMERA | RELAYS ${course.getActivated().length} / 3 | CHECKPOINT: ${saved.checkpoint.toUpperCase()}${checkpointNotice > 0 ? ' / SAVED' : ''}`;
-    hudText.textContent = `18 / JUNGLE PLATFORMER | HEALTH ${Math.ceil(player.getHealth())} / ${PLAYER_MAX_HEALTH}\n${objective}\n${normalSpace ? 'WASD: move | Mouse / right drag: look' : 'A/D or arrows: move | Mouse / right drag: aim'}\nSpace: jump | Shift: sprint | C: crouch | K: laser gun | T: crowbar | ${equipped === 'crowbar' ? 'Hold click / FIRE: swing' : 'Click / tap FIRE: shoot'}`;
+    hudText.textContent = phase === 'boss' ? 'BRIDGE WARDEN' : phase === 'scrambler' ? 'SCRAMBLER' : '';
     reticle.classList.toggle('hidden', !live() || normalSpace);
     reticle.style.left = `${(aimNdc.x + 1) * 50}%`; reticle.style.top = `${(1 - aimNdc.y) * 50}%`;
     healthTrack.classList.toggle('hidden', phase !== 'boss' && phase !== 'scrambler');
@@ -527,19 +602,23 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
     healthTrack.setAttribute('aria-label', phase === 'scrambler' ? 'Scrambler health' : 'Bridge Warden health');
     healthTrack.setAttribute('aria-valuenow', String(health)); healthTrack.setAttribute('aria-valuemax', String(maximum));
     healthFill.style.width = `${health / maximum * 100}%`;
-    hud.classList.toggle('hidden', phase === 'death' || phase === 'warp' || phase === 'exit' || phase === 'done' || !!assetError);
+    hud.classList.toggle('hidden', (phase !== 'boss' && phase !== 'scrambler') || !!assetError);
     retry.classList.toggle('hidden', !assetError && phase !== 'death');
     const text = assetError ? `${assetError.toUpperCase()} / PRESS R OR RETRY CHECKPOINT`
-      : phase === 'entry' ? loadedCount < 3 ? 'LOADING FACILITY DEFENSES...' : 'KEEP UP WITH THE CAMERA. JUMP THE GAPS. SHOOT THE AMBER RELAYS.'
+      : phase === 'entry' ? loadedCount < 3 ? 'LOADING...' : ''
+      : phase === 'sharkAttack' ? 'A SHARK HAULS YOU UNDER'
       : phase === 'death' ? `${deathReason} / RETURNING TO ${saved.checkpoint.toUpperCase()} CHECKPOINT`
-      : phase === 'warp' ? 'SCRAMBLER DESTROYED / NORMAL SPACE RESTORED / DEFEAT THE WARDEN'
+      : phase === 'warp' ? ''
       : phase === 'exit' ? 'WARDEN DEFEATED / RETURN TO THE FACILITY' : '';
     if (caption) { caption.textContent = text; caption.classList.toggle('hidden', !text); }
   }
   cameraView(); updateHud();
   return {
-    roomId: 'scene18', scene, camera, physics, physicsWorld, player, course, ready: Promise.all([site.ready, robotReady, bossReady, gunReady]), cutsceneManager: null,
+    roomId: 'scene18', scene, camera, physics, physicsWorld, player, course, ready: Promise.all([site.ready, robotReady, bossReady, gunReady, sharkReady]), cutsceneManager: null,
     ownsWeaponInput: true, clearInput, isCinematic: () => phase !== 'boss' && phase !== 'cleared', getDamageFlash: () => damageFlash,
+    controlsReady: () => live() && !blocked(),
+    minimap: { radius: 35, floor: 0, openSky: true, prepare: site.prepareMinimap },
+    isThirdPersonView: () => true,
     get forceThirdPerson() { return normalSpace; },
     getCinematicDelta: () => blocked() ? 0 : lastDelta,
     getCinematicState: () => normalSpace && (phase === 'warp' || phase === 'boss' || phase === 'cleared') ? null : player.getState(),
@@ -561,10 +640,10 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
     getDamageTargets: damageTargets,
     getPlatformerStatus: () => ({ phase, phaseTime, checkpoint: saved.checkpoint, bossHealth: boss?.health ?? BOSS_HEALTH, bossStage,
       orbHealth, bossVolley, normalSpace, equipped, scrollDistance, scrollSpeed: phase === 'traversal' ? SCROLL_SPEED : 0,
-      aim: aimNdc.toArray(), bossShielded: orbHealth > 0, loaded: loadedCount === 3, assetError,
+      aim: aimNdc.toArray(), bossShielded: orbHealth > 0, loaded: loadedCount === 3 && sharksReady, assetError,
       activatedRelays: course.getActivated(), defeatedRobots: [...defeated],
       shots: { friendly: laserLife > 0 ? 1 : 0, hostile: shots.filter(shot => shot.life > 0).length } }),
-    getPixelArtStrength: pixelArtStrength,
+    getRetroConsoleStrength: retroConsoleStrength,
     onPlayerDeath() { die('HIT BY FACILITY DEFENSES'); return true; },
     updatePhysics(dt: number) {
       lastDelta = 0;
@@ -574,11 +653,13 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
       lastDelta = dt; elapsed += dt;
       laserLife = Math.max(0, laserLife - dt); laser.visible = laserLife > 0;
       damageFlash = Math.max(0, damageFlash - dt * 1.8); checkpointNotice = Math.max(0, checkpointNotice - dt);
-      if (phase !== 'entry' || loadedCount === 3) phaseTime += dt;
+      if (phase !== 'entry' || loadedCount === 3 && sharksReady) phaseTime += dt;
       site.update(dt);
+      updateSharks(dt);
+      if (phase === 'sharkAttack' && phaseTime >= 0.9) die('EATEN BY A SHARK');
       if (phase === 'entry') {
         if (!entryCamera) pulse.update(phaseTime - 0.15);
-        if (loadedCount === 3 && !assetError && phaseTime >= 1.2) {
+        if (loadedCount === 3 && sharksReady && !assetError && phaseTime >= 1.2) {
           phase = saved.checkpoint === 'boss' ? 'scrambler' : 'traversal'; phaseTime = 0; pulse.update(-1);
           player.body.type = CANNON.Body.DYNAMIC; player.body.updateMassProperties(); player.enable(); clearInput(); invulnerability = 1;
         }
@@ -604,7 +685,8 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
         }
         physics.step(dt, player, true);
         const u = courseDistance(player.body.position.x);
-        if (player.body.position.y < RESCUE_SITE.riverY + 0.4 || u < -2 || u > PLATFORM_COURSE.end + 0.3) die('MISSED THE PLATFORM');
+        if (player.body.position.y < RESCUE_SITE.riverY + 0.4) startSharkAttack();
+        else if (u < -2 || u > PLATFORM_COURSE.end + 0.3) die('MISSED THE PLATFORM');
         if (phase === 'traversal' && player.getState().isOnGround) {
           if (u >= 51 && u <= 58 && saved.checkpoint === 'bridge') saveCheckpoint('middle');
           if (u >= 91 && u <= 107) { saveCheckpoint('boss'); phase = 'scrambler'; phaseTime = 0; bossTime = 0; }
@@ -671,7 +753,13 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
       if (character?.model.parent === scene) character.model.removeFromParent();
       for (const actor of actors) { actor.mixer.stopAllAction(); actor.mixer.uncacheRoot(actor.mixer.getRoot()); }
       for (const root of [...actors.map(actor => actor.root), ...templates]) root.traverse(node => { if (node instanceof THREE.SkinnedMesh) node.skeleton.dispose(); });
+      for (const shark of sharks) {
+        shark.mixer.stopAllAction(); shark.mixer.uncacheRoot(shark.root); shark.root.removeFromParent();
+        shark.root.traverse(node => { if (node instanceof THREE.SkinnedMesh) node.skeleton.dispose(); });
+      }
+      if (sharkTemplate) releaseAsset(sharkTemplate);
       scene.onBeforeRender = () => {}; player.dispose(); physics.dispose(); site.dispose();
+      audioManager.dispose();
       friendlyMaterial.dispose(); hostileMaterial.dispose();
     },
   };

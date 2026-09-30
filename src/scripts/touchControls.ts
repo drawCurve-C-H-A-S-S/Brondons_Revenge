@@ -39,7 +39,7 @@ let flightKnobEl: HTMLElement | null = null;
 // Button press tracking
 const pressedButtons = new Set<string>();
 let fireActive = false;
-type AttackLabel = 'SHOOT' | 'SWING';
+type AttackLabel = 'SHOOT' | 'SWING' | 'SLASH';
 const touchAttacks = new Set<{ attack: () => boolean; label: () => AttackLabel | null }>();
 const buttonBindings: Array<{ reset: () => void; dispose: () => void }> = [];
 
@@ -166,11 +166,15 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
 function onTouchStart(event: TouchEvent) {
   if (!active) return;
   if (root?.classList.contains('hidden') || document.hidden) return;
-  if (document.body.classList.contains('quick-menu-open')) return;
+  if (document.body.classList.contains('quick-menu-open') || document.body.dataset.scene === 'scene1') return;
   const width = window.innerWidth;
+  const minimap = document.getElementById('minimap');
+  const mapBounds = minimap && !minimap.classList.contains('hidden') ? minimap.getBoundingClientRect() : null;
 
   for (const touch of Array.from(event.changedTouches)) {
     if (isInteractiveTarget(touch.target)) continue;
+    if (mapBounds && touch.clientX >= mapBounds.left && touch.clientX <= mapBounds.right
+      && touch.clientY >= mapBounds.top && touch.clientY <= mapBounds.bottom) continue;
     event.preventDefault();
 
     if (touch.clientX < width * 0.4 && moveTouchId === null && !flightMode) {
@@ -181,6 +185,8 @@ function onTouchStart(event: TouchEvent) {
       if (base) {
         base.style.left = `${touch.clientX}px`;
         base.style.top = `${touch.clientY}px`;
+        base.style.bottom = 'auto';
+        base.style.transform = 'translate(-50%, -50%)';
         base.style.opacity = '1';
       }
     } else if (flightMode && touch.clientX < width * 0.45 && flightStickId === null) {
@@ -191,6 +197,8 @@ function onTouchStart(event: TouchEvent) {
       if (flightStickEl) {
         flightStickEl.style.left = `${touch.clientX}px`;
         flightStickEl.style.top = `${touch.clientY}px`;
+        flightStickEl.style.bottom = 'auto';
+        flightStickEl.style.transform = 'translate(-50%, -50%)';
         flightStickEl.style.opacity = '1';
       }
     } else if (touch.clientX >= width * 0.4 && lookTouchId === null) {
@@ -295,10 +303,11 @@ export function initTouchControls() {
   bindButton('touch-crouch', 'KeyC');
   bindButton('touch-pistol', 'KeyK');
   bindButton('touch-crowbar', 'KeyT');
+  bindButton('touch-lightsaber', 'KeyL');
   bindButton('touch-goggles', 'KeyN');
   bindButton('touch-action9', 'Digit9');
   bindButton('touch-view', 'KeyV');
-  bindButton('touch-menu', 'Enter');
+  bindButton('touch-menu', 'KeyM');
   bindFire();
   bindEvade();
   bindAttack();

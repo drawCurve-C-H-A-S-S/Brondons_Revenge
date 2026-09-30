@@ -88,7 +88,8 @@ export function createBreakables(scene: THREE.Scene, world: CANNON.World) {
     const item: Breakable = {
       id, root, body, weapon, broken: false,
       damage(amount, usedWeapon) {
-        if (disposed || item.broken || usedWeapon !== weapon || !Number.isFinite(amount) || amount <= 0) return false;
+        const matchesWeapon = usedWeapon === weapon || (weapon === 'crowbar' && usedWeapon === 'lightsaber');
+        if (disposed || item.broken || !matchesWeapon || !Number.isFinite(amount) || amount <= 0) return false;
         item.broken = true;
         root.removeFromParent();
         world.removeBody(body);

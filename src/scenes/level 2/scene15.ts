@@ -9,11 +9,11 @@ import type { LaunchState } from '../level 1/scene14.js';
 import { createSidescrollPhase, SCRAMBLER_HEALTH } from './scene15-5.js';
 import { createTopdownPhase, TOPDOWN_SCRAMBLER_HEALTH } from './scene15-75.js';
 import { predictsCollision } from '../../helpers/scene/flightCollision.js';
-import { AudioManager } from '../../helpers/audio/AudioManager.js';
-import level2BgmUrl from '../../assets/bgm/Level 2.m4a?url';
+import { AudioManager, getAudioSettings, subscribeAudioSettings } from '../../helpers/audio/AudioManager.js';
+import level2BgmUrl from '../../assets/bgm/DonRevLevel2.m4a?url';
 
 export const FLIGHT_RULES = Object.freeze({ cruise: 200, dodgeSpeed: 52, width: 64, height: 38, planetRadius: 900 });
-const TOTAL_FIGHTERS = 18, MAX_ACTIVE = 6, PLAYER_MAX_HP = 260;
+const TOTAL_FIGHTERS = 10, MAX_ACTIVE = 6, PLAYER_MAX_HP = 260;
 const SHOT_DAMAGE = 14, FIGHTER_HP = 42, GENERATOR_HP = 315, CORE_HP = 1400;
 const FIGHTER_EVADE_DURATION = 0.42;
 const FORWARD = new THREE.Vector3(0, 0, 1), MODEL_FORWARD = new THREE.Vector3(0, 0, -1);
@@ -221,15 +221,26 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   });
   const oldShipPosition = new THREE.Vector3(), temp = new THREE.Vector3();
   let audio: AudioContext | null = null;
+  let sfxOutput: GainNode | null = null;
+  const stopAudioSettings = subscribeAudioSettings(settings => {
+    if (sfxOutput) sfxOutput.gain.value = settings.paused ? 0 : settings.sfx;
+  });
   function unlockAudio() {
-    try { audio ??= new AudioContext(); if (audio.state === 'suspended') void audio.resume().catch(() => {}); } catch { /* Flight remains playable without audio support. */ }
+    try {
+      audio ??= new AudioContext();
+      if (!sfxOutput) {
+        sfxOutput = audio.createGain(); sfxOutput.connect(audio.destination);
+        const settings = getAudioSettings(); sfxOutput.gain.value = settings.paused ? 0 : settings.sfx;
+      }
+      if (audio.state === 'suspended') void audio.resume().catch(() => {});
+    } catch { /* Flight remains playable without audio support. */ }
   }
   function tone(start: number, end: number, duration: number, volume = 0.025) {
     if (!audio || audio.state !== 'running') return;
     const oscillator = audio.createOscillator(), gain = audio.createGain(), time = audio.currentTime;
     oscillator.type = 'triangle'; oscillator.frequency.setValueAtTime(start, time); oscillator.frequency.exponentialRampToValueAtTime(end, time + duration);
     gain.gain.setValueAtTime(0.001, time); gain.gain.linearRampToValueAtTime(volume, time + 0.008); gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
-    oscillator.connect(gain); gain.connect(audio.destination); oscillator.start(time); oscillator.stop(time + duration);
+    oscillator.connect(gain); gain.connect(sfxOutput!); oscillator.start(time); oscillator.stop(time + duration);
     oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
   }
 
@@ -280,6 +291,8 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     if (value) releasePointerLock();
     updateHud();
   }
+  function canToggleView() { return !disposed && !transferred && !paused && !inputBlocked() && combatLive() && !arcadeView(); }
+  function toggleView() { if (canToggleView()) { cockpitView = !cockpitView; cameraView(); } }
   function interactiveTarget(event: Event) { return event.target instanceof HTMLElement && !!event.target.closest('button, input, textarea, select, [contenteditable="true"]'); }
   function onKeyDown(event: KeyboardEvent) {
     if (disposed || transferred || interactiveTarget(event) || inputBlocked()) return;
@@ -288,7 +301,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) event.preventDefault();
     keys.add(event.code);
     if (event.repeat) return;
-    if (event.code === 'KeyV' && !arcadeView()) { cockpitView = !cockpitView; cameraView(); }
+    if (event.code === 'KeyV') toggleView();
     if (event.code === 'Space' && rollCd <= 0) {
       const x = Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'));
       const y = Number(keys.has('KeyW') || keys.has('ArrowUp')) - Number(keys.has('KeyS') || keys.has('ArrowDown'));
@@ -737,19 +750,18 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       if (bossFill) bossFill.style.width = `${health / max * 100}%`;
       bossTrack?.setAttribute('aria-valuenow', String(Math.round(health / max * 100)));
       bossTrack?.setAttribute('aria-label', phase === 'bossCore' ? 'Capital ship reactor health' : 'Capital ship shield generator health');
-      if (bossLabel) bossLabel.textContent = phase === 'bossCore' ? (boss.shield.visible ? 'PHASE 2 / REACTOR SHIELD PULSE — EVADE' : 'PHASE 2 / REACTOR EXPOSED — FIRE') : `PHASE 1 / SHIELDS ${targets.filter(t => t.health > 0).length}/4`;
+      if (bossLabel) bossLabel.textContent = phase === 'bossCore' ? 'CAPITAL SHIP REACTOR' : 'CAPITAL SHIP SHIELDS';
     }
     if (phase === 'scrambler' && sidescroll) {
       if (bossFill) bossFill.style.width = `${sidescroll.health / SCRAMBLER_HEALTH * 100}%`;
-      if (bossLabel) bossLabel.textContent = 'SIDESCROLL SCRAMBLER / BOSS HULL BLOCKS YOUR SHOTS';
+      if (bossLabel) bossLabel.textContent = 'SCRAMBLER';
       bossTrack?.setAttribute('aria-valuenow', String(Math.round(sidescroll.health / SCRAMBLER_HEALTH * 100)));
       bossTrack?.setAttribute('aria-label', 'Sidescroll Scrambler health');
     }
     if (phase === 'topdownScrambler' && topdown) {
       const percent = topdown.health / TOPDOWN_SCRAMBLER_HEALTH * 100;
       if (bossFill) bossFill.style.width = `${percent}%`;
-      if (bossLabel) bossLabel.textContent = topdown.stage !== 'fight' ? 'RED SCRAMBLER / REALIGNING FLIGHT AXES'
-        : topdown.targetable ? 'RED ORB EXPOSED / LINE UP AND FIRE UPWARD' : 'RED ORB RELOCATING / WATCH BOTH FLANKS';
+      if (bossLabel) bossLabel.textContent = 'RED SCRAMBLER';
       bossTrack?.setAttribute('aria-valuenow', String(Math.round(percent)));
       bossTrack?.setAttribute('aria-label', 'Top-down red scrambler health');
     }
@@ -890,6 +902,10 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   return {
     roomId: 'scene15', scene, camera, physicsWorld, player, ship, planet, cutsceneManager: null,
     isCinematic: () => true, hideCharacter: () => true,
+    toggleView, canToggleView, isThirdPersonView: () => !cockpitView,
+    controlsReady: () => !paused && !inputBlocked() && combatLive(),
+    getMinimapState: () => ({ position: ship.root.position, yaw: ship.root.rotation.y,
+      object: ship.root, openSky: true, radius: arcadeView() ? 220 : 420 }),
     getSceneId: () => phase === 'topdownScrambler' ? 'scene15.75' : phase === 'scrambler' || (startAt === 'scrambler' && phase === 'bossArrival') ? 'scene15.5' : 'scene15',
     getPixelArtStrength: () => {
       if (phase === 'scrambler' && sidescroll) return sidescroll.pixelArtStrength;
@@ -897,7 +913,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       return 0;
     },
     getCinematicState: () => player.getState(), applyCinematicCamera: cameraView,
-    clearInput, setMenuPaused: syncMusic,
+    clearInput, setMenuPaused(value: boolean) { if (!value && paused) setPaused(false); syncMusic(); },
     getFlightStatus: () => ({ speed: FLIGHT_RULES.cruise, cockpitView, paused, phase, playerHp, totalKilled, spawned,
       scramblerHp: topdown?.health ?? sidescroll?.health ?? 0, scramblerStage: topdown?.stage ?? sidescroll?.stage ?? null,
       bossHp: boss ? [...boss.generators, boss.core].reduce((sum, t) => sum + t.health, 0) : 0 }),
@@ -912,6 +928,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     },
     dispose() {
       if (disposed) return; disposed = true; clearInput();
+      stopAudioSettings(); sfxOutput?.disconnect();
       audioManager.dispose();
       sidescroll?.dispose(); sidescroll = null; topdown?.dispose(); topdown = null;
       window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp);

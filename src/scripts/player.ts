@@ -8,7 +8,7 @@ import { PHYSICS } from '../helpers/physics/scenePhysics.js';
 import type { CargoTransfer } from './cargoPuzzle.js';
 
 // One-shot character actions (see characterManager.ts) on number keys 6-9.
-export type PlayerActionName = 'Sword_Attack' | 'Pistol_Shoot' | 'Pistol_Reload' | 'Dance_Loop' | 'Interact';
+export type PlayerActionName = `Sword_${string}` | 'Pistol_Shoot' | 'Pistol_Reload' | 'Dance_Loop' | 'Interact';
 
 const ACTION_KEYS: Record<string, PlayerActionName> = {
   Digit6: 'Sword_Attack',
@@ -107,6 +107,8 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   let climbing = false;
   let climbDirection: 1 | -1 = 1;
   let floating = false;
+  let floatingStrafeOnly = false;
+  let floatingStrafeHeight = 0;
   let floatTime = 0;
   let ventMode = false;
   let turnRemaining = 0;
@@ -145,6 +147,10 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   // --- Input ---
   function onKeyDown(e: KeyboardEvent) {
     if (!enabled || inputLocked || blockedKeys.has(e.code) || (e.repeat && !keys[e.code])) return;
+    if (floatingStrafeOnly) {
+      if (e.code !== 'KeyA' && e.code !== 'KeyD') return;
+      e.preventDefault();
+    }
     if (sideScrollDepth !== null) {
       if (document.hidden || document.body.classList.contains('quick-menu-open') ||
         !['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyC', 'ShiftLeft', 'ShiftRight'].includes(e.code) ||
@@ -228,6 +234,10 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
 
   // --- Movement direction ---
   function getMoveDirection(): { x: number; z: number } | null {
+    if (floatingStrafeOnly) {
+      const right = Number(!!keys.KeyD) - Number(!!keys.KeyA);
+      return right ? { x: right * Math.cos(yaw), z: -right * Math.sin(yaw) } : null;
+    }
     if (sideScrollDepth !== null) {
       const right = Number(!!(keys.KeyD || keys.ArrowRight)) - Number(!!(keys.KeyA || keys.ArrowLeft));
       return right ? { x: -right, z: 0 } : null;
@@ -323,9 +333,10 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     if (sideScrollDepth !== null && moveDir) yaw = moveDir.x < 0 ? Math.PI / 2 : -Math.PI / 2;
     const desired = new CANNON.Vec3(moveDir?.x ?? 0, 0, moveDir?.z ?? 0);
     if (floating) {
-      desired.y = (keys['Space'] ? 1 : 0) - (keys['KeyC'] ? 1 : 0);
+      desired.y = floatingStrafeOnly ? 0 : (keys['Space'] ? 1 : 0) - (keys['KeyC'] ? 1 : 0);
       if (desired.lengthSquared() > 0) desired.normalize();
       desired.scale(sprinting ? 4.8 : 3.2, desired);
+      if (floatingStrafeOnly) desired.y = THREE.MathUtils.clamp((floatingStrafeHeight - playerBody.position.y) * 3, -1.5, 1.5);
       // Responsive thrusters with a short braking glide on release.
       const blend = 1 - Math.exp(-5 * _dt);
       playerBody.velocity.lerp(desired, blend, playerBody.velocity);
@@ -561,6 +572,11 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       playerBody.wakeUp();
       updateGroundState(false);
     },
+    setZeroGravityStrafe: (active: boolean) => {
+      floatingStrafeOnly = active;
+      if (active) floatingStrafeHeight = playerBody.position.y + 1.4;
+      clearInput();
+    },
     setLookLocked: (locked: boolean) => { lookLocked = locked; },
     setInputLocked: (locked: boolean) => { inputLocked = locked; if (locked) clearInput(); },
     setSideScrollDepth: (depth: number | null) => {
@@ -574,8 +590,8 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       }
     },
     // Damage is ignored once dead; the caller (main.ts) handles respawning.
-    takeDamage: (amount: number) => {
-      if (!enabled || health <= 0 || !Number.isFinite(amount) || amount <= 0) return;
+    takeDamage: (amount: number, allowWhileDisabled = false) => {
+      if ((!enabled && !allowWhileDisabled) || health <= 0 || !Number.isFinite(amount) || amount <= 0) return;
       health = Math.max(0, health - amount);
       lastDamageAt = performance.now();
     },

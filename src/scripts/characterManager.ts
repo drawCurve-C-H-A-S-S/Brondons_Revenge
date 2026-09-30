@@ -8,9 +8,10 @@
  * Character persists across scene transitions - reparent to the active scene.
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import ualModelUrl from '../assets/models/Subject.glb';
+import type { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { loadPlayerModel } from '../core/loader.js';
 import { createCrowbar } from './items/createCrowbar.js';
+import { createLightsaber, disposeLightsaber, fitLightsaberToHand, getLightsaberAttackClips, LIGHTSABER_SWING_DURATION, type LightsaberAttackName } from './items/createLightsaber.js';
 import { LADDER } from '../utils/constants.js';
 import { createGoggles } from './rewardChest.js';
 
@@ -40,7 +41,7 @@ const CLIP_NAMES = [
   'Ladder_Climb_Loop',
   'Float_Loop', 'Box_Push_Loop', 'Box_Pull_Loop',
 ] as const;
-type ClipName = typeof CLIP_NAMES[number];
+type ClipName = typeof CLIP_NAMES[number] | LightsaberAttackName;
 
 // One-shot action clips. They play once per key press, then the normal
 // locomotion state machine resumes (idle or walk, mixer-driven completion).
@@ -54,11 +55,11 @@ const ONE_SHOT_CLIPS = ['Jump_Start', 'Jump_Land', ...ACTION_CLIPS];
 // direction the camera is looking.
 const MODEL_ROT_OFFSET = Math.PI;
 
-export async function loadCharacter(loader = new GLTFLoader()) {
+export async function loadCharacter(loader?: GLTFLoader) {
 
   let gltf;
   try {
-    gltf = await loader.loadAsync(ualModelUrl);
+    gltf = await loadPlayerModel(loader);
     console.log('UAL1 character loaded');
   } catch (error) {
     console.error('Failed to load UAL1 character model:', error);
@@ -245,6 +246,20 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     actions.set(name, action);
   }
 
+  const lightsaberAttackClips = getLightsaberAttackClips(clips);
+  const lightsaberAttacks = lightsaberAttackClips.map(clip => clip.name);
+  const actionClips = new Set([...ACTION_CLIPS, ...lightsaberAttacks]);
+  const swordIdle = THREE.AnimationClip.findByName(clips, 'Sword_Idle');
+  for (const clip of [...lightsaberAttackClips, ...(swordIdle ? [swordIdle] : [])]) {
+    const name = clip.name as LightsaberAttackName;
+    if (actions.has(name)) continue;
+    const action = mixer.clipAction(clip);
+    const oneShot = actionClips.has(name);
+    action.setLoop(oneShot ? THREE.LoopOnce : THREE.LoopRepeat, oneShot ? 1 : Infinity);
+    action.clampWhenFinished = oneShot;
+    actions.set(name, action);
+  }
+
   // Sample the authored aiming pose once to calibrate the hand-local grip.
   const hand = model.getObjectByName('hand_r');
   const middleFinger = model.getObjectByName('middle_01_r');
@@ -308,6 +323,19 @@ export async function loadCharacter(loader = new GLTFLoader()) {
   let crowbarEquipped = false;
   rightHand?.add(crowbar);
 
+  const lightsaber = createLightsaber();
+  if (rightHand) {
+    const sampler = new THREE.AnimationMixer(model);
+    if (swordIdle) sampler.clipAction(swordIdle).play();
+    sampler.update(0);
+    fitLightsaberToHand(lightsaber, rightHand);
+    sampler.stopAllAction();
+    sampler.uncacheRoot(model);
+    resetRig();
+  }
+  lightsaber.visible = false;
+  let lightsaberEquipped = false;
+
   const goggles = createGoggles();
   goggles.visible = false;
   const head = model.getObjectByName('head');
@@ -333,11 +361,16 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     base.scale.copy(base.bone.scale);
   }
 
-  function fadeTo(name: ClipName) {
-    const next = actions.get(name)!;
-    if (next === currentAction) return;
-    currentAction.fadeOut(0.2);
-    next.reset().setEffectiveTimeScale(name === 'Sword_Attack' ? 2.8 : 1).setEffectiveWeight(1).fadeIn(0.2).play();
+  let previousActionRequest: PlayerState['actionRequest'] = null;
+  function fadeTo(name: ClipName, restart = false) {
+    const next = actions.get(name);
+    if (!next || (next === currentAction && !restart)) return;
+    const saberAttack = lightsaberEquipped && lightsaberAttacks.includes(name as LightsaberAttackName);
+    const blend = saberAttack ? 0.045 : 0.2;
+    if (next === currentAction) next.stop();
+    else currentAction.fadeOut(blend);
+    const speed = saberAttack ? next.getClip().duration / LIGHTSABER_SWING_DURATION : name === 'Sword_Attack' ? 2.8 : 1;
+    next.reset().setEffectiveTimeScale(speed).setEffectiveWeight(1).fadeIn(blend).play();
     currentAction = next;
   }
 
@@ -386,6 +419,9 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     cinematic?: CinematicPose | null,
   ) {
     const { yaw, pitch, isMoving, isOnGround, velocityY, jumping, actionRequest, crouching, sprinting, climbing, climbDirection, floating, floatTime, boxHandling, boxMotion } = playerState;
+    const freshActionRequest = actionRequest !== previousActionRequest ? actionRequest : null;
+    previousActionRequest = actionRequest;
+    const idleName = lightsaberEquipped && swordIdle ? 'Sword_Idle' : 'Idle_Loop';
     model.traverse((child: THREE.Object3D) => {
       if (thirdPerson) {
         child.layers.enable(0);
@@ -447,9 +483,9 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     } else if (isOnGround) {
       // One-shot action requests (keys 6-9) play once, then locomotion resumes.
       // While one plays, idle/walk/land transitions wait for mixer completion.
-      const actionPlaying = ACTION_CLIPS.has(name) && !currentAction.paused;
-      if (actionRequest) {
-        fadeTo(actionRequest);
+      const actionPlaying = actionClips.has(name) && !currentAction.paused;
+      if (freshActionRequest && actions.has(freshActionRequest)) {
+        fadeTo(freshActionRequest, true);
       } else if (!actionPlaying) {
         // Crouch animations take priority when crouching
         if (crouching) {
@@ -463,11 +499,11 @@ export async function loadCharacter(loader = new GLTFLoader()) {
         } else if (isMoving) {
           fadeTo('Walk_Loop');
         } else if (name === 'Ladder_Climb_Loop') {
-          fadeTo('Idle_Loop');
+          fadeTo(idleName);
         } else if (wasOnGround === false) {
           fadeTo('Jump_Land');
         } else if (name !== 'Jump_Land' || currentAction.paused) {
-          fadeTo('Idle_Loop');
+          fadeTo(idleName);
         }
       }
     } else if (wasOnGround === true && jumping) {
@@ -494,6 +530,7 @@ export async function loadCharacter(loader = new GLTFLoader()) {
     const handsFree = !climbing && !playerState.ventMode && !boxHandling;
     socket.visible = handsFree;
     crowbar.visible = crowbarEquipped && handsFree;
+    lightsaber.visible = lightsaberEquipped && handsFree;
     if (cinematic?.upperBody && handsFree) {
       const layer = cinematic.upperBody;
       let next = cinematicUpperActions.get(layer.clip);
@@ -564,6 +601,7 @@ export async function loadCharacter(loader = new GLTFLoader()) {
   }
 
   function dispose() {
+    disposeLightsaber(lightsaber);
     crowbar.removeFromParent();
     goggles.removeFromParent();
     const gogglesMaterials = new Set<THREE.Material>();
@@ -579,8 +617,9 @@ export async function loadCharacter(loader = new GLTFLoader()) {
   }
 
   return {
-    model, mixer, update, setFacing, weapon, crowbar,
+    model, mixer, update, setFacing, weapon, crowbar, lightsaberAttacks,
     setCrowbarEquipped: (equipped: boolean) => { crowbarEquipped = equipped; crowbar.visible = equipped; },
+    setLightsaberEquipped: (equipped: boolean) => { lightsaberEquipped = equipped; lightsaber.visible = equipped; },
     setGogglesEquipped: (equipped: boolean) => { goggles.visible = equipped; },
     dispose,
   };

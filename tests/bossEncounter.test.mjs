@@ -6,7 +6,7 @@ import * as CANNON from 'cannon-es';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createServer } from 'vite';
 
-let server, createScene, createPassage, createPuzzleState, traceShot, CrowbarController, rules, boyData;
+let server, createScene, createPassage, createPuzzleState, traceShot, CrowbarController, rules, boyData, droneData, droneBuffer;
 before(async () => {
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
   ({ createScene } = await server.ssrLoadModule('/scenes/level 1/scene13.ts'));
@@ -14,9 +14,12 @@ before(async () => {
   ({ createCargoPuzzleState: createPuzzleState } = await server.ssrLoadModule('/scripts/cargoPuzzle.ts'));
   ({ traceShot } = await server.ssrLoadModule('/scripts/pistol.ts'));
   ({ CrowbarController } = await server.ssrLoadModule('/scripts/crowbar.ts'));
-  ({ BOSS_RULES: rules } = await server.ssrLoadModule('/scripts/loadingBayBoss.ts'));
+  ({ BOSS_RULES: rules } = await server.ssrLoadModule('/scripts/mechBaymaxBoss.ts'));
   const buffer = await readFile(new URL('../src/assets/models/boy.glb', import.meta.url));
   boyData = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+  droneData = await readFile(new URL('../src/assets/models/Tools/Enemy_EyeDrone.gltf', import.meta.url), 'utf8');
+  const droneBytes = await readFile(new URL('../src/assets/models/Tools/Enemy_EyeDrone.bin', import.meta.url));
+  droneBuffer = droneBytes.buffer.slice(droneBytes.byteOffset, droneBytes.byteOffset + droneBytes.byteLength);
 });
 after(async () => server?.close());
 function loadBoy() {
@@ -24,6 +27,14 @@ function loadBoy() {
   // Keep the actual GLB meshes, skeleton and clips; only browser image decoding is stubbed.
   loader.register(() => ({ name: 'NodeImageTransport', loadTexture: async () => new THREE.Texture() }));
   return loader.parseAsync(boyData.slice(0), '');
+}
+function loadDrone() {
+  const loader = new GLTFLoader();
+  loader.register(parser => ({ name: 'NodeDroneTransport',
+    beforeRoot() { parser.cache.add('buffer:0', Promise.resolve(droneBuffer.slice(0))); },
+    loadTexture: async () => new THREE.Texture(),
+  }));
+  return loader.parseAsync(droneData, '');
 }
 function browser(t) {
   const old = { window: globalThis.window, document: globalThis.document, HTMLElement: globalThis.HTMLElement, self: globalThis.self };
@@ -43,8 +54,8 @@ function browser(t) {
   t.after(() => { for (const cleanup of cleanups.reverse()) cleanup(); Object.assign(globalThis, old); });
   return elements;
 }
-async function fixture(t, options = {}) {
-  const elements = browser(t), data = createScene({ loadBoy, ...options });
+async function fixture(t, { startPhaseThree = false, ...options } = {}) {
+  const elements = browser(t), data = createScene({ loadBoy, loadDrone, startPhaseThree, ...options });
   t.cleanup(() => data.dispose()); await data.ready; return { data, elements };
 }
 function step(data, seconds, fps = 60) { for (let i = 0; i < Math.round(seconds * fps); i++) data.updatePhysics(1 / fps, true); }
@@ -54,6 +65,129 @@ function down(data, fps = 60) {
   assert.equal(data.boss.getStatus().phase, 'falling'); step(data, 0.9, fps); assert.equal(data.boss.getStatus().phase, 'exposed');
 }
 function cover(data) { data.player.setPosition(16.5, 0.3, 19); }
+function untilPhase(data, phase, fps = 60, limit = 15) {
+  for (let frame = 0; frame < limit * fps && data.boss.getStatus().phase !== phase; frame++) step(data, 1 / fps, fps);
+  assert.equal(data.boss.getStatus().phase, phase, JSON.stringify(data.boss.getStatus()));
+}
+
+for (const fps of [30, 60, 144]) {
+  test(`Scene 13 Phase 3 starts at half health, drones orbit the boss and Phase 3 targets appear once cleared at ${fps} FPS`, async t => {
+    const { data, elements } = await fixture(t, { startPhaseThree: true });
+    assert.equal(data.roomId, 'scene13'); assert.equal(data.isCinematic(), false);
+    assert.equal(data.player.isEnabled(), true); assert.equal(data.player.getHealth(), 100);
+    assert.equal(data.boss.getStatus().health, rules.phaseThreeHealth / 2);
+    assert.equal(data.boss.getStatus().maxHealth, rules.phaseThreeHealth);
+    assert.equal(elements.get('boss-health-fill').style.width, '50%');
+    assert.equal(data.boss.getStatus().droneLoadError, false);
+    assert.equal(data.boss.root.getObjectByName('BossRedEye').visible, true);
+    assert.equal(data.boss.root.getObjectByName('BossEnergyAura').children.every(ring => ring.visible), true);
+    assert.equal(data.boss.targets[0].damage(25, 'pistol'), false);
+    assert.equal(data.boss.headTarget.damage(35, 'crowbar'), false);
+    const from = new THREE.Vector3(data.player.body.position.x, data.player.getHeadY(), data.player.body.position.z);
+    const headPosition = data.boss.head.getWorldPosition(new THREE.Vector3());
+    const shot = traceShot(data.scene, data.physicsWorld, new THREE.Ray(from, headPosition.sub(from).normalize()), data.getDamageTargets());
+    assert.equal(shot.target?.root, data.boss.head);
+    assert.equal(shot.target.damage(25, 'pistol'), true);
+    untilPhase(data, 'gravity', fps);
+    // Phase 3 keeps normal gravity now — the boss transforms rather than dropping a zero-g field.
+    assert.equal(data.physicsWorld.gravity.y, -9.82); assert.equal(data.player.getState().floating, false);
+    assert.equal(data.boss.getStatus().drones, 4);
+    const wave = data.getDamageTargets().filter(target => target.root.name.startsWith('BossEyeDrone'));
+    assert.equal(wave.length, 4);
+    assert.ok(wave[0].root.getObjectsByProperty('isSkinnedMesh', true).length > 0, 'actual drone rig is loaded');
+    // With normal gravity the player stays on the ground: strafing shifts x, y stays near spawn.
+    const start = data.player.body.position.clone();
+    key('KeyD'); step(data, 0.25, fps); key('KeyD', 'keyup');
+    assert.ok(data.player.body.position.x < start.x - 0.1, 'D strafes camera-right while facing the boss');
+    assert.ok(Math.abs(data.player.body.position.y - start.y) < 0.05, 'no zero-g lift in Phase 3');
+    for (const drone of wave) {
+      assert.equal(drone.damage(25, 'crowbar'), false);
+      assert.equal(drone.damage(NaN, 'pistol'), false);
+      assert.equal(drone.damage(25, 'pistol'), true);
+    }
+    // Clearing the swarm reveals the four shootable Phase 3 targets (three pistol hits each).
+    assert.equal(data.boss.getStatus().phase, 'phaseThreeTargets');
+    assert.equal(data.boss.getStatus().phaseThreeTargetsActive, true);
+    assert.deepEqual(data.boss.getStatus().targets, [3, 3, 3, 3]);
+    assert.equal(data.boss.getStatus().health, rules.phaseThreeHealth / 2 - 25);
+    assert.equal(data.scene.children.some(node => node.name.startsWith('BossEyeDrone')), false);
+    assert.equal(wave[0].damage(25, 'pistol'), false);
+    // Drop all four targets — three pistol hits each — to knock the boss down.
+    for (const target of data.boss.targets) {
+      assert.equal(target.damage(25, 'crowbar'), false);
+      for (let i = 0; i < rules.phaseThreeTargetHits; i++) assert.equal(target.damage(25, 'pistol'), true);
+    }
+    assert.equal(data.boss.getStatus().phase, 'falling');
+    step(data, 0.9, fps); assert.equal(data.boss.getStatus().phase, 'exposed');
+    // Phase 3 exposed head accepts the crowbar bash for its full damage bonus.
+    const before = data.boss.getStatus().health;
+    assert.equal(data.boss.headTarget.damage(35, 'crowbar'), true);
+    assert.equal(data.boss.getStatus().health, before - rules.phaseThreeHeadDamage);
+    data.dispose(); assert.equal(data.physicsWorld.gravity.y, -9.82);
+    assert.equal(data.scene.children.some(node => node.name.startsWith('BossEyeDrone')), false);
+  });
+
+  test(`Scene 13 Phase 3 drone impact frames the player, deals damage once and the remaining swarm keeps orbiting at ${fps} FPS`, async t => {
+    const { data } = await fixture(t, { startPhaseThree: true });
+    untilPhase(data, 'gravity', fps); untilPhase(data, 'droneExplosion', fps, 5);
+    assert.equal(data.player.getHealth(), 100); assert.equal(data.player.isEnabled(), false);
+    assert.equal(data.isCinematic(), true);
+    assert.equal(data.getDamageTargets().length, 0);
+    const playerPosition = data.player.body.position.clone();
+    const drone = data.scene.children.find(node => node.name.startsWith('BossEyeDrone') && node.visible);
+    const playerHead = new THREE.Vector3(playerPosition.x, data.player.getHeadY(), playerPosition.z);
+    assert.ok(drone.position.distanceTo(playerHead) < 0.8);
+    for (const aspect of [16 / 9, 9 / 16]) {
+      data.camera.aspect = aspect; data.camera.updateProjectionMatrix(); data.applyCinematicCamera(); data.camera.updateMatrixWorld(true);
+      for (const position of [playerHead, drone.position]) {
+        const projected = position.clone().project(data.camera);
+        assert.ok(Math.abs(projected.x) < 0.85 && Math.abs(projected.y) < 0.85 && projected.z > -1 && projected.z < 1, 'head and drone fit the close-up');
+      }
+    }
+    step(data, 0.5, fps); assert.equal(data.player.getHealth(), 100, 'detonation waits for the slow-motion approach');
+    step(data, 0.55, fps); assert.equal(data.player.getHealth(), 100 - rules.droneDamage);
+    assert.equal(data.scene.getObjectByName('EyeDroneExplosion').visible, true);
+    assert.ok(data.player.body.position.distanceTo(playerPosition) < 0.001);
+    assert.ok(Math.abs(data.getCinematicDelta() - rules.droneExplosionSlow / fps) < 1e-8);
+    // Explosion resolves and control returns — the surviving drones continue the swarm.
+    untilPhase(data, 'gravity', fps, 6);
+    assert.equal(data.player.getHealth(), 100 - rules.droneDamage); assert.equal(data.player.isEnabled(), true);
+    assert.equal(data.isCinematic(), false); assert.equal(data.physicsWorld.gravity.y, -9.82);
+    assert.equal(data.scene.getObjectByName('EyeDroneExplosion').visible, false);
+    assert.equal(data.boss.getStatus().drones, 3, 'three drones survive the first detonation');
+    assert.ok(data.scene.children.some(node => node.name.startsWith('BossEyeDrone')));
+  });
+}
+
+test('Scene 13 Phase 3 death cleanup releases the drone swarm', async t => {
+  let respawns = 0;
+  const { data } = await fixture(t, { startPhaseThree: true, onRespawn: () => respawns++ });
+  untilPhase(data, 'gravity');
+  data.player.takeDamage(100); assert.equal(data.onPlayerDeath(), true);
+  assert.equal(data.physicsWorld.gravity.y, -9.82); assert.equal(data.getDamageTargets().length, 0);
+  step(data, 2.6); assert.equal(respawns, 1);
+});
+
+test('Scene 13 Phase 3 final defeat during Phase 3 clears drones and preserves the rescue sequence', async t => {
+  const { data } = await fixture(t, { startPhaseThree: true });
+  untilPhase(data, 'gravity');
+  const oldDrone = data.getDamageTargets().find(target => target.root.name.startsWith('BossEyeDrone'));
+  assert.equal(data.boss.headTarget.damage(rules.phaseThreeHealth / 2, 'pistol'), true);
+  assert.equal(data.boss.getStatus().phase, 'defeated');
+  assert.equal(data.physicsWorld.gravity.y, -9.82); assert.equal(data.player.getState().floating, false);
+  assert.equal(data.getDamageTargets().length, 0); assert.equal(oldDrone.damage(25, 'pistol'), false);
+  assert.equal(data.scene.children.some(node => node.name.startsWith('BossEyeDrone')), false);
+  assert.equal(data.scene.getObjectByName('FreedBoy').visible, true);
+  assert.equal(data.isCinematic(), true); assert.equal(data.player.isEnabled(), false);
+});
+
+test('Scene 13 Phase 3 is selectable in the quick menu with its own respawn route', async () => {
+  const main = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8');
+  assert.match(main, /\[13\.5, 'Bay Warden Phase 3'\]/);
+  assert.match(main, /case 13\.5: loadWardenPhaseThree\(\)/);
+  assert.match(main, /onRespawn: \(\) => loadWardenPhaseThree\(\)/);
+  assert.match(main, /startPhaseThree: true/);
+});
 
 for (const fps of [30, 60, 144]) {
   test(`Stair intro owns camera and animation, preserves health and releases controls at ${fps} FPS`, async t => {
@@ -146,17 +280,21 @@ test('Defeat fades black particles, reveals the actual boy.glb, thanks player an
   assert.ok(boy.getObjectsByProperty('isMesh', true).length > 0, 'real GLB mesh loaded');
   const requiredHits = Math.ceil(rules.health / rules.headDamage);
   let hits = 0;
-  for (let attempts = 0; attempts < requiredHits * 2 && data.boss.getStatus().health > 0; attempts++) {
+  for (let attempts = 0; attempts < requiredHits * 2 && hits < requiredHits; attempts++) {
     if (data.boss.getStatus().phase === 'flying') down(data);
     if (data.boss.getStatus().phase === 'exposed' && data.boss.headTarget.damage(35, 'crowbar')) hits++;
     step(data, rules.headCooldown + 0.1);
   }
   assert.equal(hits, requiredHits, 'Defeat requires the configured number of accepted melee hits');
+  assert.equal(data.boss.getStatus().phaseThree, true);
+  assert.equal(data.boss.getStatus().health, rules.phaseThreeHealth);
+  assert.equal(boy.visible, false, 'rescue waits for final phase');
+  assert.equal(data.boss.headTarget.damage(rules.phaseThreeHealth, 'pistol'), true);
   assert.equal(data.boss.getStatus().health, 0, JSON.stringify(data.boss.getStatus()));
   assert.equal(data.isCinematic(), true); assert.equal(data.player.isEnabled(), false); assert.equal(boy.visible, true);
   const cloud = data.scene.getObjectByName('BossBlackParticles'); assert.equal(cloud.visible, true);
   assert.equal(data.getDamageTargets().length, 0); assert.equal(data.boss.getStatus().projectiles, 0);
-  step(data, 3); assert.ok(cloud.material.opacity < 0.05); assert.match(elements.get('boss-subtitles').textContent, /Thank you for defeating/);
+  step(data, 3.6); assert.ok(cloud.material.opacity < 0.05); assert.match(elements.get('boss-subtitles').textContent, /Thank you for defeating/);
   step(data, 6); assert.match(elements.get('boss-subtitles').textContent, /AI took your friends to the nearest planet/);
   assert.equal(completed, 0); assert.equal(data.player.isEnabled(), false);
   step(data, 6); assert.match(elements.get('boss-subtitles').textContent, /Use the console/);
@@ -164,7 +302,7 @@ test('Defeat fades black particles, reveals the actual boy.glb, thanks player an
   assert.equal(elements.get('boss-hud').classList.contains('hidden'), true);
   step(data, 2); assert.equal(completed, 1);
   data.dispose(); assert.equal(data.physicsWorld.bodies.length, 0);
-  const next = createScene({ defeated: true, loadBoy }); t.cleanup(() => next.dispose()); await next.ready;
+  const next = createScene({ defeated: true, loadBoy, loadDrone }); t.cleanup(() => next.dispose()); await next.ready;
   assert.equal(next.isCinematic(), false); assert.equal(next.getDamageTargets().length, 0); assert.equal(next.scene.getObjectByName('FreedBoy').visible, true);
 });
 
@@ -218,7 +356,7 @@ test('Player can physically climb back to passage 12 and return through the rais
   key('KeyW'); for (let i = 0; i < 360 && !passage; i++) data.updatePhysics(1 / 60); key('KeyW', 'keyup');
   assert.ok(passage, 'real staircase and door are traversable'); t.cleanup(() => passage.dispose()); assert.equal(passage.player.getHealth(), 80);
   assert.ok(Math.abs(passage.player.body.position.y - 0.3) < 0.04);
-  passage.setDoorTrigger(13, state => { passage.dispose(); next = createScene({ entryState: state, loadBoy, puzzle }); });
+  passage.setDoorTrigger(13, state => { passage.dispose(); next = createScene({ entryState: state, loadBoy, loadDrone, puzzle }); });
   passage.player.setRotation(Math.PI); key('KeyW'); for (let i = 0; i < 120 && !next; i++) passage.updatePhysics(1 / 60); key('KeyW', 'keyup');
   assert.ok(next); t.cleanup(() => next.dispose()); await next.ready;
   assert.equal(next.isCinematic(), true); assert.equal(next.player.getHealth(), 80); assert.ok(next.player.body.position.y > 3.2);

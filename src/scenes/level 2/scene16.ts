@@ -280,6 +280,14 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
   return {
     roomId: 'scene16', scene, camera, physicsWorld, player, planet, pod, shuttle, cutsceneManager: null,
     isCinematic: () => true, hideCharacter: () => (clock - 11) * 1.3 < 11,
+    isThirdPersonView: () => true,
+    getMinimapState: () => {
+      const ship = clock < 11 ? shuttle.root : site.ship.root;
+      const onFoot = (clock - 11) * 1.3 >= 11;
+      return { position: onFoot ? player.body.position : ship.position,
+        yaw: onFoot ? player.getState().yaw : ship.rotation.y, object: onFoot ? undefined : ship,
+        openSky: clock < 11, radius: clock < 11 ? 220 : 70 };
+    },
     getCinematicDelta: () => animationDelta,
     getCinematicState: () => ({ ...player.getState(), isMoving: (clock - 11) * 1.3 >= 11 && (clock - 11) * 1.3 < 17, isOnGround: true, jumping: false, climbing: false, crouching: false }),
     getCinematicPose(): CinematicPose {

@@ -1,10 +1,11 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import subjectModelUrl from '../assets/models/Subject.glb';
+import type { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { loadPlayerModel } from '../core/loader.js';
 import { createCrowbar } from './items/createCrowbar.js';
+import { createLightsaber, disposeLightsaber, fitLightsaberToHand, getLightsaberAttackClips, type LightsaberAttackName } from './items/createLightsaber.js';
 
-export async function createFirstPersonHands(loader = new GLTFLoader()) {
-  const gltf = await loader.loadAsync(subjectModelUrl);
+export async function createFirstPersonHands(loader?: GLTFLoader) {
+  const gltf = await loadPlayerModel(loader);
   const model = gltf.scene;
   const mixer = new THREE.AnimationMixer(model);
   const idle = THREE.AnimationClip.findByName(gltf.animations, 'Sword_Idle');
@@ -21,6 +22,7 @@ export async function createFirstPersonHands(loader = new GLTFLoader()) {
   viewScene.add(viewCamera);
   viewCamera.add(handsGroup);
   viewScene.add(new THREE.AmbientLight(0xffffff, 1.5));
+  const armTriangles = new Map<THREE.SkinnedMesh, Set<number>>();
 
   function createArm(side: 'l' | 'r', wristPosition: THREE.Vector3, elbowPosition: THREE.Vector3, parent: THREE.Group) {
     const hand = model.getObjectByName(`hand_${side}`);
@@ -59,7 +61,12 @@ export async function createFirstPersonHands(loader = new GLTFLoader()) {
         const a = index ? index.getX(i) : i;
         const b = index ? index.getX(i + 1) : i + 1;
         const c = index ? index.getX(i + 2) : i + 2;
-        if (included[a] && included[b] && included[c]) indices.push(a, b, c);
+        if (included[a] && included[b] && included[c]) {
+          indices.push(a, b, c);
+          let triangles = armTriangles.get(mesh);
+          if (!triangles) { triangles = new Set(); armTriangles.set(mesh, triangles); }
+          triangles.add(i);
+        }
       }
       if (!indices.length) return;
       triangleCount += indices.length / 3;
@@ -96,8 +103,66 @@ export async function createFirstPersonHands(loader = new GLTFLoader()) {
   const rightHand = createArm('r', new THREE.Vector3(), new THREE.Vector3(0.16, -0.39, 0.40), swingPivot);
   const crowbar = createCrowbar();
   crowbar.rotation.set(Math.PI / 2, 0, 0); rightHand.add(crowbar);
+  // Keep the real arm skeleton for sword clips; the crowbar retains its baked swing.
+  const saberMeshes: THREE.SkinnedMesh[] = [];
+  model.traverse(node => {
+    if (!(node instanceof THREE.Mesh)) return;
+    const triangles = armTriangles.get(node as THREE.SkinnedMesh);
+    if (!triangles?.size) { node.visible = false; return; }
+    const mesh = node as THREE.SkinnedMesh;
+    const source = mesh.geometry;
+    const index = source.getIndex();
+    const geometry = source.clone();
+    const indices: number[] = [];
+    geometry.clearGroups();
+    for (const offset of [...triangles].sort((a, b) => a - b)) {
+      const materialIndex = source.groups.find(group => offset >= group.start && offset < group.start + group.count)?.materialIndex ?? 0;
+      const last = geometry.groups[geometry.groups.length - 1];
+      if (last?.materialIndex === materialIndex) last.count += 3;
+      else geometry.addGroup(indices.length, 3, materialIndex);
+      for (let j = 0; j < 3; j++) indices.push(index ? index.getX(offset + j) : offset + j);
+    }
+    geometry.setIndex(indices);
+    mesh.geometry = geometry;
+    const cloneMaterial = (material: THREE.Material) => { const copy = material.clone(); copy.side = THREE.DoubleSide; return copy; };
+    mesh.material = Array.isArray(mesh.material) ? mesh.material.map(cloneMaterial) : cloneMaterial(mesh.material);
+    mesh.castShadow = mesh.receiveShadow = false;
+    mesh.frustumCulled = false;
+    saberMeshes.push(mesh);
+  });
+  const saberHand = model.getObjectByName('hand_r')!;
+  const sourceWrist = saberHand.getWorldPosition(new THREE.Vector3());
+  const lightsaber = createLightsaber();
+  fitLightsaberToHand(lightsaber, saberHand);
+  const saberGroup = new THREE.Group();
+  saberGroup.rotation.y = Math.PI;
+  saberGroup.position.copy(restingWrist).sub(sourceWrist.applyQuaternion(saberGroup.quaternion));
+  saberGroup.add(model);
+  saberGroup.visible = false;
+  viewCamera.add(saberGroup);
+  const saberActions = new Map<string, THREE.AnimationAction>();
+  for (const clip of [...getLightsaberAttackClips(gltf.animations), ...(idle ? [idle] : [])]) {
+    saberActions.set(clip.name, mixer.clipAction(clip));
+  }
+  let saberAction: THREE.AnimationAction | undefined;
 
-  function update(attackProgress: number | null) {
+  function update(attackProgress: number | null, weapon: 'crowbar' | 'lightsaber' = 'crowbar', attackClip: LightsaberAttackName = 'Sword_Attack') {
+    handsGroup.visible = weapon === 'crowbar';
+    saberGroup.visible = weapon === 'lightsaber';
+    if (weapon === 'lightsaber') {
+      const action = saberActions.get(attackProgress === null ? 'Sword_Idle' : attackClip) ?? saberActions.get('Sword_Attack');
+      if (action) {
+        if (action !== saberAction) {
+          mixer.stopAllAction();
+          action.reset().setLoop(THREE.LoopOnce, 1).setEffectiveWeight(1).play();
+          action.paused = true;
+          saberAction = action;
+        }
+        action.time = THREE.MathUtils.clamp(attackProgress ?? 0, 0, 1) * action.getClip().duration;
+        mixer.update(0);
+      }
+      return;
+    }
     const t = attackProgress ?? 1;
     let windup = 0, strike = 0;
     if (t < 0.25) windup = THREE.MathUtils.smoothstep(t, 0, 0.25);
@@ -126,7 +191,16 @@ export async function createFirstPersonHands(loader = new GLTFLoader()) {
         const list = mesh.material ? (Array.isArray(mesh.material) ? mesh.material : [mesh.material]) : [];
         list.forEach(material => materials.add(material));
       });
+      for (const mesh of saberMeshes) {
+        geometries.add(mesh.geometry);
+        (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).forEach(material => materials.add(material));
+      }
+      new Set(saberMeshes.map(mesh => mesh.skeleton)).forEach(skeleton => skeleton.dispose());
       geometries.forEach(geometry => geometry.dispose()); materials.forEach(material => material.dispose());
+      disposeLightsaber(lightsaber);
+      mixer.stopAllAction(); mixer.uncacheRoot(model);
+      saberGroup.removeFromParent();
+      handsGroup.removeFromParent();
     },
   };
 }

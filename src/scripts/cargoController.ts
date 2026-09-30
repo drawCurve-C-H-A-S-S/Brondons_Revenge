@@ -45,7 +45,7 @@ export function createCargoController(scene: THREE.Scene, world: CANNON.World, p
     const body = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(0.7, 0.7, 0.7)), fixedRotation: true });
     body.position.copy(record.position as CANNON.Vec3); root.position.copy(body.position); world.addBody(body); scene.add(root);
     const item: CargoObject = { record, root, body, damage(amount, weapon) {
-      return !disposed && record.breakable && weapon === 'crowbar' && Number.isFinite(amount) && amount > 0 ? destroy(record.id) : false;
+      return !disposed && record.breakable && (weapon === 'crowbar' || weapon === 'lightsaber') && Number.isFinite(amount) && amount > 0 ? destroy(record.id) : false;
     } };
     objects.set(record.id, item); return item;
   }
