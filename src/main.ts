@@ -3,29 +3,13 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { applyTraversalCamera } from './core/camera.js';
 import { createSceneMinimap } from './core/renderer.js';
 import { createScene as createScene1 } from './scenes/scene1.js';
-import { createScene as createPrologueScene1 } from './scenes/prologue/prologue_scene_1.js';
-import { createScene as createScene2 } from './scenes/level 1/scene2.js';
-import { createScene as createScene3 } from './scenes/level 1/scene3.js';
-import { createScene as createScene4 } from './scenes/level 1/scene4.js';
-import { createScene as createScene5 } from './scenes/level 1/scene5.js';
-import { createScene as createScene6 } from './scenes/level 1/scene6.js';
-import { createScene as createScene7 } from './scenes/level 1/scene7.js';
-import { createScene as createScene8 } from './scenes/level 1/scene8.js';
-import { createScene as createScene9 } from './scenes/level 1/scene9.js';
-import { createScene as createScene10 } from './scenes/level 1/scene10.js';
 import { createCargoPuzzleState } from './scripts/cargoPuzzle.js';
 import { createHandle } from './helpers/scene/cargoVisuals.js';
-import { createScene as createScene11 } from './scenes/level 1/scene11.js';
-import { createScene as createScene12, type PassageDestination } from './scenes/level 1/scene12.js';
-import { createScene as createScene13 } from './scenes/level 1/scene13.js';
-import { createScene as createScene14, type LaunchState } from './scenes/level 1/scene14.js';
-import { createScene as createScene15, type FlightExitState } from './scenes/level 2/scene15.js';
-import { createScene as createScene16 } from './scenes/level 2/scene16.js';
-import { createScene as createScene17 } from './scenes/level 3/scene17.js';
-import { createScene as createScene18 } from './scenes/level 3/scene18.js';
-import { createScene as createScene19 } from './scenes/level 3/scene19.js';
+import type { PassageDestination } from './scenes/level 1/scene12.js';
+import type { LaunchState } from './scenes/level 1/scene14.js';
+import type { FlightExitState } from './scenes/level 2/scene15.js';
 import type { RescueArrival } from './helpers/scene/rescueSite.js';
-import { loadCharacter } from './scripts/characterManager.js';
+import type { loadCharacter } from './scripts/characterManager.js';
 import type { Player, PlayerTransitionState } from './scripts/player.js';
 import { PLAYER_MAX_HEALTH } from './scripts/player.js';
 import { NPCEnemyManager } from './scripts/npc-enemy-robots.js';
@@ -35,16 +19,87 @@ import { GogglesController } from './scripts/goggles.js';
 import { GogglesPostProcess } from './scripts/gogglesPostProcess.js';
 import { LightsaberController } from './scripts/lightsaber.js';
 import { createCctvSystem } from './scripts/cctv.js';
-import { createFirstPersonHands } from './scripts/firstPersonHands.js';
+import type { createFirstPersonHands } from './scripts/firstPersonHands.js';
 import { initTouchControls, setTouchFlightMode, resetTouchInput } from './scripts/touchControls.js';
 import { PixelArtPass } from './core/PixelArtPass.js';
 import { RetroConsolePass } from './core/RetroConsolePass.js';
-import { getAudioSettings, setAudioVolume, setAudioMenuPaused } from './helpers/audio/AudioManager.js';
+import { getAudioSettings, preloadAudio, setAudioVolume, setAudioMenuPaused } from './helpers/audio/AudioManager.js';
+import { preloadJungleModels, preloadToolModel, yieldToMainThread } from './core/loader.js';
+import shipMusicUrl from './assets/bgm/DonRevBGM1.m4a';
+import flightMusicUrl from './assets/bgm/DonRevLevel2.m4a';
+import jungleMusicUrl from './assets/bgm/DonRevJungleLoop.m4a';
+
+const sceneImports = {
+  0: () => import('./scenes/prologue/prologue_scene_1.js'),
+  2: () => import('./scenes/level 1/scene2.js'),
+  3: () => import('./scenes/level 1/scene3.js'),
+  4: () => import('./scenes/level 1/scene4.js'),
+  5: () => import('./scenes/level 1/scene5.js'),
+  6: () => import('./scenes/level 1/scene6.js'),
+  7: () => import('./scenes/level 1/scene7.js'),
+  8: () => import('./scenes/level 1/scene8.js'),
+  9: () => import('./scenes/level 1/scene9.js'),
+  10: () => import('./scenes/level 1/scene10.js'),
+  11: () => import('./scenes/level 1/scene11.js'),
+  12: () => import('./scenes/level 1/scene12.js'),
+  13: () => import('./scenes/level 1/scene13.js'),
+  14: () => import('./scenes/level 1/scene14.js'),
+  15: () => import('./scenes/level 2/scene15.js'),
+  16: () => import('./scenes/level 2/scene16.js'),
+  17: () => import('./scenes/level 3/scene17.js'),
+  18: () => import('./scenes/level 3/scene18.js'),
+  19: () => import('./scenes/level 3/scene19.js'),
+};
+type SceneModuleId = keyof typeof sceneImports;
+const sceneModules = new Map<SceneModuleId, Promise<unknown>>();
+let sceneRequestVersion = 0;
+let backgroundQueue = Promise.resolve();
+
+function sceneModule<Id extends SceneModuleId>(id: Id): ReturnType<(typeof sceneImports)[Id]> {
+  let pending = sceneModules.get(id);
+  if (!pending) {
+    pending = sceneImports[id]();
+    sceneModules.set(id, pending);
+    void pending.catch(() => sceneModules.delete(id));
+  }
+  return pending as ReturnType<(typeof sceneImports)[Id]>;
+}
+
+async function prepareScene<Id extends SceneModuleId>(id: Id) {
+  const request = ++sceneRequestVersion;
+  try {
+    const module = await sceneModule(id);
+    return request === sceneRequestVersion ? module : null;
+  } catch (error) {
+    console.error(`Unable to load scene ${id}:`, error);
+    document.getElementById('scene-menu-error')!.textContent = 'Unable to load that scene. Please try again.';
+    return null;
+  }
+}
+
+function background(task: () => Promise<unknown> | void) {
+  backgroundQueue = backgroundQueue.then(yieldToMainThread).then(task).then(() => undefined)
+    .catch(error => console.warn('Background preparation failed:', error));
+  return backgroundQueue;
+}
+
+function warmScene(id: SceneModuleId) {
+  void background(async () => {
+    if (id === 13) await (await sceneModule(13)).preloadAssets();
+    else await sceneModule(id);
+  });
+}
+
+const upcomingScenes: Partial<Record<SceneModuleId, readonly SceneModuleId[]>> = {
+  0: [2], 2: [3], 3: [4, 5, 6], 4: [7], 7: [8], 8: [9, 10, 11],
+  9: [12], 10: [12], 11: [12, 13], 12: [13], 13: [14],
+  14: [15], 15: [16], 16: [17], 17: [18], 18: [19],
+};
 
 // --- Renderer ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, window.matchMedia('(pointer: coarse)').matches ? 1 : 1.5));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -53,9 +108,7 @@ document.body.appendChild(renderer.domElement);
 const cctv = createCctvSystem(renderer);
 const gogglesPostProcess = new GogglesPostProcess(renderer);
 const pixelArtPass = new PixelArtPass();
-pixelArtPass.precompile(renderer);
 const retroConsolePass = new RetroConsolePass();
-retroConsolePass.precompile(renderer);
 const minimap = createSceneMinimap(renderer, document.getElementById('minimap')!);
 
 // --- Audio Manager stub ---
@@ -81,7 +134,6 @@ function renderGameScene(scene: THREE.Scene, camera: THREE.Camera) {
     renderSceneEffects(scene, camera);
     if (!deathPresentation && !currentSceneData?.isCinematic?.() && !currentSceneData?.ownsWeaponInput && cargoPuzzle.handle !== 'carried') {
       crowbar.renderFirstPerson(renderer);
-      lightsaber.renderFirstPerson(renderer);
     }
   });
 }
@@ -132,6 +184,14 @@ let crowbarController: CrowbarController | null = null;
 let hasLightsaber = false;
 let lightsaberController: LightsaberController | null = null;
 let firstPersonHands: Awaited<ReturnType<typeof createFirstPersonHands>> | null = null;
+let firstPersonHandsLoading: Promise<void> | null = null;
+
+function prepareFirstPersonHands() {
+  firstPersonHandsLoading ??= import('./scripts/firstPersonHands.js').then(async ({ createFirstPersonHands }) => {
+    firstPersonHands = await createFirstPersonHands();
+  }).catch(error => console.error('Failed to load crowbar hands:', error));
+  return firstPersonHandsLoading;
+}
 
 // --- View toggle (first-person / third-person) ---
 let isThirdPerson = true;
@@ -160,7 +220,10 @@ const crowbar = new CrowbarController(() => ({
   doorTarget: currentSceneData?.forwardDoorTarget ?? null,
   openDoor: () => { currentSceneData?.hitForwardDoor?.(); currentSceneData?.hitCargoDoor?.(); },
   holsterOther: () => { pistol.holster(); lightsaberController?.holster(); },
-  firstPersonHands: () => firstPersonHands,
+  firstPersonHands: () => {
+    if (hasCrowbar && !isThirdPerson) void prepareFirstPersonHands();
+    return firstPersonHands;
+  },
 }));
 crowbarController = crowbar;
 const lightsaber = new LightsaberController(() => ({
@@ -176,7 +239,6 @@ const lightsaber = new LightsaberController(() => ({
   setCharacterEquipped: equipped => globalCharacter?.setLightsaberEquipped(equipped),
   openDoor: () => { currentSceneData?.hitForwardDoor?.(); currentSceneData?.hitCargoDoor?.(); },
   holsterOther: () => { crowbar.holster(); pistol.holster(); },
-  firstPersonHands: () => firstPersonHands,
   getParryableBolts: () => currentSceneData?.getParryableBolts?.() ?? [],
 }));
 lightsaberController = lightsaber;
@@ -199,23 +261,30 @@ function initializeControls() {
 
 // --- Initialize App ---
 async function initializeApp() {
-  console.log('Loading character model...');
-  globalCharacter = await loadCharacter();
-  if (globalCharacter) {
-    console.log('Character loaded successfully');
-  } else {
-    console.warn('Failed to load character, continuing without character');
-  }
-  try {
-    firstPersonHands = await createFirstPersonHands();
-  } catch (error) {
-    console.error('Failed to load first-person hands:', error);
-  }
   loadScene1();
   initializeControls();
   setupViewToggle();
   setupSceneQuickMenu();
   initTouchControls();
+
+  await yieldToMainThread();
+  const { loadCharacter } = await import('./scripts/characterManager.js');
+  console.log('Loading character model...');
+  globalCharacter = await loadCharacter();
+  if (globalCharacter) {
+    console.log('Character loaded successfully');
+    if (currentPlayer && activeScene && (activeSceneId !== 'prologue1' || currentPlayer.isEnabled())) {
+      activeScene.add(globalCharacter.model);
+      globalCharacter.setFacing(currentPlayer.getState().yaw);
+      updatePlayerView(0);
+    }
+  } else {
+    console.warn('Failed to load character, continuing without character');
+  }
+  warmScene(0);
+  warmScene(2);
+  void background(() => preloadAudio(shipMusicUrl));
+  void background(() => preloadToolModel('Enemy_Trilobite'));
 }
 
 // Control cards are introduced once per play session, including across respawns.
@@ -329,14 +398,16 @@ function toggleView() {
 }
 
 // --- Load Prologue Scene 1 (developer menu entry) ---
-function loadPrologue1() {
+async function loadPrologue1() {
+  const module = await prepareScene(0);
+  if (!module) return;
   hideScene1Skip();
   retireTraversalRoom();
   currentSceneData?.dispose?.();
   if (currentSceneData === scene1Data) scene1Data = null;
   activeSceneId = 'prologue1'; currentPlayer = null;
   enterHudScene('prologue1');
-  currentSceneData = createPrologueScene1({
+  currentSceneData = module.createScene({
     thirdPersonCamera: { distance: THIRD_PERSON_DIST, height: THIRD_PERSON_HEIGHT, right: THIRD_PERSON_RIGHT },
     onPlayable: () => {
       if (activeSceneId !== 'prologue1') return;
@@ -345,11 +416,11 @@ function loadPrologue1() {
       globalCharacter?.setFacing(currentPlayer!.getState().yaw);
       updatePlayerView(0);
     },
-    onFinished: () => {
+    onFinished: async () => {
       if (activeSceneId !== 'prologue1') return;
       isThirdPerson = true;
       seenControls.delete('basics');
-      loadScene2(true, true);
+      await loadScene2(true, true);
     },
   });
   activeScene = currentSceneData.scene;
@@ -362,6 +433,7 @@ function loadPrologue1() {
 
 // --- Load Scene 1 ---
 function loadScene1() {
+  sceneRequestVersion++;
   activeSceneId = 'scene1'; currentPlayer = null;
   enterHudScene('scene1');
   document.getElementById('quit-btn')!.textContent = "DON’T PLAY";
@@ -465,8 +537,8 @@ function transitionToScene2() {
     if (progress >= 1) {
       zoomFinished = true;
       fadeOverlay.classList.add('active');
-      scheduleSceneAction(() => {
-        try { loadPrologue1(); } catch (e) { console.error('Error loading the opening sequence:', e); }
+      scheduleSceneAction(async () => {
+        try { await loadPrologue1(); } catch (e) { console.error('Error loading the opening sequence:', e); }
         fadeOverlay.classList.remove('active');
         scheduleSceneAction(() => { fadeOverlay.classList.add('hidden'); }, 1500);
       }, 1500);
@@ -474,13 +546,15 @@ function transitionToScene2() {
   };
 }
 
-function loadScene2(skipWake = false, openingEntry = false) {
+async function loadScene2(skipWake = false, openingEntry = false) {
+  const module = await prepareScene(2);
+  if (!module) return;
   console.log('Loading scene 2...');
 
   globalCharacter?.model.removeFromParent();
   if (currentSceneData === scene1Data || activeSceneId === 'prologue1') currentSceneData?.dispose?.();
   retireTraversalRoom();
-  const sceneData = createScene2({ audioManager, skipWake, openingEntry });
+  const sceneData = module.createScene({ audioManager, skipWake, openingEntry });
   enterManagedScene('scene2', sceneData);
   currentSceneData = sceneData;
   activeScene = currentSceneData.scene;
@@ -509,10 +583,12 @@ function loadScene2(skipWake = false, openingEntry = false) {
   renderer.render(activeScene!, activeCamera!);
 }
 
-function loadScene3(entryState?: PlayerTransitionState) {
+async function loadScene3(entryState?: PlayerTransitionState) {
+  const module = await prepareScene(3);
+  if (!module) return;
   console.log('Loading scene 3...');
 
-  const sceneData = createScene3({ audioManager, entryState, ...cargoAccess() });
+  const sceneData = module.createScene({ audioManager, entryState, ...cargoAccess() });
   enterManagedScene('scene3', sceneData);
   currentSceneData = sceneData;
   activeScene = currentSceneData.scene;
@@ -549,15 +625,17 @@ function loadScene3(entryState?: PlayerTransitionState) {
   console.log('Scene 3 loaded - passageway');
 }
 
-function transitionToScene3(entryState: PlayerTransitionState) {
+async function transitionToScene3(entryState: PlayerTransitionState) {
   console.log('Transitioning to scene 3');
-  try { loadScene3(entryState); } catch (e) { console.error('Error loading scene 3:', e); }
+  try { await loadScene3(entryState); } catch (e) { console.error('Error loading scene 3:', e); }
 }
 
-function transitionBackToScene2(entryState: PlayerTransitionState) {
+async function transitionBackToScene2(entryState: PlayerTransitionState) {
   console.log('Returning to scene 2 (skip wake)');
   try {
-    const sceneData = createScene2({ audioManager, skipWake: true, entryState });
+    const module = await prepareScene(2);
+    if (!module) return;
+    const sceneData = module.createScene({ audioManager, skipWake: true, entryState });
     enterManagedScene('scene2', sceneData);
     currentSceneData = sceneData;
     activeScene = currentSceneData.scene;
@@ -588,10 +666,13 @@ function transitionBackToScene2(entryState: PlayerTransitionState) {
   }
 }
 
-function loadScene4(entryState?: PlayerTransitionState, entryDoor: 'back' | 'front' = 'back') {
+async function loadScene4(entryState?: PlayerTransitionState, entryDoor: 'back' | 'front' = 'back') {
+  const module = await prepareScene(4);
+  if (!module) return;
+  void prepareFirstPersonHands();
   console.log('Loading scene 4...');
 
-  const sceneData = createScene4({
+  const sceneData = module.createScene({
     audioManager, entryState, entryDoor, cafeteriaUnlocked: hasCrowbar, chestOpened: hasCrowbar,
     onChestCollected: () => {
       hasCrowbar = true;
@@ -629,20 +710,22 @@ function loadScene4(entryState?: PlayerTransitionState, entryDoor: 'back' | 'fro
   console.log('Scene 4 loaded - computer room');
 }
 
-function transitionToScene4() {
+async function transitionToScene4() {
   console.log('Transitioning to scene 4');
   // Capture player state for transition - scene3's forward door is at -Z (z = -10)
   // Use yaw: 0 so the player's position is preserved correctly through the transition
   if (currentPlayer) {
     const state = currentPlayer.captureDoorTransition({ x: 0, y: 0, z: -10, yaw: 0 });
-    try { loadScene4(state); } catch (e) { console.error('Error loading scene 4:', e); }
+    try { await loadScene4(state); } catch (e) { console.error('Error loading scene 4:', e); }
   }
 }
 
-function loadScene7(entryState?: PlayerTransitionState) {
+async function loadScene7(entryState?: PlayerTransitionState) {
+  const module = await prepareScene(7);
+  if (!module) return;
   console.log('Loading scene 7 - cafeteria...');
   document.getElementById('skip-btn')?.classList.add('hidden');
-  const sceneData = createScene7({ entryState, ...ladderAccess() });
+  const sceneData = module.createScene({ entryState, ...ladderAccess() });
   enterManagedScene('scene7', sceneData);
   currentSceneData = sceneData;
   activeScene = sceneData.scene;
@@ -668,12 +751,12 @@ function loadScene7(entryState?: PlayerTransitionState) {
   console.log('Scene 7 loaded - cafeteria');
 }
 
-function transitionToScene7(entryState: PlayerTransitionState) {
-  try { loadScene7(entryState); } catch (error) { console.error('Error loading scene 7:', error); }
+async function transitionToScene7(entryState: PlayerTransitionState) {
+  try { await loadScene7(entryState); } catch (error) { console.error('Error loading scene 7:', error); }
 }
 
-function transitionBackToScene4(entryState: PlayerTransitionState) {
-  try { loadScene4(entryState, 'front'); } catch (error) { console.error('Error returning to scene 4:', error); }
+async function transitionBackToScene4(entryState: PlayerTransitionState) {
+  try { await loadScene4(entryState, 'front'); } catch (error) { console.error('Error returning to scene 4:', error); }
 }
 
 function hideScene1Skip() {
@@ -692,6 +775,15 @@ function enterManagedScene(id: string, sceneData: any) {
   enterHudScene(id);
   const damage = document.getElementById('player-damage');
   if (damage) damage.style.opacity = '0';
+  const sceneId = Number(id.slice(5)) as SceneModuleId;
+  for (const next of upcomingScenes[sceneId] ?? []) warmScene(next);
+  if (sceneId === 2) warmScene(13);
+  if (sceneId === 3) void background(() => prepareFirstPersonHands());
+  if (sceneId === 14) void background(() => preloadAudio(flightMusicUrl));
+  if (sceneId === 15) {
+    void background(() => preloadAudio(jungleMusicUrl));
+    void background(preloadJungleModels);
+  }
 }
 
 function retireTraversalRoom() {
@@ -702,7 +794,7 @@ function retireTraversalRoom() {
   npcManager.leaveScene();
 }
 
-function fadeTraversal(complete: () => void) {
+function fadeTraversal(complete: () => void | Promise<void>) {
   traversalState = currentPlayer?.captureTransition({ x: 0, y: 0, z: 0 });
   hideScene1Skip();
   const fade = document.getElementById('fade-overlay');
@@ -711,9 +803,9 @@ function fadeTraversal(complete: () => void) {
   fade.classList.add('black');
   void fade.clientWidth;
   fade.classList.add('active');
-  scheduleSceneAction(() => {
+  scheduleSceneAction(async () => {
     retireTraversalRoom();
-    complete();
+    await complete();
     scheduleSceneAction(() => {
       fade.classList.remove('active');
       scheduleSceneAction(() => { fade.classList.remove('black'); fade.classList.add('hidden'); }, 300);
@@ -721,9 +813,11 @@ function fadeTraversal(complete: () => void) {
   }, 300);
 }
 
-function loadScene8(entry: 'galley' | 'deck' = 'galley') {
+async function loadScene8(entry: 'galley' | 'deck' = 'galley') {
+  const module = await prepareScene(8);
+  if (!module) return;
   hideScene1Skip();
-  const sceneData = createScene8({ entry, entryState: traversalState, puzzle: cargoPuzzle });
+  const sceneData = module.createScene({ entry, entryState: traversalState, puzzle: cargoPuzzle });
     enterManagedScene('scene8', sceneData);
   currentSceneData = sceneData; activeScene = sceneData.scene; activeCamera = sceneData.camera;
   updatePhysics = sceneData.updatePhysics; cutsceneManager = null; currentPlayer = sceneData.player;
@@ -739,9 +833,11 @@ function loadScene8(entry: 'galley' | 'deck' = 'galley') {
   renderer.render(activeScene, activeCamera);
 }
 
-function loadScene7FromVent(drop = false) {
+async function loadScene7FromVent(drop = false) {
+  const module = await prepareScene(7);
+  if (!module) return;
   hideScene1Skip();
-  const sceneData = createScene7(ladderAccess());
+  const sceneData = module.createScene(ladderAccess());
   enterManagedScene('scene7', sceneData);
   const position = { x: 4.6, y: drop ? 4.15 : 0.3, z: drop ? -3.18 : -2.95 };
   if (traversalState) sceneData.player.restoreTransition({ ...traversalState, position, velocity: { x: 0, y: 0, z: 0 }, yaw: Math.PI, pitch: 0, heldKeys: [], blockedKeys: [], crouching: false, sprinting: false, intentionalJump: false, jumpQueued: false }, { x: 0, y: 0, z: 0, yaw: -Math.PI });
@@ -760,9 +856,11 @@ function loadScene7FromVent(drop = false) {
   renderer.render(activeScene, activeCamera);
 }
 
-function loadScene9(entryState?: PlayerTransitionState, fromPassage = false, dropFromLadder = false) {
+async function loadScene9(entryState?: PlayerTransitionState, fromPassage = false, dropFromLadder = false) {
+  const module = await prepareScene(9);
+  if (!module) return;
   hideScene1Skip();
-  const sceneData = createScene9({ entryState, fromPassage, dropFromLadder, puzzle: cargoPuzzle });
+  const sceneData = module.createScene({ entryState, fromPassage, dropFromLadder, puzzle: cargoPuzzle });
     enterManagedScene('scene9', sceneData);
   currentSceneData = sceneData; activeScene = sceneData.scene; activeCamera = sceneData.camera;
   updatePhysics = sceneData.updatePhysics; cutsceneManager = null; currentPlayer = sceneData.player;
@@ -785,23 +883,29 @@ function activateExtension(sceneData: any, id: string) {
   globalCharacter?.setFacing(currentPlayer!.getState().yaw); updatePlayerView(0);
 }
 
-function loadExtensionRoom(id: 10 | 11 | 13, entryState?: PlayerTransitionState, fromPassage = false, checkpoint = false) {
-  retireTraversalRoom();
+async function loadExtensionRoom(id: 10 | 11 | 13, entryState?: PlayerTransitionState, fromPassage = false, checkpoint = false) {
+  const module = await prepareScene(id);
+  if (!module) return;
+  const request = sceneRequestVersion;
   const options = { entryState, fromPassage, puzzle: cargoPuzzle };
-  const sceneData = id === 10 ? createScene10(options)
-    : id === 11 ? createScene11(options) : createScene13({
+  const sceneData = module.createScene({
       ...options, defeated: bayBossDefeated, checkpoint, renderer,
       onDefeated: () => { bayBossDefeated = true; }, onDescend: loadHangar14,
       onRespawn: () => loadExtensionRoom(13, undefined, false, true),
     });
+  if ('ready' in sceneData) await sceneData.ready;
+  if (request !== sceneRequestVersion) { sceneData.dispose(); return; }
+  retireTraversalRoom();
   activateExtension(sceneData, `scene${id}`);
   sceneData.setBackTrigger(state => loadPassage12(state, id));
 }
 
-function loadHangar14(entryState?: PlayerTransitionState) {
+async function loadHangar14(entryState?: PlayerTransitionState) {
+  const module = await prepareScene(14);
+  if (!module) return;
   bayBossDefeated = true;
   hideScene1Skip(); retireTraversalRoom();
-  const sceneData = createScene14({
+  const sceneData = module.createScene({
     entryState,
     onFailure: () => {
       // A fresh living player, with session inventory and the boss defeat preserved.
@@ -812,24 +916,30 @@ function loadHangar14(entryState?: PlayerTransitionState) {
   activateExtension(sceneData, 'scene14');
 }
 
-function loadFlight15(entryState?: LaunchState, startAt?: 'scrambler' | 'topdownScrambler') {
+async function loadFlight15(entryState?: LaunchState, startAt?: 'scrambler' | 'topdownScrambler') {
+  const module = await prepareScene(15);
+  if (!module) return;
   hideScene1Skip(); retireTraversalRoom();
-  activateExtension(createScene15({ entryState, startAt, onTransition: loadCrash16 }), 'scene15');
+  activateExtension(module.createScene({ entryState, startAt, onTransition: loadCrash16 }), 'scene15');
   setTouchFlightMode(true);
 }
 
-function loadCrash16(entryState?: FlightExitState) {
+async function loadCrash16(entryState?: FlightExitState) {
+  const module = await prepareScene(16);
+  if (!module) return;
   hideScene1Skip(); retireTraversalRoom();
   setTouchFlightMode(false);
-  activateExtension(createScene16({
+  activateExtension(module.createScene({
     entryState,
     onFinished: loadGround17,
   }), 'scene16');
 }
 
-function loadGround17(entryState?: RescueArrival) {
+async function loadGround17(entryState?: RescueArrival) {
+  const module = await prepareScene(17);
+  if (!module) return;
   hideScene1Skip(); retireTraversalRoom(); setTouchFlightMode(false);
-  activateExtension(createScene17({
+  activateExtension(module.createScene({
     entryState, onPlatformer: loadPlatformer18,
     onRespawn: () => loadGround17(checkpointArrival(entryState)),
   }), 'scene17');
@@ -840,23 +950,29 @@ function checkpointArrival(entryState?: RescueArrival): RescueArrival {
     pilotState: entryState?.pilotState ? { ...entryState.pilotState, health: PLAYER_MAX_HEALTH } : undefined };
 }
 
-function loadPlatformer18(entryState?: RescueArrival) {
+async function loadPlatformer18(entryState?: RescueArrival) {
+  const module = await prepareScene(18);
+  if (!module) return;
   hideScene1Skip(); retireTraversalRoom(); setTouchFlightMode(false);
-  activateExtension(createScene18({ entryState, onFinished: loadGround19,
+  activateExtension(module.createScene({ entryState, onFinished: loadGround19,
     onRespawn: state => loadPlatformer18(checkpointArrival(state)),
   }), 'scene18');
 }
 
-function loadGround19(entryState?: RescueArrival) {
+async function loadGround19(entryState?: RescueArrival) {
+  const module = await prepareScene(19);
+  if (!module) return;
   hideScene1Skip(); retireTraversalRoom(); setTouchFlightMode(false);
-  activateExtension(createScene19({ entryState,
+  activateExtension(module.createScene({ entryState,
     onRespawn: () => loadGround19(checkpointArrival(entryState)),
   }), 'scene19');
 }
 
-function loadPassage12(entryState?: PlayerTransitionState, from: PassageDestination = 10) {
+async function loadPassage12(entryState?: PlayerTransitionState, from: PassageDestination = 10) {
+  const module = await prepareScene(12);
+  if (!module) return;
   retireTraversalRoom();
-  const sceneData = createScene12({ entryState, from, puzzle: cargoPuzzle, hasLightsaber,
+  const sceneData = module.createScene({ entryState, from, puzzle: cargoPuzzle, hasLightsaber,
     onLightsaberCollected: () => { hasLightsaber = true; lightsaber.equip(); introduceControls('lightsaber'); },
   });
   activateExtension(sceneData, 'scene12');
@@ -866,10 +982,12 @@ function loadPassage12(entryState?: PlayerTransitionState, from: PassageDestinat
   });
 }
 
-function transitionBackToScene3(entryState: PlayerTransitionState) {
+async function transitionBackToScene3(entryState: PlayerTransitionState) {
   console.log('Returning to scene 3 from scene 4');
   try {
-    const sceneData = createScene3({ audioManager, entryState, entryDoor: 'back', ...cargoAccess() });
+    const module = await prepareScene(3);
+    if (!module) return;
+    const sceneData = module.createScene({ audioManager, entryState, entryDoor: 'back', ...cargoAccess() });
     enterManagedScene('scene3', sceneData);
     currentSceneData = sceneData;
     activeScene = currentSceneData.scene;
@@ -909,11 +1027,13 @@ function transitionBackToScene3(entryState: PlayerTransitionState) {
   }
 }
 
-function loadScene5(entryState?: PlayerTransitionState) {
+async function loadScene5(entryState?: PlayerTransitionState) {
+  const module = await prepareScene(5);
+  if (!module) return;
   console.log('Loading scene 5...');
   hideScene1Skip();
 
-  const sceneData = createScene5({ audioManager, entryState });
+  const sceneData = module.createScene({ audioManager, entryState });
   enterManagedScene('scene5', sceneData);
   currentSceneData = sceneData;
   activeScene = currentSceneData.scene;
@@ -941,15 +1061,17 @@ function loadScene5(entryState?: PlayerTransitionState) {
   console.log('Scene 5 loaded - cargo hold');
 }
 
-function transitionToScene5(entryState: PlayerTransitionState) {
+async function transitionToScene5(entryState: PlayerTransitionState) {
   console.log('Transitioning to scene 5');
-  try { loadScene5(entryState); } catch (e) { console.error('Error loading scene 5:', e); }
+  try { await loadScene5(entryState); } catch (e) { console.error('Error loading scene 5:', e); }
 }
 
-function transitionBackToScene3FromLeft(entryState: PlayerTransitionState) {
+async function transitionBackToScene3FromLeft(entryState: PlayerTransitionState) {
   console.log('Returning to scene 3 from scene 5');
   try {
-    const sceneData = createScene3({ audioManager, entryState, entryDoor: 'left', ...cargoAccess() });
+    const module = await prepareScene(3);
+    if (!module) return;
+    const sceneData = module.createScene({ audioManager, entryState, entryDoor: 'left', ...cargoAccess() });
     enterManagedScene('scene3', sceneData);
     currentSceneData = sceneData;
     activeScene = currentSceneData.scene;
@@ -989,10 +1111,12 @@ function transitionBackToScene3FromLeft(entryState: PlayerTransitionState) {
   }
 }
 
-function loadScene6(entryState?: PlayerTransitionState) {
+async function loadScene6(entryState?: PlayerTransitionState) {
+  const module = await prepareScene(6);
+  if (!module) return;
   console.log('Loading scene 6...');
 
-  const sceneData = createScene6({ audioManager, entryState, gogglesCollected: goggles.isCollected(),
+  const sceneData = module.createScene({ audioManager, entryState, gogglesCollected: goggles.isCollected(),
     onGogglesCollected: () => { goggles.collect(); introduceControls('goggles'); } });
   enterManagedScene('scene6', sceneData);
   currentSceneData = sceneData;
@@ -1021,15 +1145,17 @@ function loadScene6(entryState?: PlayerTransitionState) {
   console.log('Scene 6 loaded - engine room');
 }
 
-function transitionToScene6(entryState: PlayerTransitionState) {
+async function transitionToScene6(entryState: PlayerTransitionState) {
   console.log('Transitioning to scene 6');
-  try { loadScene6(entryState); } catch (e) { console.error('Error loading scene 6:', e); }
+  try { await loadScene6(entryState); } catch (e) { console.error('Error loading scene 6:', e); }
 }
 
-function transitionBackToScene3FromRight(entryState: PlayerTransitionState) {
+async function transitionBackToScene3FromRight(entryState: PlayerTransitionState) {
   console.log('Returning to scene 3 from scene 6');
   try {
-    const sceneData = createScene3({ audioManager, entryState, entryDoor: 'right', ...cargoAccess() });
+    const module = await prepareScene(3);
+    if (!module) return;
+    const sceneData = module.createScene({ audioManager, entryState, entryDoor: 'right', ...cargoAccess() });
     enterManagedScene('scene3', sceneData);
     currentSceneData = sceneData;
     activeScene = currentSceneData.scene;
@@ -1268,7 +1394,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
 function backFromMenu() {
   setPauseMenu(menuScreen === 'home' ? null : menuScreen === 'controls' ? controlsReturnScreen : 'home');
 }
-function jumpToScene(id: number) {
+async function jumpToScene(id: number) {
   if (menuScreen !== 'scenes' || !developerUnlocked || !SCENE_CHOICES.some(([scene]) => scene === id)) return;
   pendingSceneActions.clear(); creditsTimer = null;
   setTouchFlightMode(false);
@@ -1288,29 +1414,31 @@ function jumpToScene(id: number) {
   hasCrowbar = true; hasLightsaber = true; goggles.collect(false);
   if (id >= 8 && id <= 12) cargoPuzzle = createCargoPuzzleState(id);
   if (id === 13) bayBossDefeated = false;
+  const request = sceneRequestVersion + 1;
   try {
     switch (id) {
-      case 0: loadPrologue1(); break;
+      case 0: await loadPrologue1(); break;
       case 1: loadScene1(); break;
-      case 2: loadScene2(true); break;
-      case 3: loadScene3(); break;
-      case 4: loadScene4(); break;
-      case 5: loadScene5(); break;
-      case 6: loadScene6(); break;
-      case 7: loadScene7(); break;
-      case 8: loadScene8(); break;
-      case 9: loadScene9(); break;
-      case 10: case 11: case 13: loadExtensionRoom(id); break;
-      case 12: loadPassage12(); break;
-      case 14: loadHangar14(); break;
-      case 15: loadFlight15(); break;
-      case 15.5: loadFlight15(undefined, 'scrambler'); break;
-      case 15.75: loadFlight15(undefined, 'topdownScrambler'); break;
-      case 16: loadCrash16(); break;
-      case 17: loadGround17(); break;
-      case 18: loadPlatformer18(); break;
-      case 19: loadGround19(); break;
+      case 2: await loadScene2(true); break;
+      case 3: await loadScene3(); break;
+      case 4: await loadScene4(); break;
+      case 5: await loadScene5(); break;
+      case 6: await loadScene6(); break;
+      case 7: await loadScene7(); break;
+      case 8: await loadScene8(); break;
+      case 9: await loadScene9(); break;
+      case 10: case 11: case 13: await loadExtensionRoom(id); break;
+      case 12: await loadPassage12(); break;
+      case 14: await loadHangar14(); break;
+      case 15: await loadFlight15(); break;
+      case 15.5: await loadFlight15(undefined, 'scrambler'); break;
+      case 15.75: await loadFlight15(undefined, 'topdownScrambler'); break;
+      case 16: await loadCrash16(); break;
+      case 17: await loadGround17(); break;
+      case 18: await loadPlatformer18(); break;
+      case 19: await loadGround19(); break;
     }
+    if (request !== sceneRequestVersion) return;
     const spawnedPlayer = currentSceneData?.player as Player | undefined;
     spawnedPlayer?.heal(PLAYER_MAX_HEALTH);
     goggles.update(); updatePlayerView(0);

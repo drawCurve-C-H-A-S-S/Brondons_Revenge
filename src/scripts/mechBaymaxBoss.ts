@@ -3,10 +3,8 @@ import * as CANNON from 'cannon-es';
 import { registerPhysicsActor } from '../helpers/physics/scenePhysics.js';
 import { PLAYER_MAX_HEALTH, type Player } from './player.js';
 import type { DamageTarget } from './pistol.js';
-import { loadToolModel } from '../core/loader.js';
+import { loadBossModel, loadToolModel } from '../core/loader.js';
 import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
-import baybossUrl from '../assets/models/bayboss.glb?url';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import fireVertexShader from '../shaders/fireExplosion.vert.glsl?raw';
 import fireFragmentShader from '../shaders/fireExplosion.frag.glsl?raw';
 
@@ -33,7 +31,7 @@ export type BossPhase = 'dormant' | 'flying' | 'windup' | 'rushing' | 'recoverin
 export interface BossPillar { position: THREE.Vector3; intact: () => boolean; shatter: () => void; }
 interface BossOptions {
   loadDrone?: () => ReturnType<typeof loadToolModel>;
-  loadBoss?: () => ReturnType<GLTFLoader['loadAsync']>;
+  loadBoss?: () => ReturnType<typeof loadBossModel>;
   onPhaseThree?: () => void;
   onPhaseThreeEnd?: () => void;
   onDroneApproach?: (drone: THREE.Object3D) => void;
@@ -354,7 +352,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   }
 
   // Load the bayboss.glb model.
-  const modelReady = Promise.resolve().then(options.loadBoss ?? (() => new GLTFLoader().loadAsync(baybossUrl))).then(gltf => {
+  const modelReady = Promise.resolve().then(options.loadBoss ?? loadBossModel).then(gltf => {
       if (disposed) { disposeTemplate(gltf.scene); return; }
       modelRoot = gltf.scene;
       modelRoot.scale.setScalar(BOSS_SCALE);

@@ -5,6 +5,16 @@ const volumes = { bgm: 1, sfx: 1 };
 let menuPaused = false;
 /** @type {Set<AudioManager>} */
 const managers = new Set();
+const preparedAudio = new Map();
+
+export function preloadAudio(source) {
+  if (!source || preparedAudio.has(source) || typeof Audio === 'undefined') return;
+  const audio = new Audio(source);
+  audio.preload = 'auto';
+  audio.load();
+  preparedAudio.set(source, audio);
+}
+
 /** @type {Set<(settings: { bgm: number, sfx: number, paused: boolean }) => void>} */
 const settingsListeners = new Set();
 try {
@@ -70,11 +80,12 @@ export class AudioManager {
   createAudio(path, { loop = false } = {}) {
     const source = this.resolveSource(path);
     if (!source) throw new Error(`Audio file not found: ${path}`);
-    const audio = new Audio(source);
+    const audio = preparedAudio.get(source) || new Audio(source);
+    const prepared = preparedAudio.delete(source);
     audio.loop = loop;
     // Force a full buffer up front so the first play() call is instant once the user unlocks audio.
     audio.preload = 'auto';
-    audio.load();
+    if (!prepared) audio.load();
     return audio;
   }
 

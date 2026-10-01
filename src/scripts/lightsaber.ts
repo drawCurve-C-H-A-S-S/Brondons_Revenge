@@ -19,10 +19,6 @@ const PARRY_PERFECT_SECONDS = 0.14;
 const PARRY_TOTAL_SECONDS = 0.24;
 export const PARRY_DAMAGE = 50;
 
-interface FirstPersonHands {
-  update: (attackProgress: number | null, weapon?: 'crowbar' | 'lightsaber', attackClip?: LightsaberAttackName) => void;
-  render: (renderer: THREE.WebGLRenderer) => void;
-}
 interface LightsaberContext {
   scene: THREE.Scene | null;
   camera: THREE.PerspectiveCamera | null;
@@ -36,7 +32,6 @@ interface LightsaberContext {
   setCharacterEquipped: (equipped: boolean) => void;
   openDoor: () => void;
   holsterOther?: () => void;
-  firstPersonHands?: () => FirstPersonHands | null;
   getParryableBolts?: () => ParryableBolt[];
 }
 
@@ -157,7 +152,7 @@ export class LightsaberController {
       if (this.parryWindow <= 0) this.parryPerfect = false;
       this.checkParry();
     }
-    const { scene, camera, player, thirdPerson, hasLightsaber, setCharacterEquipped, firstPersonHands } = this.context();
+    const { scene, camera, player, thirdPerson, hasLightsaber, setCharacterEquipped } = this.context();
     if (!hasLightsaber && this.equipped) this.holster();
     const usable = !!player?.isEnabled() && player.getHealth() > 0 && !player.getState().climbing
       && !player.getState().ventMode && !player.getState().boxHandling;
@@ -167,9 +162,7 @@ export class LightsaberController {
       this.ignitionTime = Math.max(0, this.ignitionTime - frame);
       if (this.ignitionTime === 0) this.audio.startHum();
     } else this.audio.stopHum();
-    const hands = firstPersonHands?.();
-    if (active && !thirdPerson) hands?.update(this.swingTime > 0 ? 1 - this.swingTime / LIGHTSABER_SWING_DURATION : null, 'lightsaber', this.attackClip);
-    this.root.visible = active && !thirdPerson && !hands;
+    this.root.visible = active && !thirdPerson;
     if (!scene || !camera || !this.root.visible) { this.root.removeFromParent(); return; }
     camera.updateMatrixWorld(true);
     scene.add(this.root);
@@ -181,12 +174,6 @@ export class LightsaberController {
     this.root.rotateX(-0.3 - arc * (this.swingIndex % 3 === 2 ? 1.9 : 0.9));
     this.root.rotateY(0.2 + side * arc * 0.7);
     this.root.rotateZ(0.4 + side * arc * 1.1);
-  }
-
-  renderFirstPerson(renderer: THREE.WebGLRenderer) {
-    const { player, thirdPerson, hasLightsaber, firstPersonHands } = this.context();
-    if (hasLightsaber && this.equipped && !thirdPerson && player?.isEnabled() && player.getHealth() > 0
-      && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling) firstPersonHands?.()?.render(renderer);
   }
 
   dispose() {

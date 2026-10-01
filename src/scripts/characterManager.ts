@@ -9,7 +9,7 @@
  */
 import * as THREE from 'three';
 import type { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { loadPlayerModel } from '../core/loader.js';
+import { loadPlayerModel, yieldToMainThread } from '../core/loader.js';
 import { createCrowbar } from './items/createCrowbar.js';
 import { createLightsaber, disposeLightsaber, fitLightsaberToHand, getLightsaberAttackClips, LIGHTSABER_SWING_DURATION, type LightsaberAttackName } from './items/createLightsaber.js';
 import { LADDER } from '../utils/constants.js';
@@ -308,13 +308,14 @@ export async function loadCharacter(loader?: GLTFLoader) {
   const calibrationFacing = model.quaternion.clone(); model.quaternion.identity(); resetRig();
   orientHand('l', false); orientHand('r', false); resetRig(); model.quaternion.copy(calibrationFacing);
 
-  function bakeTraversal(name: string, duration: number, climbing: boolean, handling = 0) {
+  async function bakeTraversal(name: string, duration: number, climbing: boolean, handling = 0) {
     const facing = model.quaternion.clone();
     model.quaternion.identity();
     const times = Array.from({ length: 49 }, (_, i) => i * duration / 48);
     const rotations = rig.map(() => [] as number[]);
     const positions = rig.map(() => [] as number[]);
     for (let frame = 0; frame < times.length; frame++) {
+      if (frame > 0 && frame % 2 === 0) await yieldToMainThread();
       resetRig();
       const phase = frame / 48;
       for (const side of [1, -1]) {
@@ -349,28 +350,10 @@ export async function loadCharacter(loader?: GLTFLoader) {
       new THREE.VectorKeyframeTrack(`${bone.name}.position`, times, positions[i]),
     ]));
   }
-  clips.push(bakeTraversal('Ladder_Climb_Loop', LADDER.cycleDuration, true));
-  clips.push(bakeTraversal('Float_Loop', 2.4, false));
-  clips.push(bakeTraversal('Box_Push_Loop', 0.95, false, 1));
-  clips.push(bakeTraversal('Box_Pull_Loop', 1.05, false, -1));
-  console.log('=== UAL1 ANIMATION DEBUG ===');
-  console.log('Total clips:', clips.length);
-  console.log('Clip names:', clips.map((c: THREE.AnimationClip) => c.name));
-
-  // Log all bones in the model
-  const bones: string[] = [];
-  model.traverse((child: THREE.Object3D) => {
-    if ((child as THREE.Bone).isBone) {
-      bones.push((child as THREE.Bone).name);
-    }
-  });
-  console.log('Bones (' + bones.length + '):', bones);
-
-  // Log tracks for each clip (what bones/properties they target)
-  for (const clip of clips) {
-    const trackNames = clip.tracks.map((t: THREE.KeyframeTrack) => t.name);
-    console.log('Clip "' + clip.name + '" tracks (' + trackNames.length + '):', trackNames.slice(0, 10).join(', ') + (trackNames.length > 10 ? '...' : ''));
-  }
+  clips.push(await bakeTraversal('Ladder_Climb_Loop', LADDER.cycleDuration, true));
+  clips.push(await bakeTraversal('Float_Loop', 2.4, false));
+  clips.push(await bakeTraversal('Box_Push_Loop', 0.95, false, 1));
+  clips.push(await bakeTraversal('Box_Pull_Loop', 1.05, false, -1));
 
   // This is the in-place UAL export. Preserve its original bone tracks.
   const actions = new Map<ClipName, THREE.AnimationAction>();

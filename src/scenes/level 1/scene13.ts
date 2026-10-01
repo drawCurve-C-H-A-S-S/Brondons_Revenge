@@ -1,18 +1,23 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
-import boyUrl from '../../assets/models/boy.glb';
+import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
+import { loadBoyModel, preloadBossModels } from '../../core/loader.js';
 import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
 import { roomBox, createSlidingPortal, disposeRoom } from '../../helpers/scene/shipRoom.js';
 import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
 import { BOSS_RULES, createLoadingBayBoss, type BossPillar } from '../../scripts/mechBaymaxBoss.js';
-import { AudioManager } from '../../helpers/audio/AudioManager.js';
+import { AudioManager, preloadAudio } from '../../helpers/audio/AudioManager.js';
 import bgmUrl from '../../assets/bgm/DonRevBGM1.m4a?url';
 
 export const BOSS_ENTRY_SECONDS = 7;
 
+export function preloadAssets() {
+  preloadAudio(bgmUrl);
+  return preloadBossModels();
+}
+
 /** Loading bay below passage 12, with a stair entrance and a stationary aerial boss. */
-export function createScene({ entryState, defeated = false, checkpoint = false, onDefeated, onDescend, onRespawn, loadBoy = () => new GLTFLoader().loadAsync(boyUrl), loadDrone, loadBoss, renderer }: {
+export function createScene({ entryState, defeated = false, checkpoint = false, onDefeated, onDescend, onRespawn, loadBoy = loadBoyModel, loadDrone, loadBoss, renderer }: {
   entryState?: PlayerTransitionState;
   defeated?: boolean;
   checkpoint?: boolean;
