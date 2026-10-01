@@ -63,6 +63,7 @@ export interface PlayerTransitionState {
   crouching: boolean;
   sprinting: boolean;
   health?: number;
+  shield?: number;
   cargo?: CargoTransfer;
   blockedKeys?: string[];
 }
@@ -119,6 +120,8 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   let inputLocked = false;
   let sprinting = false;
   let health = PLAYER_MAX_HEALTH;
+  let shield = 0;
+  const PLAYER_MAX_SHIELD = 50;
   let lastDamageAt = -Infinity;
   let actionRequest: PlayerActionName | null = null;
   // Requests stay readable for exactly one physics+animation frame, then
@@ -431,6 +434,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       crouching,
       sprinting,
       health,
+      shield,
     };
   }
 
@@ -467,6 +471,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     crouching = state.crouching;
     sprinting = state.sprinting;
     if (Number.isFinite(state.health)) health = Math.max(0, Math.min(PLAYER_MAX_HEALTH, state.health!));
+    if (Number.isFinite(state.shield)) shield = Math.max(0, Math.min(PLAYER_MAX_SHIELD, state.shield!));
     isOnGround = false;
     updateGroundState(false);
     isPointerLocked = document.pointerLockElement != null;
@@ -592,8 +597,16 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     // Damage is ignored once dead; the caller (main.ts) handles respawning.
     takeDamage: (amount: number, allowWhileDisabled = false) => {
       if ((!enabled && !allowWhileDisabled) || health <= 0 || !Number.isFinite(amount) || amount <= 0) return;
-      health = Math.max(0, health - amount);
-      lastDamageAt = performance.now();
+      let remaining = amount;
+      if (shield > 0) {
+        const absorbed = Math.min(shield, remaining);
+        shield -= absorbed;
+        remaining -= absorbed;
+      }
+      if (remaining > 0) {
+        health = Math.max(0, health - remaining);
+        lastDamageAt = performance.now();
+      }
     },
     heal: (amount: number) => {
       if (!enabled || health <= 0 || !Number.isFinite(amount) || amount <= 0) return false;
@@ -601,6 +614,14 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       health = Math.min(PLAYER_MAX_HEALTH, health + amount);
       return health > previous;
     },
+    addShield: (amount: number) => {
+      if (!enabled || health <= 0 || !Number.isFinite(amount) || amount <= 0) return false;
+      const previous = shield;
+      shield = Math.min(PLAYER_MAX_SHIELD, shield + amount);
+      return shield > previous;
+    },
+    getShield: () => shield,
+    getMaxShield: () => PLAYER_MAX_SHIELD,
     getHealth: () => health,
     getDamageFlash: () => Math.max(0, 0.72 - (performance.now() - lastDamageAt) / 650),
     requestAction,

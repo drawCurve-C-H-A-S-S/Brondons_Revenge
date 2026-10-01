@@ -126,8 +126,10 @@ const npcManager = new NPCEnemyManager();
 let hasCrowbar = false;
 let cargoDoorUnlocked = false;
 const clearedLadderCrates = new Set<string>();
+let shieldCollectedScene7 = false;
+let healthPackCollectedScene13 = false;
 const cargoAccess = () => ({ hasCrowbar, cargoDoorUnlocked, onCargoDoorOpened: () => { cargoDoorUnlocked = true; } });
-const ladderAccess = () => ({ clearedCrates: clearedLadderCrates, onCrateBroken: (id: string) => { clearedLadderCrates.add(id); } });
+const ladderAccess = () => ({ clearedCrates: clearedLadderCrates, onCrateBroken: (id: string) => { clearedLadderCrates.add(id); }, shieldCollected: shieldCollectedScene7, onShieldCollected: () => { shieldCollectedScene7 = true; } });
 let crowbarController: CrowbarController | null = null;
 let hasLightsaber = false;
 let lightsaberController: LightsaberController | null = null;
@@ -793,6 +795,8 @@ function loadExtensionRoom(id: 10 | 11 | 13, entryState?: PlayerTransitionState,
       ...options, defeated: bayBossDefeated, checkpoint, renderer,
       onDefeated: () => { bayBossDefeated = true; }, onDescend: loadHangar14,
       onRespawn: () => loadExtensionRoom(13, undefined, false, true),
+      healthPackCollected: healthPackCollectedScene13,
+      onHealthPackCollected: () => { healthPackCollectedScene13 = true; },
     });
   activateExtension(sceneData, `scene${id}`);
   sceneData.setBackTrigger(state => loadPassage12(state, id));
@@ -1435,6 +1439,9 @@ const clock = new THREE.Clock();
 const healthFillEl = document.getElementById('health-bar-fill');
 const healthLabelEl = document.getElementById('health-bar-label');
 const healthBarEl = document.getElementById('health-bar');
+const shieldFillEl = document.getElementById('shield-bar-fill');
+const shieldLabelEl = document.getElementById('shield-bar-label');
+const shieldBarEl = document.getElementById('shield-bar');
 const playerDamageEl = document.getElementById('player-damage');
 let deathPresentation: { player: Player; elapsed: number; managed: boolean;
   position: THREE.Vector3; rotation: THREE.Quaternion; fov: number } | null = null;
@@ -1469,6 +1476,12 @@ function animate() {
     }
     if (healthLabelEl) healthLabelEl.textContent = `${Math.max(0, Math.ceil(health))} / ${PLAYER_MAX_HEALTH}`;
     healthBarEl?.setAttribute('aria-valuenow', String(Math.max(0, Math.ceil(health))));
+    const shield = currentPlayer.getShield();
+    const maxShield = currentPlayer.getMaxShield();
+    const shieldPct = maxShield > 0 ? Math.max(0, shield / maxShield) : 0;
+    if (shieldFillEl) shieldFillEl.style.width = `${shieldPct * 100}%`;
+    if (shieldLabelEl) shieldLabelEl.textContent = `${Math.max(0, Math.ceil(shield))} / ${maxShield}`;
+    shieldBarEl?.setAttribute('aria-valuenow', String(Math.max(0, Math.ceil(shield))));
     if (currentPlayer.isEnabled() && health <= 0 && !deathPresentation) {
       const managed = !!currentSceneData?.onPlayerDeath?.();
       deathPresentation = { player: currentPlayer, elapsed: 0, managed, position: activeCamera!.position.clone(),
@@ -1481,6 +1494,7 @@ function animate() {
     }
   }
   if (healthBarEl) healthBarEl.style.display = activeSceneId === 'scene1' || activeSceneId === 'prologue1' ? 'none' : '';
+  if (shieldBarEl) shieldBarEl.style.display = activeSceneId === 'scene1' || activeSceneId === 'prologue1' ? 'none' : '';
 
   // Record pursuit before stepping the active world; retired worlds step separately.
   npcManager.update(delta);
