@@ -111,6 +111,20 @@ export class LightsaberAudio {
   playSwing(volume = 0.4) { this.play(ctx => this.generateSwing(ctx), volume); }
   playClash(volume = 0.6) { this.play(ctx => this.generateClash(ctx), volume); }
 
+  playParry(volume = 0.7) {
+    const ctx = this.getContext();
+    if (!ctx || !this.output) return;
+    const source = ctx.createBufferSource();
+    source.buffer = this.generateClash(ctx);
+    source.playbackRate.value = 1.5;
+    const gain = ctx.createGain();
+    gain.gain.value = Math.max(0, Math.min(1, volume));
+    source.connect(gain).connect(this.output);
+    this.sources.add(source);
+    source.onended = () => { source.disconnect(); gain.disconnect(); this.sources.delete(source); };
+    source.start();
+  }
+
   startHum(volume = 0.15) {
     if (this.humSource) return;
     const ctx = this.getContext();

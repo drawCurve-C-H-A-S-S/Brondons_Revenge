@@ -6,6 +6,19 @@ import type { Player } from './player.js';
 import { LightsaberAudio } from './lightsaberAudio.js';
 import { registerTouchAttackCallback, refreshTouchAttackButton } from './touchControls.js';
 
+/** Projectile that the lightsaber can deflect during a well-timed swing. */
+export interface ParryableBolt {
+  mesh: THREE.Mesh;
+  velocity: THREE.Vector3;
+  parried: boolean;
+  owner: 'boss' | 'player';
+}
+
+const PARRY_RANGE = 3;
+const PARRY_PERFECT_SECONDS = 0.14;
+const PARRY_TOTAL_SECONDS = 0.24;
+export const PARRY_DAMAGE = 50;
+
 interface FirstPersonHands {
   update: (attackProgress: number | null, weapon?: 'crowbar' | 'lightsaber', attackClip?: LightsaberAttackName) => void;
   render: (renderer: THREE.WebGLRenderer) => void;
@@ -24,6 +37,7 @@ interface LightsaberContext {
   openDoor: () => void;
   holsterOther?: () => void;
   firstPersonHands?: () => FirstPersonHands | null;
+  getParryableBolts?: () => ParryableBolt[];
 }
 
 export class LightsaberController {
@@ -35,6 +49,9 @@ export class LightsaberController {
   private swingIndex = -1;
   private attackClip: LightsaberAttackName = 'Sword_Attack';
   private ignitionTime = 0;
+  private parryWindow = 0;
+  private parryPerfect = false;
+  private parryFlash = 0;
   private unregisterTouchAttack: () => void;
   private audio = new LightsaberAudio();
 
@@ -124,6 +141,8 @@ export class LightsaberController {
     }
     this.cooldown = 0.28;
     this.swingTime = LIGHTSABER_SWING_DURATION;
+    this.parryWindow = PARRY_TOTAL_SECONDS;
+    this.parryPerfect = true;
     return true;
   }
 
@@ -132,6 +151,12 @@ export class LightsaberController {
     const frame = Number.isFinite(dt) ? Math.max(0, Math.min(0.1, dt)) : 0;
     this.cooldown = Math.max(0, this.cooldown - frame);
     this.swingTime = Math.max(0, this.swingTime - frame);
+    this.parryFlash = Math.max(0, this.parryFlash - frame);
+    if (this.parryWindow > 0) {
+      this.parryWindow = Math.max(0, this.parryWindow - frame);
+      if (this.parryWindow <= 0) this.parryPerfect = false;
+      this.checkParry();
+    }
     const { scene, camera, player, thirdPerson, hasLightsaber, setCharacterEquipped, firstPersonHands } = this.context();
     if (!hasLightsaber && this.equipped) this.holster();
     const usable = !!player?.isEnabled() && player.getHealth() > 0 && !player.getState().climbing
@@ -173,5 +198,37 @@ export class LightsaberController {
     document.removeEventListener('mousedown', this.onMouseDown);
     this.audio.dispose();
     disposeLightsaber(this.root);
+  }
+
+  private checkParry() {
+    const { player, getParryableBolts } = this.context();
+    if (!player || !getParryableBolts || this.parryWindow <= 0) return;
+    const bolts = getParryableBolts();
+    if (!bolts.length) return;
+    const origin = new THREE.Vector3(player.body.position.x, player.body.position.y + 0.8, player.body.position.z);
+    for (const bolt of bolts) {
+      if (bolt.parried) continue;
+      const boltPos = bolt.mesh.position;
+      const toBolt = boltPos.clone().sub(origin);
+      const distance = toBolt.length();
+      if (distance > PARRY_RANGE) continue;
+      const toPlayer = origin.clone().sub(boltPos).normalize();
+      const boltDir = bolt.velocity.clone().normalize();
+      if (boltDir.dot(toPlayer) < 0.15) continue;
+      const perfect = this.parryPerfect && distance < PARRY_RANGE * 0.6;
+      bolt.parried = true;
+      bolt.owner = 'player';
+      if (perfect) {
+        bolt.velocity.negate();
+        bolt.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), bolt.velocity.clone().normalize());
+      } else {
+        bolt.velocity.negate().applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 36);
+        bolt.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), bolt.velocity.clone().normalize());
+      }
+      this.parryWindow = 0;
+      this.parryFlash = 0.3;
+      this.audio.playParry();
+      return;
+    }
   }
 }

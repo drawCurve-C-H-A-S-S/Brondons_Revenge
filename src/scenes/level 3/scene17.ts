@@ -8,6 +8,7 @@ import { loadToolModel, loadDinoModel } from '../../core/loader.js';
 import { disposeRoom } from '../../helpers/scene/shipRoom.js';
 import type { DamageTarget, DamageWeapon } from '../../scripts/pistol.js';
 import type { CinematicPose } from '../../scripts/characterManager.js';
+import { PARRY_DAMAGE, type ParryableBolt } from '../../scripts/lightsaber.js';
 import { createRiverAmbushers } from '../../scripts/riverAmbusher.js';
 import { createJungleScrambler, createJungleScramblerPulse, PLATFORM_COURSE } from '../../helpers/scene/junglePlatformCourse.js';
 import { AudioManager } from '../../helpers/audio/AudioManager.js';
@@ -363,7 +364,7 @@ export function createScene({ entryState, onRespawn, onPlatformer, section = 'ap
   const beams = new THREE.Group(); beams.name = 'FacilityDefenseLasers'; scene.add(beams);
   const bolts = Array.from({ length: 32 }, () => {
     const mesh = new THREE.Mesh(boltGeometry, boltMaterial); mesh.visible = false; beams.add(mesh);
-    return { mesh, velocity: new THREE.Vector3(), life: 0 };
+    return { mesh, velocity: new THREE.Vector3(), life: 0, parried: false, owner: 'boss' as 'boss' | 'player' };
   });
   const turrets = site.turrets.map((turret, index) => {
     const material = new THREE.MeshBasicMaterial({ color: 0xff4234, transparent: true, opacity: 0.28, depthWrite: false });
@@ -391,6 +392,7 @@ export function createScene({ entryState, onRespawn, onPlatformer, section = 'ap
     direction.copy(turret.aim).sub(origin).normalize();
     bolt.mesh.position.copy(origin); bolt.mesh.quaternion.setFromUnitVectors(up, direction);
     bolt.velocity.copy(direction).multiplyScalar(speed); bolt.life = 3; bolt.mesh.visible = true;
+    bolt.parried = false; bolt.owner = 'boss';
     site.activatePhysicsNear(origin);
   }
   function damageSentry(sentry: typeof sentries[number], amount: number, weapon?: DamageWeapon) {
@@ -497,20 +499,53 @@ export function createScene({ entryState, onRespawn, onPlatformer, section = 'ap
     const height = player.getState().crouching ? 0.95 : 1.65;
     playerBounds.min.set(p.x - 0.32, p.y - player.radius, p.z - 0.32);
     playerBounds.max.set(p.x + 0.32, p.y - player.radius + height, p.z + 0.32);
+    const sentryBounds = new THREE.Box3();
     for (const bolt of bolts) {
       if (bolt.life <= 0) continue;
       const from = bolt.mesh.position, to = from.clone().addScaledVector(bolt.velocity, dt), travel = from.distanceTo(to);
       ray.set(from, direction.copy(bolt.velocity).normalize());
-      const contact = ray.intersectBox(playerBounds, intersection);
-      const playerDistance = playerBounds.containsPoint(from) ? 0 : contact ? from.distanceTo(contact) : Infinity;
+      // Keep the cylinder aligned with its (possibly deflected) travel direction.
+      if (bolt.parried) bolt.mesh.quaternion.setFromUnitVectors(up, direction);
       let obstruction = Infinity;
       rayFrom.set(from.x, from.y, from.z); rayTo.set(to.x, to.y, to.z);
       physicsWorld.raycastAll(rayFrom, rayTo, { skipBackfaces: false, checkCollisionResponse: true }, hit => {
         if (hit.body !== player.body && hit.body?.collisionResponse) obstruction = Math.min(obstruction, hit.distance);
       });
       bolt.life -= dt;
-      if (playerDistance <= travel && playerDistance < obstruction) { player.takeDamage(12); bolt.life = 0; }
-      else if (obstruction !== Infinity) bolt.life = 0;
+      if (bolt.parried && bolt.owner === 'player') {
+        let sentryHitDistance = Infinity;
+        let sentryHit: typeof sentries[number] | null = null;
+        for (const sentry of sentries) {
+          if (!sentry.active || sentry.actor.health <= 0) continue;
+          sentryBounds.setFromCenterAndSize(
+            new THREE.Vector3(sentry.body.position.x, sentry.body.position.y, sentry.body.position.z),
+            new THREE.Vector3(1.4, 2.0, 1.4));
+          const point = ray.intersectBox(sentryBounds, intersection);
+          const d = sentryBounds.containsPoint(from) ? 0 : point ? from.distanceTo(point) : Infinity;
+          if (d <= travel && d < sentryHitDistance) { sentryHitDistance = d; sentryHit = sentry; }
+        }
+        let enemyHitDistance = Infinity;
+        let enemyHit: typeof enemies[number] | null = null;
+        for (const enemy of enemies) {
+          if (enemy.phase === 'dormant' || enemy.phase === 'dying' || enemy.kind === 'dino') continue;
+          sentryBounds.setFromCenterAndSize(
+            new THREE.Vector3(enemy.body.position.x, enemy.body.position.y, enemy.body.position.z),
+            new THREE.Vector3(1.2, 1.8, 1.2));
+          const point = ray.intersectBox(sentryBounds, intersection);
+          const d = sentryBounds.containsPoint(from) ? 0 : point ? from.distanceTo(point) : Infinity;
+          if (d <= travel && d < enemyHitDistance) { enemyHitDistance = d; enemyHit = enemy; }
+        }
+        if (sentryHit && sentryHitDistance <= enemyHitDistance && sentryHitDistance < obstruction) {
+          damageSentry(sentryHit, PARRY_DAMAGE, 'lightsaber'); bolt.life = 0;
+        } else if (enemyHit && enemyHitDistance < obstruction) {
+          damageJungleEnemy(enemyHit, PARRY_DAMAGE, 'lightsaber'); bolt.life = 0;
+        } else if (obstruction !== Infinity) bolt.life = 0;
+      } else {
+        const contact = ray.intersectBox(playerBounds, intersection);
+        const playerDistance = playerBounds.containsPoint(from) ? 0 : contact ? from.distanceTo(contact) : Infinity;
+        if (playerDistance <= travel && playerDistance < obstruction) { player.takeDamage(12); bolt.life = 0; }
+        else if (obstruction !== Infinity) bolt.life = 0;
+      }
       if (bolt.life <= 0) bolt.mesh.visible = false; else bolt.mesh.position.copy(to);
     }
   }
@@ -625,6 +660,8 @@ export function createScene({ entryState, onRespawn, onPlatformer, section = 'ap
       ...sentries.filter(s => s.active && s.actor.health > 0)
         .map((sentry): DamageTarget => ({ root: sentry.actor.root, body: sentry.body, damage: (amount, weapon) => damageSentry(sentry, amount, weapon) })),
     ],
+    getParryableBolts: (): ParryableBolt[] =>
+      completed || bridgeClock >= 0 || deathClock > 0 ? [] : bolts.filter(bolt => bolt.life > 0),
     isCinematic: () => completed || bridgeClock >= 0 || deathClock > 0,
     getCinematicDelta: () => animationDelta,
     getCinematicState: () => completed || bridgeClock >= 0 || deathClock > 0 ? { ...player.getState(),

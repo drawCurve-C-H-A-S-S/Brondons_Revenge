@@ -19,6 +19,19 @@ import type { PlayerState } from './player.js';
 
 interface Vec3Like { x: number; y: number; z: number; }
 
+export const HOLOGRAM_TRANSFER_DURATION = 1.95;
+
+interface HologramTransition { blend: number; opacity: number; time: number; }
+
+export function hologramTransitionAt(time: number, arriving = false): HologramTransition {
+  const phase = arriving ? HOLOGRAM_TRANSFER_DURATION - time : time;
+  return {
+    blend: THREE.MathUtils.smoothstep(phase, 0, 0.55),
+    opacity: 1 - THREE.MathUtils.smoothstep(phase, 0.75, 1.65),
+    time,
+  };
+}
+
 export interface CinematicPose {
   clip: 'Walk_Loop' | 'Float_Loop' | 'Ladder_Climb_Loop' | 'Crouch_Idle_Loop' | 'Interact' | 'Idle_Loop' | 'Sprint_Loop' | 'Pistol_Aim_Neutral' | 'Pistol_Shoot' | 'Sword_Idle' | 'Sword_Attack' | 'Roll' | 'Hit_Chest' | 'Death01' | 'Jump_Start' | 'Jump_Loop' | 'Jump_Land' | 'Sitting_Enter';
   time: number;
@@ -55,6 +68,124 @@ const ONE_SHOT_CLIPS = ['Jump_Start', 'Jump_Land', ...ACTION_CLIPS];
 // direction the camera is looking.
 const MODEL_ROT_OFFSET = Math.PI;
 
+/**
+ * Pose the UAL1 rig in a motionless "lay flat" configuration: hips neutral,
+ * spine untouched, legs straight (as per the T-rest), and both arms IK'd down
+ * so the hands rest alongside the hips. Call once on a freshly loaded gltf
+ * before setting the model's world rotation / position - the pose stays as
+ * long as no AnimationMixer is ticked on this model afterward.
+ */
+export function applyLayFlatPose(gltf: { scene: THREE.Object3D }): void {
+  const model = gltf.scene;
+
+  // Normalise facing/position so our world-space IK targets are expressed in
+  // model-local coordinates. We restore both at the end.
+  const savedQuat = model.quaternion.clone();
+  const savedPos = model.position.clone();
+  model.quaternion.identity();
+  model.position.set(0, 0, 0);
+  model.updateMatrixWorld(true);
+
+  function aimBone(bone: THREE.Object3D, child: THREE.Object3D, target: THREE.Vector3): void {
+    const origin = bone.getWorldPosition(new THREE.Vector3());
+    const current = child.getWorldPosition(new THREE.Vector3()).sub(origin).normalize();
+    const desired = target.clone().sub(origin).normalize();
+    const rot = new THREE.Quaternion().setFromUnitVectors(current, desired)
+      .multiply(bone.getWorldQuaternion(new THREE.Quaternion()));
+    bone.quaternion.copy(
+      bone.parent!.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(rot),
+    );
+    model.updateMatrixWorld(true);
+  }
+
+  function solveLimb(
+    upperName: string, lowerName: string, tipName: string,
+    target: THREE.Vector3, pole: THREE.Vector3,
+  ): void {
+    const upper = model.getObjectByName(upperName);
+    const lower = model.getObjectByName(lowerName);
+    const tip = model.getObjectByName(tipName);
+    if (!upper || !lower || !tip) return;
+    const origin = upper.getWorldPosition(new THREE.Vector3());
+    const joint = lower.getWorldPosition(new THREE.Vector3());
+    const end = tip.getWorldPosition(new THREE.Vector3());
+    const a = origin.distanceTo(joint);
+    const b = joint.distanceTo(end);
+    const direction = target.clone().sub(origin);
+    const distance = THREE.MathUtils.clamp(direction.length(), Math.abs(a - b) + 0.001, a + b - 0.001);
+    direction.normalize();
+    const bend = pole.clone().addScaledVector(direction, -pole.dot(direction)).normalize();
+    const along = (a * a - b * b + distance * distance) / (2 * distance);
+    const knee = origin.clone()
+      .addScaledVector(direction, along)
+      .addScaledVector(bend, Math.sqrt(Math.max(0, a * a - along * along)));
+    aimBone(upper, lower, knee);
+    aimBone(lower, tip, origin.clone().addScaledVector(direction, distance));
+  }
+
+  // Shoulder-relative hand targets: hang down ~62cm, tucked a hair toward the
+  // body centreline so the arms don't flare out from the ribs.
+  for (const suffix of ['l', 'r'] as const) {
+    const upper = model.getObjectByName(`upperarm_${suffix}`);
+    if (!upper) continue;
+    const side = suffix === 'l' ? 1 : -1;
+    const shoulder = upper.getWorldPosition(new THREE.Vector3());
+    const target = new THREE.Vector3(
+      shoulder.x - side * 0.03,
+      shoulder.y - 0.62,
+      shoulder.z + 0.04,
+    );
+    const pole = new THREE.Vector3(side * 0.8, -0.2, -1).normalize();
+    solveLimb(`upperarm_${suffix}`, `lowerarm_${suffix}`, `hand_${suffix}`, target, pole);
+  }
+
+  // Legs are already straight in the UAL rest pose; nothing to do there.
+
+  model.quaternion.copy(savedQuat);
+  model.position.copy(savedPos);
+  model.updateMatrixWorld(true);
+}
+
+export function createPrologueGetUpClip(gltf: { scene: THREE.Object3D; animations: readonly THREE.AnimationClip[] }): THREE.AnimationClip {
+  const model = gltf.scene;
+  const rig: Array<{ bone: THREE.Bone; position: THREE.Vector3; quaternion: THREE.Quaternion; scale: THREE.Vector3 }> = [];
+  model.traverse(node => {
+    if (node instanceof THREE.Bone) rig.push({ bone: node, position: node.position.clone(), quaternion: node.quaternion.clone(), scale: node.scale.clone() });
+  });
+  const restore = () => {
+    for (const entry of rig) {
+      entry.bone.position.copy(entry.position);
+      entry.bone.quaternion.copy(entry.quaternion);
+      entry.bone.scale.copy(entry.scale);
+    }
+    model.updateMatrixWorld(true);
+  };
+  const capture = () => rig.map(({ bone }) => ({ position: bone.position.clone(), quaternion: bone.quaternion.clone(), scale: bone.scale.clone() }));
+  const sampler = new THREE.AnimationMixer(model);
+  const sample = (name: string, time: number) => {
+    sampler.stopAllAction();
+    restore();
+    const clip = gltf.animations.find(animation => animation.name === name)
+      ?? gltf.animations.find(animation => animation.name === 'Idle_Loop');
+    if (clip) {
+      sampler.clipAction(clip).reset().play();
+      sampler.setTime(Math.min(time, clip.duration));
+    }
+    const pose = capture();
+    sampler.stopAllAction();
+    return pose;
+  };
+  const poses = [capture(), sample('Fixing_Kneeling', 0.65), sample('Crouch_Idle_Loop', 0.3), sample('Idle_Loop', 0.5)];
+  sampler.uncacheRoot(model);
+  restore();
+  const times = [0, 0.9, 2.05, 3.3];
+  return new THREE.AnimationClip('Prologue_GetUp', 3.3, rig.flatMap(({ bone }, boneIndex) => [
+    new THREE.QuaternionKeyframeTrack(`${bone.name}.quaternion`, times, poses.flatMap(pose => pose[boneIndex].quaternion.toArray())),
+    new THREE.VectorKeyframeTrack(`${bone.name}.position`, times, poses.flatMap(pose => pose[boneIndex].position.toArray())),
+    new THREE.VectorKeyframeTrack(`${bone.name}.scale`, times, poses.flatMap(pose => pose[boneIndex].scale.toArray())),
+  ]));
+}
+
 export async function loadCharacter(loader?: GLTFLoader) {
 
   let gltf;
@@ -72,11 +203,22 @@ export async function loadCharacter(loader?: GLTFLoader) {
   let wasOnGround: boolean | null = null;
   model.rotation.set(0, MODEL_ROT_OFFSET, 0, 'YXZ');
 
+  const transitionMeshes: Array<{ mesh: THREE.Mesh; material: THREE.Material | THREE.Material[] }> = [];
+  const hologramMaterials = new Map<THREE.Material, THREE.Material>();
+  const hologramUniforms = {
+    hologramTime: { value: 0 },
+    hologramBlend: { value: 0 },
+    hologramOpacity: { value: 1 },
+  };
+  let hologramActive = false;
+
   // Layer 0 is the gameplay camera; layer 1 is the mirror camera.
   model.traverse((child: THREE.Object3D) => {
     child.layers.enable(0);
     child.layers.enable(1);
     if ((child as THREE.Mesh).isMesh) {
+      const mesh = child as THREE.Mesh;
+      transitionMeshes.push({ mesh, material: mesh.material });
       (child as THREE.Mesh).castShadow = true;
       (child as THREE.Mesh).receiveShadow = true;
     }
@@ -600,7 +742,64 @@ export async function loadCharacter(loader?: GLTFLoader) {
     model.rotation.set(0, yaw + MODEL_ROT_OFFSET, 0, 'YXZ');
   }
 
+  function hologramMaterial(original: THREE.Material): THREE.Material {
+    const cached = hologramMaterials.get(original);
+    if (cached) return cached;
+    const material = original.clone();
+    material.transparent = true;
+    material.depthWrite = false;
+    material.customProgramCacheKey = () => `${original.customProgramCacheKey()}-player-hologram`;
+    material.onBeforeCompile = (shader, renderer) => {
+      original.onBeforeCompile(shader, renderer);
+      Object.assign(shader.uniforms, hologramUniforms);
+      shader.vertexShader = `varying vec3 hologramPosition;\n${shader.vertexShader}`.replace(
+        '#include <project_vertex>',
+        '#include <project_vertex>\nhologramPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;',
+      );
+      shader.fragmentShader = `
+        uniform float hologramTime;
+        uniform float hologramBlend;
+        uniform float hologramOpacity;
+        varying vec3 hologramPosition;
+        ${shader.fragmentShader}
+      `.replace('#include <opaque_fragment>', `
+        #include <opaque_fragment>
+        float hologramRim = pow(1.0 - abs(dot(normal, normalize(vViewPosition))), 2.0);
+        float hologramScan = 0.5 + 0.5 * sin(hologramPosition.y * 130.0 - hologramTime * 8.0);
+        float hologramFlicker = 0.96 + 0.04 * sin(hologramTime * 25.0);
+        vec3 hologramColor = vec3(0.04, 0.5, 1.4) * (0.6 + hologramScan * 0.28 + hologramRim * 0.8) * hologramFlicker;
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, hologramColor, hologramBlend);
+        gl_FragColor.a *= hologramOpacity;
+      `);
+    };
+    hologramMaterials.set(original, material);
+    return material;
+  }
+
+  function setHologramTransition(state: HologramTransition | null) {
+    if (!state) {
+      if (!hologramActive) return;
+      for (const entry of transitionMeshes) entry.mesh.material = entry.material;
+      hologramActive = false;
+      model.visible = true;
+      return;
+    }
+    if (!hologramActive) {
+      for (const entry of transitionMeshes) {
+        entry.mesh.material = Array.isArray(entry.material) ? entry.material.map(hologramMaterial) : hologramMaterial(entry.material);
+      }
+      hologramActive = true;
+    }
+    hologramUniforms.hologramTime.value = state.time;
+    hologramUniforms.hologramBlend.value = THREE.MathUtils.clamp(state.blend, 0, 1);
+    hologramUniforms.hologramOpacity.value = THREE.MathUtils.clamp(state.opacity, 0, 1);
+    model.visible = state.opacity > 0;
+  }
+
   function dispose() {
+    setHologramTransition(null);
+    for (const material of hologramMaterials.values()) material.dispose();
+    hologramMaterials.clear();
     disposeLightsaber(lightsaber);
     crowbar.removeFromParent();
     goggles.removeFromParent();
@@ -617,7 +816,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
   }
 
   return {
-    model, mixer, update, setFacing, weapon, crowbar, lightsaberAttacks,
+    model, mixer, update, setFacing, setHologramTransition, weapon, crowbar, lightsaberAttacks,
     setCrowbarEquipped: (equipped: boolean) => { crowbarEquipped = equipped; crowbar.visible = equipped; },
     setLightsaberEquipped: (equipped: boolean) => { lightsaberEquipped = equipped; lightsaber.visible = equipped; },
     setGogglesEquipped: (equipped: boolean) => { goggles.visible = equipped; },

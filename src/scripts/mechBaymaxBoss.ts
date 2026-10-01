@@ -25,7 +25,7 @@ export const BOSS_RULES = Object.freeze({
   droneWindupSeconds: 0.35, droneChargeSpeed: 11,
   droneApproachTrigger: 3.4, droneContactTrigger: 1.05,
   droneShotInterval: 2.4, droneShotStagger: 0.4, droneShotFirstDelay: 1.4,
-  droneLaserSpeed: 15, droneLaserDamage: 5,
+  droneLaserSpeed: 15, droneLaserDamage: 5, parryDamage: 50,
 });
 export type BossPhase = 'dormant' | 'flying' | 'windup' | 'rushing' | 'recovering' | 'falling' | 'exposed' | 'rising'
   | 'phaseThreeAwakening' | 'gravityWindup' | 'gravity' | 'droneExplosion' | 'phaseThreeTargets'
@@ -115,7 +115,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     : health <= BOSS_RULES.health * BOSS_RULES.phaseTwoThreshold ? 2 : 1;
   let lastPhaseThreeState = false;
   let volleyQueue = 0, volleyClock = 0, volleyPattern: AttackPattern = 'single', volleyMuzzle = 0;
-  const bolts: Array<{ mesh: THREE.Mesh; velocity: THREE.Vector3; life: number; damage: number }> = [];
+  const bolts: Array<{ mesh: THREE.Mesh; velocity: THREE.Vector3; life: number; damage: number; parried: boolean; owner: 'boss' | 'player' }> = [];
   const droneBoltMaterial = new THREE.MeshBasicMaterial({ color: 0xff9424 });
   const fragments: Array<{ mesh: THREE.Mesh; velocity: THREE.Vector3; life: number }> = [];
 
@@ -141,7 +141,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
       root: mesh,
       damage(amount: number, weapon?: string) {
         const validPhase = ['flying', 'windup', 'rushing', 'recovering', 'gravity'].includes(phase);
-        if (disposed || !validPhase || !player.isEnabled() || weapon !== 'pistol' || hits <= 0 || !Number.isFinite(amount) || amount <= 0) return false;
+        if (disposed || !validPhase || !player.isEnabled() || (weapon !== 'pistol' && weapon !== 'lightsaber') || hits <= 0 || !Number.isFinite(amount) || amount <= 0) return false;
         hits--; if (targetsPhaseThreeMode) mesh.material = targetPhaseThree;
         cross.visible = hits > 0 && !targetsPhaseThreeMode;
         if (!hits) {
@@ -521,7 +521,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
 
   function droneTargets(): DamageTarget[] {
     return drones.filter(drone => drone.active).map(drone => ({ root: drone.root, body: drone.body, damage(amount: number, weapon?: string) {
-      if (disposed || phase !== 'gravity' || !player.isEnabled() || weapon !== 'pistol' || !Number.isFinite(amount) || amount <= 0 || !drone.active) return false;
+      if (disposed || phase !== 'gravity' || !player.isEnabled() || (weapon !== 'pistol' && weapon !== 'lightsaber') || !Number.isFinite(amount) || amount <= 0 || !drone.active) return false;
       drone.active = false; drone.root.visible = false;
       if (drone.body.world === world) world.removeBody(drone.body);
       const mesh = drone.root.getObjectByProperty('isMesh', true) as THREE.Mesh | undefined;
@@ -825,14 +825,14 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     if (offsetAngle !== 0) direction.applyAxisAngle(new THREE.Vector3(0, 1, 0), offsetAngle);
     const mesh = new THREE.Mesh(boxGeometry, targetCrossMat); mesh.name = 'BossLaser'; mesh.scale.set(0.12, 0.12, 1.2);
     mesh.position.copy(from); mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction); scene.add(mesh);
-    bolts.push({ mesh, velocity: direction.multiplyScalar(BOSS_RULES.laserSpeed), life: 5, damage: BOSS_RULES.laserDamage });
+    bolts.push({ mesh, velocity: direction.multiplyScalar(BOSS_RULES.laserSpeed), life: 5, damage: BOSS_RULES.laserDamage, parried: false, owner: 'boss' });
   }
   function fireDroneBolt(fromPosition: THREE.Vector3, targetPosition: THREE.Vector3) {
     const from = fromPosition.clone();
     const direction = targetPosition.clone().sub(from).normalize();
     const mesh = new THREE.Mesh(boxGeometry, droneBoltMaterial); mesh.name = 'DroneLaser'; mesh.scale.set(0.09, 0.09, 0.8);
     mesh.position.copy(from); mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction); scene.add(mesh);
-    bolts.push({ mesh, velocity: direction.multiplyScalar(BOSS_RULES.droneLaserSpeed), life: 4, damage: BOSS_RULES.droneLaserDamage });
+    bolts.push({ mesh, velocity: direction.multiplyScalar(BOSS_RULES.droneLaserSpeed), life: 4, damage: BOSS_RULES.droneLaserDamage, parried: false, owner: 'boss' });
   }
   function releaseVolley(pattern: AttackPattern) {
     volleyPattern = pattern;
@@ -844,6 +844,32 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   function stepBolts(dt: number) {
     for (let i = bolts.length - 1; i >= 0; i--) {
       const bolt = bolts[i], from = bolt.mesh.position.clone(), to = from.clone().addScaledVector(bolt.velocity, dt);
+      // Parried player-owned bolts check against boss damage targets instead of the player.
+      if (bolt.parried && bolt.owner === 'player') {
+        bolt.life -= dt;
+        if (bolt.life <= 0) { bolt.mesh.removeFromParent(); bolts.splice(i, 1); continue; }
+        const activeTargets = disposed || phase === 'defeated' || phase === 'droneExplosion' ? []
+          : phase === 'exposed' ? [bodyTarget]
+          : ['flying', 'windup', 'rushing', 'recovering', 'gravity'].includes(phase) ? [...targets.filter(t => t.hits() > 0), ...droneTargets()]
+          : [];
+        let hitTarget = false;
+        for (const target of activeTargets) {
+          if (!target.root) continue;
+          target.root.updateMatrixWorld(true);
+          const sphere = new THREE.Sphere();
+          new THREE.Box3().setFromObject(target.root).getBoundingSphere(sphere);
+          const segment = new THREE.Line3(from, to);
+          const closest = segment.closestPointToPoint(sphere.center, true, new THREE.Vector3());
+          if (closest.distanceTo(sphere.center) <= sphere.radius + 0.3) {
+            target.damage(BOSS_RULES.parryDamage, 'lightsaber');
+            burst(bolt.mesh.position.clone());
+            hitTarget = true; break;
+          }
+        }
+        if (hitTarget || to.length() > 80) { bolt.mesh.removeFromParent(); bolts.splice(i, 1); }
+        else bolt.mesh.position.copy(to);
+        continue;
+      }
       let distance = Infinity, hitPlayer = false;
       world.raycastAll(new CANNON.Vec3(from.x, from.y, from.z), new CANNON.Vec3(to.x, to.y, to.z), { skipBackfaces: false }, hit => {
         if (!hit.body || bossBodies.has(hit.body) || drones.some(drone => drone.body === hit.body) || !hit.body.collisionResponse || hit.distance >= distance) return;
@@ -977,6 +1003,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
       if (['flying', 'windup', 'rushing', 'recovering', 'gravity'].includes(phase)) return [...targets.filter(target => target.hits() > 0), ...droneTargets()];
       return [];
     },
+    getParryableBolts: () => bolts,
     setGogglesActive(active: boolean) {
       scanning = active;
       for (const t of targets) if (!targetsPhaseThreeMode) t.mesh.material = active ? targetGoggle : targetIdle;

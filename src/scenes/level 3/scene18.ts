@@ -11,6 +11,7 @@ import { isTouchFire, consumePlatformerAim, resetTouchInput } from '../../script
 import { loadSharkModel, loadToolModel } from '../../core/loader.js';
 import type { CinematicPose, loadCharacter } from '../../scripts/characterManager.js';
 import { traceShot, type DamageTarget, type DamageWeapon } from '../../scripts/pistol.js';
+import { PARRY_DAMAGE, type ParryableBolt } from '../../scripts/lightsaber.js';
 import { AudioManager } from '../../helpers/audio/AudioManager.js';
 import jungleBgmUrl from '../../assets/bgm/DonRevJungleLoop.m4a?url';
 
@@ -88,7 +89,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   laser.name = 'PlatformLaserBeam'; laser.visible = false; scene.add(laser);
   const shots = Array.from({ length: 48 }, () => {
     const mesh = new THREE.Mesh(shotGeometry, hostileMaterial); mesh.visible = false; scene.add(mesh);
-    return { mesh, life: 0, wave: false, velocity: new THREE.Vector3() };
+    return { mesh, life: 0, wave: false, velocity: new THREE.Vector3(), parried: false, owner: 'boss' as 'boss' | 'player' };
   });
   const sharks: RiverShark[] = [];
   let sharkTemplate: THREE.Group | null = null, sharkAnimations: THREE.AnimationClip[] = [], sharksReady = false;
@@ -154,7 +155,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
     clearInput(); player.disable(); player.body.velocity.set(0, 0, 0); player.body.force.set(0, 0, 0);
     player.body.type = CANNON.Body.KINEMATIC; player.body.updateMassProperties();
   }
-  function clearShots() { for (const shot of shots) { shot.life = 0; shot.mesh.visible = false; } warning.visible = laser.visible = false; laserLife = 0; }
+  function clearShots() { for (const shot of shots) { shot.life = 0; shot.mesh.visible = false; shot.parried = false; shot.owner = 'boss'; } warning.visible = laser.visible = false; laserLife = 0; }
   function checkpointState(): RescueArrival {
     return { ...entryState, platformProgress: copyProgress(saved), scramblerPosition: undefined, scramblerQuaternion: undefined,
       cameraPosition: undefined, cameraQuaternion: undefined, cameraFov: undefined,
@@ -343,6 +344,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   function fire(from: THREE.Vector3, to: THREE.Vector3, wave = false) {
     const shot = shots.find(item => item.life <= 0); if (!shot) return;
     shot.life = 2.5; shot.wave = wave;
+    shot.parried = false; shot.owner = 'boss';
     shot.mesh.position.copy(from); shot.mesh.scale.set(wave ? 3 : 1, wave ? 2.2 : 1, wave ? 6 : 1);
     shot.velocity.copy(to).sub(from);
     if (!normalSpace) shot.velocity.z = 0;
@@ -425,6 +427,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
     const distance = oldPoint.distanceTo(point); return distance <= travel ? distance : Infinity;
   }
   function updateShots(dt: number) {
+    const parryBounds = new THREE.Box3();
     for (const shot of shots) {
       if (shot.life <= 0) continue;
       oldPoint.copy(shot.mesh.position); nextPoint.copy(oldPoint).addScaledVector(shot.velocity, dt);
@@ -434,11 +437,23 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
         const distance = intersectionDistance(bounds, travel);
         if (distance < nearest) { nearest = distance; hit = action; }
       };
-      const p = player.body.position;
-      hitBounds.min.set(p.x - 0.32, p.y - player.radius, p.z - 0.4);
-      hitBounds.max.set(p.x + 0.32, p.y - player.radius + (player.getState().crouching ? 0.85 : 1.65), p.z + 0.4);
-      if (shot.wave) hitBounds.expandByScalar(0.15);
-      consider(hitBounds, () => hurt(shot.wave ? 20 : 12));
+      if (shot.parried && shot.owner === 'player') {
+        for (const actor of actors) {
+          if (actor.health <= 0 || !actor.root.visible) continue;
+          const centre = actor.body.position;
+          parryBounds.setFromCenterAndSize(
+            new THREE.Vector3(centre.x, centre.y + (actor.boss ? 1.1 : 0.6), centre.z),
+            new THREE.Vector3(actor.boss ? 2.4 : 1.2, actor.boss ? 2.4 : 1.6, actor.boss ? 2.4 : 1.2));
+          if (shot.wave) parryBounds.expandByScalar(0.2);
+          consider(parryBounds, () => damageActor(actor, PARRY_DAMAGE, 'pistol'));
+        }
+      } else {
+        const p = player.body.position;
+        hitBounds.min.set(p.x - 0.32, p.y - player.radius, p.z - 0.4);
+        hitBounds.max.set(p.x + 0.32, p.y - player.radius + (player.getState().crouching ? 0.85 : 1.65), p.z + 0.4);
+        if (shot.wave) hitBounds.expandByScalar(0.15);
+        consider(hitBounds, () => hurt(shot.wave ? 20 : 12));
+      }
       physicsWorld.raycastAll(new CANNON.Vec3(oldPoint.x, oldPoint.y, oldPoint.z), new CANNON.Vec3(nextPoint.x, nextPoint.y, nextPoint.z),
         { skipBackfaces: false, checkCollisionResponse: true }, result => {
           if (result.body?.type === CANNON.Body.STATIC && result.distance <= nearest) { nearest = result.distance; hit = null; }
@@ -638,6 +653,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
       } else if (gun) { gun.removeFromParent(); scene.add(gun); gun.visible = false; }
     },
     getDamageTargets: damageTargets,
+    getParryableBolts: (): ParryableBolt[] => live() ? shots.filter(shot => shot.life > 0) : [],
     getPlatformerStatus: () => ({ phase, phaseTime, checkpoint: saved.checkpoint, bossHealth: boss?.health ?? BOSS_HEALTH, bossStage,
       orbHealth, bossVolley, normalSpace, equipped, scrollDistance, scrollSpeed: phase === 'traversal' ? SCROLL_SPEED : 0,
       aim: aimNdc.toArray(), bossShielded: orbHealth > 0, loaded: loadedCount === 3 && sharksReady, assetError,

@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { applyTraversalCamera } from './core/camera.js';
 import { createSceneMinimap } from './core/renderer.js';
 import { createScene as createScene1 } from './scenes/scene1.js';
+import { createScene as createPrologueScene1 } from './scenes/prologue/prologue_scene_1.js';
 import { createScene as createScene2 } from './scenes/level 1/scene2.js';
 import { createScene as createScene3 } from './scenes/level 1/scene3.js';
 import { createScene as createScene4 } from './scenes/level 1/scene4.js';
@@ -176,6 +177,7 @@ const lightsaber = new LightsaberController(() => ({
   openDoor: () => { currentSceneData?.hitForwardDoor?.(); currentSceneData?.hitCargoDoor?.(); },
   holsterOther: () => { crowbar.holster(); pistol.holster(); },
   firstPersonHands: () => firstPersonHands,
+  getParryableBolts: () => currentSceneData?.getParryableBolts?.() ?? [],
 }));
 lightsaberController = lightsaber;
 const goggles = new GogglesController(() => ({
@@ -326,6 +328,38 @@ function toggleView() {
   updateViewButton();
 }
 
+// --- Load Prologue Scene 1 (developer menu entry) ---
+function loadPrologue1() {
+  hideScene1Skip();
+  retireTraversalRoom();
+  currentSceneData?.dispose?.();
+  if (currentSceneData === scene1Data) scene1Data = null;
+  activeSceneId = 'prologue1'; currentPlayer = null;
+  enterHudScene('prologue1');
+  currentSceneData = createPrologueScene1({
+    thirdPersonCamera: { distance: THIRD_PERSON_DIST, height: THIRD_PERSON_HEIGHT, right: THIRD_PERSON_RIGHT },
+    onPlayable: () => {
+      if (activeSceneId !== 'prologue1') return;
+      isThirdPerson = true;
+      if (globalCharacter && activeScene) activeScene.add(globalCharacter.model);
+      globalCharacter?.setFacing(currentPlayer!.getState().yaw);
+      updatePlayerView(0);
+    },
+    onFinished: () => {
+      if (activeSceneId !== 'prologue1') return;
+      isThirdPerson = true;
+      seenControls.delete('basics');
+      loadScene2(true, true);
+    },
+  });
+  activeScene = currentSceneData.scene;
+  activeCamera = currentSceneData.camera;
+  currentPlayer = currentSceneData.player;
+  updatePhysics = currentSceneData.updatePhysics;
+  cutsceneManager = null;
+  if (orbitControls) { orbitControls.object = activeCamera!; orbitControls.enabled = false; }
+}
+
 // --- Load Scene 1 ---
 function loadScene1() {
   activeSceneId = 'scene1'; currentPlayer = null;
@@ -410,7 +444,7 @@ function showMenuButtons() {
 }
 
 function transitionToScene2() {
-  console.log('Starting transition to scene 2');
+  console.log('Starting transition to prologue scene 1');
   const fadeOverlay = document.getElementById('fade-overlay')!;
   fadeOverlay.classList.remove('hidden');
 
@@ -432,7 +466,7 @@ function transitionToScene2() {
       zoomFinished = true;
       fadeOverlay.classList.add('active');
       scheduleSceneAction(() => {
-        try { loadScene2(); } catch (e) { console.error('Error loading scene 2:', e); }
+        try { loadPrologue1(); } catch (e) { console.error('Error loading the opening sequence:', e); }
         fadeOverlay.classList.remove('active');
         scheduleSceneAction(() => { fadeOverlay.classList.add('hidden'); }, 1500);
       }, 1500);
@@ -440,13 +474,13 @@ function transitionToScene2() {
   };
 }
 
-function loadScene2(skipWake = false) {
+function loadScene2(skipWake = false, openingEntry = false) {
   console.log('Loading scene 2...');
 
   globalCharacter?.model.removeFromParent();
-  if (currentSceneData === scene1Data) currentSceneData?.dispose?.();
+  if (currentSceneData === scene1Data || activeSceneId === 'prologue1') currentSceneData?.dispose?.();
   retireTraversalRoom();
-  const sceneData = createScene2({ audioManager, skipWake });
+  const sceneData = createScene2({ audioManager, skipWake, openingEntry });
   enterManagedScene('scene2', sceneData);
   currentSceneData = sceneData;
   activeScene = currentSceneData.scene;
@@ -464,6 +498,10 @@ function loadScene2(skipWake = false) {
 
   orbitControls!.object = activeCamera!;
   orbitControls!.enabled = false;
+
+  globalCharacter?.setFacing(currentPlayer!.getState().yaw);
+  updatePlayerView(0);
+  globalCharacter?.setHologramTransition(currentSceneData.getHologramTransition?.() ?? null);
 
   if (currentSceneData.setDoorTrigger) {
     currentSceneData.setDoorTrigger((state: PlayerTransitionState) => { transitionToScene3(state); });
@@ -1103,6 +1141,7 @@ function updatePlayerView(dt: number) {
 
 // --- Direct scene selection ---
 const SCENE_CHOICES = [
+  [0, 'Prologue — awakening'],
   [1, 'Space prologue'], [2, 'Medical bay'], [3, 'Passageway'], [4, 'Computer room'],
   [5, 'Cargo hold'], [6, 'Target range'], [7, 'Cafeteria'], [8, 'Vent junction'],
   [9, 'Zero-gravity loading bay'], [10, 'Durable cargo puzzle'], [11, 'Mixed cargo puzzle'],
@@ -1237,6 +1276,7 @@ function jumpToScene(id: number) {
   // Detach persistent gear before the outgoing scene disposes its meshes.
   pistol.holster(); crowbar.holster(); lightsaber.holster(); pistol.update(0); crowbar.update(0); lightsaber.update(0);
   globalCharacter?.model.removeFromParent();
+  if (activeSceneId === 'prologue1') currentSceneData?.dispose?.();
   if (currentSceneData === scene1Data) { currentSceneData?.dispose?.(); scene1Data = null; }
   retireTraversalRoom();
   currentSceneData = null; currentPlayer = null; activeScene = null; activeCamera = null;
@@ -1250,6 +1290,7 @@ function jumpToScene(id: number) {
   if (id === 13) bayBossDefeated = false;
   try {
     switch (id) {
+      case 0: loadPrologue1(); break;
       case 1: loadScene1(); break;
       case 2: loadScene2(true); break;
       case 3: loadScene3(); break;
@@ -1439,7 +1480,7 @@ function animate() {
       if (!deathPresentation.managed && deathPresentation.elapsed >= 2.5) { deathPresentation = null; respawnAtCapsule(); }
     }
   }
-  if (healthBarEl) healthBarEl.style.display = activeSceneId === 'scene1' ? 'none' : '';
+  if (healthBarEl) healthBarEl.style.display = activeSceneId === 'scene1' || activeSceneId === 'prologue1' ? 'none' : '';
 
   // Record pursuit before stepping the active world; retired worlds step separately.
   npcManager.update(delta);
@@ -1467,6 +1508,7 @@ function animate() {
   // Character animations + view
   goggles.update();
   updatePlayerView(delta);
+  globalCharacter?.setHologramTransition(currentSceneData?.getHologramTransition?.() ?? null);
 
   if (!sceneOwnsControls && !currentSceneData?.ownsWeaponInput) { pistol.update(delta); crowbar.update(delta); }
   lightsaber.update(delta);

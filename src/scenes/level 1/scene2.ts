@@ -7,11 +7,12 @@ import * as CANNON from 'cannon-es';
 import comicVert from '../../shaders/comic.vert.glsl?raw';
 import comicFrag from '../../shaders/comic.frag.glsl?raw';
 import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
+import { HOLOGRAM_TRANSFER_DURATION, hologramTransitionAt } from '../../scripts/characterManager.js';
 import { createScenePhysics, PHYSICS, hasNearbyActor } from '../../helpers/physics/scenePhysics.js';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 
-export function createScene({ audioManager, skipWake, entryState }: {
-  audioManager?: unknown; skipWake?: boolean; entryState?: PlayerTransitionState;
+export function createScene({ audioManager, skipWake, entryState, openingEntry }: {
+  audioManager?: unknown; skipWake?: boolean; entryState?: PlayerTransitionState; openingEntry?: boolean;
 } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x000000);
@@ -597,6 +598,7 @@ export function createScene({ audioManager, skipWake, entryState }: {
   // --- Wake-up sequence ---
   let wakePhase = 'waiting';
   let wakeTime = 0;
+  let arrivalTime = openingEntry ? 0 : HOLOGRAM_TRANSFER_DURATION;
 
   // DOM elements for eye effect (created lazily)
   let eyeOverlay: HTMLDivElement | null = null;
@@ -683,7 +685,9 @@ export function createScene({ audioManager, skipWake, entryState }: {
     }
   }
 
-  if (skipWake || entryState) {
+  if (openingEntry) {
+    finishWake();
+  } else if (skipWake || entryState) {
     wakePhase = 'done';
     const spawnX = 0;
     const spawnZ = roomDepth / 2 - 2;
@@ -710,6 +714,11 @@ export function createScene({ audioManager, skipWake, entryState }: {
 
   function updatePhysics(dt: number, thirdPerson: boolean = false) {
     dt = Number.isFinite(dt) ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime)) : 0;
+    if (arrivalTime < HOLOGRAM_TRANSFER_DURATION) {
+      player.clearInput();
+      player.setRotation(Math.PI / 2, 0);
+      arrivalTime = Math.min(HOLOGRAM_TRANSFER_DURATION, arrivalTime + dt);
+    }
     physics.step(dt, player, thirdPerson);
     if (wakePhase !== 'done') {
       updateWakeSequence(dt);
@@ -768,7 +777,10 @@ export function createScene({ audioManager, skipWake, entryState }: {
       stairs: [{ x: stairCenterL, z: roomDepth / 2 - walkwayWidth - stairRun / 2 },
         { x: stairCenterR, z: roomDepth / 2 - walkwayWidth - stairRun / 2 }],
     },
-    controlsReady: () => wakePhase === 'done' && player.isEnabled(),
+    controlsReady: () => wakePhase === 'done' && player.isEnabled() && arrivalTime >= HOLOGRAM_TRANSFER_DURATION,
+    isCinematic: () => wakePhase !== 'done' || arrivalTime < HOLOGRAM_TRANSFER_DURATION,
+    get ownsWeaponInput() { return arrivalTime < HOLOGRAM_TRANSFER_DURATION; },
+    getHologramTransition: () => arrivalTime < HOLOGRAM_TRANSFER_DURATION ? hologramTransitionAt(arrivalTime, true) : null,
     cutsceneManager: null,
     player,
     npcSafeZone: new THREE.Box3(
