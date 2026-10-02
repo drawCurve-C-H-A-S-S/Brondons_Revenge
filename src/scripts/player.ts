@@ -82,6 +82,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   const crouchEyeHeight = 0.9;
 
   const playerShape = new CANNON.Sphere(playerRadius);
+  const ventShapes = [new CANNON.Sphere(playerRadius), new CANNON.Sphere(playerRadius)];
   // A directly controlled body must keep integrating even after standing still.
   const playerBody = new CANNON.Body({ mass: playerMass, allowSleep: false });
   playerBody.addShape(playerShape);
@@ -166,7 +167,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     if (ventMode && (e.code === 'KeyA' || e.code === 'KeyD') && !keys[e.code] && !e.repeat && turnRemaining === 0) {
       turnRemaining = e.code === 'KeyA' ? ventTurnAngle : -ventTurnAngle;
     }
-    if (!floating && !boxHandling && e.code === 'Space' && !keys[e.code] && !e.repeat) jumpQueued = true;
+    if (!floating && !boxHandling && !crouchForced && !ventMode && e.code === 'Space' && !keys[e.code] && !e.repeat) jumpQueued = true;
     // Toggle crouch with C key (only on fresh press, not repeat)
     if (!floating && !boxHandling && e.code === 'KeyC' && !crouchForced && !keys[e.code] && !e.repeat) {
       crouching = !crouching;
@@ -176,7 +177,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       sprinting = true;
     }
     const action = ACTION_KEYS[e.code];
-    if (!boxHandling && action && !keys[e.code] && !e.repeat && isOnGround) {
+    if (!boxHandling && !ventMode && action && !keys[e.code] && !e.repeat && isOnGround) {
       actionRequest = action;
       // Life 3: survives two updateCamera calls per frame (physics.step + main.ts),
       // giving exactly one character-update window before expiry.
@@ -205,7 +206,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   }
 
   function requestAction(action: PlayerActionName) {
-    if (!enabled || inputLocked || !isOnGround || boxHandling || actionRequest || (sideScrollDepth !== null && action !== 'Sword_Attack')) return false;
+    if (!enabled || inputLocked || !isOnGround || boxHandling || ventMode || actionRequest || (sideScrollDepth !== null && action !== 'Sword_Attack')) return false;
     actionRequest = action;
     actionRequestLife = 3;
     return true;
@@ -319,6 +320,11 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
 
   function beforePhysicsStep(_dt: number) {
     if (!enabled) return;
+    if (ventMode) {
+      crouching = true;
+      jumpQueued = false;
+      intentionalJump = false;
+    }
     if (inputLocked) { playerBody.velocity.set(0, 0, 0); return; }
     if (climbing) {
       playerBody.velocity.set(0, 0, 0);
@@ -358,7 +364,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       playerBody.velocity.x = desired.x * currentMoveSpeed;
       playerBody.velocity.z = desired.z * currentMoveSpeed;
     }
-    if (jumpQueued && isOnGround && !crouching) {
+    if (jumpQueued && isOnGround && !crouching && !crouchForced) {
       playerBody.velocity.y = PHYSICS.jumpSpeed;
       isOnGround = false;
       intentionalJump = true;
@@ -403,7 +409,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     const bobPitch = Math.sin(bobTime * 2) * bobAmplitudePitch * bobIntensity * bobScale;
 
     // Camera
-    const currentEyeHeight = !climbing && (crouching || crouchForced) ? crouchEyeHeight : eyeHeight;
+    const currentEyeHeight = ventMode || (!climbing && (crouching || crouchForced)) ? crouchEyeHeight : eyeHeight;
     camera.position.set(
       playerBody.position.x + bobHorizontal,
       playerBody.position.y - playerRadius + currentEyeHeight + bobVertical,
@@ -464,12 +470,13 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     playerBody.wakeUp();
     yaw = Math.atan2(Math.sin(state.yaw + rotation), Math.cos(state.yaw + rotation));
     pitch = state.pitch;
-    intentionalJump = state.intentionalJump;
-    jumpQueued = state.jumpQueued;
+    intentionalJump = !crouchForced && !ventMode && state.intentionalJump;
+    jumpQueued = !crouchForced && !ventMode && state.jumpQueued;
     bobTime = state.bobTime;
     bobIntensity = state.bobIntensity;
-    crouching = state.crouching;
-    sprinting = state.sprinting;
+    crouching = crouchForced || ventMode || state.crouching;
+    sprinting = !crouchForced && !ventMode && state.sprinting;
+    if (ventMode) playerBody.velocity.y = Math.min(0, playerBody.velocity.y);
     if (Number.isFinite(state.health)) health = Math.max(0, Math.min(PLAYER_MAX_HEALTH, state.health!));
     if (Number.isFinite(state.shield)) shield = Math.max(0, Math.min(PLAYER_MAX_SHIELD, state.shield!));
     isOnGround = false;
@@ -539,12 +546,26 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       actionRequest = null; actionRequestLife = 0;
     },
     setVentMode: (active: boolean) => {
+      ventShapes.forEach((shape, index) => {
+        const attached = playerBody.shapes.includes(shape);
+        if (active && !attached) {
+          const offset = (crouchEyeHeight - playerRadius) * (index + 1) / ventShapes.length;
+          playerBody.addShape(shape, new CANNON.Vec3(0, offset, 0));
+        } else if (!active && attached) {
+          playerBody.removeShape(shape);
+        }
+      });
+      playerBody.aabbNeedsUpdate = true;
+      playerBody.wakeUp();
       ventMode = active;
       turnRemaining = 0;
       crouchForced = active;
       crouching = active;
       lookLocked = active;
       clearInput();
+      intentionalJump = false;
+      if (active) playerBody.velocity.y = Math.min(0, playerBody.velocity.y);
+      updateCamera(0);
     },
     setClimbing: (active: boolean, direction: 1 | -1 = 1) => {
       climbing = active;

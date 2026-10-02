@@ -1262,6 +1262,10 @@ function updatePlayerView(dt: number) {
   globalCharacter?.update(sceneWeapon ? currentSceneData.getCinematicDelta?.() ?? dt : dt,
     currentPlayer.body.position, state, traversalView, currentPlayer.radius);
   if (sceneWeapon) currentSceneData.updateCinematicCharacter?.(globalCharacter);
+  if (state.ventMode) {
+    currentSceneData?.applyVentCamera?.(traversalView);
+    return;
+  }
   if (applyTraversalCamera(activeCamera, currentPlayer, traversalView)) return;
   if (traversalView) {
     // Forward is the direction the player faces (matches getMoveDirection's W vector).

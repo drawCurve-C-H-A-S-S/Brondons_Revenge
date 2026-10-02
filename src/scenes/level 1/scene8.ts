@@ -124,6 +124,24 @@ export function createScene({ entry = 'galley', entryState, puzzle = createCargo
   let promptVisible = false;
   const hatchInteractZ = 6.1;
   prompt?.classList.add('hidden');
+  function applyVentCamera(thirdPerson: boolean) {
+    camera.position.y = Math.min(camera.position.y, height - 0.16);
+    if (!thirdPerson) return;
+    const yaw = player.getState().yaw;
+    const from = player.body.position.clone();
+    from.set(camera.position.x, camera.position.y, camera.position.z);
+    const to = from.clone();
+    const followDistance = 0.9;
+    to.x += Math.sin(yaw) * followDistance;
+    to.z += Math.cos(yaw) * followDistance;
+    let clearance = followDistance;
+    physicsWorld.raycastAll(from, to, { skipBackfaces: true, checkCollisionResponse: true }, hit => {
+      if (!hit.body || hit.body === player.body || !hit.body.collisionResponse) return;
+      clearance = Math.min(clearance, Math.max(0, hit.distance - 0.12));
+    });
+    camera.position.x = from.x + Math.sin(yaw) * clearance;
+    camera.position.z = from.z + Math.cos(yaw) * clearance;
+  }
   function beginClimb(next: (drop?: boolean) => void) {
     if (climbing) return;
     climbing = true; handoffStarted = false; climbTime = 0; destination = next;
@@ -179,7 +197,7 @@ export function createScene({ entry = 'galley', entryState, puzzle = createCargo
     }
   }
   return {
-    roomId: 'maintenance-vent', scene, camera, physicsWorld, player, updatePhysics, gates, puzzle, cutsceneManager: null,
+    roomId: 'maintenance-vent', scene, camera, physicsWorld, player, updatePhysics, applyVentCamera, gates, puzzle, cutsceneManager: null,
     setDropToTen: (callback: (state: PlayerTransitionState) => void) => { onDropToTen = callback; },
     setDropToEleven: (callback: (state: PlayerTransitionState) => void) => { onDropToEleven = callback; },
     setReturnToSeven: (callback: (drop?: boolean) => void) => { onReturnToSeven = callback; },

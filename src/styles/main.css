@@ -4,6 +4,18 @@
   box-sizing: border-box;
 }
 
+:root {
+  --comic-ink: #17191f;
+  --comic-paper: #f7fbff;
+  --comic-red: #f34851;
+  --comic-cyan: #43c9eb;
+  --comic-yellow: #ffdb57;
+  --comic-green: #70dfa4;
+  --comic-body: 'Comic Sans MS', 'Chalkboard SE', cursive;
+  --comic-display: Impact, Haettenschweiler, 'Franklin Gothic Heavy', sans-serif;
+  --comic-dots: radial-gradient(circle, #17191f14 0.7px, transparent 1px);
+}
+
 html, body {
   width: 100%;
   height: 100%;
@@ -1166,4 +1178,287 @@ body.touch-device .space-health-heading { letter-spacing: 0; font-size: 8px; }
   #view-toggle-btn { top: 12px; right: 12px; width: 46px; height: 44px; }
   #health-bar { bottom: 12px; }
   #flight-hud { bottom: 40px; }
+}
+
+:is(#pause-menu, #scene-quick-menu, #control-card, #interact-prompt, #loading-bay-status,
+  #goggles-status, #boss-subtitles, #escape-qte, #space-alert, #space-pause,
+  #space-cinematic-caption, #flight-target, #crowbar-overlay, #flight-hud, .platformer-hud) {
+  color: var(--comic-ink);
+  background-color: var(--comic-paper);
+  background-image: var(--comic-dots);
+  background-size: 6px 6px;
+  border: 4px solid var(--comic-ink);
+  border-radius: 3px;
+  box-shadow: 6px 6px 0 var(--comic-ink);
+  font-family: var(--comic-body);
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: 0;
+  text-shadow: none;
+  overflow-wrap: anywhere;
+}
+#pause-menu, #scene-quick-menu { color-scheme: light; padding: 24px; }
+#pause-menu::backdrop, #scene-quick-menu::backdrop {
+  background: repeating-linear-gradient(135deg, #17191f52 0 2px, transparent 2px 12px), #17191f99;
+}
+#pause-menu[open]:not([data-screen="map"]), #scene-quick-menu[open] {
+  animation: comic-panel-open 260ms cubic-bezier(0.18, 0.9, 0.3, 1.18) both;
+}
+:is(#interact-prompt, #control-card, #boss-subtitles, #escape-qte, #space-alert,
+  #space-pause, #space-cinematic-caption, #flight-target, .platformer-hud):not(.hidden) {
+  animation: comic-caption-open 230ms cubic-bezier(0.18, 0.9, 0.3, 1.15) both;
+}
+:is(#pause-menu-title, #scene-menu-title, #control-card-title, #space-pause-title,
+  #boss-health-label, #space-boss-label, .crowbar-overlay-title) {
+  color: var(--comic-ink);
+  font-family: var(--comic-display);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  line-height: 1.1;
+}
+#pause-menu-title, #scene-menu-title { font-size: 30px; }
+.scene-menu-eyebrow {
+  align-self: flex-start;
+  display: inline-block;
+  color: var(--comic-ink);
+  background: var(--comic-yellow);
+  border: 2px solid var(--comic-ink);
+  padding: 3px 7px;
+  font: 700 10px/1.3 var(--comic-body);
+  letter-spacing: 0;
+}
+.scene-menu-header { padding-bottom: 10px; border-bottom: 3px solid var(--comic-ink); }
+:is(#scene-menu-description, #pause-controls-description, .scene-menu-footer,
+  .scene-menu-gear, #control-card footer, #pause-sound-panel output, .escape-hint) { color: #424653; }
+:is(#scene-menu-error, #developer-password-error) { color: #aa1625; }
+:is(#pause-menu, #scene-quick-menu) button,
+:is(#view-toggle-btn, #control-card-close, .menu-btn, #skip-btn, .wake-skip-btn,
+  .prologue-skip-btn, .touch-btn, .flight-shield-slot) {
+  color: var(--comic-ink);
+  background: var(--comic-paper);
+  border: 3px solid var(--comic-ink);
+  border-radius: 3px;
+  box-shadow: 3px 3px 0 var(--comic-ink);
+  font-family: var(--comic-body);
+  font-weight: 800;
+  letter-spacing: 0;
+  transition: translate 120ms ease-out, box-shadow 120ms ease-out, background-color 120ms ease-out;
+}
+:is(#pause-menu, #scene-quick-menu) button:hover:not(:disabled),
+:is(#view-toggle-btn, #control-card-close, .menu-btn, #skip-btn, .wake-skip-btn,
+  .prologue-skip-btn, .touch-btn, .flight-shield-slot):hover:not(:disabled) {
+  background: var(--comic-yellow);
+  translate: -1px -1px;
+  box-shadow: 4px 4px 0 var(--comic-ink);
+}
+:is(#pause-menu, #scene-quick-menu) button:active:not(:disabled),
+:is(#view-toggle-btn, #control-card-close, .menu-btn, #skip-btn, .wake-skip-btn,
+  .prologue-skip-btn, .touch-btn, .flight-shield-slot):active:not(:disabled) {
+  translate: 3px 3px;
+  box-shadow: 0 0 0 var(--comic-ink);
+}
+:is(#pause-menu, #scene-quick-menu) button:focus-visible,
+:is(#view-toggle-btn, #control-card-close, .menu-btn, #skip-btn, .wake-skip-btn,
+  .prologue-skip-btn, .touch-btn, .flight-shield-slot):focus-visible {
+  outline: 3px solid var(--comic-cyan);
+  outline-offset: 4px;
+  background: var(--comic-yellow);
+}
+#pause-menu #pause-close { width: 44px; padding: 0; font: 400 28px/1 var(--comic-display); }
+#pause-menu #pause-resume, #play-btn { background: var(--comic-green); color: var(--comic-ink); border-color: var(--comic-ink); }
+#pause-menu #pause-ship-map, #pause-menu #pause-controls, #touch-view, #touch-pistol { background: var(--comic-cyan); }
+#pause-menu #pause-sound, #touch-jump, #touch-action9 { background: var(--comic-yellow); }
+#quit-btn, #touch-fire, #touch-attack { background: var(--comic-red); }
+#scene-quick-list button[aria-current="true"] { color: var(--comic-ink); background: var(--comic-green); border: 3px solid var(--comic-ink); }
+#pause-menu input[type="password"], .ship-map-room-picker select {
+  color: var(--comic-ink);
+  background: #fff;
+  border: 3px solid var(--comic-ink);
+  border-radius: 2px;
+  font-family: var(--comic-body);
+}
+#pause-menu input[type="range"] { accent-color: #e13643; }
+#pause-controls-list, #scene-quick-list { scrollbar-color: var(--comic-ink) #e2eaf2; padding: 4px 8px 8px 4px; }
+.pause-control-entry { background: transparent; border: 0; border-radius: 0; border-bottom: 2px solid #17191f36; padding: 10px 0; }
+.pause-control-entry h2 { color: var(--comic-ink); font: 400 20px/1.2 var(--comic-display); }
+#pause-menu kbd, #scene-quick-menu kbd { color: var(--comic-ink); font-weight: 800; }
+#pause-menu[data-screen="map"] { background: transparent; border: 0; box-shadow: none; }
+#pause-menu[data-screen="map"]::backdrop { background: transparent; }
+#pause-menu[data-screen="map"] .scene-menu-header { color: var(--comic-paper); border-bottom: 0; }
+#pause-menu[data-screen="map"] #pause-menu-title { color: var(--comic-paper); -webkit-text-stroke: 1px var(--comic-ink); paint-order: stroke fill; }
+#pause-menu .ship-map-decks button[aria-pressed="true"] { background: var(--comic-yellow); color: var(--comic-ink); border-color: var(--comic-ink); }
+#pause-menu .ship-map-room-label {
+  background: var(--comic-paper);
+  color: var(--comic-ink);
+  border: 3px solid var(--comic-ink);
+  border-radius: 50%;
+  box-shadow: 2px 2px 0 var(--comic-ink);
+  font: 800 11px/1 var(--comic-body);
+}
+#pause-menu .ship-map-room-label[aria-pressed="true"] { background: var(--room-color); color: var(--comic-ink); box-shadow: 0 0 0 3px var(--comic-paper), 2px 2px 0 4px var(--comic-ink); }
+.ship-map-detail { background: var(--comic-paper); color: var(--comic-ink); border-top: 4px solid var(--comic-ink); padding: 12px; }
+.ship-map-room-picker, .ship-map-room-info span { color: #424653; }
+.ship-map-compass { color: var(--comic-paper); text-shadow: 2px 2px 0 var(--comic-ink); }
+#interact-prompt { background-color: var(--comic-yellow); padding: 7px 14px; font-size: 13px; }
+#space-alert { background-color: var(--comic-red); }
+#space-pause { background-color: var(--comic-cyan); }
+#escape-qte { background-color: var(--comic-yellow); }
+#escape-key { color: var(--comic-paper); font-family: var(--comic-display); -webkit-text-stroke: 3px var(--comic-ink); paint-order: stroke fill; text-shadow: 4px 4px 0 var(--comic-ink); }
+#escape-qte { min-width: 86px; padding: 8px 16px; }
+.escape-caption, #escape-action { color: var(--comic-ink); letter-spacing: 0; }
+#escape-timer-track { height: 12px; border: 3px solid var(--comic-ink); background: var(--comic-paper); }
+#escape-timer-fill { background: var(--comic-red); }
+#boss-hud, #space-boss-hud {
+  background: var(--comic-paper);
+  color: var(--comic-ink);
+  border: 4px solid var(--comic-ink);
+  border-radius: 2px;
+  box-shadow: 5px 5px 0 var(--comic-ink);
+  font-family: var(--comic-body);
+}
+:is(#boss-health-track, #space-boss-track, #space-health-track, #health-bar, #shield-bar) {
+  background: var(--comic-paper);
+  border: 3px solid var(--comic-ink);
+  border-radius: 2px;
+  box-shadow: 3px 3px 0 var(--comic-ink);
+}
+#health-bar { height: 24px; }
+#shield-bar { height: 20px; bottom: 54px; }
+#health-bar-fill { background: var(--comic-green); }
+#health-bar-fill.mid { background: var(--comic-yellow); }
+#health-bar-fill.low, #boss-health-fill, #space-boss-fill { background: var(--comic-red); }
+#shield-bar-fill, #space-health-fill { background: var(--comic-cyan); }
+#health-bar-label, #shield-bar-label { color: var(--comic-ink); font: 800 11px/1 var(--comic-body); text-shadow: none; }
+#flight-hud { bottom: 82px; width: min(260px, calc(100vw - 36px)); padding: 8px 10px; }
+.space-health-heading { letter-spacing: 0; text-shadow: none; white-space: nowrap; }
+#space-health-track { height: 12px; }
+#flight-powerups { position: static; margin-top: 8px; justify-content: flex-end; min-height: 34px; }
+#flight-powerups .flight-shield-slot { background: var(--comic-yellow); padding: 3px; }
+.flight-shield-slot::after { border-color: var(--comic-ink); border-radius: 2px; }
+#view-toggle-btn .view-camera { stroke: var(--comic-ink); stroke-width: 2.3; }
+#view-toggle-btn .view-lens, #view-toggle-btn .view-num { fill: #535969; }
+#view-toggle-btn[data-view="1"] .view-num[data-mode="1"], #view-toggle-btn[data-view="3"] .view-num[data-mode="3"] { fill: var(--comic-ink); }
+#minimap { border: 4px solid var(--comic-ink); border-radius: 4px; box-shadow: 5px 5px 0 var(--comic-ink), inset 0 0 0 2px var(--comic-paper); }
+.minimap-north, #minimap-deck { color: var(--comic-ink); background: var(--comic-yellow); font-family: var(--comic-body); font-weight: 800; }
+#minimap-deck { border-radius: 2px; border: 2px solid var(--comic-ink); }
+.touch-move-base, .touch-flight-stick { border: 4px solid var(--comic-ink); background: #f7fbff80; box-shadow: 4px 4px 0 var(--comic-ink); }
+.touch-knob { background: var(--comic-cyan); border: 3px solid var(--comic-ink); box-shadow: 2px 2px 0 var(--comic-ink); }
+.touch-btn { opacity: 0.94; }
+#touch-controls .touch-btn.active { background: var(--comic-yellow); translate: 2px 2px; box-shadow: 1px 1px 0 var(--comic-ink); }
+body.touch-device #shield-bar { top: 47px; bottom: auto; left: 12px; transform: none; width: min(115px, 22vw); }
+body.touch-device #flight-hud { top: auto; bottom: 136px; width: min(185px, 46vw); }
+.platformer-retry {
+  color: var(--comic-ink);
+  background: var(--comic-yellow);
+  border: 3px solid var(--comic-ink);
+  border-radius: 3px;
+  box-shadow: 4px 4px 0 var(--comic-ink);
+  font: 800 13px/1.4 var(--comic-body);
+  transition: translate 120ms ease-out, box-shadow 120ms ease-out;
+}
+.platformer-retry:hover { translate: -1px -1px; box-shadow: 5px 5px 0 var(--comic-ink); }
+.platformer-retry:active { translate: 3px 3px; box-shadow: 1px 1px 0 var(--comic-ink); }
+.platformer-retry:focus-visible { outline: 3px solid var(--comic-cyan); outline-offset: 4px; }
+.platformer-health-track { height: 14px; background: var(--comic-paper); border: 3px solid var(--comic-ink); }
+.platformer-health-fill { background: var(--comic-red); }
+.platformer-health-track.exposed .platformer-health-fill { background: var(--comic-green); }
+#space-enemy-count, #flight-controls, #fps, #info {
+  color: var(--comic-ink);
+  background: var(--comic-dots) 0 0 / 6px 6px, var(--comic-yellow);
+  border: 3px solid var(--comic-ink);
+  border-radius: 2px;
+  box-shadow: 3px 3px 0 var(--comic-ink);
+  font-family: var(--comic-body);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+#space-pause-hint, #flight-controls kbd { color: var(--comic-ink); font-family: var(--comic-body); }
+#space-alert { padding: 7px 12px; }
+#space-enemy-count { right: 88px; max-width: calc(100vw - 112px); }
+#crowbar-overlay { max-width: calc(100vw - 36px); min-width: min(320px, calc(100vw - 36px)); }
+#crowbar-overlay:not(.hidden) { animation: comic-caption-open 230ms cubic-bezier(0.18, 0.9, 0.3, 1.15) both; }
+#goggles-overlay { border: 8px solid var(--comic-ink); border-radius: 0; box-shadow: inset 0 0 0 3px var(--comic-green), inset 0 0 0 6px var(--comic-ink); }
+#space-damage, #player-damage { box-shadow: inset 0 0 0 5px var(--comic-ink), inset 0 0 0 12px var(--comic-red), inset 0 0 0 16px var(--comic-ink); }
+#crosshair, .platformer-crosshair { color: var(--comic-yellow); filter: drop-shadow(2px 2px 0 var(--comic-ink)) drop-shadow(-1px -1px 0 var(--comic-ink)); }
+#crosshair[data-hit="true"], .platformer-crosshair[data-hit="true"] { color: var(--comic-red); }
+#space-crosshair { color: var(--comic-yellow); border-width: 3px; box-shadow: 2px 2px 0 var(--comic-ink), inset 0 0 0 1px var(--comic-ink); }
+#prologue-dialogue:not(.hidden):not(.fading) { animation: comic-caption-open 280ms cubic-bezier(0.18, 0.9, 0.3, 1.15); }
+#prologue-dialogue::after {
+  content: '';
+  position: absolute;
+  bottom: -13px;
+  left: 36px;
+  width: 20px;
+  height: 20px;
+  background: var(--comic-paper);
+  border-right: 4px solid var(--comic-ink);
+  border-bottom: 4px solid var(--comic-ink);
+  rotate: 45deg;
+}
+#prologue-title[style*="visibility: visible"] .prologue-title-word { animation: comic-title-slam 450ms cubic-bezier(0.16, 0.85, 0.3, 1.18) both; }
+#prologue-title[style*="visibility: visible"] .prologue-title-word.revenge { animation-delay: 100ms; }
+#prologue-exit-prompt {
+  position: fixed;
+  bottom: 18%;
+  color: var(--comic-ink);
+  background: var(--comic-yellow);
+  border: 3px solid var(--comic-ink);
+  box-shadow: 4px 4px 0 var(--comic-ink);
+  left: 50%;
+  width: max-content;
+  max-width: calc(100vw - 36px);
+  padding: 8px 14px;
+  transform: translateX(-50%);
+  text-align: center;
+  z-index: 1100;
+  pointer-events: none;
+  font: 800 14px/1.5 var(--comic-body);
+}
+.menu-btn:hover { transform: none; }
+.menu-btn { min-width: 220px; }
+#menu-buttons:not(.hidden) { animation: comic-panel-open 320ms cubic-bezier(0.18, 0.9, 0.3, 1.18) both; }
+.hangar-versus-badge { color: var(--comic-yellow); font-family: var(--comic-display); }
+.credit-title { color: var(--comic-yellow); font-family: var(--comic-display); letter-spacing: 0; -webkit-text-stroke: 2px var(--comic-ink); paint-order: stroke fill; }
+.credit-role { color: var(--comic-cyan); font-family: var(--comic-body); letter-spacing: 0; }
+.credit-name { color: var(--comic-paper); font-family: var(--comic-display); letter-spacing: 0; text-shadow: 3px 3px 0 var(--comic-ink); }
+.credit-title { max-width: calc(100vw - 32px); overflow-wrap: anywhere; text-shadow: 4px 5px 0 var(--comic-ink); }
+
+@keyframes comic-title-slam {
+  0% { scale: 1.35; rotate: -4deg; opacity: 0; }
+  65% { scale: 0.97; rotate: 1deg; opacity: 1; }
+  100% { scale: 1; rotate: 0deg; opacity: 1; }
+}
+
+@keyframes comic-panel-open {
+  0% { opacity: 0; scale: 0.88; rotate: -2deg; }
+  72% { opacity: 1; scale: 1.025; rotate: 0.6deg; }
+  100% { opacity: 1; scale: 1; rotate: 0deg; }
+}
+@keyframes comic-caption-open {
+  0% { opacity: 0; translate: 0 10px; scale: 0.92; }
+  70% { opacity: 1; translate: 0 -2px; scale: 1.015; }
+  100% { opacity: 1; translate: 0 0; scale: 1; }
+}
+@media (max-width: 700px), (max-height: 540px) {
+  #pause-menu:not([data-screen="map"]), #scene-quick-menu { padding: 16px; }
+  #pause-menu-title, #scene-menu-title { font-size: 26px; }
+  :is(#boss-hud, #space-boss-hud, .platformer-hud) { top: 72px; }
+  #space-alert { top: 144px; }
+  #space-enemy-count { right: 70px; }
+  #shield-bar { bottom: 42px; }
+  .ship-map-detail { padding: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(#pause-menu, #scene-quick-menu, #control-card, #interact-prompt, #boss-subtitles,
+    #escape-qte, #space-alert, #space-pause, #space-cinematic-caption, #flight-target, .platformer-hud,
+    #prologue-dialogue, #crowbar-overlay, #menu-buttons, .prologue-title-word) {
+    animation: none !important;
+  }
+  :is(#pause-menu, #scene-quick-menu) button,
+  :is(#view-toggle-btn, #control-card-close, .menu-btn, #skip-btn, .wake-skip-btn,
+    .prologue-skip-btn, .touch-btn, .flight-shield-slot, .platformer-retry) { transition: none; translate: none; }
+  #escape-key { animation: none !important; }
+  #credits-content { animation: none; max-height: calc(100dvh - 48px); overflow-y: auto; pointer-events: auto; }
+  .credit-section { margin: 20px 0; }
 }

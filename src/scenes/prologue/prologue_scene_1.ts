@@ -696,16 +696,17 @@ export function createScene({ onPlayable, onFinished, thirdPersonCamera = { dist
     body.prologue-playing #view-toggle-btn,
     body.prologue-playing #touch-controls { display: none !important; }
     #prologue-cinema { position: fixed; inset: 0; pointer-events: none; z-index: 1850; }
-    .prologue-bar { position: absolute; left: 0; width: 100%; height: 7%; background: #020409; }
+    .prologue-bar { position: absolute; left: 0; width: 100%; height: 7%; background: var(--comic-ink); }
     .prologue-bar.top { top: 0; }
     .prologue-bar.bottom { bottom: 0; }
     .prologue-film { position: absolute; inset: 0; opacity: 0; background: repeating-linear-gradient(transparent 0px, transparent 3px, rgba(9, 20, 27, 0.12) 4px); box-shadow: inset 0 0 160px 40px rgba(0, 0, 0, 0.48); }
     #prologue-cinema.memory .prologue-film { opacity: 0.62; }
-    .prologue-memory-label { position: absolute; top: 9%; left: 5%; font: 12px 'Courier New', monospace; letter-spacing: 0; color: #c4d6d9; opacity: 0.8; }
+    .prologue-memory-label { position: absolute; top: 9%; left: 5%; max-width: 90%; padding: 5px 9px; font: 700 11px/1.4 var(--comic-body); letter-spacing: 0; color: var(--comic-ink); background: var(--comic-yellow); border: 3px solid var(--comic-ink); box-shadow: 3px 3px 0 var(--comic-ink); overflow-wrap: anywhere; }
+    .prologue-memory-label:empty { display: none; }
     .prologue-shot-fade { position: absolute; inset: 0; background: #03060b; opacity: 0; }
-    #prologue-title { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; z-index: 2450; color: #f1f5f2; opacity: 0; visibility: hidden; text-shadow: 0 2px 28px #000; font-family: Impact, 'Arial Narrow', sans-serif; letter-spacing: 0; text-transform: uppercase; }
+    #prologue-title { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; z-index: 2450; color: var(--comic-yellow); opacity: 0; visibility: hidden; text-shadow: 6px 7px 0 var(--comic-ink), 9px 10px 0 var(--comic-paper); -webkit-text-stroke: 4px var(--comic-ink); paint-order: stroke fill; font-family: var(--comic-display); letter-spacing: 0; text-transform: uppercase; }
     .prologue-title-word { font-size: 82px; line-height: 0.95; max-width: calc(100vw - 40px); }
-    .prologue-title-word.revenge { color: #e38e81; }
+    .prologue-title-word.revenge { color: var(--comic-red); }
     #prologue-dialogue {
       position: fixed;
       left: 50%;
@@ -714,39 +715,44 @@ export function createScene({ onPlayable, onFinished, thirdPersonCamera = { dist
       max-width: min(820px, 90vw);
       width: calc(100% - 48px);
       padding: 18px 22px 14px;
-      background: rgba(6, 10, 14, 0.86);
-      border: 1px solid rgba(170, 190, 215, 0.35);
-      border-radius: 6px;
-      color: #e4ecf2;
-      font-family: 'Courier New', monospace;
+      background: var(--comic-dots) 0 0 / 6px 6px, var(--comic-paper);
+      border: 4px solid var(--comic-ink);
+      border-radius: 3px;
+      color: var(--comic-ink);
+      font-family: var(--comic-body);
+      font-weight: 700;
       z-index: 2000;
       cursor: pointer;
       user-select: none;
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+      box-shadow: 7px 7px 0 var(--comic-ink);
       transition: opacity 260ms ease;
     }
     #prologue-dialogue.hidden { display: none; }
     #prologue-dialogue.fading { opacity: 0; }
     .prologue-dialogue-speaker {
-      font-size: 12px;
+      display: inline-block;
+      padding: 4px 10px;
+      border: 2px solid var(--comic-ink);
+      background: var(--comic-yellow);
+      font: 400 20px/1.1 var(--comic-display);
       letter-spacing: 0;
-      color: #ffd089;
-      margin-bottom: 6px;
+      color: var(--comic-ink);
+      margin-bottom: 10px;
       text-transform: uppercase;
     }
+    #prologue-dialogue[data-speaker="Prime"] .prologue-dialogue-speaker { background: var(--comic-cyan); }
     .prologue-dialogue-text {
       font-size: 18px;
       line-height: 1.55;
       min-height: 1.55em;
-      color: #e4ecf2;
+      color: var(--comic-ink);
       white-space: pre-wrap;
     }
     .prologue-dialogue-hint {
       margin-top: 10px;
       font-size: 11px;
       letter-spacing: 0;
-      color: #8798a6;
-      opacity: 0.75;
+      color: #424653;
       text-align: right;
     }
     .prologue-dialogue-hint.hidden { visibility: hidden; }
@@ -771,7 +777,7 @@ export function createScene({ onPlayable, onFinished, thirdPersonCamera = { dist
   const exitPrompt = document.createElement('div');
   exitPrompt.id = 'prologue-exit-prompt';
   exitPrompt.textContent = 'Press E to begin your revenge';
-  exitPrompt.style.cssText = 'position:fixed;left:0;right:0;bottom:18%;padding:0 20px;text-align:center;color:#d6f1ff;font-size:16px;text-shadow:0 2px 6px #000;z-index:1100;pointer-events:none;display:none;';
+  exitPrompt.style.display = 'none';
   document.body.appendChild(exitPrompt);
   const presentCameraStart = new THREE.Vector3();
   const presentCameraEnd = new THREE.Vector3();
@@ -795,6 +801,7 @@ export function createScene({ onPlayable, onFinished, thirdPersonCamera = { dist
     presentCameraStart.set(close ? 1.25 : 2.35, close ? 2.25 : 1.8, close ? -1.25 : 1.75);
     presentCameraEnd.copy(presentCameraStart).multiplyScalar(0.92);
     speakerEl.textContent = line.speaker;
+    overlay.dataset.speaker = line.speaker;
     textEl.textContent = '';
     typedChars = 0;
     hintEl.classList.add('hidden');

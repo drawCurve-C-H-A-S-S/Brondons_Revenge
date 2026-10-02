@@ -201,6 +201,10 @@ export async function loadCharacter(loader?: GLTFLoader) {
   const model = gltf.scene;
   model.scale.set(1, 1, 1);
   const modelOffsetY = -new THREE.Box3().setFromObject(model).min.y;
+  const ventFeet = ['foot_l', 'foot_r'].map(name => model.getObjectByName(name)).filter((bone): bone is THREE.Object3D => !!bone);
+  const ventFootPosition = new THREE.Vector3();
+  const ventSoleOffset = ventFeet.length
+    ? Math.min(...ventFeet.map(bone => bone.getWorldPosition(ventFootPosition).y)) + modelOffsetY : 0;
   let wasOnGround: boolean | null = null;
   model.rotation.set(0, MODEL_ROT_OFFSET, 0, 'YXZ');
 
@@ -437,9 +441,11 @@ export async function loadCharacter(loader?: GLTFLoader) {
   let pistolAction: THREE.AnimationAction | null = null;
   function playPistolAction(next: THREE.AnimationAction | null, blend = 0.1) {
     if (!next) return;
-    if (next === pistolAction) next.stop();
-    else pistolAction?.fadeOut(blend);
-    next.reset().setEffectiveWeight(1).setEffectiveTimeScale(1).fadeIn(blend).play();
+    const crossFade = pistolAction !== null && next !== pistolAction;
+    if (crossFade) pistolAction!.fadeOut(blend);
+    next.reset().setEffectiveWeight(1).setEffectiveTimeScale(1);
+    if (crossFade) next.fadeIn(blend);
+    next.play();
     pistolAction = next;
   }
   const weapon = {
@@ -512,15 +518,19 @@ export async function loadCharacter(loader?: GLTFLoader) {
   }
 
   let previousActionRequest: PlayerState['actionRequest'] = null;
-  function fadeTo(name: ClipName, restart = false) {
+  let wasVentMode = false;
+  function fadeTo(name: ClipName, restart = false, immediate = false) {
     const next = actions.get(name);
-    if (!next || (next === currentAction && !restart)) return;
+    if (!next || (next === currentAction && !restart && !immediate)) return;
     const saberAttack = lightsaberEquipped && lightsaberAttacks.includes(name as LightsaberAttackName);
     const blend = saberAttack ? 0.045 : 0.2;
-    if (next === currentAction) next.stop();
-    else currentAction.fadeOut(blend);
+    const sameAction = next === currentAction;
+    if (immediate) mixer.stopAllAction();
+    else if (!sameAction) currentAction.fadeOut(blend);
     const speed = saberAttack ? next.getClip().duration / LIGHTSABER_SWING_DURATION : name === 'Sword_Attack' ? 2.8 : 1;
-    next.reset().setEffectiveTimeScale(speed).setEffectiveWeight(1).fadeIn(blend).play();
+    next.reset().setEffectiveTimeScale(speed).setEffectiveWeight(1);
+    if (!immediate && !sameAction) next.fadeIn(blend);
+    next.play();
     currentAction = next;
   }
 
@@ -622,6 +632,8 @@ export async function loadCharacter(loader?: GLTFLoader) {
       const time = Math.max(0, cinematic.time) * (cinematic.duration ? duration / cinematic.duration : 1);
       next.paused = true;
       next.time = cinematic.loop ? time % duration : Math.min(time, duration);
+    } else if (playerState.ventMode) {
+      fadeTo(isMoving ? 'Crouch_Fwd_Loop' : 'Crouch_Idle_Loop', false, !wasVentMode);
     } else if (climbing) {
       fadeTo('Ladder_Climb_Loop');
       currentAction.setEffectiveTimeScale(climbDirection ?? 1);
@@ -663,6 +675,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
       fadeTo('Jump_Loop');
     }
     wasOnGround = isOnGround;
+    wasVentMode = playerState.ventMode;
     // Restore last frame's base pose before the mixer applies its cached bindings.
     for (const base of layerBones) {
       base.bone.position.copy(base.position);
@@ -755,7 +768,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
       model.updateMatrixWorld(true);
     }
     const pistolTarget = armed && handsFree && !cinematic ? 1 : 0;
-    pistolBlend = THREE.MathUtils.damp(pistolBlend, pistolTarget, 14, dt);
+    pistolBlend = playerState.ventMode ? 0 : THREE.MathUtils.damp(pistolBlend, pistolTarget, 14, dt);
     if (!cinematic && handsFree && pistolRequest) {
       if (freshActionRequest === 'Pistol_Reload') weapon.reload();
       else weapon.shoot();
@@ -778,6 +791,12 @@ export async function loadCharacter(loader?: GLTFLoader) {
           .applyQuaternion(upperRoot.getWorldQuaternion(new THREE.Quaternion()).invert());
         upperRoot.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(axis, -pistolPitch * pistolBlend));
       }
+    }
+    if (playerState.ventMode && ventFeet.length) {
+      model.updateMatrixWorld(true);
+      const feetY = Math.min(...ventFeet.map(bone => bone.getWorldPosition(ventFootPosition).y));
+      model.position.y += playerBodyPos.y - playerRadius + ventSoleOffset - feetY;
+      model.updateMatrixWorld(true);
     }
   }
 
