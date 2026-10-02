@@ -57,10 +57,14 @@ export function createScene({ entryState, clearedCrates = new Set<string>(), onC
       uniforms: { uColor: { value: new THREE.Color(color) }, uLightDirection: { value: new THREE.Vector3(0.5, 0.8, 0.3).normalize() }, uTime: { value: 0 } },
     }),
   };
+  const sharedMaterials = (['floor', 'wall', 'ceiling', 'steel', 'appliance', 'dark', 'wood', 'bench', 'crate', 'door', 'doorSeam', 'frame'] as const).map(key => {
+    const material = makeMaterial[key](); makeMaterial[key] = () => material; return material;
+  });
 
   // --- Physics/Mesh Factory ---
+  const boxGeometry = new THREE.BoxGeometry(1, 1, 1);
   function addBox(size: THREE.Vector3, pos: THREE.Vector3, mat: THREE.Material, solid = false) {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), mat);
+    const mesh = new THREE.Mesh(boxGeometry, mat); mesh.scale.copy(size);
     mesh.position.copy(pos); mesh.castShadow = true; mesh.receiveShadow = true; scene.add(mesh);
     if (solid) physics.addBox({ x: size.x, y: size.y, z: size.z }, { x: pos.x, y: pos.y, z: pos.z });
     return mesh;
@@ -184,8 +188,8 @@ export function createScene({ entryState, clearedCrates = new Set<string>(), onC
 
   // --- Lighting Fixtures ---
   const fixtures = [[-3.6, -3.8, 0xffd0a0], [1.2, -3.8, 0xffd0a0], [-3.8, 1.8, 0x8ca8c4], [2.8, 1.8, 0x8ca8c4], [0, 4.4, 0x8ca8c4]] as const;
-  for (const [x, z, color] of fixtures) {
-    const light = new THREE.PointLight(color, 5.5, 15); light.position.set(x, roomHeight - 0.4, z); light.castShadow = true; light.shadow.mapSize.set(256, 256); scene.add(light);
+  for (const [fixtureIndex, [x, z, color]] of fixtures.entries()) {
+    const light = new THREE.PointLight(color, 5.5, 15); light.position.set(x, roomHeight - 0.4, z); light.castShadow = fixtureIndex === 3; light.shadow.mapSize.set(256, 256); scene.add(light);
     addBox(new THREE.Vector3(1.15, 0.06, 0.16), new THREE.Vector3(x, roomHeight - 0.05, z), new THREE.MeshStandardMaterial({ color: 0xd9dde0, emissive: color, emissiveIntensity: 1.7 }));
   }
   scene.add(new THREE.AmbientLight(0x657585, 2.2));
@@ -327,5 +331,9 @@ export function createScene({ entryState, clearedCrates = new Set<string>(), onC
   return { roomId: 'cafeteria', scene, camera, physicsWorld, updatePhysics, cutsceneManager: null, player, setBackTrigger, setLadderTrigger,
     breakables, getDamageTargets: breakables.getDamageTargets, setGogglesActive: breakables.setHighlighted,
     getShieldCollected: () => shieldCollected,
-    dispose: () => { breakables.dispose(); window.removeEventListener('keydown', onKeyDown); prompt?.classList.add('hidden'); player.dispose(); physics.dispose(); screenTex.dispose(); tileTexture.dispose(); shieldPickupGeo.dispose(); shieldPickupMat.dispose(); } };
+    dispose: () => {
+      breakables.dispose(); window.removeEventListener('keydown', onKeyDown); prompt?.classList.add('hidden'); player.dispose(); physics.dispose();
+      sharedMaterials.forEach(material => { if (material.map !== tileTexture) material.map?.dispose(); material.dispose(); });
+      boxGeometry.dispose(); screenTex.dispose(); tileTexture.dispose(); shieldPickupGeo.dispose(); shieldPickupMat.dispose();
+    } };
 }

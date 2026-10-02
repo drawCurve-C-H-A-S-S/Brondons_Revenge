@@ -1415,7 +1415,7 @@ async function jumpToScene(id: number) {
   for (const overlay of ['credits-overlay', 'menu-buttons', 'crowbar-overlay', 'boss-hud', 'boss-subtitles', 'escape-qte', 'loading-bay-status', 'space-cinematic-caption']) document.getElementById(overlay)?.classList.add('hidden');
   const fade = document.getElementById('fade-overlay'); fade?.classList.remove('active', 'black'); fade?.classList.add('hidden');
   // Developer spawn grants the tools but equips nothing; the player selects them per scene.
-  hasCrowbar = true; hasLightsaber = true; goggles.collect(false);
+  hasCrowbar = true; hasLightsaber = true; shieldCollectedScene7 = true; goggles.collect(false);
   if (id >= 8 && id <= 12) cargoPuzzle = createCargoPuzzleState(id);
   if (id === 13) bayBossDefeated = false;
   const request = sceneRequestVersion + 1;
@@ -1444,7 +1444,11 @@ async function jumpToScene(id: number) {
     }
     if (request !== sceneRequestVersion) return;
     const spawnedPlayer = currentSceneData?.player as Player | undefined;
-    spawnedPlayer?.heal(PLAYER_MAX_HEALTH);
+    if (spawnedPlayer) {
+      const spawn = spawnedPlayer.captureTransition({ x: 0, y: 0, z: 0 });
+      spawnedPlayer.restoreTransition({ ...spawn, health: PLAYER_MAX_HEALTH, shield: spawnedPlayer.getMaxShield() },
+        { x: 0, y: 0, z: 0, yaw: -Math.PI });
+    }
     goggles.update(); updatePlayerView(0);
     document.getElementById('scene-menu-error')!.textContent = '';
     setPauseMenu(null, false);
