@@ -185,6 +185,35 @@ canvas {
   text-shadow: 0 0 3px #000, 0 0 3px #000;
 }
 
+#shield-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 46px;
+  transform: translateX(-50%);
+  width: min(220px, 38vw);
+  height: 14px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  overflow: hidden;
+  pointer-events: none;
+}
+#shield-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #3498db, #5dade2);
+  transition: width 0.15s ease-out;
+}
+#shield-bar-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  text-shadow: 0 0 3px #000, 0 0 3px #000;
+}
+
 .hidden {
   display: none !important;
 }

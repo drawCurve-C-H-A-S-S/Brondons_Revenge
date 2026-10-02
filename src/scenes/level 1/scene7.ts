@@ -8,8 +8,8 @@ import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.
 import { LADDER } from '../../utils/constants.js';
 import { createBreakables } from '../../scripts/breakables.js';
 
-export function createScene({ entryState, clearedCrates = new Set<string>(), onCrateBroken }: {
-  entryState?: PlayerTransitionState; clearedCrates?: ReadonlySet<string>; onCrateBroken?: (id: string) => void;
+export function createScene({ entryState, clearedCrates = new Set<string>(), onCrateBroken, shieldCollected: initialShieldCollected = false, onShieldCollected }: {
+  entryState?: PlayerTransitionState; clearedCrates?: ReadonlySet<string>; onCrateBroken?: (id: string) => void; shieldCollected?: boolean; onShieldCollected?: () => void;
 } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x080b10);
@@ -206,6 +206,31 @@ export function createScene({ entryState, clearedCrates = new Set<string>(), onC
       new THREE.Vector3(ladderX + offset[0], offset[1], ladderZ + 0.5), new THREE.Vector3(1.15, 1.2, 1.25), onCrateBroken);
   }
 
+  // --- Shield Pickup ---
+  const shieldPickupPos = new THREE.Vector3(-2, 1.2, 0);
+  const shieldPickupGeo = new THREE.OctahedronGeometry(0.35, 0);
+  const shieldPickupMat = new THREE.MeshStandardMaterial({
+    color: 0x3498db,
+    emissive: 0x5dade2,
+    emissiveIntensity: 1.5,
+    metalness: 0.6,
+    roughness: 0.3,
+    transparent: true,
+    opacity: 0.9
+  });
+  const shieldPickup = new THREE.Mesh(shieldPickupGeo, shieldPickupMat);
+  shieldPickup.position.copy(shieldPickupPos);
+  shieldPickup.castShadow = true;
+  scene.add(shieldPickup);
+  const shieldPickupLight = new THREE.PointLight(0x5dade2, 2, 4);
+  shieldPickupLight.position.copy(shieldPickupPos);
+  scene.add(shieldPickupLight);
+  let shieldCollected = initialShieldCollected;
+  if (shieldCollected) {
+    shieldPickup.visible = false;
+    shieldPickupLight.visible = false;
+  }
+
   // --- Scene Logic ---
   let onBackTrigger: ((state: PlayerTransitionState) => void) | null = null;
   let onLadderTrigger: (() => void) | null = null;
@@ -242,6 +267,26 @@ export function createScene({ entryState, clearedCrates = new Set<string>(), onC
     physics.step(dt, player, thirdPerson);
     breakables.update(dt);
     const px = player.body.position.x, pz = player.body.position.z;
+
+    // Shield pickup animation and collection
+    if (!shieldCollected) {
+      const t = performance.now() * 0.001;
+      shieldPickup.rotation.y = t * 1.5;
+      shieldPickup.rotation.x = Math.sin(t * 2) * 0.2;
+      shieldPickup.position.y = shieldPickupPos.y + Math.sin(t * 2.5) * 0.15;
+      shieldPickupMat.emissiveIntensity = 1.2 + Math.sin(t * 3) * 0.3;
+
+      const dx = px - shieldPickupPos.x;
+      const dz = pz - shieldPickupPos.z;
+      if (Math.hypot(dx, dz) < 1 && player.isEnabled()) {
+        shieldCollected = true;
+        player.addShield(50);
+        shieldPickup.visible = false;
+        shieldPickupLight.visible = false;
+        onShieldCollected?.();
+      }
+    }
+
     if (climbing) {
       climbTime += dt * (climbBoost ? 12 : 1);
       const mount = THREE.MathUtils.smoothstep(climbTime, 0, LADDER.mountDuration);
@@ -281,5 +326,6 @@ export function createScene({ entryState, clearedCrates = new Set<string>(), onC
 
   return { roomId: 'cafeteria', scene, camera, physicsWorld, updatePhysics, cutsceneManager: null, player, setBackTrigger, setLadderTrigger,
     breakables, getDamageTargets: breakables.getDamageTargets, setGogglesActive: breakables.setHighlighted,
-    dispose: () => { breakables.dispose(); window.removeEventListener('keydown', onKeyDown); prompt?.classList.add('hidden'); player.dispose(); physics.dispose(); screenTex.dispose(); tileTexture.dispose(); } };
+    getShieldCollected: () => shieldCollected,
+    dispose: () => { breakables.dispose(); window.removeEventListener('keydown', onKeyDown); prompt?.classList.add('hidden'); player.dispose(); physics.dispose(); screenTex.dispose(); tileTexture.dispose(); shieldPickupGeo.dispose(); shieldPickupMat.dispose(); } };
 }

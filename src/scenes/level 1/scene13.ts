@@ -17,7 +17,7 @@ export function preloadAssets() {
 }
 
 /** Loading bay below passage 12, with a stair entrance and a stationary aerial boss. */
-export function createScene({ entryState, defeated = false, checkpoint = false, onDefeated, onDescend, onRespawn, loadBoy = loadBoyModel, loadDrone, loadBoss, renderer }: {
+export function createScene({ entryState, defeated = false, checkpoint = false, onDefeated, onDescend, onRespawn, loadBoy = loadBoyModel, loadDrone, loadBoss, renderer, healthPackCollected: initialHealthPackCollected = false, onHealthPackCollected }: {
   entryState?: PlayerTransitionState;
   defeated?: boolean;
   checkpoint?: boolean;
@@ -28,6 +28,8 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
   loadDrone?: () => Promise<GLTF>;
   loadBoss?: () => Promise<GLTF>;
   renderer?: THREE.WebGLRenderer;
+  healthPackCollected?: boolean;
+  onHealthPackCollected?: () => void;
 } = {}) {
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x101a28); scene.fog = new THREE.Fog(0x101a28, 35, 95);
   const physics = createScenePhysics(), physicsWorld = physics.world;
@@ -113,6 +115,40 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
     const light = new THREE.PointLight(0xb4dbff, 120, 35); light.position.set(x, 11, z); scene.add(light);
   }
   const keyLight = new THREE.DirectionalLight(0xf4e9d2, 2.5); keyLight.position.set(-5, 12, -8); scene.add(keyLight);
+
+  // --- Health Pack (appears after boss defeat) ---
+  const healthPackPos = new THREE.Vector3(0, 1.2, -2.8);
+  const healthPackGroup = new THREE.Group();
+  healthPackGroup.position.copy(healthPackPos);
+  healthPackGroup.visible = defeated && !initialHealthPackCollected;
+  scene.add(healthPackGroup);
+
+  const healthPackMat = new THREE.MeshStandardMaterial({
+    color: 0x2ecc40,
+    emissive: 0x7cf25a,
+    emissiveIntensity: 1.5,
+    metalness: 0.4,
+    roughness: 0.3
+  });
+  const healthPackBox = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.4, 0.4), healthPackMat);
+  healthPackGroup.add(healthPackBox);
+
+  // Red cross on top
+  const crossMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.8 });
+  const crossH = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.08, 0.12), crossMat);
+  crossH.position.y = 0.21;
+  healthPackGroup.add(crossH);
+  const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.35), crossMat);
+  crossV.position.y = 0.21;
+  healthPackGroup.add(crossV);
+
+  const healthPackLight = new THREE.PointLight(0x7cf25a, 2, 4);
+  healthPackLight.position.set(0, 0.3, 0);
+  healthPackGroup.add(healthPackLight);
+  let healthPackCollected = initialHealthPackCollected;
+  if (healthPackCollected) {
+    healthPackGroup.visible = false;
+  }
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 150);
   const audioManager = new AudioManager({ camera, getFile: (path: string) => path === 'bgm1' ? { content: bgmUrl } : null });
   audioManager.setBgm({ path: 'bgm1', loop: true, volume: 0.5, autoplay: true });
@@ -482,6 +518,9 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
       }
       if (cinematicTime >= 21) {
         cloud.visible = false; cinematic = null; cleared = true; door.setLocked(false); consoleBody.collisionResponse = true; release(); subtitles?.classList.add('hidden'); onDefeated?.();
+        if (!healthPackCollected) {
+          healthPackGroup.visible = true;
+        }
       }
     }
   }
@@ -503,6 +542,7 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
     getLiftStatus: () => ({ ready: cleared && !cinematic, canInteract: nearConsole(), descending: cinematic === 'lift', transferred: liftTransferred }),
     setBackTrigger: door.setTrigger, getDamageTargets: () => cleared || droneCutscene ? [] : boss.getDamageTargets(), setGogglesActive: boss.setGogglesActive,
     getParryableBolts: () => cleared || droneCutscene ? [] : boss.getParryableBolts(),
+    getHealthPackCollected: () => healthPackCollected,
     isCinematic: () => cinematic !== null || droneCutscene !== null,
     getCinematicDelta: () => cinematicDelta,
     getCinematicState: () => cinematic || droneCutscene ? { ...player.getState(), isMoving: cinematic === 'entry' && cinematicTime < 5.8, isOnGround: true, jumping: false, climbing: false, velocityY: 0 } : null,
@@ -571,6 +611,24 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
       }
       door.update(dt, player, cleared && !cinematic && door.near(player));
       if (disposed) return;
+
+      // Health pack animation and collection
+      if (healthPackGroup.visible && !healthPackCollected) {
+        const t = performance.now() * 0.001;
+        healthPackGroup.rotation.y = t * 1.2;
+        healthPackGroup.position.y = healthPackPos.y + Math.sin(t * 2) * 0.1;
+        healthPackMat.emissiveIntensity = 1.3 + Math.sin(t * 3) * 0.3;
+
+        const dx = player.body.position.x - healthPackPos.x;
+        const dz = player.body.position.z - healthPackPos.z;
+        if (Math.hypot(dx, dz) < 1.2 && player.isEnabled() && !cinematic) {
+          healthPackCollected = true;
+          player.heal(100);
+          healthPackGroup.visible = false;
+          onHealthPackCollected?.();
+        }
+      }
+
       // The main view update applies the cinematic camera once, after character animation.
       updateHud();
     },
@@ -580,6 +638,7 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
       hud?.classList.add('hidden'); subtitles?.classList.add('hidden');
       boss.dispose(); boyMixer?.stopAllAction(); if (boy) boyMixer?.uncacheRoot(boy);
       player.dispose(); physics.dispose(); disposeRoom(scene); rubbleGeometry.dispose();
+      healthPackMat.dispose(); crossMat.dispose();
       audioManager.dispose();
     },
   };
