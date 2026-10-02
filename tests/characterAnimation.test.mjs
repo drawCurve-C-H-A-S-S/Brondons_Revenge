@@ -184,6 +184,47 @@ test('scripted ladder traversal selects the generated alternating climb loop', a
   assert.ok(weight('Idle_Loop') > 0.99);
 });
 
+test('MC crouch lowers the torso while keeping both boots planted', async context => {
+  const { player, character, frame, key, weight } = await fixture(context);
+  const pose = () => {
+    character.model.updateMatrixWorld(true);
+    const point = name => character.model.getObjectByName(name).getWorldPosition(new THREE.Vector3());
+    return { head: point('Head'), leftFoot: point('foot_l'), rightFoot: point('foot_r'),
+      hips: character.model.getObjectByName('thigh_l').parent.getWorldPosition(new THREE.Vector3()) };
+  };
+  frame(30); const standing = pose();
+  key('keydown', 'KeyC'); key('keyup', 'KeyC'); frame(30);
+  const crouched = pose();
+  assert.equal(player.getState().crouching, true);
+  assert.ok(weight('Crouch_Idle_Loop') > 0.99, 'crouch selects the actual idle loop');
+  assert.ok(crouched.head.y < standing.head.y - 0.35, 'head lowers into a crouch');
+  assert.ok(crouched.hips.y < standing.hips.y - 0.25, 'hips lower with the torso');
+  for (const foot of ['leftFoot', 'rightFoot']) {
+    assert.ok(Math.abs(crouched[foot].y - standing[foot].y) < 0.12, `${foot} stays on the floor instead of floating or sinking`);
+  }
+  character.weapon.setEquipped(true); frame(30);
+  assert.ok(pose().head.y < standing.head.y - 0.35, 'the pistol upper-body layer preserves crouch height');
+  character.weapon.setEquipped(false); frame(30);
+  key('keydown', 'KeyW'); frame(30);
+  assert.ok(weight('Crouch_Fwd_Loop') > 0.99, 'moving uses crouch locomotion');
+  assert.ok(pose().head.y < standing.head.y - 0.3, 'moving preserves the lowered posture');
+  key('keyup', 'KeyW'); key('keydown', 'KeyC'); key('keyup', 'KeyC');
+  for (let transition = 0; transition < 30; transition++) {
+    frame();
+    const standingUp = pose();
+    for (const foot of ['leftFoot', 'rightFoot']) {
+      assert.ok(standingUp[foot].y <= standing[foot].y + 0.12, `${foot} stays grounded through the standing transition`);
+    }
+  }
+  assert.equal(player.getState().crouching, false);
+  assert.ok(weight('Idle_Loop') > 0.99);
+  assert.ok(Math.abs(pose().head.y - standing.head.y) < 0.1, 'standing restores the original posture');
+  player.setForcedCrouch(true); frame(30);
+  assert.ok(pose().head.y < standing.head.y - 0.35, 'low-ceiling forced crouch is grounded too');
+  player.setForcedCrouch(false); key('keydown', 'KeyC'); key('keyup', 'KeyC'); frame(30);
+  assert.ok(Math.abs(pose().head.y - standing.head.y) < 0.1, 'forced crouch leaves no standing offset');
+});
+
 for (const asset of ['Subject.glb', 'MC.glb']) {
   test(`${asset} ladder IK alternates hands and flexes both knees, with seamless looping`, async t => {
     const { player, character, frame } = await fixture(t, asset);

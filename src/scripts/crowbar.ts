@@ -1,9 +1,12 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { createCrowbar } from './items/createCrowbar.js';
-import { traceShot, type DamageTarget } from './pistol.js';
+import type { DamageTarget } from './pistol.js';
+import { MeleeSwing, getAttackSegment, getWeaponSegment } from './melee.js';
 import type { Player } from './player.js';
 import { registerTouchAttackCallback, refreshTouchAttackButton } from './touchControls.js';
+
+const CROWBAR_SWING_DURATION = 0.35;
 
 interface FirstPersonHands {
   update: (attackProgress: number | null) => void;
@@ -32,6 +35,8 @@ export class CrowbarController {
   private equipped = false;
   private cooldown = 0;
   private swingTime = 0;
+  private melee = new MeleeSwing('crowbar');
+  private swingPlayer: Player | null = null;
   private status: HTMLElement | null;
   private unregisterTouchAttack: () => void;
 
@@ -61,6 +66,11 @@ export class CrowbarController {
 
   holster() {
     this.equipped = false;
+    this.swingTime = 0;
+    this.swingPlayer = null;
+    this.melee.reset();
+    this.root.visible = false;
+    this.root.removeFromParent();
     refreshTouchAttackButton();
     this.context().setCharacterEquipped(false);
   }
@@ -80,70 +90,47 @@ export class CrowbarController {
   };
 
   private swing() {
-    const { scene, camera, world, player, character, targets, doorTarget, openDoor } = this.context();
+    const { scene, camera, player, openDoor } = this.context();
     if (!this.equipped || this.cooldown > 0 || !player?.isEnabled() || player.getState().climbing || player.getState().ventMode || player.getState().boxHandling || !scene || !camera) return false;
     player.requestAction('Sword_Attack');
-    camera.updateMatrixWorld(true);
-    const aim = new THREE.Raycaster();
-    aim.setFromCamera(new THREE.Vector2(0, 0), camera);
-    const reach = 1.8;
-    const ignored = character ? [character, this.root] : [this.root];
-    const origin = new THREE.Vector3(player.body.position.x, player.body.position.y + 0.8, player.body.position.z);
-    const sight = traceShot(scene, world, aim.ray, targets, ignored, reach + camera.position.distanceTo(origin));
-    const direction = sight.point.clone().sub(origin);
-    const strike = direction.length() <= reach
-      ? traceShot(scene, world, new THREE.Ray(origin, direction.clone().normalize()), targets, ignored, direction.length() + 0.03)
-      : null;
-    // Door interaction is zone-based: a swing near the cafeteria door opens it
-    // even when the crosshair is aimed at the surrounding wall or frame.
     openDoor();
-    const hit = strike?.target?.damage(35, 'crowbar') ?? false;
-
-    if (world) {
-      const closest: { body: CANNON.Body | null; distance: number } = { body: null, distance: reach };
-      const end = origin.clone().addScaledVector(direction.clone().normalize(), Math.min(reach, direction.length()));
-      world.raycastAll(
-        new CANNON.Vec3(origin.x, origin.y, origin.z),
-        new CANNON.Vec3(end.x, end.y, end.z),
-        { skipBackfaces: false, checkCollisionResponse: true },
-        result => {
-          if (!result.body || result.body === player.body || result.body.mass <= 0) return;
-          if (result.distance < closest.distance) {
-            closest.body = result.body;
-            closest.distance = result.distance;
-          }
-        },
-      );
-      if (closest.body) {
-        const impulse = new CANNON.Vec3(aim.ray.direction.x * 3.5, 0.8, aim.ray.direction.z * 3.5);
-        closest.body.applyImpulse(impulse);
-      }
-    }
-
-    this.cooldown = 0.28;
-    this.swingTime = 0.16;
-    if (this.status) this.status.dataset.hit = String(hit);
+    this.melee.reset();
+    this.cooldown = CROWBAR_SWING_DURATION;
+    this.swingTime = CROWBAR_SWING_DURATION;
+    this.swingPlayer = player;
+    if (this.status) this.status.dataset.hit = 'false';
+    this.update(0);
     return true;
   }
 
   update(dt: number) {
     const frame = Number.isFinite(dt) ? Math.max(0, Math.min(0.1, dt)) : 0;
+    const previousSwing = this.swingTime;
     this.cooldown = Math.max(0, this.cooldown - frame);
     this.swingTime = Math.max(0, this.swingTime - frame);
-    const { camera, player, thirdPerson, hasCrowbar, setCharacterEquipped, firstPersonHands: handsSource } = this.context();
+    const context = this.context();
+    const { camera, player, character, thirdPerson, hasCrowbar, setCharacterEquipped, firstPersonHands: handsSource } = context;
     const firstPersonHands = typeof handsSource === 'function' ? handsSource() : handsSource;
-    if (!hasCrowbar && this.equipped) { this.equipped = false; refreshTouchAttackButton(); }
+    if (!hasCrowbar && this.equipped) this.holster();
     const usable = !!player?.isEnabled() && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling;
     setCharacterEquipped(this.equipped && usable);
     this.root.visible = this.equipped && !thirdPerson && usable;
-    if (this.equipped && usable && !thirdPerson) firstPersonHands?.update(this.swingTime > 0 ? 1 - this.swingTime / 0.16 : null);
-    if (!camera || !this.root.visible) {
-      this.root.removeFromParent();
-      return;
+    const progress = this.swingTime > 0 ? 1 - this.swingTime / CROWBAR_SWING_DURATION : 1;
+    if (this.equipped && usable && !thirdPerson) firstPersonHands?.update(this.swingTime > 0 ? progress : null);
+    if (camera && this.root.visible) {
+      if (this.root.parent !== camera) camera.add(this.root);
+      this.root.rotation.set(-0.45 - Math.sin(Math.PI * progress) * 1.8, 0.35, 0.35);
+    } else this.root.removeFromParent();
+    if (!this.equipped || !usable || !player || !camera || (previousSwing > 0 && player !== this.swingPlayer)) {
+      this.swingTime = 0; this.swingPlayer = null; this.melee.reset(); return;
     }
-    if (this.root.parent !== camera) camera.add(this.root);
-    const progress = this.swingTime > 0 ? 1 - this.swingTime / 0.16 : 1;
-    this.root.rotation.set(-0.45 - Math.sin(Math.PI * progress) * 1.8, 0.35, 0.35);
+    if (previousSwing > 0) {
+      const weapon = thirdPerson ? character?.getObjectByName('crowbar') : this.root.getObjectByName('crowbar');
+      const segment = weapon ? getWeaponSegment(weapon) : getAttackSegment(player, progress);
+      if (frame > 0) {
+        if (this.melee.update(context, segment, [this.root]) && this.status) this.status.dataset.hit = 'true';
+      } else this.melee.prime(segment);
+    }
   }
 
   renderFirstPerson(renderer: THREE.WebGLRenderer) {
@@ -153,6 +140,7 @@ export class CrowbarController {
   }
 
   dispose() {
+    this.holster();
     this.unregisterTouchAttack();
     window.removeEventListener('keydown', this.onKeyDown);
     document.removeEventListener('mousedown', this.onMouseDown);

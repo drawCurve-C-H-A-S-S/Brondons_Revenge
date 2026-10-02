@@ -24,6 +24,7 @@ interface WeaponContext {
     shoot(): void;
   };
   holsterOther?: () => void;
+  onShot?: (point: THREE.Vector3, origin: THREE.Vector3) => void;
 }
 function belongsTo(object: THREE.Object3D, root: THREE.Object3D) {
   for (let node: THREE.Object3D | null = object; node; node = node.parent) if (node === root) return true;
@@ -87,6 +88,7 @@ export class PistolController {
     this.beam.visible = false;
     this.beam.renderOrder = 999;
     this.crosshair = document.getElementById('crosshair');
+    if (this.crosshair) this.crosshair.style.display = 'none';
     this.status = document.getElementById('weapon-status');
     this.ready = load().then(gltf => {
       if (this.disposed) return;
@@ -129,8 +131,16 @@ export class PistolController {
 
   private updateStatus() {
     refreshTouchAttackButton();
+    if (this.crosshair && !this.isAiming()) this.crosshair.style.display = 'none';
     if (this.status) this.status.textContent = this.equipped
       ? (this.loaded ? 'K: holster | Left click: shoot' : 'Loading pistol...') : 'K: equip pistol';
+  }
+
+  isAiming() {
+    const { scene, camera, player } = this.context();
+    if (!this.equipped || !this.loaded || !scene || !camera || !player?.isEnabled()) return false;
+    const state = player.getState();
+    return !state.climbing && !state.ventMode && !state.boxHandling;
   }
 
   equip() {
@@ -144,12 +154,13 @@ export class PistolController {
 
   holster() {
     this.equipped = false;
+    this.clearFeedback();
     this.context().weaponAnimation?.setEquipped(false);
     this.updateStatus();
   }
 
   shoot() {
-    const { scene, camera, world, player, character, targets, weaponAnimation } = this.context();
+    const { scene, camera, world, player, character, targets, weaponAnimation, onShot } = this.context();
     if (!this.equipped || !this.loaded || this.cooldown > 0 || !player?.isEnabled() || player.getState().climbing || player.getState().ventMode || player.getState().boxHandling || !scene || !camera) return false;
     this.update(0);
     camera.updateMatrixWorld(true);
@@ -168,6 +179,7 @@ export class PistolController {
     this.hitTime = hit ? 0.15 : 0;
     this.flash.visible = true;
     this.fireBeam(scene, origin, shot.point);
+    onShot?.(shot.point, origin);
     if (this.crosshair) this.crosshair.dataset.hit = String(hit);
     return true;
   }

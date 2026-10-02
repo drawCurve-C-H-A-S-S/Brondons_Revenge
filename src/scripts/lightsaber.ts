@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { createLightsaber, disposeLightsaber, LIGHTSABER_SWING_DURATION, type LightsaberAttackName } from './items/createLightsaber.js';
-import { traceShot, type DamageTarget } from './pistol.js';
+import type { DamageTarget } from './pistol.js';
+import { MeleeSwing, getAttackSegment, getWeaponSegment } from './melee.js';
 import type { Player } from './player.js';
 import { LightsaberAudio } from './lightsaberAudio.js';
 import { registerTouchAttackCallback, refreshTouchAttackButton } from './touchControls.js';
@@ -41,6 +42,8 @@ export class LightsaberController {
   private disposed = false;
   private cooldown = 0;
   private swingTime = 0;
+  private melee = new MeleeSwing('lightsaber');
+  private swingPlayer: Player | null = null;
   private swingIndex = -1;
   private attackClip: LightsaberAttackName = 'Sword_Attack';
   private ignitionTime = 0;
@@ -90,6 +93,10 @@ export class LightsaberController {
   /** Detach persistent presentation before an outgoing room disposes its meshes. */
   detach() {
     this.audio.stopHum();
+    this.swingTime = this.parryWindow = 0;
+    this.parryPerfect = false;
+    this.swingPlayer = null;
+    this.melee.reset();
     this.root.visible = false;
     this.root.removeFromParent();
   }
@@ -101,58 +108,37 @@ export class LightsaberController {
   };
 
   private swing() {
-    const { scene, camera, world, player, character, targets, openDoor, attackClips } = this.context();
+    const { scene, camera, player, openDoor, attackClips } = this.context();
     if (this.inputBlocked() || !this.equipped || this.cooldown > 0 || !player?.isEnabled() || player.getHealth() <= 0
       || player.getState().climbing || player.getState().ventMode || player.getState().boxHandling || !scene || !camera) return false;
     this.swingIndex++;
     this.attackClip = attackClips?.length ? attackClips[this.swingIndex % attackClips.length] : 'Sword_Attack';
     player.requestAction(this.attackClip);
     this.audio.playSwing();
-    camera.updateMatrixWorld(true);
-    const aim = new THREE.Raycaster();
-    aim.setFromCamera(new THREE.Vector2(0, 0), camera);
-    const reach = 1.8;
-    const ignored = character ? [character, this.root] : [this.root];
-    const origin = new THREE.Vector3(player.body.position.x, player.body.position.y + 0.8, player.body.position.z);
-    const sight = traceShot(scene, world, aim.ray, targets, ignored, reach + camera.position.distanceTo(origin));
-    const direction = sight.point.clone().sub(origin);
-    const distance = direction.length();
-    const strike = distance > 0.001 && distance <= reach
-      ? traceShot(scene, world, new THREE.Ray(origin, direction.clone().normalize()), targets, ignored, distance + 0.03)
-      : null;
     openDoor();
-    const hit = strike?.target?.damage(35, 'lightsaber') ?? false;
-    if (hit) this.audio.playClash();
-
-    if (world && distance > 0.001) {
-      const closest: { body: CANNON.Body | null; distance: number } = { body: null, distance: Math.min(reach, distance) + 0.03 };
-      const end = origin.clone().addScaledVector(direction.clone().normalize(), Math.min(reach, distance) + 0.03);
-      world.raycastAll(new CANNON.Vec3(origin.x, origin.y, origin.z), new CANNON.Vec3(end.x, end.y, end.z),
-        { skipBackfaces: false, checkCollisionResponse: true }, result => {
-          if (!result.body || result.body === player.body || result.body.mass <= 0) return;
-          if (result.distance < closest.distance) { closest.body = result.body; closest.distance = result.distance; }
-        });
-      if (closest.body) closest.body.applyImpulse(new CANNON.Vec3(aim.ray.direction.x * 3.5, 0.8, aim.ray.direction.z * 3.5));
-    }
-    this.cooldown = 0.28;
+    this.melee.reset();
+    this.cooldown = LIGHTSABER_SWING_DURATION;
     this.swingTime = LIGHTSABER_SWING_DURATION;
+    this.swingPlayer = player;
     this.parryWindow = PARRY_TOTAL_SECONDS;
     this.parryPerfect = true;
+    this.update(0);
     return true;
   }
 
   update(dt: number) {
     if (this.disposed) return;
     const frame = Number.isFinite(dt) ? Math.max(0, Math.min(0.1, dt)) : 0;
+    const previousSwing = this.swingTime;
     this.cooldown = Math.max(0, this.cooldown - frame);
     this.swingTime = Math.max(0, this.swingTime - frame);
     this.parryFlash = Math.max(0, this.parryFlash - frame);
     if (this.parryWindow > 0) {
       this.parryWindow = Math.max(0, this.parryWindow - frame);
       if (this.parryWindow <= 0) this.parryPerfect = false;
-      this.checkParry();
     }
-    const { scene, camera, player, thirdPerson, hasLightsaber, setCharacterEquipped } = this.context();
+    const context = this.context();
+    const { scene, camera, player, character, thirdPerson, hasLightsaber, setCharacterEquipped } = context;
     if (!hasLightsaber && this.equipped) this.holster();
     const usable = !!player?.isEnabled() && player.getHealth() > 0 && !player.getState().climbing
       && !player.getState().ventMode && !player.getState().boxHandling;
@@ -163,17 +149,29 @@ export class LightsaberController {
       if (this.ignitionTime === 0) this.audio.startHum();
     } else this.audio.stopHum();
     this.root.visible = active && !thirdPerson;
-    if (!scene || !camera || !this.root.visible) { this.root.removeFromParent(); return; }
-    camera.updateMatrixWorld(true);
-    scene.add(this.root);
-    this.root.position.set(0.3, -0.25, -0.5).applyMatrix4(camera.matrixWorld);
-    camera.getWorldQuaternion(this.root.quaternion);
     const progress = this.swingTime > 0 ? 1 - this.swingTime / LIGHTSABER_SWING_DURATION : 1;
     const arc = Math.sin(Math.PI * progress);
     const side = this.swingIndex % 2 === 0 ? 1 : -1;
-    this.root.rotateX(-0.3 - arc * (this.swingIndex % 3 === 2 ? 1.9 : 0.9));
-    this.root.rotateY(0.2 + side * arc * 0.7);
-    this.root.rotateZ(0.4 + side * arc * 1.1);
+    if (scene && camera && this.root.visible) {
+      camera.updateMatrixWorld(true);
+      scene.add(this.root);
+      this.root.position.set(0.3, -0.25, -0.5).applyMatrix4(camera.matrixWorld);
+      camera.getWorldQuaternion(this.root.quaternion);
+      this.root.rotateX(-0.3 - arc * (this.swingIndex % 3 === 2 ? 1.9 : 1.35));
+      this.root.rotateY(0.2 + side * (progress - 0.5) * arc * 1.4);
+      this.root.rotateZ(0.4 + side * (progress - 0.5) * arc * 1.1);
+    } else this.root.removeFromParent();
+    if (!active || !player || !scene || !camera || (previousSwing > 0 && player !== this.swingPlayer)) {
+      this.swingTime = this.parryWindow = 0; this.swingPlayer = null; this.melee.reset(); return;
+    }
+    this.checkParry();
+    if (previousSwing > 0) {
+      const weapon = thirdPerson ? character?.getObjectByName('lightsaber') : this.root.getObjectByName('lightsaber');
+      const segment = weapon ? getWeaponSegment(weapon) : getAttackSegment(player, progress, side);
+      if (frame > 0) {
+        if (this.melee.update(context, segment, [this.root])) this.audio.playClash();
+      } else this.melee.prime(segment);
+    }
   }
 
   dispose() {

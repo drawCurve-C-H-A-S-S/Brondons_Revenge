@@ -792,7 +792,10 @@ export async function loadCharacter(loader?: GLTFLoader) {
         upperRoot.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(axis, -pistolPitch * pistolBlend));
       }
     }
-    if (playerState.ventMode && ventFeet.length) {
+    const crouchBlending = [actions.get('Crouch_Idle_Loop'), actions.get('Crouch_Fwd_Loop')]
+      .some(action => action?.isRunning() && action.getEffectiveWeight() > 0);
+    const groundCrouch = !cinematic && (crouching || crouchBlending) && isOnGround && !climbing && !floating && !boxHandling;
+    if ((playerState.ventMode || groundCrouch) && ventFeet.length) {
       model.updateMatrixWorld(true);
       const feetY = Math.min(...ventFeet.map(bone => bone.getWorldPosition(ventFootPosition).y));
       model.position.y += playerBodyPos.y - playerRadius + ventSoleOffset - feetY;

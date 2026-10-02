@@ -5,6 +5,7 @@ import { loadPlayerModel } from '../../core/loader.js';
 import { createPlayer } from '../../scripts/player.js';
 import { applyLayFlatPose, createPrologueGetUpClip, HOLOGRAM_TRANSFER_DURATION, hologramTransitionAt } from '../../scripts/characterManager.js';
 import { createPrologueFlashbacks, type PrologueShot } from './prologueFlashbacks.js';
+import { createHoldToSkip } from '../../helpers/animation/holdToSkip.js';
 
 interface PrologueOptions {
   onPlayable?: () => void;
@@ -83,25 +84,6 @@ export function createScene({ onPlayable, onFinished, thirdPersonCamera = { dist
   wall(roomSize.x, roomSize.y, new THREE.Vector3(0, roomSize.y / 2, roomSize.z / 2), 0);
   wall(roomSize.z, roomSize.y, new THREE.Vector3(-roomSize.x / 2, roomSize.y / 2, 0), Math.PI / 2);
   wall(roomSize.z, roomSize.y, new THREE.Vector3(roomSize.x / 2, roomSize.y / 2, 0), Math.PI / 2);
-
-  // Sealed sliding door on the far wall - two panels, dark seam, no window.
-  const doorFrameMat = new THREE.MeshStandardMaterial({ color: 0x1d222a, roughness: 0.55, metalness: 0.75 });
-  const doorPanelMat = new THREE.MeshStandardMaterial({ color: 0x0d1016, roughness: 0.7, metalness: 0.5 });
-  const doorFrame = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2.2, 0.06), doorFrameMat);
-  doorFrame.position.set(0, 1.1, -roomSize.z / 2 + 0.11);
-  scene.add(doorFrame);
-  for (const sx of [-0.345, 0.345]) {
-    const panel = new THREE.Mesh(new THREE.BoxGeometry(0.66, 2.05, 0.04), doorPanelMat);
-    panel.position.set(sx, 1.1, -roomSize.z / 2 + 0.14);
-    scene.add(panel);
-  }
-  // Thin lit seam between the door halves for a sci-fi detail.
-  const doorSeam = new THREE.Mesh(
-    new THREE.BoxGeometry(0.015, 2.0, 0.015),
-    new THREE.MeshBasicMaterial({ color: STRIP_COLOR }),
-  );
-  doorSeam.position.set(0, 1.1, -roomSize.z / 2 + 0.16);
-  scene.add(doorSeam);
 
   // Vertical corner strip lights (four corners, floor-to-ceiling).
   const stripGeo = new THREE.BoxGeometry(0.04, roomSize.y - 0.5, 0.04);
@@ -357,6 +339,11 @@ export function createScene({ onPlayable, onFinished, thirdPersonCamera = { dist
     }
     updateArmChains();
     modelReady = true;
+    if (playable) {
+      if (subjectRoot) subjectRoot.visible = false;
+      subjectMixer?.stopAllAction();
+      for (const mesh of [...wrappedLinks, ...armChains.flatMap(tether => tether.links)]) mesh.visible = false;
+    }
   }).catch(err => {
     console.warn('Prologue: failed to load MC.glb', err);
     modelReady = true;
@@ -774,9 +761,15 @@ export function createScene({ onPlayable, onFinished, thirdPersonCamera = { dist
   let finished = false;
   let playable = false;
   let exitTime = -1;
+  const skipButton = document.createElement('button');
+  skipButton.id = 'prologue-skip';
+  skipButton.className = 'prologue-skip-btn';
+  skipButton.type = 'button';
+  document.body.appendChild(skipButton);
+  const skipHold = createHoldToSkip({ button: skipButton, onSkip: finishCutscene, isAvailable: () => !playable && !finished });
   const exitPrompt = document.createElement('div');
   exitPrompt.id = 'prologue-exit-prompt';
-  exitPrompt.textContent = 'Press E to begin your revenge';
+  exitPrompt.textContent = 'Press E to teleport to storage';
   exitPrompt.style.display = 'none';
   document.body.appendChild(exitPrompt);
   const presentCameraStart = new THREE.Vector3();
@@ -784,6 +777,40 @@ export function createScene({ onPlayable, onFinished, thirdPersonCamera = { dist
   const releaseCameraStart = new THREE.Vector3();
   const releaseLook = new THREE.Vector3();
   const TYPE_SPEED = 28; // characters per second
+
+  function finishCutscene(): void {
+    if (playable || finished) return;
+    playable = true;
+    dialogueActive = false;
+    activeShot = 'present';
+    releaseTime = 16;
+    skipHold.reset();
+    skipButton.classList.add('hidden');
+    if (subjectRoot) subjectRoot.visible = false;
+    subjectMixer?.stopAllAction();
+    for (const mesh of [...wrappedLinks, ...armChains.flatMap(tether => tether.links)]) mesh.visible = false;
+    floorFlow.visible = floorGlow.visible = false;
+    floorLight.intensity = 0;
+    eyeCanvas.style.display = 'none';
+    cinemaOverlay.style.display = 'none';
+    title.style.visibility = 'hidden';
+    title.style.opacity = '0';
+    if (gameCanvas) gameCanvas.style.filter = originalFilter;
+    document.body.classList.remove('prologue-playing');
+    player.setPosition(0, PHYSICS.playerRadius, 0);
+    player.setRotation(0, 0);
+    player.clearInput();
+    player.enable();
+    camera.fov = 75;
+    camera.updateProjectionMatrix();
+    speakerEl.textContent = 'Prime';
+    overlay.dataset.speaker = 'Prime';
+    textEl.textContent = "The nearest place we can teleport to right now is a storage room on the ship's highest deck.";
+    hintEl.classList.add('hidden');
+    overlay.classList.remove('hidden', 'fading');
+    exitPrompt.style.display = 'block';
+    onPlayable?.();
+  }
 
   function showDialogueLine(): void {
     const line = lines[dialogueIndex];
@@ -850,20 +877,22 @@ export function createScene({ onPlayable, onFinished, thirdPersonCamera = { dist
   }
 
   function onKey(event: KeyboardEvent): void {
-    if (event.repeat) return;
     const target = event.target;
     if (target instanceof HTMLElement && target.closest('input, textarea, [contenteditable="true"]')) {
       return;
     }
+    if (document.hidden || document.body.classList.contains('quick-menu-open')) return;
+    if (event.repeat) return;
     if (playable && exitTime < 0 && !finished && event.code === 'KeyE') {
       event.preventDefault();
       exitTime = 0;
       player.disable();
       player.clearInput();
       exitPrompt.style.display = 'none';
+      overlay.classList.add('hidden');
       return;
     }
-    if (!dialogueActive || (event.code !== 'Space' && event.code !== 'Enter')) return;
+    if (!dialogueActive || event.code !== 'Space') return;
     event.preventDefault();
     advanceDialogue();
   }
@@ -975,19 +1004,7 @@ export function createScene({ onPlayable, onFinished, thirdPersonCamera = { dist
       title.style.opacity = String(titleOpacity);
       title.style.transform = `translateY(${(1 - THREE.MathUtils.smoothstep(titleTime, 0.3, 2.2)) * 10}px)`;
       shotFade.style.opacity = '0';
-      if (titleTime >= 6.5 && !playable) {
-        playable = true;
-        if (subjectRoot) subjectRoot.visible = false;
-        subjectMixer?.stopAllAction();
-        cinemaOverlay.style.display = 'none';
-        document.body.classList.remove('prologue-playing');
-        player.setPosition(0, PHYSICS.playerRadius, 0);
-        player.setRotation(0, 0);
-        player.clearInput();
-        player.enable();
-        exitPrompt.style.display = 'block';
-        onPlayable?.();
-      }
+      if (titleTime >= 6.5 && !playable) finishCutscene();
     }
     camera.updateProjectionMatrix();
   }
@@ -996,6 +1013,7 @@ export function createScene({ onPlayable, onFinished, thirdPersonCamera = { dist
     if (disposed) return;
     const frame = Number.isFinite(dt) ? Math.max(0, Math.min(dt, 0.1)) : 0;
     lastDelta = frame;
+    skipHold.update(frame);
     if (playable) {
       if (exitTime >= 0) {
         exitTime += frame;
@@ -1081,10 +1099,12 @@ export function createScene({ onPlayable, onFinished, thirdPersonCamera = { dist
     disposed = true;
     window.removeEventListener('mousedown', onClick);
     window.removeEventListener('keydown', onKey);
+    skipHold.dispose();
     overlay.remove();
     eyeCanvas.remove();
     cinemaOverlay.remove();
     title.remove();
+    skipButton.remove();
     exitPrompt.remove();
     document.body.classList.remove('prologue-playing');
     if (gameCanvas) gameCanvas.style.filter = originalFilter;
@@ -1134,6 +1154,7 @@ export function createScene({ onPlayable, onFinished, thirdPersonCamera = { dist
     canToggleView: () => false,
     controlsReady: () => playable && exitTime < 0,
     getCinematicDelta: () => lastDelta,
+    setMenuPaused: (value: boolean) => { if (value) skipHold.reset(); },
     getCinematicState: () => null,
     getCinematicPose: () => null,
     getDamageTargets: () => [],

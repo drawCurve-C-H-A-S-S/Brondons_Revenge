@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { applyTraversalCamera } from './core/camera.js';
+import { applyThirdPersonCamera, applyTraversalCamera, isCameraForcedFirstPerson, resetThirdPersonCamera } from './core/camera.js';
 import { createSceneMinimap } from './core/renderer.js';
 import { createShipMap } from './core/shipMap.js';
 import { createScene as createScene1 } from './scenes/scene1.js';
+import { createHoldToSkip } from './helpers/animation/holdToSkip.js';
 import { createCargoPuzzleState } from './scripts/cargoPuzzle.js';
 import { createHandle } from './helpers/scene/cargoVisuals.js';
 import type { PassageDestination } from './scenes/level 1/scene12.js';
@@ -32,6 +33,7 @@ import jungleMusicUrl from './assets/bgm/DonRevJungleLoop.m4a';
 
 const sceneImports = {
   0: () => import('./scenes/prologue/prologue_scene_1.js'),
+  1.1: () => import('./scenes/level 1 stage 1/storageRoom.js'),
   2: () => import('./scenes/level 1/scene2.js'),
   3: () => import('./scenes/level 1/scene3.js'),
   4: () => import('./scenes/level 1/scene4.js'),
@@ -92,7 +94,7 @@ function warmScene(id: SceneModuleId) {
 }
 
 const upcomingScenes: Partial<Record<SceneModuleId, readonly SceneModuleId[]>> = {
-  0: [2], 2: [3], 3: [4, 5, 6], 4: [7], 7: [8], 8: [9, 10, 11],
+  0: [1.1], 2: [3], 3: [4, 5, 6], 4: [7], 7: [8], 8: [9, 10, 11],
   9: [12], 10: [12], 11: [12, 13], 12: [13], 13: [14],
   14: [15], 15: [16], 16: [17], 17: [18], 18: [19],
 };
@@ -126,6 +128,7 @@ let lastSplinePoint: THREE.Vector3 | null = null;
 let creditsTimer: number | null = null;
 let activeSceneId = 'scene1';
 let quickMenuOpen = false;
+let stealthHintsEnabled = true;
 let nextSceneActionId = 0;
 const pendingSceneActions = new Map<number, { remaining: number; run: () => void }>();
 
@@ -164,6 +167,7 @@ function advanceSceneActions(dt: number) {
   }
 }
 let scene1SkipVisible = false;
+let scene1SkipHold: ReturnType<typeof createHoldToSkip> | null = null;
 let cargoPuzzle = createCargoPuzzleState();
 const heldSwitchHandle = createHandle();
 let bayBossDefeated = false;
@@ -203,12 +207,17 @@ const THIRD_PERSON_DIST = 1.5;
 const THIRD_PERSON_HEIGHT = 0.3;
 const THIRD_PERSON_RIGHT = 0.7;
 
+function isGameplayThirdPerson() {
+  return (isThirdPerson || !!currentSceneData?.forceThirdPerson) && !isCameraForcedFirstPerson(activeCamera);
+}
+
 const pistol = new PistolController(() => ({
   scene: activeScene, camera: activeCamera, world: currentSceneData?.physicsWorld ?? null,
   player: cargoPuzzle.handle === 'carried' || currentSceneData?.ownsWeaponInput ? null : currentPlayer, character: globalCharacter?.model ?? null,
-  thirdPerson: isThirdPerson, targets: [...npcManager.getDamageTargets(), ...(currentSceneData?.getDamageTargets?.() ?? [])],
+  thirdPerson: isGameplayThirdPerson(), targets: [...npcManager.getDamageTargets(), ...(currentSceneData?.getDamageTargets?.() ?? [])],
   weaponAnimation: currentSceneData?.ownsWeaponInput ? undefined : globalCharacter?.weapon,
   holsterOther: () => { crowbarController?.holster(); lightsaberController?.holster(); },
+  onShot: (point, origin) => currentSceneData?.onPistolShot?.(point, origin),
 }));
 
 const crowbar = new CrowbarController(() => ({
@@ -217,7 +226,7 @@ const crowbar = new CrowbarController(() => ({
   world: currentSceneData?.physicsWorld ?? null,
   player: cargoPuzzle.handle === 'carried' || currentSceneData?.ownsWeaponInput ? null : currentPlayer,
   character: globalCharacter?.model ?? null,
-  thirdPerson: isThirdPerson,
+  thirdPerson: isGameplayThirdPerson(),
   hasCrowbar,
   targets: [...npcManager.getDamageTargets(), ...(currentSceneData?.getDamageTargets?.() ?? [])],
   setCharacterEquipped: (equipped: boolean) => globalCharacter?.setCrowbarEquipped(equipped),
@@ -225,7 +234,7 @@ const crowbar = new CrowbarController(() => ({
   openDoor: () => { currentSceneData?.hitForwardDoor?.(); currentSceneData?.hitCargoDoor?.(); },
   holsterOther: () => { pistol.holster(); lightsaberController?.holster(); },
   firstPersonHands: () => {
-    if (hasCrowbar && !isThirdPerson) void prepareFirstPersonHands();
+    if (hasCrowbar && !isGameplayThirdPerson()) void prepareFirstPersonHands();
     return firstPersonHands;
   },
 }));
@@ -236,7 +245,7 @@ const lightsaber = new LightsaberController(() => ({
   world: currentSceneData?.physicsWorld ?? null,
   player: cargoPuzzle.handle === 'carried' || currentSceneData?.ownsWeaponInput || currentSceneData?.isCinematic?.() || deathPresentation ? null : currentPlayer,
   character: globalCharacter?.model ?? null,
-  thirdPerson: isThirdPerson || !!currentSceneData?.forceThirdPerson,
+  thirdPerson: isGameplayThirdPerson(),
   hasLightsaber,
   attackClips: globalCharacter?.lightsaberAttacks,
   targets: [...npcManager.getDamageTargets(), ...(currentSceneData?.getDamageTargets?.() ?? [])],
@@ -285,9 +294,11 @@ async function initializeApp() {
   } else {
     console.warn('Failed to load character, continuing without character');
   }
+  if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('stage1-stealth')) await loadStage1Storage();
   warmScene(0);
-  warmScene(2);
+  warmScene(1.1);
   void background(() => preloadAudio(shipMusicUrl));
+  void background(() => preloadToolModel('Enemy_EyeDrone'));
   void background(() => preloadToolModel('Enemy_Trilobite'));
 }
 
@@ -301,8 +312,8 @@ const controlCard = document.getElementById('control-card')!;
 const lessons: Record<string, Omit<ControlCard, 'key' | 'scene'>> = {
   basics: { title: 'You’re awake', lines: ['WASD — walk · Shift — sprint', 'Mouse — look · Click the world to capture the mouse', 'Space — jump · C — crouch · E — interact', 'K — equip pistol · Left click — shoot', 'V or the view button — switch first / third person · M — pause'], touch: ['Drag on the left to walk; drag on the right to look.', 'RUN, JUMP, CROUCH and USE are your movement controls.', 'PISTOL equips your gun; SHOOT fires it.', 'Tap VIEW to switch first / third person · MENU to pause.'] },
   pistol: { title: 'Pistol', lines: ['K — equip / holster', 'Left click — shoot at your crosshair'], touch: ['PISTOL — equip / holster', 'SHOOT — fire at your crosshair'] },
-  crowbar: { title: 'Crowbar acquired', lines: ['T — equip / holster', 'Left click — swing at your crosshair'], touch: ['CROW — equip / holster', 'SWING — attack at your crosshair'] },
-  lightsaber: { title: 'Lightsaber acquired', lines: ['L — equip / holster', 'Left click — slash at your crosshair'], touch: ['SABER — equip / holster', 'SLASH — attack at your crosshair'] },
+  crowbar: { title: 'Crowbar acquired', lines: ['T — equip / holster', 'Left click — swing'], touch: ['CROW — equip / holster', 'SWING — attack'] },
+  lightsaber: { title: 'Lightsaber acquired', lines: ['L — equip / holster', 'Left click — slash'], touch: ['SABER — equip / holster', 'SLASH — attack'] },
   goggles: { title: 'Scanner goggles acquired', lines: ['N — wear / remove goggles'], touch: ['GOGGLES — wear / remove'] },
   vent: { title: 'Vent traversal', lines: ['W / S — crawl forward / backward', 'A / D — turn at junctions', 'E — use a ladder · Space — drop while descending'], touch: ['Left stick — crawl and turn at junctions', 'USE — take a ladder · JUMP — drop while descending'] },
   cargo: { title: 'Handling cargo', lines: ['E — grab / release a nearby box', 'WASD — move while holding it'], touch: ['USE — grab / release a nearby box', 'Left stick — move the box'] },
@@ -389,8 +400,8 @@ function updateViewButton() {
   document.getElementById('touch-lightsaber')?.classList.toggle('hidden', !hasLightsaber || !!currentSceneData?.ownsWeaponInput || !!currentSceneData?.isCinematic?.());
   const btn = document.getElementById('view-toggle-btn') as HTMLButtonElement;
   const state = currentPlayer?.getState();
-  const third = currentSceneData?.isThirdPersonView?.() ?? (isThirdPerson || !!currentSceneData?.forceThirdPerson
-    || !!currentSceneData?.isCinematic?.() || !!state?.climbing || !!state?.boxHandling);
+  const third = currentSceneData?.isThirdPersonView?.() ?? ((isThirdPerson || !!currentSceneData?.forceThirdPerson
+    || !!currentSceneData?.isCinematic?.() || !!state?.climbing || !!state?.boxHandling) && !isCameraForcedFirstPerson(activeCamera));
   btn.dataset.view = third ? '3' : '1';
   btn.disabled = !canToggleView();
   btn.title = btn.disabled ? 'Camera controlled by this scene' : `Switch to ${third ? 'first' : 'third'} person (V)`;
@@ -425,8 +436,7 @@ async function loadPrologue1() {
     onFinished: async () => {
       if (activeSceneId !== 'prologue1') return;
       isThirdPerson = true;
-      seenControls.delete('basics');
-      await loadScene2(true, true);
+      await loadStage1Storage();
     },
   });
   activeScene = currentSceneData.scene;
@@ -435,6 +445,33 @@ async function loadPrologue1() {
   updatePhysics = currentSceneData.updatePhysics;
   cutsceneManager = null;
   if (orbitControls) { orbitControls.object = activeCamera!; orbitControls.enabled = false; }
+}
+
+async function loadStage1Storage() {
+  const module = await prepareScene(1.1);
+  if (!module) return;
+  hideScene1Skip();
+  retireTraversalRoom();
+  currentSceneData?.dispose?.();
+  const sceneData = module.createScene({ hintsEnabled: stealthHintsEnabled, openingEntry: true, onComplete: () => {
+    if (activeSceneId === 'stage1-storage') void loadScene2(true, true);
+  } });
+  enterManagedScene('stage1-storage', sceneData);
+  currentSceneData = sceneData;
+  activeScene = sceneData.scene;
+  activeCamera = sceneData.camera;
+  currentPlayer = sceneData.player;
+  updatePhysics = sceneData.updatePhysics;
+  cutsceneManager = null;
+  isThirdPerson = true;
+  if (globalCharacter) {
+    activeScene.add(globalCharacter.model);
+    globalCharacter.setHologramTransition(sceneData.getHologramTransition());
+    globalCharacter.setFacing(currentPlayer.getState().yaw);
+  }
+  if (orbitControls) { orbitControls.object = activeCamera; orbitControls.enabled = false; }
+  updatePlayerView(0);
+  warmScene(2);
 }
 
 // --- Load Scene 1 ---
@@ -472,12 +509,17 @@ function loadScene1() {
         orbitControls!.target.set(0, 15, 0);
         orbitControls!.enabled = true;
         scene1SkipVisible = false;
+        scene1SkipHold?.dispose(); scene1SkipHold = null;
         skipBtn.classList.add('hidden');
         showCredits();
       }
     };
 
-    skipBtn.onclick = () => {
+    scene1SkipHold?.dispose();
+    scene1SkipHold = createHoldToSkip({ button: skipBtn as HTMLButtonElement,
+      isAvailable: () => scene1SkipVisible && currentSceneData === introScene,
+      isPaused: () => quickMenuOpen,
+      onSkip: () => {
       if (currentSceneData !== introScene) return;
       scene1SkipVisible = false;
       skipBtn.classList.add('hidden');
@@ -491,7 +533,8 @@ function loadScene1() {
       const creditsOverlay = document.getElementById('credits-overlay')!;
       creditsOverlay.classList.add('hidden');
       showMenuButtons();
-    };
+      },
+    });
   }
 }
 
@@ -774,6 +817,7 @@ async function transitionBackToScene4(entryState: PlayerTransitionState) {
 
 function hideScene1Skip() {
   scene1SkipVisible = false;
+  scene1SkipHold?.dispose(); scene1SkipHold = null;
   document.getElementById('skip-btn')?.classList.add('hidden');
   document.querySelectorAll('.wake-skip-btn').forEach(button => button.remove());
   document.getElementById('interact-prompt')?.classList.add('hidden');
@@ -1213,6 +1257,7 @@ async function transitionBackToScene3FromRight(entryState: PlayerTransitionState
 function updatePlayerView(dt: number) {
   if (!currentPlayer || !activeCamera) return;
   if (deathPresentation?.player === currentPlayer) {
+    resetThirdPersonCamera(activeCamera);
     const { elapsed, position, rotation, fov } = deathPresentation;
     pistol.update(dt); crowbar.update(dt);
     globalCharacter?.weapon.setEquipped(false); globalCharacter?.setCrowbarEquipped(false); globalCharacter?.setLightsaberEquipped(false);
@@ -1231,6 +1276,7 @@ function updatePlayerView(dt: number) {
   }
   const cinematicState = currentSceneData?.getCinematicState?.();
   if (cinematicState) {
+    resetThirdPersonCamera(activeCamera);
     // Remove ordinary weapon presentation before the scene applies its scripted props.
     pistol.update(dt); crowbar.update(dt);
     globalCharacter?.weapon.setEquipped(!!currentSceneData.ownsWeaponInput && currentSceneData.getCinematicWeapon?.() === 'pistol');
@@ -1247,7 +1293,7 @@ function updatePlayerView(dt: number) {
     currentSceneData.applyCinematicCamera?.();
     return;
   }
-  if (!currentPlayer.isEnabled()) return;
+  if (!currentPlayer.isEnabled()) { resetThirdPersonCamera(activeCamera); return; }
   // Always start from the base camera, including the first render after a scene swap.
   const state = currentPlayer.getState();
   const traversalView = isThirdPerson || !!currentSceneData?.forceThirdPerson || state.climbing || state.boxHandling;
@@ -1259,27 +1305,21 @@ function updatePlayerView(dt: number) {
     globalCharacter?.setLightsaberEquipped(currentSceneData.getCinematicWeapon?.() === 'lightsaber');
   }
   currentPlayer.updateCamera(0, traversalView);
+  const followView = traversalView && !state.ventMode && !state.climbing;
+  const thirdPersonView = followView ? applyThirdPersonCamera(activeCamera, currentPlayer, dt,
+    { distance: THIRD_PERSON_DIST, height: THIRD_PERSON_HEIGHT, right: THIRD_PERSON_RIGHT }) : traversalView;
+  if (!followView) resetThirdPersonCamera(activeCamera);
   globalCharacter?.update(sceneWeapon ? currentSceneData.getCinematicDelta?.() ?? dt : dt,
-    currentPlayer.body.position, state, traversalView, currentPlayer.radius);
+    currentPlayer.body.position, state, thirdPersonView, currentPlayer.radius);
   if (sceneWeapon) currentSceneData.updateCinematicCharacter?.(globalCharacter);
   if (state.ventMode) {
+    resetThirdPersonCamera(activeCamera);
     currentSceneData?.applyVentCamera?.(traversalView);
     return;
   }
-  if (applyTraversalCamera(activeCamera, currentPlayer, traversalView)) return;
-  if (traversalView) {
-    // Forward is the direction the player faces (matches getMoveDirection's W vector).
-    const right = new THREE.Vector3(Math.cos(state.yaw), 0, -Math.sin(state.yaw));
-    const forward = new THREE.Vector3(-Math.sin(state.yaw), 0, -Math.cos(state.yaw));
-    // Pull the camera back behind the player (opposite of forward) and over one shoulder.
-    const distance = THIRD_PERSON_DIST;
-    const rightOffset = THIRD_PERSON_RIGHT;
-    const height = THIRD_PERSON_HEIGHT;
-    activeCamera.position.addScaledVector(forward, -distance);
-    activeCamera.position.addScaledVector(right, rightOffset);
-    activeCamera.position.y += height;
-    // Keep the same look rotation as first-person (yaw/pitch from updateCamera) so the
-    // crosshair stays centered on the aim direction instead of pointing back at the player.
+  if (applyTraversalCamera(activeCamera, currentPlayer, traversalView)) {
+    resetThirdPersonCamera(activeCamera);
+    return;
   }
   currentSceneData?.applyEntryCamera?.();
 }
@@ -1287,6 +1327,7 @@ function updatePlayerView(dt: number) {
 // --- Direct scene selection ---
 const SCENE_CHOICES = [
   [0, 'Prologue — awakening'],
+  [1.1, 'Level 1 stage 1 - Deck One Hangar'],
   [1, 'Space prologue'], [2, 'Medical bay'], [3, 'Passageway'], [4, 'Computer room'],
   [5, 'Cargo hold'], [6, 'Target range'], [7, 'Cafeteria'], [8, 'Vent junction'],
   [9, 'Zero-gravity loading bay'], [10, 'Durable cargo puzzle'], [11, 'Mixed cargo puzzle'],
@@ -1386,6 +1427,8 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
     document.getElementById('pause-menu-title')!.textContent = screen === 'controls' ? (developerUnlocked ? 'All Controls' : 'Controls')
       : screen === 'map' ? 'Ship Map' : screen === 'sound' ? 'Sound' : screen === 'developer' || prologue ? 'Developer Mode' : 'Pause';
     document.getElementById('pause-home')!.classList.toggle('hidden', screen !== 'home');
+    document.getElementById('pause-stealth-settings')!.classList.toggle('hidden', screen !== 'home' || !currentSceneData?.setHintsEnabled);
+    (document.getElementById('stealth-hints-toggle') as HTMLInputElement).checked = currentSceneData?.getHintsEnabled?.() ?? stealthHintsEnabled;
     document.getElementById('pause-map-panel')!.classList.toggle('hidden', screen !== 'map');
     document.getElementById('pause-sound-panel')!.classList.toggle('hidden', screen !== 'sound');
     document.getElementById('pause-controls-panel')!.classList.toggle('hidden', screen !== 'controls');
@@ -1447,6 +1490,7 @@ async function jumpToScene(id: number) {
   try {
     switch (id) {
       case 0: await loadPrologue1(); break;
+      case 1.1: await loadStage1Storage(); break;
       case 1: loadScene1(); break;
       case 2: await loadScene2(true); break;
       case 3: await loadScene3(); break;
@@ -1506,6 +1550,11 @@ function setupSceneQuickMenu() {
       document.getElementById(`${channel}-volume-value`)!.textContent = `${slider.value}%`;
     });
   }
+  const hintToggle = document.getElementById('stealth-hints-toggle') as HTMLInputElement;
+  hintToggle.addEventListener('change', () => {
+    stealthHintsEnabled = hintToggle.checked;
+    currentSceneData?.setHintsEnabled?.(stealthHintsEnabled);
+  });
   document.getElementById('pause-developer-form')!.addEventListener('submit', event => {
     event.preventDefault(); event.stopPropagation();
     if (menuScreen !== 'developer' || !pauseMenu.open) return;
@@ -1613,6 +1662,7 @@ function respawnAtCapsule() {
 function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
+  scene1SkipHold?.update(delta);
   if (quickMenuOpen) {
     controlCard.classList.add('hidden');
     if (shipMap?.visible) { shipMap.render(); return; }
@@ -1671,7 +1721,7 @@ function animate() {
   if (crosshair) {
     const inScene1 = currentSceneData === scene1Data && !currentPlayer?.isEnabled();
     const inCutscene = !!cutsceneManager || !!deathPresentation || !!currentSceneData?.isCinematic?.();
-    crosshair.style.display = (inScene1 || inCutscene) ? 'none' : '';
+    crosshair.style.display = (inScene1 || inCutscene || !pistol.isAiming()) ? 'none' : '';
   }
 
   const sceneOwnsControls = !!deathPresentation || !!currentSceneData?.isCinematic?.();
@@ -1690,7 +1740,7 @@ function animate() {
   if (heldSwitchHandle.visible && currentPlayer && activeScene && activeCamera) {
     activeScene.add(heldSwitchHandle);
     const yaw = currentPlayer.getState().yaw, p = currentPlayer.body.position;
-    if (isThirdPerson) {
+    if (isGameplayThirdPerson()) {
       heldSwitchHandle.position.set(p.x + Math.cos(yaw) * 0.35 - Math.sin(yaw) * 0.45, p.y + 0.7, p.z - Math.sin(yaw) * 0.35 - Math.cos(yaw) * 0.45);
       heldSwitchHandle.rotation.set(0.4, yaw, 0);
     } else {

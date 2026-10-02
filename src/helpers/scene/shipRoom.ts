@@ -67,7 +67,7 @@ export function createSlidingPortal(scene: THREE.Scene, physics: Physics, frame:
   };
 }
 
-export function disposeRoom(scene: THREE.Scene) {
+export function disposeRoom(scene: THREE.Object3D) {
   const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>(), textures = new Set<THREE.Texture>();
   scene.traverse(node => {
     if (node instanceof THREE.DirectionalLight || node instanceof THREE.SpotLight || node instanceof THREE.PointLight) node.shadow.dispose();

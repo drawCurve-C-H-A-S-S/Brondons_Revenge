@@ -78,6 +78,33 @@ function click(extra = {}) {
   document.dispatchEvent(event);
 }
 
+test('pistol reports physical impact once and never emits distraction for rejected shots', async t => {
+  browser(t);
+  const physics = createScenePhysics(), scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
+  camera.position.set(0, 1.3, 0); camera.lookAt(0, 1.3, -5);
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(5, 4, 0.2), new THREE.MeshBasicMaterial());
+  wall.position.set(0, 1.3, -4); scene.add(wall); physics.addBoxFromMesh(wall);
+  let enabled = true;
+  const reports = [];
+  const player = { isEnabled: () => enabled, getState: () => ({ climbing: false, ventMode: false, boxHandling: false }) };
+  const pistol = new PistolController(() => ({ scene, camera, world: physics.world, player, character: null,
+    thirdPerson: false, targets: [], onShot: (point, origin) => reports.push({ point: point.clone(), origin: origin.clone() }) }),
+    async () => ({ scene: new THREE.Group() }));
+  t.cleanup(() => { pistol.dispose(); physics.dispose(); wall.geometry.dispose(); wall.material.dispose(); });
+  await pistol.ready; pistol.equip();
+  assert.equal(pistol.shoot(), true);
+  assert.equal(reports.length, 1);
+  assert.ok(Math.abs(reports[0].point.z + 3.9) < 0.01, 'Noise is at the blocked physical impact, not beyond the wall');
+  assert.ok(reports[0].origin.distanceTo(reports[0].point) > 3);
+  assert.equal(pistol.shoot(), false);
+  assert.equal(reports.length, 1, 'Cooldown cannot generate a second noise');
+  pistol.update(0.3); enabled = false;
+  assert.equal(pistol.shoot(), false);
+  assert.equal(reports.length, 1, 'Cinematic or disabled players cannot create a distraction');
+  enabled = true; pistol.holster();
+  assert.equal(pistol.shoot(), false); assert.equal(reports.length, 1);
+});
+
 async function toolModel(name) {
   const base = new URL('../src/assets/models/Tools/', import.meta.url);
   const json = JSON.parse(await readFile(new URL(`${name}.gltf`, base), 'utf8'));
@@ -207,6 +234,33 @@ function scene(t, id, options = {}) {
   t.cleanup(() => dispose());
   return data;
 }
+
+test('crosshair eligibility follows the loaded active gun and playable aiming state', async t => {
+  const elements = browser(t);
+  const state = { climbing: false, ventMode: false, boxHandling: false };
+  let enabled = true;
+  const context = { scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(), world: null,
+    player: { isEnabled: () => enabled, getState: () => state }, character: null, thirdPerson: true, targets: [] };
+  const pistol = new PistolController(() => context, async () => ({ scene: new THREE.Group() }));
+  t.cleanup(() => pistol.dispose());
+  assert.equal(elements.crosshair.style.display, 'none', 'starts hidden before the gun is equipped');
+  assert.equal(pistol.isAiming(), false);
+  pistol.equip(); assert.equal(pistol.isAiming(), false, 'loading gun is not ready to aim');
+  await pistol.ready; assert.equal(pistol.isAiming(), true);
+  for (const blocked of ['climbing', 'ventMode', 'boxHandling']) {
+    state[blocked] = true; assert.equal(pistol.isAiming(), false, blocked); state[blocked] = false;
+  }
+  enabled = false; assert.equal(pistol.isAiming(), false);
+  enabled = true; context.thirdPerson = false; assert.equal(pistol.isAiming(), true, 'first-person gun can still aim');
+  elements.crosshair.style.display = ''; elements.crosshair.dataset.hit = 'true';
+  pistol.holster();
+  assert.equal(pistol.isAiming(), false, 'switching away from the gun removes eligibility');
+  assert.equal(elements.crosshair.style.display, 'none');
+  assert.equal(elements.crosshair.dataset.hit, 'false');
+  key('KeyK'); assert.equal(pistol.isAiming(), true);
+  key('KeyK'); assert.equal(pistol.isAiming(), false);
+});
+
 async function manager(t, load = () => toolModel('Enemy_Trilobite')) {
   const npc = new NPCEnemyManager(load, () => 0);
   t.cleanup(() => npc.dispose());

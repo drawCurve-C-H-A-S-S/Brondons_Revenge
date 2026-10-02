@@ -21,6 +21,13 @@ export function createRenderer(canvas: HTMLElement): THREE.WebGLRenderer {
 }
 
 type MapPosition = { x: number; y: number; z: number };
+interface MinimapEnemy {
+  id: string;
+  position: MapPosition;
+  yaw?: number;
+  alerted?: boolean;
+  range?: number;
+}
 export interface MinimapSettings {
   bounds?: { minX: number; maxX: number; minZ: number; maxZ: number };
   radius?: number;
@@ -28,6 +35,9 @@ export interface MinimapSettings {
   upperFloor?: number;
   stairs?: Array<{ x: number; z: number }>;
   openSky?: boolean;
+  deckLabel?: string;
+  deck?: 'upper' | 'lower';
+  enemies?: readonly MinimapEnemy[];
   prepare?: (focus: MapPosition, radius: number) => (() => void);
 }
 
@@ -85,6 +95,7 @@ export function createSceneMinimap(renderer: THREE.WebGLRenderer, element: HTMLE
   const arrow = document.getElementById('minimap-player')!;
   const deck = document.getElementById('minimap-deck')!;
   const stairMarkers = [document.getElementById('minimap-stair-left')!, document.getElementById('minimap-stair-right')!];
+  const enemyMarkers = new Map<string, HTMLElement>();
   const box = new THREE.Box3(), layout = new THREE.Box3(), size = new THREE.Vector3();
   const projected = new THREE.Vector3();
   const viewport = new THREE.Vector4(), scissor = new THREE.Vector4(), clearColor = new THREE.Color();
@@ -103,6 +114,8 @@ export function createSceneMinimap(renderer: THREE.WebGLRenderer, element: HTMLE
   function reset() {
     hide(); previousScene = null; fitted = false; lastRender = -Infinity; upperDeck = false;
     hidden.length = 0; callbacks.length = 0;
+    for (const marker of enemyMarkers.values()) marker.remove();
+    enemyMarkers.clear();
   }
   function meshBounds(mesh: THREE.Mesh) {
     if (mesh instanceof THREE.InstancedMesh) {
@@ -132,8 +145,8 @@ export function createSceneMinimap(renderer: THREE.WebGLRenderer, element: HTMLE
     } else upperDeck = false;
     const floor = upperDeck ? settings.upperFloor! : settings.floor ?? (settings.radius ? feet : Math.min(0, feet));
     floorUniform.value = floor;
-    deck.textContent = settings.upperFloor === undefined ? '' : `DECK ${upperDeck ? '02' : '01'}`;
-    element.dataset.deck = upperDeck ? 'upper' : 'lower';
+    deck.textContent = settings.deckLabel ?? (settings.upperFloor === undefined ? '' : `DECK ${upperDeck ? '02' : '01'}`);
+    element.dataset.deck = settings.deck ?? (upperDeck ? 'upper' : 'lower');
     const now = performance.now();
     if (now - lastRender >= 100 || wasUpper !== upperDeck) {
       lastRender = now;
@@ -212,6 +225,25 @@ export function createSceneMinimap(renderer: THREE.WebGLRenderer, element: HTMLE
       const stair = settings.stairs?.[index]; marker.classList.toggle('hidden', !stair);
       if (stair) placeMarker(marker, stair.x, stair.z);
     });
+    const enemies = settings.enemies ?? [];
+    for (const [id, marker] of enemyMarkers) {
+      if (!enemies.some(enemy => enemy.id === id)) { marker.remove(); enemyMarkers.delete(id); }
+    }
+    for (const enemy of enemies) {
+      let marker = enemyMarkers.get(enemy.id);
+      if (!marker) {
+        marker = document.createElement('span');
+        marker.className = 'minimap-enemy';
+        marker.setAttribute('aria-hidden', 'true');
+        element.appendChild(marker);
+        enemyMarkers.set(enemy.id, marker);
+      }
+      placeMarker(marker, enemy.position.x, enemy.position.z);
+      marker.style.transform = `translate(-50%, -50%) rotate(${-(enemy.yaw ?? 0)}rad)`;
+      marker.style.setProperty('--enemy-vision-size', `${(enemy.range ?? 0) / (settings.radius ?? radius) * rect.width / 2}px`);
+      marker.dataset.alerted = String(!!enemy.alerted);
+    }
+    element.setAttribute('aria-label', enemies.length ? `Top-down map with ${enemies.length} enemy patrol${enemies.length === 1 ? '' : 's'}` : 'Top-down map of the current scene');
     const oldTarget = renderer.getRenderTarget();
     const oldCubeFace = renderer.getActiveCubeFace(), oldMip = renderer.getActiveMipmapLevel();
     renderer.getViewport(viewport); renderer.getScissor(scissor);
@@ -228,6 +260,6 @@ export function createSceneMinimap(renderer: THREE.WebGLRenderer, element: HTMLE
   }
   return { render, reset, hide, dispose() {
     observer.disconnect(); window.removeEventListener('resize', resize);
-    target.dispose(); material.dispose(); compositeMaterial.dispose(); quad.dispose(); hide();
+    target.dispose(); material.dispose(); compositeMaterial.dispose(); quad.dispose(); reset();
   } };
 }

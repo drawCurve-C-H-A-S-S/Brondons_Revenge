@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { createServer } from 'vite';
+import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
 
-let server, createScene7, createScene8, createScene9, applyTraversalCamera;
+let server, createScene7, createScene8, createScene9, applyTraversalCamera, applyThirdPersonCamera, isCameraForcedFirstPerson, resetThirdPersonCamera;
 before(async () => {
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
   ({ createScene: createScene7 } = await server.ssrLoadModule('/scenes/level 1/scene7.ts'));
   ({ createScene: createScene8 } = await server.ssrLoadModule('/scenes/level 1/scene8.ts'));
   ({ createScene: createScene9 } = await server.ssrLoadModule('/scenes/level 1/scene9.ts'));
-  ({ applyTraversalCamera } = await server.ssrLoadModule('/core/camera.ts'));
+  ({ applyTraversalCamera, applyThirdPersonCamera, isCameraForcedFirstPerson, resetThirdPersonCamera } = await server.ssrLoadModule('/core/camera.ts'));
 });
 after(async () => { await server?.close(); });
 
@@ -206,4 +208,126 @@ test('Traversal camera frames the climber and stays inside the vent during turns
     applyTraversalCamera(galley.camera, galley.player, true);
     assert.ok(galley.camera.position.distanceTo(galley.player.body.position) > 1.5, 'Climb camera is outside the model in the galley');
   } finally { galley.dispose(); }
+});
+
+function followCameraRig() {
+  const world = new CANNON.World();
+  const body = new CANNON.Body({ mass: 1, shape: new CANNON.Sphere(0.3), position: new CANNON.Vec3(0, 0.3, 0) });
+  world.addBody(body);
+  const state = { yaw: 0, pitch: 0 };
+  const player = { body, radius: 0.3, getState: () => state };
+  const camera = new THREE.PerspectiveCamera(75, 16 / 9, 0.1, 1000);
+  const options = { distance: 1.5, height: 0.3, right: 0.7 };
+  const update = (dt = 0) => {
+    camera.position.set(body.position.x, body.position.y + 1.3, body.position.z);
+    const thirdPerson = applyThirdPersonCamera(camera, player, dt, options);
+    camera.updateMatrixWorld(true);
+    return thirdPerson;
+  };
+  const box = (size, position) => {
+    const obstacle = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(...size)), position: new CANNON.Vec3(...position) });
+    world.addBody(obstacle);
+    return obstacle;
+  };
+  return { world, body, state, player, camera, options, update, box };
+}
+
+test('Third-person camera orbits vertically while retaining shoulder framing', () => {
+  const rig = followCameraRig();
+  for (const aspect of [16 / 9, 390 / 844]) {
+    rig.camera.aspect = aspect; rig.camera.updateProjectionMatrix();
+    for (const pitch of [-Math.PI / 2, -0.9, 0, 0.9, Math.PI / 2]) {
+      rig.state.pitch = pitch; rig.update();
+      const shoulder = new THREE.Vector3(0, 1.4, 0).project(rig.camera);
+      assert.ok(Math.abs(shoulder.x) < 0.6 && Math.abs(shoulder.y) < 0.6, `shoulder remains in frame at pitch ${pitch}, aspect ${aspect}`);
+      assert.ok(shoulder.z >= -1 && shoulder.z <= 1);
+    }
+  }
+  rig.state.pitch = 0; rig.update(); const neutralHeight = rig.camera.position.y;
+  rig.state.pitch = 0.9; rig.update();
+  assert.ok(rig.camera.position.y < neutralHeight - 0.5, 'looking up moves the camera below its pivot');
+});
+
+test('Third-person camera pulls inside walls immediately and clears ceilings and floors', () => {
+  const rig = followCameraRig();
+  rig.box([5, 2.5, 0.1], [0, 2, 0.75]);
+  rig.box([5, 0.1, 5], [0, -0.1, 0]);
+  rig.box([5, 0.1, 5], [0, 2.9, 0]);
+  for (const pitch of [-1.25, -0.5, 0, 0.5, 1.25]) {
+    rig.state.pitch = pitch; rig.update(1 / 60);
+    assert.ok(rig.camera.position.z < 0.65);
+    assert.ok(rig.camera.position.y > 0.1 && rig.camera.position.y < 2.7);
+  }
+});
+
+test('Third-person camera detects obstructions at near-plane corners', () => {
+  const rig = followCameraRig();
+  rig.box([0.15, 2.5, 0.125], [0.9, 2, 1.4]);
+  rig.update();
+  assert.ok(rig.camera.position.distanceTo(new THREE.Vector3(0, 1.4, 0)) < Math.hypot(0.7, 0.3, 1.5) - 0.05);
+  const halfHeight = 0.1 * Math.tan(THREE.MathUtils.degToRad(37.5));
+  const bounds = new THREE.Box3(new THREE.Vector3(0.75, -0.5, 1.275), new THREE.Vector3(1.05, 4.5, 1.525));
+  for (const horizontal of [-1, 1]) for (const vertical of [-1, 1]) {
+    const corner = new THREE.Vector3(horizontal * halfHeight * rig.camera.aspect, vertical * halfHeight, -0.1).applyMatrix4(rig.camera.matrixWorld);
+    assert.equal(bounds.containsPoint(corner), false, 'near-plane corner stays out of solid geometry');
+  }
+});
+
+test('Third-person camera temporarily uses first person at a wall without changing aim', () => {
+  for (const yaw of [0, 0.8, -Math.PI / 2]) for (const pitch of [-0.3, 0, 0.3]) {
+    const rig = followCameraRig(); rig.state.yaw = yaw; rig.state.pitch = pitch;
+    const wall = rig.box([5, 2.5, 0.1], [Math.sin(yaw) * 0.42, 2, Math.cos(yaw) * 0.42]);
+    wall.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), yaw);
+    assert.equal(rig.update(), false, 'obstructed shoulder camera becomes first person');
+    assert.equal(isCameraForcedFirstPerson(rig.camera), true);
+    assert.ok(rig.camera.position.distanceTo(new THREE.Vector3(0, 1.6, 0)) < 0.001, 'camera uses the player eye position');
+    const expected = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+    assert.ok(rig.camera.quaternion.angleTo(expected) < 0.000001, 'yaw and pitch remain unchanged');
+    const wallNormal = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+    const halfHeight = 0.1 * Math.tan(THREE.MathUtils.degToRad(37.5));
+    for (const horizontal of [-1, 1]) for (const vertical of [-1, 1]) {
+      const corner = new THREE.Vector3(horizontal * halfHeight * rig.camera.aspect, vertical * halfHeight, -0.1).applyMatrix4(rig.camera.matrixWorld);
+      assert.ok(corner.dot(wallNormal) < 0.32, 'first-person near plane stays inside the room');
+    }
+  }
+});
+
+test('Third-person camera first-person override has hysteresis and restores the shoulder view', () => {
+  const rig = followCameraRig();
+  const wall = rig.box([5, 2.5, 0.1], [0, 2, 0.42]);
+  assert.equal(rig.update(), false);
+  wall.position.z = 1.1; wall.aabbNeedsUpdate = true;
+  for (let frame = 0; frame < 30; frame++) assert.equal(rig.update(1 / 60), false, 'threshold clearance does not flicker the view');
+  assert.equal(rig.update(0), false, 'zero-delta presentation keeps the override');
+  resetThirdPersonCamera(rig.camera);
+  assert.equal(isCameraForcedFirstPerson(rig.camera), false);
+  assert.equal(rig.update(), true, 'a fresh shoulder view tolerates moderate compression');
+  wall.position.z = 0.42; wall.aabbNeedsUpdate = true;
+  assert.equal(rig.update(1 / 60), false);
+  rig.world.removeBody(wall);
+  assert.equal(rig.update(1 / 60), false, 'body stays hidden until the shoulder camera has recovered enough');
+  for (let frame = 0; frame < 120; frame++) rig.update(1 / 60);
+  assert.equal(isCameraForcedFirstPerson(rig.camera), false);
+  assert.ok(Math.abs(rig.camera.position.distanceTo(new THREE.Vector3(0, 1.4, 0)) - Math.hypot(0.7, 0.3, 1.5)) < 0.001);
+  assert.ok(rig.camera.quaternion.angleTo(new THREE.Quaternion()) < 0.000001, 'restoring third person does not turn the camera');
+});
+
+test('Third-person camera eases outward and resets after view changes or teleporting', () => {
+  const rig = followCameraRig();
+  const sideWalls = [rig.box([0.1, 2.5, 5], [0.45, 2, 0]), rig.box([0.1, 2.5, 5], [-0.45, 2, 0])];
+  const wall = rig.box([5, 2.5, 0.1], [0, 2, 0.75]); rig.update();
+  const pivot = new THREE.Vector3(0, 1.4, 0), compressed = rig.camera.position.distanceTo(pivot);
+  for (const obstacle of [wall, ...sideWalls]) rig.world.removeBody(obstacle);
+  rig.update(1 / 60);
+  const restoring = rig.camera.position.distanceTo(pivot), desired = Math.hypot(0.7, 0.3, 1.5);
+  assert.equal(isCameraForcedFirstPerson(rig.camera), true);
+  assert.ok(Math.abs(restoring - compressed) < 0.001, 'eye view is retained until enough shoulder clearance recovers');
+  for (let frame = 0; frame < 120; frame++) rig.update(1 / 60);
+  assert.ok(Math.abs(rig.camera.position.distanceTo(pivot) - desired) < 0.001);
+  rig.world.addBody(wall); rig.update(); rig.world.removeBody(wall);
+  resetThirdPersonCamera(rig.camera); rig.update(1 / 60);
+  assert.ok(Math.abs(rig.camera.position.distanceTo(pivot) - desired) < 0.001);
+  rig.world.addBody(wall); rig.update(); rig.world.removeBody(wall);
+  rig.body.position.x = 10; rig.update(1 / 60);
+  assert.ok(Math.abs(rig.camera.position.distanceTo(new THREE.Vector3(10, 1.4, 0)) - desired) < 0.001);
 });

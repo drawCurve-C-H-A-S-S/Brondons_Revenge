@@ -5,6 +5,7 @@ import { createServer } from 'vite';
 
 let server, THREE, CANNON, PistolController, CrowbarController, GogglesController, traceShot, createBreakables, createRewardChest;
 let createPlayer, createScenePhysics, chestJSON, touchControls;
+let LightsaberController, MeleeSwing;
 const scenes = {};
 before(async () => {
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom',
@@ -14,6 +15,8 @@ before(async () => {
   ({ THREE, CANNON } = await server.ssrLoadModule('virtual:tutorial-deps'));
   ({ PistolController, traceShot } = await server.ssrLoadModule('/scripts/pistol.ts'));
   ({ CrowbarController } = await server.ssrLoadModule('/scripts/crowbar.ts'));
+  ({ LightsaberController } = await server.ssrLoadModule('/scripts/lightsaber.ts'));
+  ({ MeleeSwing } = await server.ssrLoadModule('/scripts/melee.ts'));
   touchControls = await server.ssrLoadModule('/scripts/touchControls.ts');
   ({ GogglesController } = await server.ssrLoadModule('/scripts/goggles.ts'));
   ({ createBreakables } = await server.ssrLoadModule('/scripts/breakables.ts'));
@@ -95,10 +98,12 @@ test('real weapon input rejects wrong tools and breaks targets/crates in both vi
   key('KeyK'); assert.equal(pistol.shoot(), true); assert.equal(target.broken, true);
   const crate = f.breakables.add('Crate', 'crowbar', new THREE.Vector3(0, 0.6, -1.2), new THREE.Vector3(1, 1.2, 1));
   f.camera.lookAt(0, 0.7, -1.2); advanceWeapons(0.3); assert.equal(pistol.shoot(), true); assert.equal(crate.broken, false); pistol.holster();
-  crowbar.equip(); advanceWeapons(0.3); click(); assert.equal(crate.broken, true, 'First-person crowbar reaches from the body');
+  crowbar.equip(); advanceWeapons(0.4); click();
+  assert.equal(crate.broken, false, 'Click starts the attack, not instant ray damage');
+  advanceWeapons(0.4); assert.equal(crate.broken, true, 'First-person crowbar reaches from the body');
   const third = f.breakables.add('ThirdPersonCrate', 'crowbar', new THREE.Vector3(0, 0.6, -1.2), new THREE.Vector3(1, 1.2, 1));
   thirdPerson = true;
-  f.camera.position.set(0.7, 1.9, 1.5); f.camera.lookAt(0, 0.7, -1.2); advanceWeapons(0.3); click();
+  f.camera.position.set(0.7, 1.9, 1.5); f.camera.lookAt(0, 0.7, -1.2); advanceWeapons(0.4); click(); advanceWeapons(0.4);
   assert.equal(third.broken, true, 'Third-person camera distance must not shorten the physical melee reach');
   assert.ok(f.scene.children.some(node => node.name === 'BreakableDebris'));
   for (let i = 0; i < 150; i++) f.breakables.update(1 / 60);
@@ -152,7 +157,9 @@ for (const mode of ['touch', 'pointer', 'click']) {
     const crowbarButton = document.getElementById('touch-crowbar');
     touch(crowbarButton, 'touchstart'); touch(crowbarButton, 'touchend');
     assert.equal(f.attack.textContent, 'SWING');
-    tap(); assert.equal(crate.broken, true, `${mode} activation must reach the real crowbar damage path`);
+    tap();
+    for (let frame = 0; frame < 24; frame++) f.crowbar.update(1 / 60);
+    assert.equal(crate.broken, true, `${mode} activation must reach the real crowbar damage path`);
     f.crowbar.holster(); assert.equal(f.attack.disabled, true);
   });
 }
@@ -211,6 +218,118 @@ test('walls occlude breakables and distant crates cannot be hit by the crowbar',
   const crowbar = new CrowbarController(() => ({ ...f, hasCrowbar: true, character: null, thirdPerson: false, targets: [crate], setCharacterEquipped() {}, doorTarget: null, openDoor() {} }));
   t.cleanup(() => crowbar.dispose()); f.camera.position.set(0, 1, 0); f.camera.lookAt(0, 1, -3); document.pointerLockElement = document.body;
   crowbar.equip(); click(); assert.equal(crate.broken, false);
+});
+
+test('crowbar swing intersects off-centre targets once and never damages while idle or holstered', t => {
+  browser(t); const f = fixture(t);
+  f.camera.position.set(0.7, 1.9, 1.5); f.camera.rotation.set(0.8, 0, 0);
+  const target = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.8, 0.4), new THREE.MeshBasicMaterial());
+  target.position.set(0.8, 1.1, -1.1); f.scene.add(target);
+  let damage = 0;
+  const crowbar = new CrowbarController(() => ({ ...f, character: null, thirdPerson: true, hasCrowbar: true,
+    targets: [{ root: target, damage: () => { damage++; return true; } }], setCharacterEquipped() {}, doorTarget: null, openDoor() {} }));
+  t.cleanup(() => crowbar.dispose());
+  const advance = seconds => { for (let frame = 0; frame < Math.ceil(seconds * 60); frame++) crowbar.update(1 / 60); };
+  crowbar.equip(); advance(0.4); assert.equal(damage, 0, 'holding a weapon does not deal contact damage');
+  document.pointerLockElement = document.body; click(); assert.equal(damage, 0);
+  advance(0.4); assert.equal(damage, 1, 'physical swing hits despite the camera looking elsewhere');
+  advance(0.4); assert.equal(damage, 1, 'recovery and idle do not repeat damage');
+  click(); crowbar.holster(); advance(0.4); assert.equal(damage, 1, 'holstering cancels a pending strike');
+});
+
+test('crowbar swept contact respects solid walls and physical melee reach', t => {
+  browser(t); const f = fixture(t);
+  const target = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.8, 0.4), new THREE.MeshBasicMaterial());
+  target.position.set(0.8, 1.1, -1.1); f.scene.add(target);
+  const wall = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(2, 2, 0.1)), position: new CANNON.Vec3(0, 1, -0.45) });
+  f.world.addBody(wall);
+  let damage = 0;
+  const crowbar = new CrowbarController(() => ({ ...f, character: null, thirdPerson: true, hasCrowbar: true,
+    targets: [{ root: target, damage: () => { damage++; return true; } }], setCharacterEquipped() {}, doorTarget: null, openDoor() {} }));
+  t.cleanup(() => crowbar.dispose());
+  const swing = () => { click(); for (let frame = 0; frame < 24; frame++) crowbar.update(1 / 60); };
+  crowbar.equip(); document.pointerLockElement = document.body; swing(); assert.equal(damage, 0, 'solid wall stops the swing');
+  f.world.removeBody(wall);
+  swing(); assert.equal(damage, 1, 'uncovered contact is accepted');
+  target.position.set(0, 1.1, -3); swing(); assert.equal(damage, 1, 'camera distance cannot extend melee reach');
+});
+
+for (const thirdPerson of [false, true]) {
+  test(`lightsaber uses contact instead of the crosshair in ${thirdPerson ? 'third' : 'first'} person`, t => {
+    browser(t); const f = fixture(t);
+    f.camera.position.set(thirdPerson ? 0.7 : 0, thirdPerson ? 1.9 : 1.6, thirdPerson ? 1.5 : 0);
+    f.camera.rotation.set(thirdPerson ? 0.8 : 0, 0, 0);
+    const target = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshBasicMaterial());
+    target.position.set(thirdPerson ? 0.8 : -0.05, thirdPerson ? 1.1 : 1.3, -1.1); f.scene.add(target);
+    let damage = 0;
+    const saber = new LightsaberController(() => ({ ...f, character: null, thirdPerson, hasLightsaber: true,
+      targets: [{ root: target, damage: (amount, weapon) => { assert.equal(amount, 35); assert.equal(weapon, 'lightsaber'); damage++; return true; } }],
+      setCharacterEquipped() {}, openDoor() {} }));
+    t.cleanup(() => saber.dispose());
+    const advance = () => { for (let frame = 0; frame < 24; frame++) saber.update(1 / 60); };
+    saber.equip(); advance(); assert.equal(damage, 0);
+    document.pointerLockElement = document.body; click(); assert.equal(damage, 0);
+    advance(); assert.equal(damage, 1, 'intersection hits an off-centre target once per swing');
+    advance(); assert.equal(damage, 1, 'idle contact cannot deal damage');
+    click(); saber.holster(); advance(); assert.equal(damage, 1, 'holster cancels damage');
+  });
+}
+
+test('lightsaber parry timing survives contact attacks and holstering cancels the window', t => {
+  browser(t); const f = fixture(t);
+  const bolt = { mesh: new THREE.Mesh(new THREE.SphereGeometry(0.05)), velocity: new THREE.Vector3(0, 0, 3), parried: false, owner: 'boss' };
+  bolt.mesh.position.set(0, 1.1, -1);
+  const saber = new LightsaberController(() => ({ ...f, character: null, thirdPerson: true, hasLightsaber: true,
+    targets: [], setCharacterEquipped() {}, openDoor() {}, getParryableBolts: () => [bolt] }));
+  t.cleanup(() => saber.dispose()); saber.equip(); document.pointerLockElement = document.body;
+  click(); saber.update(1 / 60);
+  assert.equal(bolt.parried, true); assert.equal(bolt.owner, 'player'); assert.ok(bolt.velocity.z < 0);
+  for (let frame = 0; frame < 24; frame++) saber.update(1 / 60);
+  bolt.parried = false; bolt.owner = 'boss'; bolt.velocity.z = 3;
+  click(); saber.holster(); saber.update(1 / 60); assert.equal(bolt.parried, true, 'initial well-timed parry remains valid');
+  bolt.parried = false; saber.update(1 / 60); assert.equal(bolt.parried, false, 'holstered saber cannot parry new bolts');
+});
+
+test('melee sweep catches contacts between frames and pushes dynamic objects once', t => {
+  browser(t); const f = fixture(t);
+  const target = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.6, 0.25), new THREE.MeshBasicMaterial());
+  target.position.set(0, 1.1, -0.9); f.scene.add(target);
+  let damage = 0;
+  const context = { ...f, character: null, targets: [{ root: target, damage: () => { damage++; return true; } }] };
+  const swing = new MeleeSwing('crowbar');
+  swing.prime({ start: new THREE.Vector3(-1.1, 0.8, -0.9), end: new THREE.Vector3(-1.1, 1.4, -0.9) });
+  const segment = { start: new THREE.Vector3(1.1, 0.8, -0.9), end: new THREE.Vector3(1.1, 1.4, -0.9) };
+  assert.equal(swing.update(context, segment), true); assert.equal(damage, 1);
+  swing.update(context, segment); assert.equal(damage, 1, 'swept contact cannot repeat within one attack');
+  f.scene.remove(target);
+  const body = new CANNON.Body({ mass: 2, shape: new CANNON.Box(new CANNON.Vec3(0.2, 0.2, 0.2)), position: new CANNON.Vec3(0, 1.1, -0.8) });
+  f.world.addBody(body);
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshBasicMaterial());
+  mesh.position.set(0, 1.1, -0.8); f.scene.add(mesh);
+  const contact = { start: new THREE.Vector3(0, 0.9, -0.8), end: new THREE.Vector3(0, 1.3, -0.8) };
+  swing.reset(); swing.update({ ...context, targets: [] }, contact);
+  const velocity = body.velocity.clone(); assert.ok(velocity.z < 0);
+  swing.update({ ...context, targets: [] }, contact); assert.deepEqual(body.velocity, velocity);
+  body.velocity.set(0, 0, 0);
+  f.world.addBody(new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(1, 2, 0.1)), position: new CANNON.Vec3(0, 1, -0.4) }));
+  swing.reset(); swing.update({ ...context, targets: [] }, contact); assert.equal(body.velocity.length(), 0, 'wall blocks physical impulses too');
+});
+
+test('melee contacts invisible actor hurtboxes without treating their own model as a wall', t => {
+  browser(t); const f = fixture(t);
+  const actor = new THREE.Group(); f.scene.add(actor);
+  const visual = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.6, 0.4), new THREE.MeshBasicMaterial());
+  visual.position.set(0, 1.1, -0.8); actor.add(visual);
+  const hurtbox = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.8, 0.5), new THREE.MeshBasicMaterial({ visible: false }));
+  hurtbox.position.copy(visual.position); actor.add(hurtbox);
+  let damage = 0;
+  const context = { ...f, character: null, targets: [{ root: hurtbox, damage: () => { damage++; return true; } }] };
+  const segment = { start: new THREE.Vector3(0, 0.9, -0.8), end: new THREE.Vector3(0, 1.3, -0.8) };
+  const swing = new MeleeSwing('crowbar');
+  swing.update(context, segment); assert.equal(damage, 1, 'visible actor and hidden proxy are one damage owner');
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(2, 3, 0.1), new THREE.MeshBasicMaterial());
+  wall.position.set(0, 1.1, -0.4); f.scene.add(wall);
+  swing.reset(); swing.update(context, segment); assert.equal(damage, 1, 'unrelated visible geometry still blocks contact');
 });
 
 test('goggles unlock after all scene 6 targets, auto-equip, toggle, and persist without chest/collider', async t => {

@@ -10,6 +10,7 @@ import { createPlayer, type PlayerTransitionState } from '../../scripts/player.j
 import { HOLOGRAM_TRANSFER_DURATION, hologramTransitionAt } from '../../scripts/characterManager.js';
 import { createScenePhysics, PHYSICS, hasNearbyActor } from '../../helpers/physics/scenePhysics.js';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
+import { createHoldToSkip } from '../../helpers/animation/holdToSkip.js';
 
 export function createScene({ audioManager, skipWake, entryState, openingEntry }: {
   audioManager?: unknown; skipWake?: boolean; entryState?: PlayerTransitionState; openingEntry?: boolean;
@@ -605,8 +606,10 @@ export function createScene({ audioManager, skipWake, entryState, openingEntry }
   let eyelidTop: HTMLDivElement | null = null;
   let eyelidBottom: HTMLDivElement | null = null;
   let wakeSkipBtn: HTMLButtonElement | null = null;
+  let wakeSkipHold: ReturnType<typeof createHoldToSkip> | null = null;
 
   function removeWakeSkipBtn() {
+    wakeSkipHold?.dispose(); wakeSkipHold = null;
     wakeSkipBtn?.remove();
     wakeSkipBtn = null;
   }
@@ -633,13 +636,13 @@ export function createScene({ audioManager, skipWake, entryState, openingEntry }
 
   if (!skipWake && !entryState) {
     wakeSkipBtn = document.createElement('button');
-    wakeSkipBtn.textContent = 'SKIP';
     wakeSkipBtn.className = 'wake-skip-btn';
-    wakeSkipBtn.addEventListener('click', finishWake);
     document.body.appendChild(wakeSkipBtn);
+    wakeSkipHold = createHoldToSkip({ button: wakeSkipBtn, onSkip: finishWake, isAvailable: () => wakePhase !== 'done' });
   }
 
   function updateWakeSequence(dt: number) {
+    wakeSkipHold?.update(dt);
     if (skipWake || wakePhase === 'done') return;
     wakeTime += dt;
     switch (wakePhase) {
@@ -778,6 +781,7 @@ export function createScene({ audioManager, skipWake, entryState, openingEntry }
         { x: stairCenterR, z: roomDepth / 2 - walkwayWidth - stairRun / 2 }],
     },
     controlsReady: () => wakePhase === 'done' && player.isEnabled() && arrivalTime >= HOLOGRAM_TRANSFER_DURATION,
+    setMenuPaused: (value: boolean) => { if (value) wakeSkipHold?.reset(); },
     isCinematic: () => wakePhase !== 'done' || arrivalTime < HOLOGRAM_TRANSFER_DURATION,
     get ownsWeaponInput() { return arrivalTime < HOLOGRAM_TRANSFER_DURATION; },
     getHologramTransition: () => arrivalTime < HOLOGRAM_TRANSFER_DURATION ? hologramTransitionAt(arrivalTime, true) : null,

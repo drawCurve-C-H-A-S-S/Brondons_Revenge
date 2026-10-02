@@ -37,8 +37,15 @@ function loadDrone() {
   return loader.parseAsync(droneData, '');
 }
 function browser(t) {
-  const old = { window: globalThis.window, document: globalThis.document, HTMLElement: globalThis.HTMLElement, self: globalThis.self };
+  const old = { window: globalThis.window, document: globalThis.document, HTMLElement: globalThis.HTMLElement, self: globalThis.self, Audio: globalThis.Audio };
   const elements = new Map();
+  globalThis.Audio = class extends EventTarget {
+    paused = true;
+    currentTime = 0;
+    load() {}
+    play() { this.paused = false; return Promise.resolve(); }
+    pause() { this.paused = true; }
+  };
   globalThis.HTMLElement = class {};
   globalThis.self = globalThis;
   globalThis.window = Object.assign(new EventTarget(), { innerWidth: 1280, innerHeight: 720 });
@@ -262,11 +269,14 @@ test('Goggles reveal the head in yellow; real crowbar reaches it without goggles
   t.cleanup(() => weapon.dispose()); weapon.equip();
   const head = data.boss.head.getWorldPosition(new THREE.Vector3());
   const forward = new THREE.Vector3(Math.sin(data.boss.root.rotation.y), 0, Math.cos(data.boss.root.rotation.y));
-  const p = head.clone().addScaledVector(forward, 2); data.player.setPosition(p.x, 0.3, p.z);
+  const p = head.clone().addScaledVector(forward, 1.25); data.player.setPosition(p.x, 0.3, p.z);
+  data.player.setRotation(Math.atan2(p.x - head.x, p.z - head.z), Math.atan2(head.y - 1.1, 1.25));
   for (const view of [false, true]) {
     thirdPerson = view; data.camera.position.set(p.x, 1.6, p.z); if (view) data.camera.position.addScaledVector(forward, 1.5);
     data.camera.lookAt(head); data.camera.updateMatrixWorld(true);
     const health = data.boss.getStatus().health; weapon.swing();
+    assert.equal(data.boss.getStatus().health, health, 'attack must reach the head before dealing damage');
+    for (let frame = 0; frame < 24; frame++) weapon.update(1 / 60);
     assert.equal(data.boss.getStatus().health, health - rules.headDamage, `physical melee in ${view ? 'third' : 'first'} person`);
     step(data, 1.1); for (let i = 0; i < 4; i++) weapon.update(0.1);
   }
