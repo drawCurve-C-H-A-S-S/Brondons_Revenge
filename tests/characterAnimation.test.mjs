@@ -10,9 +10,13 @@ let loadCharacter;
 let createPlayer;
 let createScenePhysics;
 let modelData;
+const originalSelf = globalThis.self;
+const originalCreateImageBitmap = globalThis.createImageBitmap;
 
 before(async () => {
-  const buffer = await readFile(new URL('../src/assets/models/UAL1_Standard.glb', import.meta.url));
+  globalThis.self = globalThis;
+  globalThis.createImageBitmap = async () => ({ width: 512, height: 512, close() {} });
+  const buffer = await readFile(new URL('../src/assets/models/MC.glb', import.meta.url));
   modelData = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
   server = await createServer({
     server: { middlewareMode: true, watch: null, ws: false },
@@ -24,7 +28,11 @@ before(async () => {
   ({ createScenePhysics } = await server.ssrLoadModule('/helpers/physics/scenePhysics.ts'));
 });
 
-after(async () => { await server?.close(); });
+after(async () => {
+  await server?.close();
+  globalThis.self = originalSelf;
+  globalThis.createImageBitmap = originalCreateImageBitmap;
+});
 
 async function fixture(t, asset) {
   const buffer = asset ? await readFile(new URL(`../src/assets/models/${asset}`, import.meta.url)) : null;
@@ -96,7 +104,7 @@ test('actual GLB binds idle/walk to the skeleton and deforms the skin', async t 
     if (node.isSkinnedMesh) meshes.push(node);
   });
   assert.equal(animations.length, 43);
-  assert.equal(bones.length, 65);
+  assert.equal(bones.length, 99);
   assert.ok(meshes.length > 0);
   const mixer = new THREE.AnimationMixer(scene);
   const thigh = scene.getObjectByName('thigh_l');
@@ -176,7 +184,7 @@ test('scripted ladder traversal selects the generated alternating climb loop', a
   assert.ok(weight('Idle_Loop') > 0.99);
 });
 
-for (const asset of ['Subject.glb', 'UAL1_Standard.glb']) {
+for (const asset of ['Subject.glb', 'MC.glb']) {
   test(`${asset} ladder IK alternates hands and flexes both knees, with seamless looping`, async t => {
     const { player, character, frame } = await fixture(t, asset);
     player.setClimbing(true);
@@ -379,6 +387,30 @@ for (const [code, clip] of [
     assert.ok(weight('Idle_Loop') > 0.99, 'Idle must stay after the action');
   });
 }
+
+test('pistol equip reloads once, firing plays the shot, and upper-body transitions preserve walking', async t => {
+  const { character, frame, key, weight } = await fixture(t);
+  const layer = name => character.weapon.mixer._actions.find(action => action.getClip().name === `${name}_UpperBody`);
+  key('keydown', 'KeyW'); frame(30);
+  character.weapon.setEquipped(true); frame(12);
+  assert.ok(layer('Pistol_Reload').isRunning(), 'Equip starts the authored reload clip');
+  assert.ok(weight('Walk_Loop') > 0.99, 'Reload does not replace leg locomotion');
+  const time = layer('Pistol_Reload').time;
+  character.weapon.setEquipped(true); frame();
+  assert.ok(layer('Pistol_Reload').time > time, 'Repeated equip state does not restart reload');
+  frame(180);
+  assert.ok(layer('Pistol_Aim_Neutral').isRunning(), 'Equip returns to a two-handed aiming hold');
+  character.weapon.shoot(); frame(6);
+  assert.ok(layer('Pistol_Shoot').isRunning(), 'Actual firing starts the authored shooting clip');
+  assert.ok(weight('Walk_Loop') > 0.99);
+  frame(120);
+  assert.ok(layer('Pistol_Aim_Neutral').isRunning(), 'Shot returns to aiming');
+  key('keydown', 'Digit8'); frame(10);
+  assert.ok(layer('Pistol_Reload').isRunning(), '8 triggers reload on the same upper-body layer');
+  assert.ok(weight('Walk_Loop') > 0.99);
+  character.weapon.setEquipped(false); frame(60);
+  assert.ok(weight('Walk_Loop') > 0.99, 'Holstering preserves walking');
+});
 
 test('a one-shot action during walking resumes Walk_Loop after finishing', async t => {
   const { frame, key, weight } = await fixture(t);

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { applyTraversalCamera } from './core/camera.js';
 import { createSceneMinimap } from './core/renderer.js';
+import { createShipMap } from './core/shipMap.js';
 import { createScene as createScene1 } from './scenes/scene1.js';
 import { createCargoPuzzleState } from './scripts/cargoPuzzle.js';
 import { createHandle } from './helpers/scene/cargoVisuals.js';
@@ -136,6 +137,7 @@ function renderGameScene(scene: THREE.Scene, camera: THREE.Camera) {
       crowbar.renderFirstPerson(renderer);
     }
   });
+  currentSceneData?.renderCinematicOverlay?.(renderer);
 }
 function renderSceneEffects(scene: THREE.Scene, camera: THREE.Camera) {
   const retroStrength = currentSceneData?.getRetroConsoleStrength?.() ?? 0;
@@ -332,13 +334,15 @@ function updateControlCard(dt: number) {
     && (currentSceneData?.controlsReady?.() ?? (!!currentPlayer?.isEnabled() && !currentSceneData?.isCinematic?.()))
     && document.getElementById('fade-overlay')?.classList.contains('hidden');
   const flightScene = currentSceneData?.getSceneId?.();
-  if (ready && flightScene === 'scene15.5') introduceControls('flightSide', 'scene15');
-  if (ready && flightScene === 'scene15.75') introduceControls('flightTop', 'scene15');
+  if (activeSceneId === 'scene15' && flightScene && flightScene !== 'scene15') {
+    controlQueue = controlQueue.filter(card => card.scene !== 'scene15');
+    if (shownControl?.scene === 'scene15') dismissControls();
+  }
   if (!ready) { controlCard.classList.add('hidden'); return; }
   if (!shownControl && controlQueue.length) {
     shownControl = controlQueue.shift()!;
     seenControls.add(shownControl.key);
-    controlTime = 18;
+    controlTime = shownControl.key === 'flight' ? 4 : 18;
     document.getElementById('control-card-title')!.textContent = shownControl.title;
     const lines = document.body.classList.contains('touch-device') ? shownControl.touch : shownControl.lines;
     document.getElementById('control-card-content')!.replaceChildren(...lines.map(text => {
@@ -439,6 +443,8 @@ function loadScene1() {
   activeSceneId = 'scene1'; currentPlayer = null;
   enterHudScene('scene1');
   document.getElementById('quit-btn')!.textContent = "DON’T PLAY";
+  const quitButton = document.getElementById('quit-btn') as HTMLButtonElement;
+  quitButton.classList.remove('no-choice', 'hidden'); quitButton.disabled = false;
   currentSceneData = createScene1({ audioManager });
   scene1Data = currentSceneData;
   activeScene = currentSceneData.scene;
@@ -513,7 +519,12 @@ function showMenuButtons() {
     transitionToScene2();
   });
   document.getElementById('quit-btn')!.addEventListener('click', () => {
-    document.getElementById('quit-btn')!.textContent = 'YOU DON’T HAVE A CHOICE.';
+    const quitButton = document.getElementById('quit-btn') as HTMLButtonElement;
+    quitButton.textContent = 'YOU DON’T HAVE A CHOICE.';
+    quitButton.disabled = true; quitButton.classList.add('no-choice');
+    quitButton.addEventListener('animationend', () => {
+      quitButton.classList.add('hidden');
+    }, { once: true });
   });
 }
 
@@ -1224,7 +1235,7 @@ function updatePlayerView(dt: number) {
     pistol.update(dt); crowbar.update(dt);
     globalCharacter?.weapon.setEquipped(!!currentSceneData.ownsWeaponInput && currentSceneData.getCinematicWeapon?.() === 'pistol');
     globalCharacter?.setCrowbarEquipped(currentSceneData.getCinematicWeapon?.() === 'crowbar');
-    globalCharacter?.setLightsaberEquipped(false);
+    globalCharacter?.setLightsaberEquipped(currentSceneData.getCinematicWeapon?.() === 'lightsaber');
     if (globalCharacter) {
       if (currentSceneData.hideCharacter?.()) globalCharacter.model.visible = false;
       else globalCharacter.update(
@@ -1245,7 +1256,7 @@ function updatePlayerView(dt: number) {
     pistol.update(0); crowbar.update(0);
     globalCharacter?.weapon.setEquipped(currentSceneData.getCinematicWeapon?.() === 'pistol');
     globalCharacter?.setCrowbarEquipped(currentSceneData.getCinematicWeapon?.() === 'crowbar');
-    globalCharacter?.setLightsaberEquipped(false);
+    globalCharacter?.setLightsaberEquipped(currentSceneData.getCinematicWeapon?.() === 'lightsaber');
   }
   currentPlayer.updateCamera(0, traversalView);
   globalCharacter?.update(sceneWeapon ? currentSceneData.getCinematicDelta?.() ?? dt : dt,
@@ -1283,8 +1294,9 @@ const quickMenu = document.getElementById('scene-quick-menu') as HTMLDialogEleme
 const pauseMenu = document.getElementById('pause-menu') as HTMLDialogElement;
 const developerPassword = document.getElementById('developer-password') as HTMLInputElement;
 const developerError = document.getElementById('developer-password-error')!;
-type MenuScreen = 'home' | 'sound' | 'controls' | 'developer' | 'scenes';
+type MenuScreen = 'home' | 'map' | 'sound' | 'controls' | 'developer' | 'scenes';
 let menuScreen: MenuScreen | null = null;
+let shipMap: ReturnType<typeof createShipMap> | null = null;
 let controlsReturnScreen: 'home' | 'scenes' = 'home';
 // Memory only: survives menus and scene changes, but resets on browser refresh.
 let developerUnlocked = false;
@@ -1334,6 +1346,8 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
   if (screen === 'controls') controlsReturnScreen = menuScreen === 'scenes' ? 'scenes' : 'home';
   const wasOpen = quickMenuOpen;
   menuScreen = screen;
+  document.body.classList.toggle('ship-map-open', screen === 'map');
+  if (screen !== 'map') shipMap?.hide();
   quickMenuOpen = screen !== null;
   pauseMenu.dataset.screen = screen ?? '';
   developerPassword.value = '';
@@ -1366,8 +1380,9 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
   }
   if (screen !== 'scenes') {
     document.getElementById('pause-menu-title')!.textContent = screen === 'controls' ? (developerUnlocked ? 'All Controls' : 'Controls')
-      : screen === 'sound' ? 'Sound' : screen === 'developer' || prologue ? 'Developer Mode' : 'Pause';
+      : screen === 'map' ? 'Ship Map' : screen === 'sound' ? 'Sound' : screen === 'developer' || prologue ? 'Developer Mode' : 'Pause';
     document.getElementById('pause-home')!.classList.toggle('hidden', screen !== 'home');
+    document.getElementById('pause-map-panel')!.classList.toggle('hidden', screen !== 'map');
     document.getElementById('pause-sound-panel')!.classList.toggle('hidden', screen !== 'sound');
     document.getElementById('pause-controls-panel')!.classList.toggle('hidden', screen !== 'controls');
     document.getElementById('pause-developer-form')!.classList.toggle('hidden', screen !== 'developer');
@@ -1383,6 +1398,12 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
     }
   }
   if (!dialog.open) dialog.showModal();
+  if (screen === 'map') {
+    shipMap ??= createShipMap(renderer, document.getElementById('ship-map-view')!);
+    shipMap.open(currentSceneData?.getSceneId?.() ?? activeSceneId, currentPlayer?.body.position, currentPlayer?.getState().yaw);
+    document.querySelector<HTMLElement>('.ship-map-canvas')?.focus();
+    return;
+  }
   if (screen === 'scenes') {
     const buttons = quickMenu.querySelectorAll<HTMLButtonElement>('[data-scene]');
     const currentId = currentSceneData?.getSceneId?.() ?? activeSceneId;
@@ -1468,6 +1489,7 @@ function setupSceneQuickMenu() {
     event.stopPropagation();
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
     if (button?.id === 'pause-resume' || button?.id === 'pause-close') setPauseMenu(null);
+    else if (button?.id === 'pause-ship-map') setPauseMenu('map');
     else if (button?.id === 'pause-sound') setPauseMenu('sound');
     else if (button?.id === 'pause-controls') setPauseMenu('controls');
     else if (button?.id === 'pause-developer') setPauseMenu('developer');
@@ -1589,6 +1611,7 @@ function animate() {
   const delta = clock.getDelta();
   if (quickMenuOpen) {
     controlCard.classList.add('hidden');
+    if (shipMap?.visible) { shipMap.render(); return; }
     if (activeScene && activeCamera) renderGameScene(currentSceneData?.getRenderScene?.() ?? activeScene, activeCamera);
     renderMinimap();
     return;
@@ -1657,7 +1680,8 @@ function animate() {
   globalCharacter?.setHologramTransition(currentSceneData?.getHologramTransition?.() ?? null);
 
   if (!sceneOwnsControls && !currentSceneData?.ownsWeaponInput) { pistol.update(delta); crowbar.update(delta); }
-  lightsaber.update(delta);
+  if (!sceneOwnsControls && !currentSceneData?.ownsWeaponInput) lightsaber.update(delta);
+  else lightsaber.detach();
   heldSwitchHandle.visible = cargoPuzzle.handle === 'carried' && !sceneOwnsControls && !!currentPlayer?.isEnabled();
   if (heldSwitchHandle.visible && currentPlayer && activeScene && activeCamera) {
     activeScene.add(heldSwitchHandle);

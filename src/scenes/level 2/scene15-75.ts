@@ -4,22 +4,25 @@ import { predictsCollision } from '../../helpers/scene/flightCollision.js';
 export const TOPDOWN_SCRAMBLER_HEALTH = 420;
 const SHIELD_WIDTH = 118, ORB_RADIUS = 18, PLAYER_WIDTH = 190;
 const LATERAL_SPEED = 165, LATERAL_DASH_SPEED = 300, EVADE_DURATION = 0.45;
-const ENTER_DURATION = 4.8, EXIT_DURATION = 3.2, ESCORT_LIMIT = 6;
+const ENTER_DURATION = 4.8, EXIT_DURATION = 3.2;
 const MODEL_FORWARD = new THREE.Vector3(0, 0, -1);
 type Options = {
   scene: THREE.Scene; camera: THREE.PerspectiveCamera; ship: THREE.Group; boss: THREE.Group; rail: number;
   launchBays: THREE.Object3D[]; createInterceptor: () => THREE.Group;
   shootLaser: (from: THREE.Vector3, to: THREE.Vector3, damage: number, speed?: number) => void;
   burst: (position: THREE.Vector3, size: number, color?: number) => void;
+  explode?: (position: THREE.Vector3, size: number) => void;
+  dropShield?: (position: THREE.Vector3) => void;
 };
 type Escort = {
   root: THREE.Group; health: number; active: boolean; age: number; fireCd: number;
   launch: THREE.Vector3; path: THREE.CubicBezierCurve3; lastPosition: THREE.Vector3;
   evadeOffsetX: number; evadeCooldown: number; evadeRollTime: number; evadeSign: number;
+  dropsShield: boolean;
 };
 
 /** Scene 15.75 shares scene 15's world, music, projectiles and persistent hull health. */
-export function createTopdownPhase({ scene, camera, ship, boss, rail, launchBays, createInterceptor, shootLaser, burst }: Options) {
+export function createTopdownPhase({ scene, camera, ship, boss, rail, launchBays, createInterceptor, shootLaser, burst, explode, dropShield }: Options) {
   const device = new THREE.Group(); device.name = 'TopdownRedScrambler'; device.visible = false; scene.add(device);
   const red = new THREE.MeshBasicMaterial({ color: 0xff334f, transparent: true, opacity: 0 });
   const metal = new THREE.MeshStandardMaterial({ color: 0x5a2633, metalness: 0.8, roughness: 0.28, transparent: true, opacity: 0 });
@@ -103,7 +106,7 @@ export function createTopdownPhase({ scene, camera, ship, boss, rail, launchBays
     camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
   }
   function destroyScrambler() {
-    burst(device.position, 36, 0xff3355); device.visible = false; targetable = false;
+    (explode ?? burst)(device.position, 36); device.visible = false; targetable = false;
     cameraView(); exitCamera.copy(relative(camera.position, currentRail)); exitCameraRotation.copy(camera.quaternion);
     exitShip.copy(relative(ship.position, currentRail)); exitShipRotation.copy(ship.quaternion);
     exitBoss.copy(relative(boss.position, currentRail));
@@ -117,16 +120,21 @@ export function createTopdownPhase({ scene, camera, ship, boss, rail, launchBays
     return 0;
   }
   function spawnEscort() {
-    if (spawned >= ESCORT_LIMIT || escorts.filter(f => f.active).length >= 3) return;
+    if (escorts.filter(f => f.active).length >= 3) return;
     const bay = launchBays[spawned % launchBays.length]; if (!bay) return;
-    const root = createInterceptor(); root.scale.multiplyScalar(1.65); scene.add(root);
+    const recycled = escorts.find(escort => !escort.active);
+    const root = recycled?.root ?? createInterceptor();
+    if (!recycled) { root.scale.multiplyScalar(1.65); scene.add(root); }
+    root.visible = true;
     boss.updateMatrixWorld(true); bay.getWorldPosition(root.position);
     const launch = relative(root.position, currentRail), side = Math.sign(launch.x) || 1;
     const start = new THREE.Vector3(side * 145, 1, boss.position.z - currentRail - 48);
     const lane = random(-160, 160);
-    escorts.push({ root, health: 42, active: true, age: 0, fireCd: 1.4 + random(0, 0.5), launch, lastPosition: launch.clone(),
-      evadeOffsetX: 0, evadeCooldown: 0, evadeRollTime: 0, evadeSign: 1,
-      path: new THREE.CubicBezierCurve3(start, new THREE.Vector3(side * 170, 1, 155), new THREE.Vector3(lane, 1, 70), new THREE.Vector3(lane, 1, -105)) });
+    const escort: Escort = { root, health: 42, active: true, age: 0, fireCd: 1.4 + random(0, 0.5), launch, lastPosition: launch.clone(),
+      evadeOffsetX: 0, evadeCooldown: 0, evadeRollTime: 0, evadeSign: 1, dropsShield: spawned === 0,
+      path: new THREE.CubicBezierCurve3(start, new THREE.Vector3(side * 170, 1, 155), new THREE.Vector3(lane, 1, 70), new THREE.Vector3(lane, 1, -105)) };
+    if (recycled) Object.assign(recycled, escort);
+    else escorts.push(escort);
     burst(root.position, 5, 0xff8c9d); spawned++;
   }
   function updateEscorts(dt: number, currentPlayerVelocity: THREE.Vector3) {
@@ -226,7 +234,10 @@ export function createTopdownPhase({ scene, camera, ship, boss, rail, launchBays
       const escort = escorts.find(f => f.active && hasAncestor(object, f.root));
       if (escort) {
         escort.health = Math.max(0, escort.health - amount); burst(point, 3, 0xffcf9c);
-        if (escort.health === 0) { escort.active = false; escort.root.visible = false; burst(escort.root.position, 13, 0xff7958); }
+        if (escort.health === 0) {
+          escort.active = false; escort.root.visible = false; (explode ?? burst)(escort.root.position, 13);
+          if (escort.dropsShield) dropShield?.(escort.root.position.clone());
+        }
         return true;
       }
       shieldTime = 0.5; shieldContact.copy(point).sub(boss.position); burst(point, 3, 0xff6680);

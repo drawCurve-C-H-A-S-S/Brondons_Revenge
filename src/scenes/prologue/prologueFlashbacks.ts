@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { clone as cloneRig } from 'three/addons/utils/SkeletonUtils.js';
-import { loadPlayerModel, loadToolModel } from '../../core/loader.js';
+import { loadSubjectModel, loadToolModel } from '../../core/loader.js';
+import hologramVertexShader from '../../shaders/hologram.vert.glsl?raw';
+import hologramFragmentShader from '../../shaders/hologram.frag.glsl?raw';
 
 export type PrologueShot = 'present' | 'asteroid' | 'collection' | 'ingest' | 'corruption'
   | 'capture' | 'laboratory' | 'shield' | 'planet' | 'corridor' | 'patrol';
@@ -48,40 +50,9 @@ export function createPrologueFlashbacks() {
   }
 
   const hologramMaterial = new THREE.ShaderMaterial({
-    uniforms: { hologramTime: { value: 0 }, hologramColor: { value: new THREE.Color(0x32a9ff) } },
-    vertexShader: `
-      #include <common>
-      #include <skinning_pars_vertex>
-      varying vec3 hologramPosition;
-      varying vec3 hologramNormal;
-      void main() {
-        #include <skinbase_vertex>
-        #include <beginnormal_vertex>
-        #include <skinnormal_vertex>
-        #include <begin_vertex>
-        #include <skinning_vertex>
-        hologramPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
-        hologramNormal = normalize(mat3(modelMatrix) * objectNormal);
-        #include <project_vertex>
-      }
-    `,
-    fragmentShader: `
-      uniform float hologramTime;
-      uniform vec3 hologramColor;
-      varying vec3 hologramPosition;
-      varying vec3 hologramNormal;
-      void main() {
-        vec3 viewDirection = normalize(cameraPosition - hologramPosition);
-        float rim = pow(1.0 - abs(dot(normalize(hologramNormal), viewDirection)), 2.0);
-        float scan = 0.5 + 0.5 * sin(hologramPosition.y * 120.0 - hologramTime * 7.0);
-        float sweep = pow(0.5 + 0.5 * sin(hologramPosition.y * 6.0 - hologramTime * 1.6), 12.0);
-        float flicker = 0.94 + 0.06 * sin(hologramTime * 19.0 + hologramPosition.y * 4.0);
-        vec3 color = mix(hologramColor, vec3(0.58, 0.9, 1.0), rim * 0.65 + sweep * 0.2);
-        float alpha = (0.3 + rim * 0.3 + scan * 0.08 + sweep * 0.15) * flicker;
-        gl_FragColor = vec4(color * (0.75 + scan * 0.18 + rim * 0.5), alpha);
-        #include <colorspace_fragment>
-      }
-    `,
+    uniforms: { hologramTime: { value: 0 }, hologramColor: { value: new THREE.Color(0x32a9ff) }, hologramImpact: { value: 0 } },
+    vertexShader: hologramVertexShader,
+    fragmentShader: hologramFragmentShader,
     transparent: true,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
@@ -517,7 +488,7 @@ export function createPrologueFlashbacks() {
     }
   }).catch(error => console.warn('Prologue patrol model unavailable; using the built-in shell.', error));
 
-  const characterReady = loadPlayerModel().then(gltf => {
+  const characterReady = loadSubjectModel().then(gltf => {
     if (disposed) return;
     const geometries = new Map<THREE.BufferGeometry, THREE.BufferGeometry>();
     for (const hologram of holograms) {

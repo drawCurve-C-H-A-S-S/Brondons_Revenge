@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import saberGlowVertex from '../../shaders/saberGlow.vert.glsl?raw';
+import saberGlowFragment from '../../shaders/saberGlow.frag.glsl?raw';
 
 export type LightsaberAttackName = `Sword_${string}`;
 export const LIGHTSABER_SWING_DURATION = 0.35;
@@ -12,8 +14,7 @@ export function getLightsaberAttackClips(clips: readonly THREE.AnimationClip[]) 
   ).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Fit the hilt inside the curled fist, with the blade exiting on the thumb side. */
-export function fitLightsaberToHand(lightsaber: THREE.Object3D, hand: THREE.Object3D) {
+export function fitWeaponToHand(weapon: THREE.Object3D, hand: THREE.Object3D, gripHeight: number) {
   hand.updateWorldMatrix(true, true);
   const point = (name: string) => {
     const bone = hand.getObjectByName(name);
@@ -23,11 +24,19 @@ export function fitLightsaberToHand(lightsaber: THREE.Object3D, hand: THREE.Obje
   const knuckle = point('middle_01_r'), fingertip = point('middle_03_r');
   const axis = index && pinky ? index.sub(pinky).normalize() : new THREE.Vector3(0, 0, 1);
   if (axis.lengthSq() < 0.5) axis.set(0, 0, 1);
-  lightsaber.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis);
+  const forward = (knuckle?.clone() ?? new THREE.Vector3(1, 0, 0)).projectOnPlane(axis);
+  if (forward.lengthSq() < 0.0001) forward.set(0, 1, 0).projectOnPlane(axis);
+  if (forward.lengthSq() < 0.0001) forward.set(1, 0, 0).projectOnPlane(axis);
+  forward.normalize();
+  const side = axis.clone().cross(forward).normalize();
+  weapon.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(side, axis, forward));
   const grip = knuckle && fingertip ? knuckle.add(fingertip).multiplyScalar(0.5) : new THREE.Vector3();
-  // The model origin is the pommel; its 28 cm hilt must straddle the grip.
-  lightsaber.position.copy(grip).addScaledVector(axis, -0.14);
-  hand.add(lightsaber);
+  weapon.position.copy(grip).addScaledVector(axis, -gripHeight);
+  hand.add(weapon);
+}
+
+export function fitLightsaberToHand(lightsaber: THREE.Object3D, hand: THREE.Object3D) {
+  fitWeaponToHand(lightsaber, hand, 0.14);
 }
 
 export function createLightsaber(): THREE.Group {
@@ -56,27 +65,33 @@ export function createLightsaber(): THREE.Group {
 
   // Blade (glowing)
   const bladeColor = 0x00ff88;
-  const bladeMaterial = new THREE.MeshBasicMaterial({ color: bladeColor, transparent: true, opacity: 0.9, depthWrite: false });
+  const bladeMaterial = new THREE.MeshBasicMaterial({ color: bladeColor, transparent: true, opacity: 0.8,
+    depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending });
   const blade = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.9, 8), bladeMaterial);
   blade.position.y = 0.77;
   blade.name = 'blade';
   lightsaber.add(blade);
+  const core = new THREE.Mesh(new THREE.CapsuleGeometry(0.011, 0.878, 4, 8),
+    new THREE.MeshBasicMaterial({ color: 0xd8ffeb, toneMapped: false }));
+  core.position.y = 0.77; core.name = 'bladeCore'; lightsaber.add(core);
 
   // Blade glow (outer)
-  const glowMaterial = new THREE.MeshBasicMaterial({ color: bladeColor, transparent: true, opacity: 0.3, depthWrite: false });
-  const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.9, 8), glowMaterial);
+  const glowMaterial = new THREE.ShaderMaterial({ vertexShader: saberGlowVertex, fragmentShader: saberGlowFragment,
+    uniforms: { uTint: { value: new THREE.Color(bladeColor) }, uOpacity: { value: 0.32 } },
+    transparent: true, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending });
+  const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.9, 16, 1, true), glowMaterial);
   glow.position.y = 0.77;
   glow.name = 'bladeGlow';
   lightsaber.add(glow);
 
   // Blade tip light
-  const bladeLight = new THREE.PointLight(bladeColor, 2, 3);
+  const bladeLight = new THREE.PointLight(bladeColor, 1.4, 2.8);
   bladeLight.position.y = 0.77;
   bladeLight.name = 'bladeLight';
   lightsaber.add(bladeLight);
 
   lightsaber.traverse(child => {
-    if (child instanceof THREE.Mesh && child.name !== 'blade' && child.name !== 'bladeGlow') {
+    if (child instanceof THREE.Mesh && child.name !== 'blade' && child.name !== 'bladeGlow' && child.name !== 'bladeCore') {
       child.castShadow = true;
       child.receiveShadow = true;
     }

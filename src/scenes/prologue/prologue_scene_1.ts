@@ -358,7 +358,7 @@ export function createScene({ onPlayable, onFinished, thirdPersonCamera = { dist
     updateArmChains();
     modelReady = true;
   }).catch(err => {
-    console.warn('Prologue: failed to load Subject.glb', err);
+    console.warn('Prologue: failed to load MC.glb', err);
     modelReady = true;
   });
 

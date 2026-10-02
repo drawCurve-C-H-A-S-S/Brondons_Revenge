@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneRig } from 'three/addons/utils/SkeletonUtils.js';
+import playerModelUrl from '../assets/models/MC.glb';
 import subjectModelUrl from '../assets/models/Subject.glb';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import dinoModelUrl from '../assets/models/Dino/dino.glb';
@@ -73,13 +74,27 @@ export async function preloadBossModels() {
 
 export async function loadBossModel() { return cloneModel(await modelTemplate(bossModelUrl)); }
 export async function loadBoyModel() { return cloneModel(await modelTemplate(boyModelUrl)); }
+export async function loadSubjectModel() { return cloneModel(await modelTemplate(subjectModelUrl)); }
 export async function preloadToolModel(name: ToolModelName) { await toolTemplate(name); }
 
 /** Decode the player asset once; each view gets an independent skeleton and mixer. */
 export async function loadPlayerModel(loader = playerLoader) {
   let pending = playerTemplates.get(loader);
   if (!pending) {
-    pending = loader.loadAsync(subjectModelUrl).catch(error => {
+    pending = loader.loadAsync(playerModelUrl).then(template => {
+      template.scene.updateMatrixWorld(true);
+      template.scene.traverse(node => {
+        if (node instanceof THREE.SkinnedMesh) node.skeleton.update();
+      });
+      const height = new THREE.Box3().setFromObject(template.scene).getSize(new THREE.Vector3()).y;
+      if (!Number.isFinite(height) || height <= 0) throw new Error('MC character has invalid bounds');
+      template.scene.scale.multiplyScalar(1.83 / height);
+      const scene = new THREE.Group();
+      scene.name = 'MC Player';
+      scene.add(template.scene);
+      scene.updateMatrixWorld(true);
+      return { ...template, scene, scenes: [scene] };
+    }).catch(error => {
       playerTemplates.delete(loader);
       throw error;
     });

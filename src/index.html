@@ -16,14 +16,15 @@
   <div id="boss-subtitles" class="hidden" role="status" aria-live="polite"></div>
   <section id="escape-qte" class="hidden" role="status" aria-live="assertive" aria-label="Timed escape action">
     <div class="escape-caption">PRESS THE DISPLAYED KEY</div>
-    <kbd id="escape-key">X</kbd>
+    <kbd id="escape-key">Y</kbd>
     <div id="escape-timer-track"><div id="escape-timer-fill"></div></div>
     <div id="escape-action"></div>
-    <div class="escape-hint">X: shoot · Y: crowbar · Z: roll · E: launch within three seconds of boarding</div>
+    <div class="escape-hint">Y: shoot · U: crowbar · I: dodge · O: saber spin · E: launch</div>
   </section>
   <section id="flight-hud" class="hidden" aria-label="Shuttle flight instruments">
     <div class="space-health-heading"><span>SHUTTLE HULL</span><span id="space-health-label">260 / 260</span></div>
     <div id="space-health-track" role="progressbar" aria-label="Shuttle hull integrity" aria-valuemin="0" aria-valuemax="260" aria-valuenow="260"><div id="space-health-fill"></div></div>
+    <div id="flight-powerups" aria-label="Collected power-ups"></div>
   </section>
   <div id="space-alert" class="hidden" role="status" aria-live="polite"></div>
   <div id="space-damage" class="hidden" aria-hidden="true"></div>
@@ -112,9 +113,14 @@
     </header>
     <section id="pause-home" class="pause-panel">
       <button id="pause-resume" type="button">Resume</button>
+      <button id="pause-ship-map" type="button">Ship Map</button>
       <button id="pause-sound" type="button">Sound</button>
       <button id="pause-controls" type="button">Controls</button>
       <button id="pause-developer" type="button">Developer Mode</button>
+    </section>
+    <section id="pause-map-panel" class="pause-panel hidden" aria-label="Ship map">
+      <div id="ship-map-view"></div>
+      <button type="button" data-pause-back>Back</button>
     </section>
     <section id="pause-controls-panel" class="pause-panel hidden" aria-label="Controls reference">
       <p id="pause-controls-description"></p>

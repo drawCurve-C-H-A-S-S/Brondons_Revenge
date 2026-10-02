@@ -5,10 +5,11 @@ type Options = {
   scene: THREE.Scene; camera: THREE.PerspectiveCamera; ship: THREE.Group; boss: THREE.Group; rail: number;
   shoot: (from: THREE.Vector3, to: THREE.Vector3, damage: number, speed?: number) => void;
   burst: (position: THREE.Vector3, size: number, color?: number) => void;
+  explode?: (position: THREE.Vector3, size: number) => void;
 };
 
 /** A continuous camera/encounter phase; the flight world and its hull health remain alive. */
-export function createSidescrollPhase({ scene, camera, ship, boss, rail, shoot, burst }: Options) {
+export function createSidescrollPhase({ scene, camera, ship, boss, rail, shoot, burst, explode }: Options) {
   const device = new THREE.Group(); device.name = 'SidescrollScrambler';
   const metal = new THREE.MeshStandardMaterial({ color: 0x293f37, metalness: 0.8, roughness: 0.3, transparent: true });
   const green = new THREE.MeshBasicMaterial({ color: 0x67ffa0, transparent: true });
@@ -84,7 +85,7 @@ export function createSidescrollPhase({ scene, camera, ship, boss, rail, shoot, 
   }
   function destroy() {
     if (stage !== 'fight') return;
-    burst(device.position, 35, 0x67ffa0); device.visible = false; shield.visible = ripple.visible = false; shieldTime = 0;
+    (explode ?? burst)(device.position, 35); device.visible = false; shield.visible = ripple.visible = false; shieldTime = 0;
     cameraView(); exitPosition.copy(camera.position); exitRotation.copy(camera.quaternion);
     exitShip.copy(ship.position); exitShipRotation.copy(ship.quaternion);
     exitBoss.copy(boss.position); exitBossRotation.copy(boss.quaternion);

@@ -11,6 +11,10 @@ import { createTopdownPhase, TOPDOWN_SCRAMBLER_HEALTH } from './scene15-75.js';
 import { predictsCollision } from '../../helpers/scene/flightCollision.js';
 import { AudioManager, getAudioSettings, subscribeAudioSettings } from '../../helpers/audio/AudioManager.js';
 import level2BgmUrl from '../../assets/bgm/DonRevLevel2.m4a?url';
+import shieldPowerupUrl from '../../assets/power ups/Shield_powerup.png?url';
+import { createFlightShield } from '../../scripts/flightShield.js';
+import fireVertexShader from '../../shaders/fireExplosion.vert.glsl?raw';
+import fireFragmentShader from '../../shaders/fireExplosion.frag.glsl?raw';
 
 export const FLIGHT_RULES = Object.freeze({ cruise: 200, dodgeSpeed: 52, width: 64, height: 38, planetRadius: 900 });
 const TOTAL_FIGHTERS = 10, MAX_ACTIVE = 6, PLAYER_MAX_HP = 260;
@@ -37,6 +41,7 @@ type Fighter = {
   health: number; fireCd: number; laneX: number; laneY: number; seed: number;
   state: 'launch' | 'attack' | 'regroup'; loop: THREE.CubicBezierCurve3 | null; loopTime: number;
   evadeOffset: THREE.Vector2; evadeCooldown: number; evadeRollTime: number; evadeSign: number;
+  dropsShield: boolean;
 };
 type WeakPoint = { mesh: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>; ring: THREE.Mesh; health: number; max: number };
 type Boss = { root: THREE.Group; bow: THREE.Group; launchBays: THREE.Object3D[]; generators: WeakPoint[]; core: WeakPoint; shield: THREE.Mesh; fireCd: number; volley: number };
@@ -158,7 +163,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   const player = createPlayer({ camera, physicsWorld, spawnPosition: { x: 0, y: 2, z: 0 } });
   if (entryState) player.restoreTransition({ ...entryState, position: { x: 0, y: 2, z: 0 }, velocity: { x: 0, y: 0, z: 0 }, yaw: Math.PI, pitch: 0, heldKeys: [], crouching: false, intentionalJump: false, jumpQueued: false }, { x: 0, y: 0, z: 0, yaw: -Math.PI });
   player.disable(); player.body.type = CANNON.Body.KINEMATIC; player.body.collisionResponse = false; player.body.updateMassProperties();
-  const ship = createEscapeShip(); ship.setFlying(true, true); ship.setThrust(1.5); scene.add(ship.root);
+  const ship = createEscapeShip(); ship.setFlying(true, true); ship.setThrust(1.5); ship.setPilotVisible(true); scene.add(ship.root);
   let launch = entryState?.launch;
   if (launch) { ship.root.position.copy(launch.shipPosition); ship.root.quaternion.copy(launch.shipQuaternion); }
   const planetPosition = new THREE.Vector3(0, 120, 14000);
@@ -175,6 +180,8 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   let controlsMode = ''; 
   const damageOverlay = el('space-damage'), pausePanel = el('space-pause'), pauseTitle = el('space-pause-title'), pauseHint = el('space-pause-hint');
   const controls = el('flight-controls'), rollLabel = el('space-roll-status'), threatLabel = el('space-threat');
+  const shieldTexture = new THREE.TextureLoader().load(shieldPowerupUrl); shieldTexture.colorSpace = THREE.SRGBColorSpace;
+  const shields = createFlightShield({ scene, ship: ship.root, camera, texture: shieldTexture, iconUrl: shieldPowerupUrl, hud: el('flight-powerups') });
   const ownedHud = [hud, controls, crosshair, bossHud, enemyCount, alert, damageOverlay, pausePanel];
   for (const node of [hud, controls, crosshair, enemyCount, alert, damageOverlay]) node?.classList.remove('hidden');
   for (const id of ['flight-target', 'boss-subtitles', 'boss-hud', 'escape-qte', 'loading-bay-status', 'interact-prompt']) el(id)?.classList.add('hidden');
@@ -207,6 +214,10 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   type Bolt = { mesh: THREE.Mesh; velocity: THREE.Vector3; life: number; damage: number };
   type Flash = { mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>; life: number; duration: number; size: number; beam: boolean };
   const bolts: Bolt[] = [], flashes: Flash[] = [];
+  const explosionGeometry = new THREE.SphereGeometry(1, 24, 16);
+  const explosions: { mesh: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>; age: number; size: number }[] = [];
+  const shieldRaycaster = new THREE.Raycaster();
+  const shieldRayStart = new THREE.Vector3(), shieldRayDirection = new THREE.Vector3();
   const playerShots = Array.from({ length: 96 }, () => {
     const mesh = new THREE.Mesh(beamGeo, beamMaterial); mesh.visible = false; mesh.scale.set(0.22, 14, 0.22); scene.add(mesh);
     return { mesh, direction: new THREE.Vector3(0, 0, 1), life: 0 };
@@ -261,6 +272,24 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     const mesh = new THREE.Mesh(sphereGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1, depthWrite: false }));
     mesh.position.copy(position); scene.add(mesh); flashes.push({ mesh, life: 0.5, duration: 0.5, size, beam: false });
   }
+  function explode(position: THREE.Vector3, size: number) {
+    const uniforms = {
+      uTime: { value: 0 }, uProgress: { value: 0 }, uIntensity: { value: 1 }, uCameraLocal: { value: new THREE.Vector3() },
+      uColorCore: { value: new THREE.Color(0xfff2b0) }, uColorMid: { value: new THREE.Color(0xff8a1f) },
+      uColorEdge: { value: new THREE.Color(0xc41608) }, uColorSmoke: { value: new THREE.Color(0x1a1613) },
+    };
+    const material = new THREE.ShaderMaterial({ uniforms, vertexShader: fireVertexShader, fragmentShader: fireFragmentShader,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide, toneMapped: false });
+    const mesh = new THREE.Mesh(explosionGeometry, material); mesh.name = 'FlightFireExplosion';
+    mesh.position.copy(position); mesh.scale.setScalar(size * 0.12); mesh.frustumCulled = false;
+    mesh.onBeforeRender = (_renderer, _scene, viewCamera) => {
+      viewCamera.getWorldPosition(uniforms.uCameraLocal.value); mesh.worldToLocal(uniforms.uCameraLocal.value);
+    };
+    scene.add(mesh); explosions.push({ mesh, age: 0, size });
+  }
+  function clearExplosions() {
+    explosions.forEach(({ mesh }) => { mesh.removeFromParent(); mesh.material.dispose(); }); explosions.length = 0;
+  }
   function clearBolts() {
     for (const bolt of bolts) scene.remove(bolt.mesh); bolts.length = 0;
     playerShots.forEach(s => { s.life = 0; s.mesh.visible = false; });
@@ -301,6 +330,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) event.preventDefault();
     keys.add(event.code);
     if (event.repeat) return;
+    if (event.code === 'Enter') { event.preventDefault(); shields.activate(); return; }
     if (event.code === 'KeyV') toggleView();
     if (event.code === 'Space' && rollCd <= 0) {
       const x = Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'));
@@ -360,7 +390,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     const loop = new THREE.CubicBezierCurve3(start, start.clone().add(new THREE.Vector3(0, 0, -150)),
       new THREE.Vector3(laneX, laneY, 600), new THREE.Vector3(laneX, laneY, 440));
     fighters.push({ root, eye, health: FIGHTER_HP, fireCd: 0.8 + spawned % 6 * 0.35, laneX, laneY, seed: spawned * 1.7, state: 'launch', loop, loopTime: 0,
-      evadeOffset: new THREE.Vector2(), evadeCooldown: 0, evadeRollTime: 0, evadeSign: 1 });
+      evadeOffset: new THREE.Vector2(), evadeCooldown: 0, evadeRollTime: 0, evadeSign: 1, dropsShield: spawned === 2 || spawned === 7 });
     burst(root.position, 4, 0x9bdfff); spawned++;
   }
   function beginRegroup(f: Fighter) {
@@ -511,7 +541,8 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     boss.bow.visible = true;
     // Keep the existing AudioManager and Level 2 loop alive through both camera transitions.
     topdown = createTopdownPhase({ scene, camera, ship: ship.root, boss: boss.root, rail: railZ,
-      launchBays: boss.launchBays, createInterceptor: () => createFighterMesh().root, shootLaser: launchBolt, burst });
+      launchBays: boss.launchBays, createInterceptor: () => createFighterMesh().root, shootLaser: launchBolt, burst, explode,
+      dropShield: position => shields.drop(position, FLIGHT_RULES.cruise) });
     announce('SHIELD GENERATORS DESTROYED / RED SCRAMBLER LAUNCHING', 4.8);
   }
   function damageWeakPoint(target: WeakPoint) {
@@ -519,7 +550,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     target.health = Math.max(0, target.health - SHOT_DAMAGE);
     if (target.health > 0) return;
     target.mesh.visible = false; target.ring.visible = false;
-    burst(target.mesh.getWorldPosition(new THREE.Vector3()), 14);
+    explode(target.mesh.getWorldPosition(new THREE.Vector3()), 14);
     if (phase === 'bossArmor' && boss.generators.every(t => t.health <= 0)) {
       beginTopdownScrambler();
     } else if (phase === 'bossCore' && target === boss.core) {
@@ -527,7 +558,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       planetPosition.set(0, 200, railZ + 14000); planet.position.copy(planetPosition); planet.visible = true;
       pod = createEscapePod(); pod.position.copy(boss.root.position).add(new THREE.Vector3(0, 16, 0));
       pod.quaternion.setFromUnitVectors(MODEL_FORWARD, planetPosition.clone().sub(pod.position).normalize()); scene.add(pod);
-      burst(boss.root.position, 65); boss.root.visible = false;
+      explode(boss.root.position, 65); boss.root.visible = false;
       announce('CAPITAL SHIP DESTROYED / ESCAPE POD DETECTED', 3);
     }
   }
@@ -584,7 +615,8 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     if (fighter) {
       fighter.health = Math.max(0, fighter.health - SHOT_DAMAGE); hitFlash = 0.12; burst(point, 2, 0xffe4a3);
       if (fighter.health === 0) {
-        totalKilled++; fighter.root.visible = false; burst(fighter.root.position, 11); tone(130, 35, 0.22, 0.06);
+        totalKilled++; fighter.root.visible = false; explode(fighter.root.position, 11); tone(130, 35, 0.22, 0.06);
+        if (fighter.dropsShield) shields.drop(fighter.root.position, FLIGHT_RULES.cruise);
         // Hull damage persists for the entire sortie.
       }
       return;
@@ -659,7 +691,8 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       if (rocket.life <= 0) rocket.mesh.visible = rocket.marker.visible = false;
     }
   }
-  function damagePlayer(amount: number) {
+  function damagePlayer(amount: number, contact = ship.root.position) {
+    if (shields.active) { shields.impact(); burst(contact, 4, 0x42baff); return; }
     if (invulnerability > 0 || (phase === 'topdownScrambler' && topdown?.evading) || !combatLive()) return;
     playerHp = Math.max(0, playerHp - amount); invulnerability = 0.55; damageFlash = 0.7; tone(90, 30, 0.24, 0.08);
     if (playerHp === 0) {
@@ -676,14 +709,27 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       // Swept collision against the moving ship prevents tunneling at low frame rates.
       const segment = new THREE.Line3(relativeStart, relativeEnd);
       const radius = arcadeView() ? 5.5 : 3.2;
-      const hit = segment.closestPointToPoint(new THREE.Vector3(0, 1, 0), true, temp).distanceToSquared(new THREE.Vector3(0, 1, 0)) < radius * radius;
+      let hit = segment.closestPointToPoint(new THREE.Vector3(0, 1, 0), true, temp).distanceToSquared(new THREE.Vector3(0, 1, 0)) < radius * radius;
+      let contact: THREE.Vector3 | undefined;
+      if (shields.active) {
+        shieldRayStart.copy(relativeStart).add(ship.root.position);
+        shieldRayDirection.subVectors(bolt.mesh.position, shieldRayStart);
+        shieldRaycaster.near = 0; shieldRaycaster.far = shieldRayDirection.length();
+        if (shieldRaycaster.far > 0) {
+          shieldRaycaster.set(shieldRayStart, shieldRayDirection.normalize());
+          const surface = shieldRaycaster.intersectObject(ship.root, true).find(validShotSurface);
+          hit = Boolean(surface); contact = surface?.point;
+        } else hit = false;
+      }
       if (hit || bolt.life <= 0 || bolt.mesh.position.z < ship.root.position.z - 55) {
         scene.remove(bolt.mesh); bolts.splice(i, 1);
-        if (hit) { damagePlayer(bolt.damage); if (phase === 'dead') break; }
+        if (hit) { damagePlayer(bolt.damage, contact); if (phase === 'dead') break; }
       }
     }
   }
   function restartScene() {
+    shields.reset();
+    clearExplosions();
     sidescroll?.dispose(); sidescroll = null; topdown?.dispose(); topdown = null; rocketCooldown = 3.2;
     for (const f of fighters) { scene.remove(f.root); disposeRoomForGroup(f.root); }
     fighters.length = 0;
@@ -785,6 +831,15 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     document.body.classList.toggle('space-paused', paused || dead);
   }
   function updateEffects(dt: number) {
+    for (let index = explosions.length - 1; index >= 0; index--) {
+      const explosion = explosions[index]; explosion.age += dt;
+      explosion.mesh.position.z += FLIGHT_RULES.cruise * dt;
+      const progress = Math.min(1, explosion.age / 1.35);
+      explosion.mesh.material.uniforms.uTime.value = explosion.age;
+      explosion.mesh.material.uniforms.uProgress.value = progress;
+      explosion.mesh.scale.setScalar(explosion.size * (0.12 + 0.88 * THREE.MathUtils.smoothstep(progress, 0, 0.45)));
+      if (progress >= 1) { explosion.mesh.removeFromParent(); explosion.mesh.material.dispose(); explosions.splice(index, 1); }
+    }
     for (let i = flashes.length - 1; i >= 0; i--) {
       const f = flashes[i]; f.life -= dt; f.mesh.position.z += FLIGHT_RULES.cruise * dt;
       if (!f.beam) { f.mesh.scale.setScalar(f.size * (1 - f.life / f.duration) + 0.5); f.mesh.material.opacity = Math.max(0, f.life / f.duration); }
@@ -846,6 +901,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     }
     ship.root.visible = !cockpitView;
     ship.update(dt); ship.setThrust(1.6 + Math.sin(clock * 24) * 0.1); cameraView();
+    shields.update(dt, oldShipPosition, arcadeView() ? 18 : 10, phase !== 'victory');
     updateDistantCarrier();
     if (phase === 'combat' && (!launch || clock >= 2.5)) {
       updateFighters(dt); spawnCd -= dt;
@@ -858,7 +914,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       boss.root.quaternion.slerpQuaternions(bossArrivalRotation, neutralBossRotation, t);
       if (phaseClock >= 3.8) {
         clearBolts(); clearInput(); phase = 'scrambler'; phaseClock = 0; cockpitView = false;
-        sidescroll = createSidescrollPhase({ scene, camera, ship: ship.root, boss: boss.root, rail: railZ, shoot: launchBolt, burst });
+        sidescroll = createSidescrollPhase({ scene, camera, ship: ship.root, boss: boss.root, rail: railZ, shoot: launchBolt, burst, explode });
         announce('SIDESCROLL SCRAMBLER / FLIGHT AXES COMPROMISED', 4.6);
       }
     }
@@ -915,6 +971,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     getCinematicState: () => player.getState(), applyCinematicCamera: cameraView,
     clearInput, setMenuPaused(value: boolean) { if (!value && paused) setPaused(false); syncMusic(); },
     getFlightStatus: () => ({ speed: FLIGHT_RULES.cruise, cockpitView, paused, phase, playerHp, totalKilled, spawned,
+      shields: shields.status,
       scramblerHp: topdown?.health ?? sidescroll?.health ?? 0, scramblerStage: topdown?.stage ?? sidescroll?.stage ?? null,
       bossHp: boss ? [...boss.generators, boss.core].reduce((sum, t) => sum + t.health, 0) : 0 }),
     updatePhysics(dt: number) {
@@ -930,6 +987,8 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       if (disposed) return; disposed = true; clearInput();
       stopAudioSettings(); sfxOutput?.disconnect();
       audioManager.dispose();
+      shields.dispose();
+      clearExplosions(); explosionGeometry.dispose();
       sidescroll?.dispose(); sidescroll = null; topdown?.dispose(); topdown = null;
       window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mousedown', onMouseDown); window.removeEventListener('mouseup', onMouseUp);

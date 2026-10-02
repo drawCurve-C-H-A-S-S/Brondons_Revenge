@@ -25,7 +25,7 @@ export async function createFirstPersonHands(loader?: GLTFLoader) {
   function createArm(side: 'l' | 'r', wristPosition: THREE.Vector3, elbowPosition: THREE.Vector3, parent: THREE.Group) {
     const hand = model.getObjectByName(`hand_${side}`);
     const elbow = model.getObjectByName(`lowerarm_${side}`);
-    if (!hand || !elbow) throw new Error(`Subject.glb is missing the ${side} arm`);
+    if (!hand || !elbow) throw new Error(`MC.glb is missing the ${side} arm`);
     const armBones = new Set<THREE.Object3D>();
     elbow.traverse(bone => armBones.add(bone));
     const wrist = hand.getWorldPosition(new THREE.Vector3());
@@ -79,7 +79,7 @@ export async function createFirstPersonHands(loader?: GLTFLoader) {
         : (() => { const clone = mesh.material.clone(); clone.side = THREE.DoubleSide; return clone; })();
       arm.add(new THREE.Mesh(geometry, material));
     });
-    if (!triangleCount) throw new Error(`Subject.glb has no ${side} arm triangles`);
+    if (!triangleCount) throw new Error(`MC.glb has no ${side} arm triangles`);
     const grip = new THREE.Group();
     grip.quaternion.copy(hand.getWorldQuaternion(new THREE.Quaternion()));
     if (side === 'r') {

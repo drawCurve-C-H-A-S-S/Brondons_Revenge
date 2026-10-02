@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import type { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { loadPlayerModel, yieldToMainThread } from '../core/loader.js';
 import { createCrowbar } from './items/createCrowbar.js';
-import { createLightsaber, disposeLightsaber, fitLightsaberToHand, getLightsaberAttackClips, LIGHTSABER_SWING_DURATION, type LightsaberAttackName } from './items/createLightsaber.js';
+import { createLightsaber, disposeLightsaber, fitLightsaberToHand, fitWeaponToHand, getLightsaberAttackClips, LIGHTSABER_SWING_DURATION, type LightsaberAttackName } from './items/createLightsaber.js';
 import { LADDER } from '../utils/constants.js';
 import { createGoggles } from './rewardChest.js';
 
@@ -41,6 +41,7 @@ export interface CinematicPose {
   swimming?: boolean;
   lean?: number;
   bodyPitch?: number;
+  spinAttack?: number;
   handTargets?: { left: Vec3Like; right: Vec3Like; weight: number };
   footTargets?: { left: Vec3Like; right: Vec3Like; weight: number };
 }
@@ -191,9 +192,9 @@ export async function loadCharacter(loader?: GLTFLoader) {
   let gltf;
   try {
     gltf = await loadPlayerModel(loader);
-    console.log('UAL1 character loaded');
+    console.log('MC character loaded');
   } catch (error) {
-    console.error('Failed to load UAL1 character model:', error);
+    console.error('Failed to load MC character model:', error);
     return null;
   }
 
@@ -392,6 +393,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
   const aimClip = THREE.AnimationClip.findByName(clips, 'Pistol_Aim_Neutral');
   const holdClip = THREE.AnimationClip.findByName(clips, 'Pistol_Idle_Loop');
   const shootClip = THREE.AnimationClip.findByName(clips, 'Pistol_Shoot');
+  const reloadClip = THREE.AnimationClip.findByName(clips, 'Pistol_Reload');
   const socket = new THREE.Group();
   socket.name = 'PistolGrip';
   const upperBones = new Set<string>();
@@ -405,10 +407,15 @@ export async function loadCharacter(loader?: GLTFLoader) {
   });
   const upperClip = (clip: THREE.AnimationClip) => new THREE.AnimationClip(`${clip.name}_UpperBody`, clip.duration,
     clip.tracks.filter(track => upperBones.has(THREE.PropertyBinding.parseTrackName(track.name).nodeName)).map(track => track.clone()));
-  const holdAction = holdClip ? upperMixer.clipAction(upperClip(holdClip)) : null;
+  const readyClip = aimClip ?? holdClip;
+  const holdAction = readyClip ? upperMixer.clipAction(upperClip(readyClip)) : null;
   const shootAction = shootClip ? upperMixer.clipAction(upperClip(shootClip)) : null;
-  shootAction?.setLoop(THREE.LoopOnce, 1);
-  if (shootAction) shootAction.clampWhenFinished = true;
+  const reloadAction = reloadClip ? upperMixer.clipAction(upperClip(reloadClip)) : null;
+  for (const action of [shootAction, reloadAction]) {
+    if (!action) continue;
+    action.setLoop(THREE.LoopOnce, 1);
+    action.clampWhenFinished = true;
+  }
   if (hand && aimClip) {
     const sampler = new THREE.AnimationMixer(model);
     sampler.clipAction(aimClip).play();
@@ -425,35 +432,53 @@ export async function loadCharacter(loader?: GLTFLoader) {
     sampler.uncacheRoot(model);
   }
   let armed = false;
+  let pistolBlend = 0;
+  let pistolPitch = 0;
+  let pistolAction: THREE.AnimationAction | null = null;
+  function playPistolAction(next: THREE.AnimationAction | null, blend = 0.1) {
+    if (!next) return;
+    if (next === pistolAction) next.stop();
+    else pistolAction?.fadeOut(blend);
+    next.reset().setEffectiveWeight(1).setEffectiveTimeScale(1).fadeIn(blend).play();
+    pistolAction = next;
+  }
   const weapon = {
     socket: hand ? socket : null,
+    mixer: upperMixer,
     setEquipped(equipped: boolean) {
       if (equipped === armed) return;
       armed = equipped;
-      upperMixer.stopAllAction();
-      if (armed) holdAction?.reset().play();
+      if (armed) {
+        upperMixer.stopAllAction();
+        pistolAction = null;
+        playPistolAction(reloadAction ?? holdAction, 0.12);
+      }
     },
     shoot() {
       if (!armed || !shootAction) return;
-      holdAction?.stop();
-      shootAction.reset().setEffectiveWeight(1).setEffectiveTimeScale(1).play();
+      playPistolAction(shootAction, 0.065);
+    },
+    reload() {
+      if (armed) playPistolAction(reloadAction, 0.12);
     },
   };
 
   const rightHand = model.getObjectByName('hand_r');
   const crowbar = createCrowbar();
-  crowbar.position.set(0, 0, 0);
-  crowbar.rotation.set(Math.PI / 2, 0, 0);
   crowbar.visible = false;
   let crowbarEquipped = false;
-  rightHand?.add(crowbar);
 
   const lightsaber = createLightsaber();
+  const gripPose: { bone: THREE.Object3D; quaternion: THREE.Quaternion }[] = [];
   if (rightHand) {
     const sampler = new THREE.AnimationMixer(model);
     if (swordIdle) sampler.clipAction(swordIdle).play();
     sampler.update(0);
+    fitWeaponToHand(crowbar, rightHand, 0.02);
     fitLightsaberToHand(lightsaber, rightHand);
+    rightHand.traverse(bone => {
+      if (/^(thumb|index|middle|ring|pinky)_0[1-3]_r$/.test(bone.name)) gripPose.push({ bone, quaternion: bone.quaternion.clone() });
+    });
     sampler.stopAllAction();
     sampler.uncacheRoot(model);
     resetRig();
@@ -546,6 +571,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
     const { yaw, pitch, isMoving, isOnGround, velocityY, jumping, actionRequest, crouching, sprinting, climbing, climbDirection, floating, floatTime, boxHandling, boxMotion } = playerState;
     const freshActionRequest = actionRequest !== previousActionRequest ? actionRequest : null;
     previousActionRequest = actionRequest;
+    const pistolRequest = armed && (freshActionRequest === 'Pistol_Shoot' || freshActionRequest === 'Pistol_Reload');
     const idleName = lightsaberEquipped && swordIdle ? 'Sword_Idle' : 'Idle_Loop';
     model.traverse((child: THREE.Object3D) => {
       if (thirdPerson) {
@@ -609,7 +635,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
       // One-shot action requests (keys 6-9) play once, then locomotion resumes.
       // While one plays, idle/walk/land transitions wait for mixer completion.
       const actionPlaying = actionClips.has(name) && !currentAction.paused;
-      if (freshActionRequest && actions.has(freshActionRequest)) {
+      if (freshActionRequest && actions.has(freshActionRequest) && !pistolRequest) {
         fadeTo(freshActionRequest, true);
       } else if (!actionPlaying) {
         // Crouch animations take priority when crouching
@@ -678,7 +704,8 @@ export async function loadCharacter(loader?: GLTFLoader) {
       }
     } else if (cinematicUpper) {
       upperMixer.stopAllAction(); cinematicUpper = null;
-      if (armed) holdAction?.reset().play();
+      pistolAction = null;
+      if (armed) playPistolAction(holdAction);
     }
     if (cinematic?.swimming) {
       const cycle = cinematic.time * 3.8;
@@ -696,26 +723,60 @@ export async function loadCharacter(loader?: GLTFLoader) {
       model.rotation.x = 0.14;
       model.rotation.z = cinematic.lean ?? 0;
     }
+    if (crowbar.visible || lightsaber.visible) {
+      for (const grip of gripPose) grip.bone.quaternion.copy(grip.quaternion);
+    }
     if (cinematic?.bodyPitch !== undefined) model.rotation.x = cinematic.bodyPitch;
     if (cinematic?.handTargets) applyHandTargets(cinematic.handTargets);
     if (cinematic?.footTargets) applyHandTargets(cinematic.footTargets, legChains);
-    if (armed && handsFree && !cinematic) {
+    if (cinematic?.spinAttack !== undefined) {
+      const progress = THREE.MathUtils.clamp(cinematic.spinAttack, 0, 1);
+      const windup = THREE.MathUtils.smootherstep(progress, 0, 0.2);
+      const sweep = THREE.MathUtils.smootherstep(progress, 0.18, 0.84);
+      const release = THREE.MathUtils.smootherstep(progress, 0.76, 1);
+      const extended = THREE.MathUtils.smootherstep(progress, 0.12, 0.34) * (1 - release);
+      model.rotation.y = yaw + MODEL_ROT_OFFSET + windup * 0.42 - sweep * (Math.PI * 2 + 0.42);
+      model.rotation.x = extended * 0.045;
+      model.rotation.z = -extended * 0.04;
+      upperRoot?.rotateY((1 - release) * (-windup * 0.24 + sweep * 0.24));
+      model.updateMatrixWorld(true);
+      const rightTarget = model.localToWorld(new THREE.Vector3(0.42 + extended * 0.24, 1.32 - extended * 0.12, 0.24 * (1 - sweep)));
+      const leftTarget = model.localToWorld(new THREE.Vector3(-0.3, 1.35, 0.3 - extended * 0.12));
+      applyHandTargets({ right: rightTarget, left: leftTarget, weight: extended });
+      const desiredBlade = new THREE.Vector3(0.98, -0.08 + release * 0.65, 0.18 * (1 - sweep)).normalize().transformDirection(model.matrixWorld);
+      const bladeFacing = new THREE.Vector3(0, 0, 1).transformDirection(model.matrixWorld).projectOnPlane(desiredBlade).normalize();
+      const bladeSide = desiredBlade.clone().cross(bladeFacing).normalize();
+      if (rightHand?.parent) {
+        const bladeRotation = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(bladeSide, desiredBlade, bladeFacing));
+        const desiredHand = rightHand.parent.getWorldQuaternion(new THREE.Quaternion()).invert()
+          .multiply(bladeRotation).multiply(lightsaber.quaternion.clone().invert());
+        rightHand.quaternion.slerp(desiredHand, extended * 0.98);
+      }
+      model.updateMatrixWorld(true);
+    }
+    const pistolTarget = armed && handsFree && !cinematic ? 1 : 0;
+    pistolBlend = THREE.MathUtils.damp(pistolBlend, pistolTarget, 14, dt);
+    if (!cinematic && handsFree && pistolRequest) {
+      if (freshActionRequest === 'Pistol_Reload') weapon.reload();
+      else weapon.shoot();
+    }
+    if (!cinematic && pistolBlend > 0.001) {
       upperMixer.update(dt);
-      if (shootAction?.paused) {
-        shootAction.stop();
-        holdAction?.reset().play();
+      if (pistolAction?.paused && pistolAction !== holdAction) {
+        playPistolAction(holdAction, 0.14);
         upperMixer.update(0);
       }
       for (const { bone, pose } of layerBones) {
-        bone.position.copy(pose.position);
-        bone.quaternion.copy(pose.quaternion);
-        bone.scale.copy(pose.scale);
+        bone.position.lerp(pose.position, pistolBlend);
+        bone.quaternion.slerp(pose.quaternion, pistolBlend);
+        bone.scale.lerp(pose.scale, pistolBlend);
       }
-      // Tilt the whole upper body/gun with the camera's up-down look so the
-      // aim pose actually points where the crosshair is, not just forward.
+      pistolPitch = THREE.MathUtils.damp(pistolPitch, THREE.MathUtils.clamp(pitch ?? 0, -1.1, 1.1), 14, dt);
       if (upperRoot) {
-        const aimPitch = Math.max(-1.1, Math.min(1.1, pitch));
-        upperRoot.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -aimPitch));
+        model.updateMatrixWorld(true);
+        const axis = new THREE.Vector3(1, 0, 0).transformDirection(model.matrixWorld)
+          .applyQuaternion(upperRoot.getWorldQuaternion(new THREE.Quaternion()).invert());
+        upperRoot.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(axis, -pistolPitch * pistolBlend));
       }
     }
   }

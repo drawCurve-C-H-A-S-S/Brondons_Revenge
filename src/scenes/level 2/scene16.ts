@@ -29,7 +29,7 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
   scene.add(new THREE.HemisphereLight(0xa3cfff, 0x181321, 2));
   const sun = new THREE.DirectionalLight(0xffecd8, 3.5); sun.position.set(-5000, 7000, -2500); scene.add(sun);
   const pod = createEscapePod(); pod.name = 'CrashPod'; scene.add(pod);
-  const shuttle = createEscapeShip(); shuttle.setFlying(true, true); shuttle.setThrust(1.6); scene.add(shuttle.root);
+  const shuttle = createEscapeShip(); shuttle.setFlying(true, true); shuttle.setThrust(1.6); shuttle.setPilotVisible(true); scene.add(shuttle.root);
   const shipStart = entryState?.shipPosition.clone() ?? new THREE.Vector3();
   const podStart = entryState?.podPosition.clone() ?? new THREE.Vector3(0, 16, 500);
   const modelForward = new THREE.Vector3(0, 0, -1);
@@ -160,6 +160,7 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
       site.ship.root.rotation.set(0, 0, 0);
     }
     site.ship.setFlying(t < 3.5); site.ship.setThrust(t < 3.8 ? 1.4 : 1.1 * (1 - THREE.MathUtils.smoothstep(t, 5.5, 7)));
+    site.ship.setPilotVisible(t < 11);
     site.ship.setCanopyOpen(THREE.MathUtils.smoothstep(t, 10, 11));
     const exit = THREE.MathUtils.smootherstep(t, 11, 12.4), approach = THREE.MathUtils.smoothstep(t, 14, 17);
     const p = groundPoint(-8, 1.75, 15).lerp(groundPoint(-4, 0.3, 15), exit).lerp(RESCUE_SITE.player, approach);

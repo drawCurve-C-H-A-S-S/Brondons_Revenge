@@ -10,23 +10,32 @@ import { createEscapeShip, addPlanetBackdrop } from '../../scripts/items/createE
 import type { DamageTarget } from '../../scripts/pistol.js';
 import { isTouchActive } from '../../scripts/touchControls.js';
 import { AudioManager } from '../../helpers/audio/AudioManager.js';
+import { createHangarVersus } from '../../helpers/scene/hangarVersus.js';
 import bgmUrl from '../../assets/bgm/DonRevBGM1.m4a?url';
+import saberGlowVertex from '../../shaders/saberGlow.vert.glsl?raw';
+import saberGlowFragment from '../../shaders/saberGlow.frag.glsl?raw';
+import fireVertexShader from '../../shaders/fireExplosion.vert.glsl?raw';
+import fireFragmentShader from '../../shaders/fireExplosion.frag.glsl?raw';
 
 export interface LaunchState extends PlayerTransitionState {
   launch?: { shipPosition: THREE.Vector3; shipQuaternion: THREE.Quaternion; cameraPosition: THREE.Vector3; cameraQuaternion: THREE.Quaternion; cameraFov: number; speed: number };
 }
-export const ESCAPE_QTE = Object.freeze({ seconds: 2.2, stages: 6, robots: 48 });
-type Phase = 'arrival' | 'run' | 'orbit' | 'escape' | 'prompt' | 'action' | 'boarding' | 'aboard' | 'launch' | 'failed';
-type EscapeKey = 'KeyX' | 'KeyY' | 'KeyZ';
+export const ESCAPE_QTE = Object.freeze({ seconds: 2.2, stages: 4, robots: 48 });
+type Phase = 'arrival' | 'reveal' | 'versus' | 'orbit' | 'escape' | 'charge' | 'prompt' | 'action' | 'boarding' | 'aboard' | 'launch' | 'failed';
+type EscapeKey = 'KeyY' | 'KeyU' | 'KeyI' | 'KeyO';
+const QTE_SEQUENCE: readonly EscapeKey[] = ['KeyY', 'KeyU', 'KeyI', 'KeyO'];
+const QTE_POSITIONS = [-26, -15, -4, 7] as const;
+const ACTION_POSITIONS = [-20, -9, 2, 11] as const;
 const ROLL_PLAYBACK_DURATION = 1.2;
 const ACTION_BEATS = {
-  KeyX: { windup: 0.28, impact: 0.38, recover: 0.98, end: 2.15 },
-  KeyY: { windup: 0.18, impact: 0.60, recover: 1.12, end: 2.25 },
-  KeyZ: { windup: 0, impact: 0.42, recover: 0.9, end: 2.2 },
+  KeyY: { windup: 0.28, impact: 0.38, recover: 0.98, end: 2.15 },
+  KeyU: { windup: 0.18, impact: 0.60, recover: 1.12, end: 2.25 },
+  KeyI: { windup: 0, impact: 0.42, recover: 0.96, end: 1.8 },
+  KeyO: { windup: 0.32, impact: 0.68, recover: 1.8, end: 2.5 },
 } as const;
 const BOARDING = { run: 1.05, takeoff: 1.4, land: 2.15, settle: 2.6, seated: 3.9, end: 4.5 } as const;
 
-/** A playable approach, a timed escape sequence, then cockpit decompression and launch. */
+/** A continuous hangar escape cinematic, timed actions, cockpit boarding and launch. */
 export function createScene({ entryState, onFailure, onLaunch, loadModel = loadToolModel }: {
   entryState?: PlayerTransitionState; onFailure: () => void; onLaunch: (state: LaunchState) => void;
   loadModel?: typeof loadToolModel;
@@ -38,7 +47,11 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
   const amber = new THREE.MeshStandardMaterial({ color: 0xe4a14a, emissive: 0xa86614, emissiveIntensity: 0.7 });
   const glow = new THREE.MeshBasicMaterial({ color: 0x84d8ee });
   const box = (s: [number, number, number], p: [number, number, number], mat: THREE.Material = steel, solid = true) => roomBox(scene, physics, s, p, mat, solid);
-  box([36, 0.5, 72], [0, -0.25, 0], dark);
+  box([13, 0.5, 72], [-11.5, -0.25, 0], dark);
+  box([13, 0.5, 72], [11.5, -0.25, 0], dark);
+  box([10, 0.5, 60], [0, -0.25, 6], dark);
+  box([10, 0.5, 2], [0, -0.25, -35], dark);
+  box([10, 0.3, 10], [0, -0.65, -29], dark);
   box([0.5, 15, 72], [-18, 7.5, 0]); box([0.5, 15, 72], [18, 7.5, 0]);
   box([36, 15, 0.5], [0, 7.5, -36]); box([36, 0.4, 72], [0, 15, 0], dark);
   box([8, 15, 0.5], [-14, 7.5, 36]); box([8, 15, 0.5], [14, 7.5, 36]); box([20, 4, 0.5], [0, 13, 36]);
@@ -51,7 +64,10 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
   }
   for (const x of [-6, 6]) box([0.2, 0.025, 66], [x, 0.02, 0], amber, false);
   for (const z of [-24, -12, 0, 12, 24]) box([24, 0.08, 0.7], [0, 14.7, z], glow, false);
-  const lift = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 4.5, 0.35, 48), steel); lift.name = 'HangarArrivalLift'; lift.position.set(0, -0.175, -29); scene.add(lift);
+  const lift = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 4.5, 0.35, 48), steel); lift.name = 'HangarArrivalLift'; lift.position.set(0, -0.155, -29); scene.add(lift);
+  physics.addBox({ x: 8.8, y: 0.35, z: 8.8 }, { x: 0, y: -0.155, z: -29 });
+  const liftRim = new THREE.Mesh(new THREE.TorusGeometry(4.7, 0.13, 8, 48), amber);
+  liftRim.name = 'HangarLiftLandingRim'; liftRim.rotation.x = Math.PI / 2; liftRim.position.set(0, 0.025, -29); scene.add(liftRim);
   const ship = createEscapeShip(); ship.root.position.set(0, 0, 21); ship.root.rotation.y = Math.PI; ship.setThrust(0); scene.add(ship.root);
   const shipCollider = physics.addBox({ x: 3, y: 2.6, z: 7 }, { x: 0, y: 1.3, z: 21 });
   const planet = addPlanetBackdrop(scene, new THREE.Vector3(0, 60, 1500), 320, 2400); planet.visible = false;
@@ -59,26 +75,47 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
   const sun = new THREE.DirectionalLight(0xb9d8ff, 3); sun.position.set(-20, 50, 30); scene.add(sun);
   for (const z of [-25, -5, 15]) { const light = new THREE.PointLight(0xb3def7, 180, 40); light.position.set(0, 12, z); scene.add(light); }
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 5000);
+  const versus = createHangarVersus();
   const audioManager = new AudioManager({ camera, getFile: (path: string) => path === 'bgm1' ? { content: bgmUrl } : null });
   audioManager.setBgm({ path: 'bgm1', loop: true, volume: 0.5, autoplay: true });
   const player = createPlayer({ camera, physicsWorld, spawnPosition: { x: 0, y: 3.3, z: -29 } }); player.enable();
   if (entryState) player.restoreTransition({ ...entryState, position: { x: 0, y: 3.3, z: -29 }, velocity: { x: 0, y: 0, z: 0 }, yaw: Math.PI, pitch: 0, heldKeys: [], crouching: false, intentionalJump: false, jumpQueued: false }, { x: 0, y: 0, z: 0, yaw: -Math.PI });
-  player.setRotation(Math.PI); player.disable(); player.body.type = CANNON.Body.KINEMATIC; player.body.updateMassProperties();
+  player.setRotation(Math.PI); player.disable(); player.body.type = CANNON.Body.KINEMATIC; player.body.collisionResponse = false; player.body.updateMassProperties();
   let phase: Phase = 'arrival', clock = 0, stage = 0, timeLeft: number = ESCAPE_QTE.seconds;
-  let expected: EscapeKey = 'KeyX', actionKey: EscapeKey = 'KeyX';
+  let expected: EscapeKey = 'KeyY', actionKey: EscapeKey = 'KeyY';
   let animationDelta = 0, failedYaw = Math.PI, runTime = 0, orbitAngle = Math.PI, orbitRadius = 5.6;
   let shipFailure = false, motionScale = 1;
   const orbitStart = new THREE.Vector3(), orbitLook = new THREE.Vector3(), orbitRotation = new THREE.Quaternion();
   let disposed = false, transferred = false, paused = false, loaded = false, assetError = false, impact = false;
   let gun: THREE.Object3D | null = null;
   const actionStart = new THREE.Vector3(), actionEnd = new THREE.Vector3(), threatStart = new THREE.Vector3();
-  const boardingRun = new THREE.Vector3(0, 0.3, 16.5), boardingDeck = new THREE.Vector3(0, 1.7, 20.83);
+  const boardingRun = new THREE.Vector3(0, 0.3, 16.5), boardingDeck = new THREE.Vector3(), seatedPosition = new THREE.Vector3();
+  ship.root.updateMatrixWorld(true);
+  ship.boardingDeck.getWorldPosition(boardingDeck); boardingDeck.y += player.radius;
+  ship.pilotSeat.getWorldPosition(seatedPosition);
   const shotPosition = new THREE.Vector3(), shotTarget = new THREE.Vector3();
+  const revealStart = new THREE.Vector3(), revealLook = new THREE.Vector3();
+  const revealPath = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(6.5, 3.2, 27), new THREE.Vector3(3.4, 2.7, 17),
+    new THREE.Vector3(-1.3, 1.8, 5), new THREE.Vector3(1.6, 1.9, -10), new THREE.Vector3(0.4, 2.22, -23.4),
+  ], false, 'centripetal');
   let shot = '', shotFov = 70;
+  let promptFocus = 0, promptPulse = 0, promptBeat = 0;
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   ship.setCanopyOpen(0);
   const pressed = new Set<string>();
-  const blastMaterial = new THREE.MeshBasicMaterial({ color: 0xff9b42, transparent: true, opacity: 0, depthWrite: false });
-  const shipBlast = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), blastMaterial); scene.add(shipBlast); shipBlast.visible = false;
+  const blastUniforms = {
+    uTime: { value: 0 }, uProgress: { value: 0 }, uIntensity: { value: 1 }, uCameraLocal: { value: new THREE.Vector3() },
+    uColorCore: { value: new THREE.Color(0xfff2b0) }, uColorMid: { value: new THREE.Color(0xff8a1f) },
+    uColorEdge: { value: new THREE.Color(0xc41608) }, uColorSmoke: { value: new THREE.Color(0x1a1613) },
+  };
+  const blastMaterial = new THREE.ShaderMaterial({ uniforms: blastUniforms, vertexShader: fireVertexShader, fragmentShader: fireFragmentShader,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide, toneMapped: false });
+  const shipBlast = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 24), blastMaterial); scene.add(shipBlast); shipBlast.visible = false;
+  shipBlast.name = 'HangarShipFireExplosion'; shipBlast.frustumCulled = false;
+  shipBlast.onBeforeRender = (_renderer, _scene, viewCamera) => {
+    viewCamera.getWorldPosition(blastUniforms.uCameraLocal.value); shipBlast.worldToLocal(blastUniforms.uCameraLocal.value);
+  };
   const siege = Array.from({ length: 12 }, (_, i) => {
     const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1.1, 6), new THREE.MeshBasicMaterial({ color: 0xff4c36 }));
     mesh.visible = false; scene.add(mesh); return { mesh, offset: i / 12 };
@@ -89,10 +126,31 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
   const qteTapEvent = 'PointerEvent' in window ? 'pointerdown' : 'touchstart';
   const prompt = document.getElementById('interact-prompt'), subtitles = document.getElementById('boss-subtitles'), status = document.getElementById('loading-bay-status');
   document.getElementById('boss-hud')?.classList.add('hidden'); status?.classList.remove('hidden', 'restored');
-  type Robot = { root: THREE.Group; body: CANNON.Body; mixer: THREE.AnimationMixer; clips: THREE.AnimationClip[]; side: number; stunned: boolean; health: number; vacuum: THREE.Vector3; target: DamageTarget };
+  type Robot = { root: THREE.Group; body: CANNON.Body; mixer: THREE.AnimationMixer; clips: THREE.AnimationClip[]; side: number; stunned: boolean; health: number; vacuum: THREE.Vector3; target: DamageTarget;
+    knockback: THREE.Vector3; tumble: THREE.Vector3; airborne: boolean };
   const robots: Robot[] = [];
   let threat: Robot | undefined;
-  const queue: EscapeKey[] = [];
+  const chargers: { robot: Robot; start: THREE.Vector3; intercept: THREE.Vector3 }[] = [];
+  const spinVictims: Robot[] = [];
+  const spinTrailMaterial = new THREE.ShaderMaterial({ vertexShader: saberGlowVertex, fragmentShader: saberGlowFragment,
+    defines: { SABER_TRAIL: 1 }, uniforms: { uTint: { value: new THREE.Color(0x36ffa4) }, uOpacity: { value: 0.42 } },
+    transparent: true, side: THREE.DoubleSide, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending });
+  const spinTrailGeometry = new THREE.BufferGeometry();
+  const trailSamples = 48, trailLifetime = 0.14;
+  const spinTrailPositions = new Float32Array(trailSamples * 2 * 3), spinTrailIndices: number[] = [];
+  const spinTrailUv = new Float32Array(trailSamples * 4), spinTrailFade = new Float32Array(trailSamples * 2);
+  for (let index = 0; index < trailSamples - 1; index++) {
+    const vertex = index * 2; spinTrailIndices.push(vertex, vertex + 1, vertex + 2, vertex + 1, vertex + 3, vertex + 2);
+  }
+  for (let index = 0; index < trailSamples; index++) spinTrailUv.set([0, 0, 0, 1], index * 4);
+  spinTrailGeometry.setAttribute('position', new THREE.BufferAttribute(spinTrailPositions, 3).setUsage(THREE.DynamicDrawUsage));
+  spinTrailGeometry.setAttribute('uv', new THREE.BufferAttribute(spinTrailUv, 2));
+  spinTrailGeometry.setAttribute('aFade', new THREE.BufferAttribute(spinTrailFade, 1).setUsage(THREE.DynamicDrawUsage));
+  spinTrailGeometry.setIndex(spinTrailIndices);
+  const spinTrail = new THREE.Mesh(spinTrailGeometry, spinTrailMaterial);
+  spinTrail.name = 'HangarSaberSpinTrail'; spinTrail.frustumCulled = false; spinTrail.visible = false; scene.add(spinTrail);
+  const bladeHistory: { base: THREE.Vector3; tip: THREE.Vector3; time: number; strength: number }[] = [];
+  let lastBladeTime = -1;
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1, 6), new THREE.MeshBasicMaterial({ color: 0xff5950 })); beam.visible = false; scene.add(beam);
   const flash = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffdc8a })); flash.visible = false; scene.add(flash);
   function aimBeam(from: THREE.Vector3) {
@@ -114,6 +172,14 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
     if (robot.stunned) return;
     robot.stunned = true; robot.body.collisionResponse = false; playRobot(robot, 'TurnOff');
   }
+  function knockRobotAway(robot: Robot, origin: THREE.Vector3) {
+    if (robot.stunned) return;
+    const direction = robot.root.position.clone().sub(origin).setY(0);
+    if (direction.lengthSq() < 0.01) direction.set(robot.side, 0, 0.2);
+    direction.normalize(); stopRobot(robot);
+    robot.knockback.copy(direction).multiplyScalar(10.5); robot.knockback.y = 5.8;
+    robot.tumble.set(robot.side * 3.5, 2.3, -robot.side * 4.5); robot.airborne = true;
+  }
   async function loadCrowd() {
     assetError = false;
     try {
@@ -128,7 +194,8 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
         root.traverse(n => { if (n instanceof THREE.Mesh) { n.castShadow = true; n.receiveShadow = true; } });
         const body = new CANNON.Body({ type: CANNON.Body.KINEMATIC, mass: 0, shape: new CANNON.Box(new CANNON.Vec3(0.55, 0.5, 0.65)) }); body.position.set(root.position.x, 0.5, root.position.z); physicsWorld.addBody(body);
         const robot: Robot = { root, body, mixer: new THREE.AnimationMixer(root), clips: gltf.animations, side: column < 4 ? -1 : 1, stunned: false, health: 75, vacuum: new THREE.Vector3(),
-          target: { root, body, damage(amount, weapon) { if (disposed || phase !== 'run' || robot.stunned || !Number.isFinite(amount) || amount <= 0 || (weapon !== 'pistol' && weapon !== 'crowbar' && weapon !== 'lightsaber')) return false; robot.health -= amount; if (robot.health <= 0) stopRobot(robot); return true; } } };
+          knockback: new THREE.Vector3(), tumble: new THREE.Vector3(), airborne: false,
+          target: { root, body, damage() { return false; } } };
         robots.push(robot); playRobot(robot, 'Walk'); robot.mixer.update(i * 0.13);
       }
       loaded = true;
@@ -138,20 +205,18 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
   const gunReady = loadModel('Gun_Revolver').then(gltf => { if (disposed) { disposeRoom(gltf.scene as unknown as THREE.Scene); return; } gun = gltf.scene; gun.rotation.y = -Math.PI / 2; }).catch(error => { if (!disposed) console.error('[Scene 14] Cinematic pistol could not load:', error); });
   function freeze() { player.disable(); player.body.velocity.set(0, 0, 0); player.body.type = CANNON.Body.KINEMATIC; player.body.collisionResponse = false; player.body.updateMassProperties(); }
   function beginPrompt() {
-    if (!queue.length) {
-      const bag: EscapeKey[] = ['KeyX', 'KeyY', 'KeyZ'];
-      for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; }
-      queue.push(...bag);
-    }
-    expected = queue.shift()!; phase = 'prompt'; clock = 0; timeLeft = ESCAPE_QTE.seconds;
+    expected = QTE_SEQUENCE[stage]!; phase = 'prompt'; clock = 0; timeLeft = ESCAPE_QTE.seconds;
+    promptBeat = 0;
     qte?.classList.remove('hidden', 'urgent');
+    qte?.classList.add('letter-prompt');
+    qte?.style.setProperty('--qte-pulse', '0');
     qte?.setAttribute('aria-label', `Press ${expected.slice(3)} within 2.2 seconds`);
     if (timer) timer.style.width = '100%';
     const mobile = isTouchActive();
     if (keyLabel) keyLabel.textContent = expected.slice(3);
     if (qteCaption) qteCaption.textContent = mobile ? 'TAP ANYWHERE ON THE SCREEN' : desktopCaption;
     if (qteHint) qteHint.textContent = mobile ? 'Tap once before the timer runs out' : desktopHint;
-    if (actionLabel) actionLabel.textContent = `${stage + 1} / ${ESCAPE_QTE.stages} - ${expected === 'KeyX' ? 'FIRE THROUGH THE GAP' : expected === 'KeyY' ? 'STRIKE WITH THE CROWBAR' : 'ROLL PAST THE ATTACK'}`;
+    if (actionLabel) actionLabel.textContent = `${stage + 1} / ${ESCAPE_QTE.stages} - ${expected === 'KeyY' ? 'FIRE THROUGH THE GAP' : expected === 'KeyU' ? 'STRIKE WITH THE CROWBAR' : expected === 'KeyI' ? 'DODGE THE CHARGING SWARM' : 'SPIN THROUGH THE SWARM'}`;
     const candidates = robots.filter(r => !r.stunned && r.root.position.z > player.body.position.z - 0.5);
     const position = new THREE.Vector3().copy(player.body.position);
     const side = Math.random() < 0.5 ? -1 : 1;
@@ -159,13 +224,23 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
     const flank = available.filter(r => r.side === side);
     threat = (flank.length ? flank : available).sort((a, b) => a.root.position.distanceToSquared(position) - b.root.position.distanceToSquared(position))[0];
   }
+  function beginCharge() {
+    phase = 'charge'; clock = 0; chargers.length = 0;
+    const position = new THREE.Vector3().copy(player.body.position);
+    robots.filter(robot => !robot.stunned).sort((a, b) => a.root.position.distanceToSquared(position) - b.root.position.distanceToSquared(position))
+      .slice(0, 4).forEach((robot, index) => {
+        chargers.push({ robot, start: robot.root.position.clone(), intercept: new THREE.Vector3(robot.side * (1.05 + index % 2 * 0.2), 0, position.z + 1.9 + index % 2 * 0.8) });
+        playRobot(robot, 'Walk');
+      });
+  }
   function fail(reason = 'TOO SLOW') {
     if (phase === 'failed' || transferred) return;
+    versus.hide();
     shipFailure = phase === 'aboard';
     failedYaw = cinematicYaw();
     if (shipFailure) { shipBlast.visible = true; shipBlast.position.copy(ship.root.position).add(new THREE.Vector3(0, 1.5, 0)); }
-    player.enable(); player.takeDamage(player.getHealth()); freeze(); phase = 'failed'; clock = 0; beam.visible = flash.visible = false;
-    qte?.classList.add('hidden'); prompt?.classList.add('hidden');
+    player.takeDamage(player.getHealth(), true); freeze(); phase = 'failed'; clock = 0; beam.visible = flash.visible = false;
+    qte?.classList.add('hidden'); prompt?.classList.add('hidden'); spinTrail.visible = false;
     if (subtitles) { subtitles.textContent = `${reason} / ${shipFailure ? 'SHUTTLE DESTROYED WITH PILOT ABOARD' : 'THE SWARM OVERRAN YOU'}\nReturning to the cleared loading bay...`; subtitles.classList.remove('hidden'); }
   }
   function onKeyDown(event: KeyboardEvent) {
@@ -174,7 +249,7 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
     pressed.add(event.code);
     if (phase === 'arrival' && assetError && event.code === 'KeyE') { void loadCrowd(); return; }
     if (phase === 'aboard' && event.code === 'KeyE') { event.preventDefault(); beginLaunch(); return; }
-    if (phase !== 'prompt' || !['KeyX', 'KeyY', 'KeyZ'].includes(event.code)) return;
+    if (phase !== 'prompt' || !QTE_SEQUENCE.includes(event.code as EscapeKey)) return;
     event.preventDefault();
     if (event.code !== expected) { fail('WRONG MOVE'); return; }
     acceptPrompt();
@@ -211,10 +286,15 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
   }
   function acceptPrompt() {
     actionKey = expected; phase = 'action'; clock = 0; impact = false;
-    actionStart.copy(player.body.position); actionEnd.set(0, 0.3, -17 + stage * 5.5);
+    actionStart.copy(player.body.position); actionEnd.set(0, 0.3, ACTION_POSITIONS[stage]);
     actionEnd.z = Math.max(actionStart.z + 2.4, actionEnd.z);
     if (threat) threatStart.copy(threat.root.position);
-    qte?.classList.add('hidden'); updateShot(0); cameraView();
+    if (actionKey === 'KeyI') chargers.forEach(charger => charger.start.copy(charger.robot.root.position));
+    if (actionKey === 'KeyO') {
+      spinVictims.length = 0; bladeHistory.length = 0; lastBladeTime = -1;
+      spinVictims.push(...robots.filter(robot => !robot.stunned).sort((a, b) => a.root.position.distanceToSquared(actionStart) - b.root.position.distanceToSquared(actionStart)).slice(0, 6));
+    }
+    qte?.classList.add('hidden'); qte?.classList.remove('letter-prompt'); updateShot(0); cameraView();
   }
   function onKeyUp(event: KeyboardEvent) { pressed.delete(event.code); }
   function onBlur() { paused = true; pressed.clear(); }
@@ -223,25 +303,30 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
   window.addEventListener(qteTapEvent, onQteTap, { capture: true, passive: false });
   function cinematicYaw() {
     if (phase === 'failed') return failedYaw;
-    if (phase === 'orbit' || phase === 'escape' || phase === 'prompt' || phase === 'action') return Math.PI;
+    if (phase === 'orbit' || phase === 'escape' || phase === 'charge' || phase === 'prompt' || phase === 'action') return Math.PI;
     if (phase === 'boarding' && clock < BOARDING.run) return Math.atan2(actionStart.x - boardingRun.x, actionStart.z - boardingRun.z);
     return Math.PI;
   }
   function cinematicPose(): CinematicPose | null {
-    if (phase === 'run') return null;
     if (phase === 'failed') return clock < 0.33 ? { clip: 'Hit_Chest', time: clock } : { clip: 'Death01', time: clock - 0.33 };
+    if (phase === 'aboard' || phase === 'launch') return { clip: 'Sitting_Enter', time: 1, duration: 1 };
     if (phase === 'orbit') return { clip: 'Sprint_Loop', time: runTime, loop: true };
-    if (phase === 'escape' || phase === 'prompt') return { clip: 'Sprint_Loop', time: runTime, loop: true };
+    if (phase === 'escape' || phase === 'charge' || phase === 'prompt') return { clip: 'Sprint_Loop', time: runTime, loop: true };
     if (phase === 'action') {
       const beats = ACTION_BEATS[actionKey];
       // Leave the roll early at its original playback speed. Never hold a
       // capped frame or retime the standing recovery tail into this window.
-      if (actionKey === 'KeyZ' && clock < beats.recover) return { clip: 'Roll', time: clock, duration: ROLL_PLAYBACK_DURATION };
+      if (actionKey === 'KeyI' && clock < beats.recover) return { clip: 'Roll', time: clock, duration: ROLL_PLAYBACK_DURATION };
+      if (actionKey === 'KeyO' && clock < beats.recover) return {
+        clip: 'Sword_Attack', time: clock, duration: beats.recover, spinAttack: clock / beats.recover,
+      };
       const pose: CinematicPose = { clip: 'Sprint_Loop', time: runTime, loop: true };
-      if (actionKey !== 'KeyZ' && clock < beats.recover) {
+      if ((actionKey === 'KeyY' || actionKey === 'KeyU') && clock < beats.recover) {
         const yaw = threat ? Math.atan2(threat.root.position.x - player.body.position.x, threat.root.position.z - player.body.position.z) : 0;
-        pose.upperBody = { clip: actionKey === 'KeyY' ? 'Sword_Attack' : clock < beats.windup ? 'Pistol_Aim_Neutral' : 'Pistol_Shoot',
-          time: Math.max(0, clock - beats.windup), duration: beats.recover - beats.windup, yaw };
+        const pitch = threat && actionKey === 'KeyY' ? Math.atan2(threat.root.position.y + 0.55 - (player.body.position.y - player.radius + 1.25),
+          Math.hypot(threat.root.position.x - player.body.position.x, threat.root.position.z - player.body.position.z)) : 0;
+        pose.upperBody = { clip: actionKey === 'KeyU' ? 'Sword_Attack' : clock < beats.windup ? 'Pistol_Aim_Neutral' : 'Pistol_Shoot',
+          time: Math.max(0, clock - beats.windup), duration: beats.recover - beats.windup, yaw, pitch };
       }
       return pose;
     }
@@ -256,17 +341,48 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
   }
   function cinematicWeapon() {
     const key = phase === 'prompt' ? expected : phase === 'action' && clock < ACTION_BEATS[actionKey].recover ? actionKey : null;
-    return key === 'KeyX' ? 'pistol' : key === 'KeyY' ? 'crowbar' : null;
+    return key === 'KeyY' ? 'pistol' : key === 'KeyU' ? 'crowbar' : key === 'KeyO' ? 'lightsaber' : null;
   }
   // A scene-clock shot director: the running shot stays continuous through every action.
   // Only this method advances tracking; applying the stored view is safe twice per frame.
   function updateShot(dt: number) {
-    if (phase === 'run') { shot = 'gameplay'; return; }
+    if (phase === 'versus') return;
+    const prompting = phase === 'prompt';
+    if (prompting) promptBeat += dt;
+    const pulse = prompting && !reducedMotion.matches ? (1 - Math.cos(promptBeat * Math.PI * 2 * 1.35)) * 0.5 : 0;
+    promptFocus = THREE.MathUtils.damp(promptFocus, prompting ? 1 : 0, 7, dt);
+    promptPulse = THREE.MathUtils.damp(promptPulse, pulse, 12, dt);
+    if (prompting) qte?.style.setProperty('--qte-pulse', promptPulse.toFixed(3));
     const p = new THREE.Vector3().copy(player.body.position), pos = new THREE.Vector3(), look = new THREE.Vector3();
     let id: string = phase, fov = 60;
     if (phase === 'arrival') {
-      if (clock < 1.8) { id = 'arrival-wide'; pos.set(8 - clock, 8, -33); look.set(0, 1.7, -10); fov = 68; }
-      else { id = 'arrival-shoulder'; pos.copy(p).add(new THREE.Vector3(2.8, 2.1, -4)); look.set(0, 1.8, -13); }
+      id = 'arrival-lift'; const landing = THREE.MathUtils.smootherstep(clock, 0, 2.8);
+      pos.lerpVectors(new THREE.Vector3(8, 8, -33), p.clone().add(new THREE.Vector3(2.8, 2.1, -4)), landing);
+      look.lerpVectors(new THREE.Vector3(0, 1.7, -10), p.clone().add(new THREE.Vector3(0, 1, 0)), landing); fov = 68;
+    } else if (phase === 'reveal') {
+      if (clock < 2.7) {
+        id = 'ship-focus'; const focus = THREE.MathUtils.smootherstep(clock, 0, 1.8);
+        pos.lerpVectors(revealStart, revealPath.points[0], focus);
+        look.lerpVectors(revealLook, ship.root.position.clone().add(new THREE.Vector3(0, 1.4, 0)), focus);
+        fov = THREE.MathUtils.lerp(68, 48, focus);
+      } else {
+        id = 'ship-to-runner'; const sweep = THREE.MathUtils.smootherstep(clock, 2.7, 7.7);
+        revealPath.getPoint(sweep, pos);
+        look.lerpVectors(ship.root.position.clone().add(new THREE.Vector3(0, 1.4, 0)), p.clone().add(new THREE.Vector3(0, 1.1, 0)), THREE.MathUtils.smootherstep(sweep, 0, 0.55));
+        fov = THREE.MathUtils.lerp(48, 64, sweep);
+      }
+    } else if (phase === 'charge' || (phase === 'prompt' && expected === 'KeyI') || (phase === 'action' && actionKey === 'KeyI')) {
+      id = 'one-take';
+      const release = phase === 'action' ? THREE.MathUtils.smootherstep(clock, ACTION_BEATS.KeyI.recover * 0.7, ACTION_BEATS.KeyI.end) : 0;
+      const zoom = phase === 'charge' ? THREE.MathUtils.smootherstep(clock, 0.1, 1.25) * 0.3
+        : phase === 'prompt' ? 0.3 : (0.3 + THREE.MathUtils.smootherstep(clock, 0, 0.35) * 0.7) * (1 - release);
+      pos.copy(p).add(new THREE.Vector3(0.4 - zoom * 0.18, 1.9 - zoom * 0.65, 5.6 - zoom * 1.15));
+      look.copy(p).add(new THREE.Vector3(0, 0.95 - zoom * 0.25, zoom * 0.2));
+      fov = THREE.MathUtils.lerp(64, 52, zoom);
+    } else if ((phase === 'prompt' && expected === 'KeyO') || (phase === 'action' && actionKey === 'KeyO')) {
+      id = 'saber-three-quarter'; const release = phase === 'action' ? THREE.MathUtils.smootherstep(clock, ACTION_BEATS.KeyO.recover, ACTION_BEATS.KeyO.end) : 0;
+      pos.lerpVectors(p.clone().add(new THREE.Vector3(-3.7, 1.35, 3.9)), p.clone().add(new THREE.Vector3(0.4, 1.9, 5.6)), release);
+      look.copy(p).add(new THREE.Vector3(0, 0.88, 0)); fov = THREE.MathUtils.lerp(70, 64, release);
     } else if (phase === 'aboard' || (phase === 'launch' && clock < 0.65)) {
       id = phase === 'launch' ? 'launch-console' : 'cockpit';
       ship.root.updateMatrixWorld(true); ship.cockpit.getWorldPosition(pos);
@@ -278,7 +394,7 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
     } else if (phase === 'boarding') {
       if (clock < BOARDING.takeoff) { id = 'boarding-approach'; pos.set(5.5, 2.8, 15); look.copy(p).add(new THREE.Vector3(0, 0.9, 0.6)); fov = 62; }
       else if (clock < BOARDING.settle) { id = 'boarding-jump'; pos.set(5, 4.6, 18); look.copy(p).add(new THREE.Vector3(0, 0.75, 0)); fov = 60; }
-      else { id = 'boarding-seat'; pos.set(3.5, 3.6, 23.5); look.set(0, 2, 20.5); fov = 56; }
+      else { id = 'boarding-seat'; pos.copy(ship.root.localToWorld(new THREE.Vector3(-3.25, 3.45, -1.9))); look.copy(seatedPosition).add(new THREE.Vector3(0, 0.7, 0)); fov = 56; }
     } else if (phase === 'failed') {
       id = 'failure';
       if (shipFailure) { pos.copy(ship.root.position).add(new THREE.Vector3(9, 5, -11)); look.copy(ship.root.position).add(new THREE.Vector3(0, 1.5, 0)); fov = 68; }
@@ -290,12 +406,17 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
       pos.copy(p).add(new THREE.Vector3(Math.sin(angle) * radius + orbit * 0.4, THREE.MathUtils.lerp(orbitStart.y - p.y, 1.9, orbit), Math.cos(angle) * radius));
       look.copy(p).add(new THREE.Vector3(0, 0.95, 0)); fov = 64;
     }
+    if ((phase === 'prompt' || phase === 'action') && promptFocus > 0.001) {
+      const focus = p.clone().add(new THREE.Vector3(0, 0.98, 0));
+      const zoom = promptFocus * (reducedMotion.matches ? 0.07 : 0.13) + promptPulse * 0.007;
+      pos.lerp(focus, zoom); look.lerp(focus, promptFocus * 0.4);
+      fov -= promptFocus * 5.5 + promptPulse * 0.65;
+    }
     if (phase !== 'launch') { pos.x = THREE.MathUtils.clamp(pos.x, -16.8, 16.8); pos.z = THREE.MathUtils.clamp(pos.z, -34.8, 34.8); pos.y = THREE.MathUtils.clamp(pos.y, 0.55, 13.5); }
     const blend = shot === '' || phase === 'arrival' ? (id !== shot ? 1 : 1 - Math.exp(-12 * dt)) : 1 - Math.exp(-8 * dt);
     shotPosition.lerp(pos, blend); shotTarget.lerp(look, blend); shotFov = THREE.MathUtils.lerp(shotFov, fov, blend); shot = id;
   }
   function cameraView() {
-    if (phase === 'run') return false;
     camera.position.copy(shotPosition); camera.lookAt(shotTarget);
     if (phase === 'orbit') camera.quaternion.slerpQuaternions(orbitRotation, camera.quaternion.clone(), THREE.MathUtils.smootherstep(clock, 0, 1.1));
     if (camera.fov !== shotFov) { camera.fov = shotFov; camera.updateProjectionMatrix(); }
@@ -312,6 +433,8 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
     const shipBounds = new THREE.Box3().setFromObject(ship.root).expandByScalar(1.2);
     for (let i = 0; i < robots.length; i++) {
       const robot = robots[i];
+      const charger = chargers.find(entry => entry.robot === robot);
+      const charging = !!charger && (phase === 'charge' || (phase === 'prompt' && expected === 'KeyI') || (phase === 'action' && actionKey === 'KeyI'));
       if (phase === 'launch' && clock > 1.65 + (i % 8) * 0.09) {
         robot.body.collisionResponse = false;
         const side = i % 2 ? 1 : -1, overhead = i % 5 === 0;
@@ -332,9 +455,30 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
           else robot.root.position.x = side > 0 ? shipBounds.max.x + 0.3 : shipBounds.min.x - 0.3;
         }
         robot.root.rotation.x += dt * (1 + i % 3); robot.root.rotation.z += dt * side;
-      } else if (!robot.stunned && ['orbit', 'escape', 'prompt', 'action', 'boarding'].includes(phase)) {
+      } else if (robot.airborne) {
+        robot.knockback.y -= dt * 12; robot.root.position.addScaledVector(robot.knockback, dt);
+        robot.root.rotation.x += robot.tumble.x * dt; robot.root.rotation.y += robot.tumble.y * dt; robot.root.rotation.z += robot.tumble.z * dt;
+        robot.root.position.x = THREE.MathUtils.clamp(robot.root.position.x, -16.5, 16.5);
+        if (robot.root.position.y <= 0 && robot.knockback.y < 0) {
+          robot.root.position.y = 0; robot.airborne = false; robot.knockback.set(0, 0, 0); robot.root.rotation.x = -Math.PI / 2;
+        }
+      } else if (!robot.stunned && charging && charger) {
+        const target = phase === 'action'
+          ? new THREE.Vector3(charger.intercept.x, 0, actionStart.z - 5.5)
+          : charger.intercept;
+        const progress = phase === 'charge' ? THREE.MathUtils.smootherstep(clock, 0, 1.25)
+          : phase === 'action' ? THREE.MathUtils.smoothstep(clock, 0, ACTION_BEATS.KeyI.recover) : 1;
+        robot.root.position.lerpVectors(charger.start, target, progress);
+        robot.root.rotation.y = Math.atan2(target.x - charger.start.x, target.z - charger.start.z);
+      } else if (!robot.stunned && phase === 'action' && actionKey === 'KeyO' && spinVictims.includes(robot)) {
         const p = player.body.position;
-        if (!(phase === 'action' && robot === threat && actionKey === 'KeyY' && clock < ACTION_BEATS[actionKey].recover)) {
+        const target = new THREE.Vector3(robot.side * 1.25, 0, p.z + (spinVictims.indexOf(robot) % 3 - 1) * 1.3);
+        const toward = target.sub(robot.root.position);
+        if (toward.lengthSq() > 0.01) robot.root.position.addScaledVector(toward.normalize(), dt * 3.5);
+        robot.root.rotation.y = Math.atan2(p.x - robot.root.position.x, p.z - robot.root.position.z);
+      } else if (!robot.stunned && ['orbit', 'escape', 'charge', 'prompt', 'action', 'boarding'].includes(phase)) {
+        const p = player.body.position;
+        if (!(phase === 'action' && robot === threat && actionKey === 'KeyU' && clock < ACTION_BEATS[actionKey].recover)) {
           const laneX = robot.side * (1.85 + (i % 3) * 1.25);
           const laneZ = p.z + (Math.floor(i / 8) % 3 - 1) * 6 + (i % 4) * 1.4;
           const toward = new THREE.Vector3(laneX - robot.root.position.x, 0, laneZ - robot.root.position.z);
@@ -343,40 +487,87 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
         }
         robot.root.position.x = robot.side * Math.max(1.85, Math.abs(robot.root.position.x));
         robot.root.rotation.y = Math.atan2(p.x - robot.root.position.x, p.z - robot.root.position.z);
-      } else if (!robot.stunned && phase !== 'arrival' && !(phase === 'action' && robot === threat && clock < ACTION_BEATS[actionKey].recover)) {
+      } else if (!robot.stunned && phase !== 'arrival' && phase !== 'reveal' && phase !== 'versus' && !(phase === 'action' && robot === threat && clock < ACTION_BEATS[actionKey].recover)) {
         const p = player.body.position, toward = new THREE.Vector3(p.x - robot.root.position.x, 0, p.z - robot.root.position.z);
         robot.root.rotation.y = Math.atan2(toward.x, toward.z);
-        if (toward.length() > 2.3 && phase !== 'failed') robot.root.position.addScaledVector(toward.normalize(), dt * (phase === 'run' ? 0.8 : 1.4));
+        if (toward.length() > 2.3 && phase !== 'failed') robot.root.position.addScaledVector(toward.normalize(), dt * 1.4);
       }
-      if (['orbit', 'escape', 'prompt', 'action', 'boarding'].includes(phase)) {
+      if (!robot.stunned && !charging && !(phase === 'action' && actionKey === 'KeyO' && spinVictims.includes(robot)) && ['orbit', 'escape', 'charge', 'prompt', 'action', 'boarding'].includes(phase)) {
         robot.root.position.x = robot.side * Math.max(1.85, Math.abs(robot.root.position.x));
       }
       if (phase !== 'launch' && phase !== 'failed' && shipBounds.containsPoint(robot.root.position)) {
         robot.root.position.x = robot.root.position.x >= 0 ? shipBounds.max.x + 0.1 : shipBounds.min.x - 0.1;
       }
-      robot.body.position.set(robot.root.position.x, robot.root.position.y + 0.5, robot.root.position.z); robot.body.aabbNeedsUpdate = true; robot.mixer.update(dt);
+      robot.body.position.set(robot.root.position.x, robot.root.position.y + 0.5, robot.root.position.z); robot.body.aabbNeedsUpdate = true; robot.mixer.update(dt * (charging ? 2.5 : 1));
     }
   }
   updateShot(0); cameraView();
   return { roomId: 'scene14', scene, camera, physicsWorld, player, ship, robots, ready, gunReady, cutsceneManager: null,
-    getDamageTargets: () => phase === 'run' ? robots.filter(r => !r.stunned).map(r => r.target) : [],
-    isCinematic: () => phase !== 'run', hideCharacter: () => phase === 'aboard' || phase === 'launch' || shipFailure,
+    ownsWeaponInput: true,
+    getDamageTargets: () => [],
+    isCinematic: () => true, hideCharacter: () => phase === 'aboard' || (phase === 'launch' && clock < 0.65) || shipFailure,
     getCinematicWeapon: cinematicWeapon,
     getCinematicPose: cinematicPose,
     getCinematicDelta: () => paused || document.hidden ? 0 : animationDelta,
     getCinematicState() {
-      if (phase === 'run') return null;
       const moving = cinematicPose()?.clip === 'Sprint_Loop';
       return { ...player.getState(), yaw: cinematicYaw(), pitch: 0, isOnGround: true, jumping: false, isMoving: moving, sprinting: moving, crouching: false, actionRequest: null };
     },
     updateCinematicCharacter(character: { model: THREE.Object3D; weapon: { socket: THREE.Object3D | null } } | null) {
       if (!character) return;
+      if (phase === 'versus') versus.capture(character.model, robots.map(robot => robot.root));
+      if (phase === 'action' && actionKey === 'KeyO' && clock >= ACTION_BEATS.KeyO.windup && clock < ACTION_BEATS.KeyO.recover) {
+        const saber = character.model.getObjectByName('lightsaber');
+        if (saber && lastBladeTime !== clock) {
+          saber.updateWorldMatrix(true, true);
+          const base = saber.localToWorld(new THREE.Vector3(0, 0.32, 0)), tip = saber.localToWorld(new THREE.Vector3(0, 1.22, 0));
+          const previous = bladeHistory[0];
+          const speed = previous ? tip.distanceTo(previous.tip) / Math.max(0.001, clock - previous.time) : 0;
+          bladeHistory.unshift({ base, tip, time: clock, strength: THREE.MathUtils.smoothstep(speed, 0.9, 4) });
+          if (bladeHistory.length > trailSamples) bladeHistory.pop();
+          const bladeSegment = new THREE.Line3(base, tip);
+          for (const robot of spinVictims) if (!robot.stunned) {
+            const center = robot.root.position.clone().add(new THREE.Vector3(0, 0.65, 0));
+            if (bladeSegment.closestPointToPoint(center, true, new THREE.Vector3()).distanceToSquared(center) < 1.1 * 1.1) {
+              knockRobotAway(robot, new THREE.Vector3().copy(player.body.position)); impact = true;
+            }
+          }
+          lastBladeTime = clock;
+        }
+      } else lastBladeTime = -1;
+      if (phase === 'action' && actionKey === 'KeyO') {
+        while (bladeHistory.length && clock - bladeHistory[bladeHistory.length - 1].time > trailLifetime) bladeHistory.pop();
+        bladeHistory.forEach((sample, index) => {
+          sample.base.toArray(spinTrailPositions, index * 6); sample.tip.toArray(spinTrailPositions, index * 6 + 3);
+          const fade = Math.pow(Math.max(0, 1 - (clock - sample.time) / trailLifetime), 2) * sample.strength;
+          spinTrailFade[index * 2] = spinTrailFade[index * 2 + 1] = fade;
+        });
+        spinTrailGeometry.attributes.position.needsUpdate = true; spinTrailGeometry.attributes.aFade.needsUpdate = true;
+        spinTrailGeometry.setDrawRange(0, Math.max(0, bladeHistory.length - 1) * 6); spinTrail.visible = bladeHistory.length > 1;
+      } else { bladeHistory.length = 0; spinTrail.visible = false; }
+      if ((phase === 'boarding' && clock >= BOARDING.settle) || phase === 'aboard' || phase === 'launch') {
+        const pelvis = character.model.getObjectByName('pelvis') ?? character.model.getObjectByName('hips') ?? character.model.getObjectByName('Hips');
+        if (pelvis) {
+          ship.root.updateMatrixWorld(true); ship.pilotSeat.getWorldPosition(seatedPosition);
+          if (phase !== 'boarding') character.model.quaternion.copy(ship.root.getWorldQuaternion(new THREE.Quaternion()))
+            .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI));
+          character.model.updateMatrixWorld(true);
+          const offset = seatedPosition.clone().sub(pelvis.getWorldPosition(new THREE.Vector3()));
+          const seated = phase === 'boarding' ? THREE.MathUtils.smootherstep(clock, BOARDING.settle, BOARDING.seated) : 1;
+          character.model.position.addScaledVector(offset, seated);
+          character.model.updateMatrixWorld(true);
+        }
+      }
       if (cinematicWeapon() === 'pistol' && gun && character.weapon.socket) {
-        character.weapon.socket.add(gun); gun.position.set(0, 0, 0); gun.visible = true;
-        if (beam.visible) { character.model.updateMatrixWorld(true); aimBeam(character.weapon.socket.getWorldPosition(new THREE.Vector3())); }
+        character.weapon.socket.add(gun); gun.position.set(0, 0.02, 0); gun.visible = true;
+        if (beam.visible) {
+          character.model.updateMatrixWorld(true);
+          aimBeam(character.weapon.socket.localToWorld(new THREE.Vector3(0, 0.12, -0.38)));
+        }
       } else gun?.removeFromParent();
     },
     applyCinematicCamera: cameraView,
+    renderCinematicOverlay(renderer: THREE.WebGLRenderer) { if (phase === 'versus') versus.render(renderer); },
     clearInput: () => pressed.clear(),
     onPlayerDeath() { fail(); return true; },
     getEscapeStatus: () => ({ phase, stage, expected, timeLeft, loaded, paused, clock, shot, impact }),
@@ -385,21 +576,32 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
       dt = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, PHYSICS.maxFrameTime));
       animationDelta = 0;
       if (paused || document.hidden || document.body.classList.contains('quick-menu-open')) return;
-      animationDelta = dt; motionScale = THREE.MathUtils.damp(motionScale, phase === 'prompt' ? 0.12 : 1, 8, dt);
+      const realDt = dt;
+      const slowMotion = phase === 'charge' ? 0.65 : phase === 'action' && actionKey === 'KeyI' && clock < ACTION_BEATS.KeyI.recover ? 0.35
+        : phase === 'action' && actionKey === 'KeyO' && clock >= ACTION_BEATS.KeyO.windup && clock < ACTION_BEATS.KeyO.recover ? 0.7 : 1;
+      dt *= slowMotion; animationDelta = dt; motionScale = THREE.MathUtils.damp(motionScale, phase === 'prompt' ? 0.12 : 1, 8, realDt);
       clock += dt;
       if (phase === 'arrival') {
         if (!loaded) clock = Math.min(clock, 1.4);
-        const h = 3 * (1 - THREE.MathUtils.smoothstep(clock, 0, 2.4)); lift.position.y = h - 0.175; player.setPosition(0, h + 0.3, -29);
-        if (clock >= 3.2 && loaded) { phase = 'run'; clock = 0; camera.fov = 70; camera.updateProjectionMatrix(); player.body.type = CANNON.Body.DYNAMIC; player.body.updateMassProperties(); player.enable(); }
-      } else if (phase === 'run') {
-        if (player.body.position.z > -22 || robots.some(r => !r.stunned && r.root.position.distanceTo(new THREE.Vector3().copy(player.body.position)) < 3)) beginEscape();
+        const h = 3 * (1 - THREE.MathUtils.smoothstep(clock, 0, 2.4)); lift.position.y = h - 0.155; player.setPosition(0, h + 0.32, -29);
+        if (clock >= 3.2 && loaded) { revealStart.copy(shotPosition); revealLook.copy(shotTarget); freeze(); phase = 'reveal'; clock = 0; }
+      } else if (phase === 'reveal') {
+        if (clock >= 8) { phase = 'versus'; clock = 0; qte?.classList.add('hidden'); versus.update(0); }
+      } else if (phase === 'versus') {
+        versus.update(clock);
+        if (clock >= 2.6) { versus.hide(); beginEscape(); shot = ''; updateShot(0); cameraView(); }
       } else if (phase === 'orbit') {
         advanceRun(dt, 2.2);
         if (clock >= 1.65) beginPrompt();
       } else if (phase === 'escape') {
         advanceRun(dt, 4.4);
         if (stage >= ESCAPE_QTE.stages && player.body.position.z >= 15) { phase = 'boarding'; clock = 0; actionStart.copy(player.body.position); }
-        else if (stage < ESCAPE_QTE.stages && player.body.position.z >= -21 + stage * 5.5) beginPrompt();
+        else if (stage < ESCAPE_QTE.stages && player.body.position.z >= QTE_POSITIONS[stage]) {
+          if (QTE_SEQUENCE[stage] === 'KeyI') beginCharge(); else beginPrompt();
+        }
+      } else if (phase === 'charge') {
+        advanceRun(dt, 0.45);
+        if (clock >= 1.25) beginPrompt();
       } else if (phase === 'prompt') {
         advanceRun(dt * motionScale, 4.4, dt * 0.8);
         timeLeft = Math.max(0, timeLeft - dt); if (timer) timer.style.width = `${timeLeft / ESCAPE_QTE.seconds * 100}%`;
@@ -408,32 +610,41 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
       } else if (phase === 'action') {
         const beats = ACTION_BEATS[actionKey], p = actionStart.clone();
         runTime += dt;
-        p.lerp(actionEnd, THREE.MathUtils.clamp(clock / beats.end, 0, 1));
-        if (actionKey === 'KeyZ') p.y += Math.sin(Math.min(1, clock / beats.recover) * Math.PI) * 0.12;
+        let travel = THREE.MathUtils.clamp(clock / beats.end, 0, 1);
+        if (actionKey === 'KeyO') {
+          const step = Math.min(0.24, 1 / Math.max(1, actionEnd.z - actionStart.z));
+          travel = clock < beats.recover ? step * THREE.MathUtils.smootherstep(clock, 0, 0.32)
+            : step + (1 - step) * THREE.MathUtils.smoothstep(clock, beats.recover, beats.end);
+        }
+        p.lerp(actionEnd, travel);
+        if (actionKey === 'KeyI') { p.x = 0; p.y += Math.sin(Math.min(1, clock / beats.recover) * Math.PI) * 0.04; }
         // The sampled upper-body attack leaves the running legs and forward travel active.
         player.setPosition(p.x, p.y, p.z);
-        if (threat && actionKey === 'KeyY' && !impact) {
+        if (threat && actionKey === 'KeyU' && !impact) {
           // The attacking robot reaches the edge of the lane without crossing the runner's path.
           const intercept = new THREE.Vector3(threat.side * 1.85, 0, p.z + 0.25);
           threat.root.position.lerpVectors(threatStart, intercept, THREE.MathUtils.smoothstep(clock, 0, beats.impact));
         }
-        if (clock >= beats.impact && !impact) { impact = true; if (threat && actionKey !== 'KeyZ') stopRobot(threat); }
-        beam.visible = flash.visible = actionKey === 'KeyX' && clock >= beats.impact && clock < beats.impact + 0.1;
-        if (beam.visible) aimBeam(p.clone().add(new THREE.Vector3(0, 1.1, 0)));
-        if (clock >= beats.end) { beam.visible = flash.visible = false; stage++; phase = 'escape'; clock = 0; }
+        if (actionKey !== 'KeyO' && clock >= beats.impact && !impact) {
+          impact = true;
+          if (threat && actionKey !== 'KeyI') stopRobot(threat);
+        }
+        beam.visible = flash.visible = actionKey === 'KeyY' && clock >= beats.impact && clock < beats.impact + 0.1;
+        if (clock >= beats.end) { beam.visible = flash.visible = spinTrail.visible = false; chargers.length = 0; spinVictims.length = 0; stage++; phase = 'escape'; clock = 0; }
       } else if (phase === 'boarding') {
         const p = boardingRun.clone();
         if (clock < BOARDING.run) p.lerpVectors(actionStart, boardingRun, clock / BOARDING.run);
         else if (clock >= BOARDING.takeoff && clock < BOARDING.land) {
           const t = (clock - BOARDING.takeoff) / (BOARDING.land - BOARDING.takeoff);
-          p.lerp(boardingDeck, t); p.y += Math.sin(t * Math.PI) * 1.15;
+          p.lerp(boardingDeck, THREE.MathUtils.smoothstep(t, 0, 0.66));
+          p.y = THREE.MathUtils.lerp(boardingRun.y, boardingDeck.y, t) + Math.sin(t * Math.PI) * 2.6;
         } else if (clock >= BOARDING.land) {
-          p.copy(boardingDeck); p.y -= 0.5 * THREE.MathUtils.smoothstep(clock, BOARDING.settle, BOARDING.seated);
+          p.lerpVectors(boardingDeck, seatedPosition, THREE.MathUtils.smoothstep(clock, BOARDING.settle, BOARDING.seated));
         }
         player.setPosition(p.x, p.y, p.z);
         ship.setCanopyOpen(THREE.MathUtils.smoothstep(clock, 0, BOARDING.takeoff) * (1 - THREE.MathUtils.smoothstep(clock, BOARDING.seated, BOARDING.end)));
         if (clock >= BOARDING.end) {
-          phase = 'aboard'; clock = 0; timeLeft = 3; ship.setCanopyOpen(0); player.setPosition(0, 2, 21);
+          phase = 'aboard'; clock = 0; timeLeft = 3; ship.setCanopyOpen(0); player.setPosition(seatedPosition.x, seatedPosition.y, seatedPosition.z);
           if (keyLabel) keyLabel.textContent = 'E'; qte?.classList.remove('hidden', 'urgent');
           qte?.setAttribute('aria-label', 'Press E within three seconds to open the hangar doors and launch');
           if (actionLabel) actionLabel.textContent = 'LAUNCH BEFORE ENEMY FIRE DESTROYS THE SHUTTLE';
@@ -455,7 +666,8 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
         wind.visible = clock > 1;
         for (let i = 2; i < windPositions.length; i += 3) { windPositions[i] += dt * 45; if (windPositions[i] > 75) windPositions[i] = -35; } windGeometry.attributes.position.needsUpdate = true;
         const travel = Math.max(0, clock - 4); ship.setFlying(travel > 0); ship.root.position.set(0, Math.min(3, travel), 21 + travel * travel * 3.5); ship.setThrust(Math.min(1.6, travel)); shipCollider.collisionResponse = false;
-        player.setPosition(0, ship.root.position.y + 2, ship.root.position.z);
+        ship.root.updateMatrixWorld(true); ship.pilotSeat.getWorldPosition(seatedPosition);
+        player.setPosition(seatedPosition.x, seatedPosition.y, seatedPosition.z);
         if (clock > 9) {
           ship.update(dt); updateShot(dt); cameraView(); transferred = true;
           onLaunch({ ...player.captureTransition({ x: 0, y: 0, z: 0 }), launch: {
@@ -466,7 +678,9 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
       } else if (phase === 'failed') {
         siege.forEach(s => { s.mesh.visible = false; });
         if (shipFailure) {
-          shipBlast.scale.setScalar(1 + clock * 9); blastMaterial.opacity = Math.max(0, 1 - clock / 2);
+          const progress = Math.min(1, clock / 2.3);
+          blastUniforms.uTime.value = clock; blastUniforms.uProgress.value = progress;
+          shipBlast.scale.setScalar(1.2 + 9 * THREE.MathUtils.smoothstep(progress, 0, 0.46)); shipBlast.visible = progress < 1;
           ship.root.rotation.z = Math.sin(clock * 16) * Math.max(0, 0.18 - clock * 0.06);
           if (clock > 0.5) ship.root.visible = false;
         }
@@ -474,16 +688,17 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
       }
       audioManager.update();
       ship.update(dt); updateRobots(dt * motionScale); physics.step(dt, player, thirdPerson);
-      if (status) status.textContent = assetError ? 'ROBOT ASSETS COULD NOT LOAD / E: retry' : phase === 'arrival' ? '14 / HANGAR\nLift arriving. One ship. Too many robots.' : phase === 'run' ? (isTouchActive() ? 'RUN TO THE SHIP / JOYSTICK + RUN\nTap the screen when the prompt appears.' : 'RUN TO THE SHIP / WASD + SHIFT\nBe ready to press the displayed X, Y or Z key.') : phase === 'launch' ? 'HANGAR DEPRESSURIZING\nAll robots are being pulled into space. Launching toward the planet...' : phase === 'aboard' ? 'COCKPIT SEALED / PRESS E TO LAUNCH' : 'BREAK THROUGH THE SWARM';
-      updateShot(dt); cameraView();
+      if (status) status.textContent = assetError ? 'ROBOT ASSETS COULD NOT LOAD / E: retry' : phase === 'arrival' ? '14 / HANGAR\nLift arriving. One ship. Too many robots.' : phase === 'reveal' ? 'ESCAPE SHUTTLE / SWARM BLOCKING THE DECK' : phase === 'charge' ? 'INCOMING CHARGE' : phase === 'launch' ? 'HANGAR DEPRESSURIZING\nAll robots are being pulled into space. Launching toward the planet...' : phase === 'aboard' ? 'COCKPIT SEALED / PRESS E TO LAUNCH' : 'BREAK THROUGH THE SWARM';
+      updateShot(realDt); cameraView();
     },
     dispose() {
       if (disposed) return; disposed = true;
+      versus.dispose();
       window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); window.removeEventListener('blur', onBlur); window.removeEventListener('focus', onFocus);
       window.removeEventListener(qteTapEvent, onQteTap, true);
       if (qteCaption) qteCaption.textContent = desktopCaption;
       if (qteHint) qteHint.textContent = desktopHint;
-      qte?.classList.add('hidden'); qte?.classList.remove('urgent'); qte?.removeAttribute('style'); qte?.setAttribute('aria-label', 'Timed escape action');
+      qte?.classList.add('hidden'); qte?.classList.remove('urgent', 'letter-prompt'); qte?.removeAttribute('style'); qte?.setAttribute('aria-label', 'Timed escape action');
       prompt?.classList.add('hidden'); subtitles?.classList.add('hidden'); status?.classList.add('hidden');
       if (gun) { gun.removeFromParent(); scene.add(gun); }
       robots.forEach(r => { r.mixer.stopAllAction(); r.mixer.uncacheRoot(r.root); r.root.traverse(node => { if (node instanceof THREE.SkinnedMesh) node.skeleton.dispose(); }); });
