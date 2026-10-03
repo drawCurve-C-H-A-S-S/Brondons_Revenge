@@ -1330,10 +1330,11 @@ body.touch-device .space-health-heading { letter-spacing: 0; font-size: 8px; }
 #health-bar-fill.low, #boss-health-fill, #space-boss-fill { background: var(--comic-red); }
 #shield-bar-fill, #space-health-fill { background: var(--comic-cyan); }
 #health-bar-label, #shield-bar-label { color: var(--comic-ink); font: 800 11px/1 var(--comic-body); text-shadow: none; }
-#flight-hud { bottom: 82px; width: min(260px, calc(100vw - 36px)); padding: 8px 10px; }
-.space-health-heading { letter-spacing: 0; text-shadow: none; white-space: nowrap; }
-#space-health-track { height: 12px; }
-#flight-powerups { position: static; margin-top: 8px; justify-content: flex-end; min-height: 34px; }
+#flight-hud { bottom: 24px; width: min(360px, calc(100vw - 112px)); padding: 0; background: none; border: 0; box-shadow: none; }
+.space-health-heading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 10px; line-height: 1; text-shadow: 0 1px 2px #000; }
+.space-health-heading > span:first-child { display: none; }
+#space-health-track { margin: 0; height: 12px; background: none; border: 0; border-radius: 0; box-shadow: none; }
+#flight-powerups { position: absolute; margin-top: 0; justify-content: flex-end; min-height: 0; }
 #flight-powerups .flight-shield-slot { background: var(--comic-yellow); padding: 3px; }
 .flight-shield-slot::after { border-color: var(--comic-ink); border-radius: 2px; }
 #view-toggle-btn .view-camera { stroke: var(--comic-ink); stroke-width: 2.3; }
@@ -1347,7 +1348,11 @@ body.touch-device .space-health-heading { letter-spacing: 0; font-size: 8px; }
 .touch-btn { opacity: 0.94; }
 #touch-controls .touch-btn.active { background: var(--comic-yellow); translate: 2px 2px; box-shadow: 1px 1px 0 var(--comic-ink); }
 body.touch-device #shield-bar { top: 47px; bottom: auto; left: 12px; transform: none; width: min(115px, 22vw); }
-body.touch-device #flight-hud { top: auto; bottom: 136px; width: min(185px, 46vw); }
+body[data-scene="scene15"] #health-bar,
+body[data-scene="scene15"] #shield-bar { left: max(16px, env(safe-area-inset-left)); bottom: auto; transform: none; width: min(160px, 32vw); }
+body[data-scene="scene15"] #health-bar { top: max(20px, env(safe-area-inset-top)); }
+body[data-scene="scene15"] #shield-bar { top: calc(max(20px, env(safe-area-inset-top)) + 30px); }
+body[data-scene="scene15"] #flight-hud { top: auto; bottom: max(24px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); width: min(360px, calc(100vw - 112px)); }
 .platformer-retry {
   color: var(--comic-ink);
   background: var(--comic-yellow);
