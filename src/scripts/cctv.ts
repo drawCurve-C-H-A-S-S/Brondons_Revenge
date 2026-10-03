@@ -146,8 +146,20 @@ export function createCctvSystem(renderer: THREE.WebGLRenderer) {
     return source;
   }
 
+  function handleScreenClick(raycaster: THREE.Raycaster, camera: THREE.Camera): number | null {
+    const intersects = raycaster.intersectObjects(screens, false);
+    if (intersects.length === 0) return null;
+    const clickedScreen = intersects[0].object;
+    for (let i = 0; i < screens.length; i++) {
+      if (screens[i] === clickedScreen) return i;
+    }
+    return null;
+  }
+
   return {
     update,
+    handleScreenClick,
+    roomIds,
     dispose: () => {
       panel.removeFromParent();
       disposeObject(panel);

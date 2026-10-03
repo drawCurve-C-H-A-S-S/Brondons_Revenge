@@ -20,6 +20,7 @@ import { CrowbarController } from './scripts/crowbar.js';
 import { GogglesController } from './scripts/goggles.js';
 import { GogglesPostProcess } from './scripts/gogglesPostProcess.js';
 import { LightsaberController } from './scripts/lightsaber.js';
+import { AdaptiveHintManager } from './scripts/adaptiveHints.js';
 import { createCctvSystem } from './scripts/cctv.js';
 import type { createFirstPersonHands } from './scripts/firstPersonHands.js';
 import { initTouchControls, setTouchFlightMode, resetTouchInput } from './scripts/touchControls.js';
@@ -113,6 +114,8 @@ const gogglesPostProcess = new GogglesPostProcess(renderer);
 const pixelArtPass = new PixelArtPass();
 const retroConsolePass = new RetroConsolePass();
 const minimap = createSceneMinimap(renderer, document.getElementById('minimap')!);
+const cctvRaycaster = new THREE.Raycaster();
+const cctvClickMouse = new THREE.Vector2();
 
 // --- Audio Manager stub ---
 const audioManager = null;
@@ -186,6 +189,7 @@ let cargoDoorUnlocked = false;
 const clearedLadderCrates = new Set<string>();
 let shieldCollectedScene7 = false;
 let healthPackCollectedScene13 = false;
+let hintManager: AdaptiveHintManager | null = null;
 const cargoAccess = () => ({ hasCrowbar, cargoDoorUnlocked, onCargoDoorOpened: () => { cargoDoorUnlocked = true; } });
 const ladderAccess = () => ({ clearedCrates: clearedLadderCrates, onCrateBroken: (id: string) => { clearedLadderCrates.add(id); }, shieldCollected: shieldCollectedScene7, onShieldCollected: () => { shieldCollectedScene7 = true; } });
 let crowbarController: CrowbarController | null = null;
@@ -279,6 +283,34 @@ async function initializeApp() {
   setupViewToggle();
   setupSceneQuickMenu();
   initTouchControls();
+
+  hintManager = new AdaptiveHintManager();
+  const recordHintActivity = () => hintManager?.recordActivity();
+  window.addEventListener('keydown', recordHintActivity);
+  window.addEventListener('mousedown', recordHintActivity);
+  window.addEventListener('mousemove', recordHintActivity);
+  window.addEventListener('touchstart', recordHintActivity);
+
+  // CCTV screen click-to-teleport
+  window.addEventListener('click', event => {
+    if (activeSceneId !== 'scene7' || !currentPlayer?.isEnabled() || !activeCamera) return;
+    if (quickMenuOpen || !!currentSceneData?.isCinematic?.()) return;
+    cctvClickMouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    cctvClickMouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    cctvRaycaster.setFromCamera(cctvClickMouse, activeCamera);
+    const screenIndex = cctv.handleScreenClick(cctvRaycaster, activeCamera);
+    if (screenIndex === null) return;
+    const roomIds = cctv.roomIds;
+    const roomId = roomIds[screenIndex];
+    if (roomId === 'cafeteria') return; // Already in cafeteria
+    const sceneMap: Record<string, () => void> = {
+      'medical-bay': () => fadeTraversal(() => loadScene2()),
+      'hallway': () => fadeTraversal(() => loadScene3()),
+      'computer-room': () => fadeTraversal(() => loadScene4()),
+    };
+    const teleport = sceneMap[roomId];
+    if (teleport) teleport();
+  });
 
   await yieldToMainThread();
   const { loadCharacter } = await import('./scripts/characterManager.js');
@@ -1727,6 +1759,22 @@ function animate() {
   const sceneOwnsControls = !!deathPresentation || !!currentSceneData?.isCinematic?.();
   updateViewButton();
   updateControlCard(delta);
+
+  if (hintManager && currentPlayer) {
+    hintManager.update(delta, {
+      currentScene: activeSceneId,
+      hasCrowbar,
+      hasLightsaber,
+      hasPistol: true,
+      hasGoggles: goggles.isCollected(),
+      shieldCollected: shieldCollectedScene7,
+      healthPackCollected: healthPackCollectedScene13,
+      bossDefeated: bayBossDefeated,
+      ladderCratesCleared: clearedLadderCrates.size > 0,
+      cargoDoorUnlocked,
+      playerPosition: { x: currentPlayer.body.position.x, y: currentPlayer.body.position.y, z: currentPlayer.body.position.z },
+    });
+  }
 
   // Character animations + view
   goggles.update();

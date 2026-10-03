@@ -65,6 +65,29 @@ canvas {
   z-index: 1500;
 }
 
+#adaptive-hint {
+  position: fixed;
+  left: 50%;
+  top: 55%;
+  transform: translate(-50%, -50%);
+  max-width: min(420px, 80vw);
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  padding: 8px 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+  color: #e0e8ef;
+  pointer-events: none;
+  z-index: 1499;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+#adaptive-hint.visible {
+  opacity: 1;
+}
+
 #loading-bay-status {
   position: fixed;
   bottom: 22px;
@@ -281,6 +304,7 @@ body.quick-menu-open #crosshair,
 body.quick-menu-open #space-crosshair,
 body.quick-menu-open #scene-menu-hint,
 body.quick-menu-open #control-card,
+body.quick-menu-open #adaptive-hint,
 body.quick-menu-open #space-pause,
 body.quick-menu-open #interact-prompt { display: none !important; }
 body.quick-menu-open #credits-content { animation-play-state: paused; }
@@ -1180,7 +1204,7 @@ body.touch-device .space-health-heading { letter-spacing: 0; font-size: 8px; }
   #flight-hud { bottom: 40px; }
 }
 
-:is(#pause-menu, #scene-quick-menu, #control-card, #interact-prompt, #loading-bay-status,
+:is(#pause-menu, #scene-quick-menu, #control-card, #interact-prompt, #adaptive-hint, #loading-bay-status,
   #goggles-status, #boss-subtitles, #escape-qte, #space-alert, #space-pause,
   #space-cinematic-caption, #flight-target, #crowbar-overlay, #flight-hud, .platformer-hud) {
   color: var(--comic-ink);
@@ -1204,7 +1228,7 @@ body.touch-device .space-health-heading { letter-spacing: 0; font-size: 8px; }
 #pause-menu[open]:not([data-screen="map"]), #scene-quick-menu[open] {
   animation: comic-panel-open 260ms cubic-bezier(0.18, 0.9, 0.3, 1.18) both;
 }
-:is(#interact-prompt, #control-card, #boss-subtitles, #escape-qte, #space-alert,
+:is(#interact-prompt, #adaptive-hint, #control-card, #boss-subtitles, #escape-qte, #space-alert,
   #space-pause, #space-cinematic-caption, #flight-target, .platformer-hud):not(.hidden) {
   animation: comic-caption-open 230ms cubic-bezier(0.18, 0.9, 0.3, 1.15) both;
 }
@@ -1301,6 +1325,7 @@ body.touch-device .space-health-heading { letter-spacing: 0; font-size: 8px; }
 .ship-map-room-picker, .ship-map-room-info span { color: #424653; }
 .ship-map-compass { color: var(--comic-paper); text-shadow: 2px 2px 0 var(--comic-ink); }
 #interact-prompt { background-color: var(--comic-yellow); padding: 7px 14px; font-size: 13px; }
+#adaptive-hint { background-color: var(--comic-yellow); }
 #space-alert { background-color: var(--comic-red); }
 #space-pause { background-color: var(--comic-cyan); }
 #escape-qte { background-color: var(--comic-yellow); }
@@ -1621,7 +1646,7 @@ body.quick-menu-open #stealth-retry { visibility: hidden; }
   .ship-map-detail { padding: 8px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  :is(#pause-menu, #scene-quick-menu, #control-card, #interact-prompt, #boss-subtitles,
+  :is(#pause-menu, #scene-quick-menu, #control-card, #interact-prompt, #adaptive-hint, #boss-subtitles,
     #escape-qte, #space-alert, #space-pause, #space-cinematic-caption, #flight-target, .platformer-hud,
     #prologue-dialogue, #crowbar-overlay, #menu-buttons, .prologue-title-word) {
     animation: none !important;
