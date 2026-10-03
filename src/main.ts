@@ -12,6 +12,7 @@ import type { LaunchState } from './scenes/level 1/scene14.js';
 import type { FlightExitState } from './scenes/level 2/scene15.js';
 import type { RescueArrival } from './helpers/scene/rescueSite.js';
 import type { loadCharacter } from './scripts/characterManager.js';
+import { HOLOGRAM_TRANSFER_DURATION, hologramTransitionAt } from './scripts/characterManager.js';
 import type { Player, PlayerTransitionState } from './scripts/player.js';
 import { PLAYER_MAX_HEALTH } from './scripts/player.js';
 import { NPCEnemyManager } from './scripts/npc-enemy-robots.js';
@@ -20,6 +21,7 @@ import { CrowbarController } from './scripts/crowbar.js';
 import { GogglesController } from './scripts/goggles.js';
 import { GogglesPostProcess } from './scripts/gogglesPostProcess.js';
 import { LightsaberController } from './scripts/lightsaber.js';
+import { AdaptiveHintManager } from './scripts/adaptiveHints.js';
 import { createCctvSystem } from './scripts/cctv.js';
 import type { createFirstPersonHands } from './scripts/firstPersonHands.js';
 import { initTouchControls, setTouchFlightMode, resetTouchInput } from './scripts/touchControls.js';
@@ -113,6 +115,8 @@ const gogglesPostProcess = new GogglesPostProcess(renderer);
 const pixelArtPass = new PixelArtPass();
 const retroConsolePass = new RetroConsolePass();
 const minimap = createSceneMinimap(renderer, document.getElementById('minimap')!);
+const cctvRaycaster = new THREE.Raycaster();
+const cctvClickMouse = new THREE.Vector2();
 
 // --- Audio Manager stub ---
 const audioManager = null;
@@ -186,6 +190,9 @@ let cargoDoorUnlocked = false;
 const clearedLadderCrates = new Set<string>();
 let shieldCollectedScene7 = false;
 let healthPackCollectedScene13 = false;
+let hintManager: AdaptiveHintManager | null = null;
+let cctvTeleportTime = -1;
+let cctvTeleportTarget: (() => void) | null = null;
 const cargoAccess = () => ({ hasCrowbar, cargoDoorUnlocked, onCargoDoorOpened: () => { cargoDoorUnlocked = true; } });
 const ladderAccess = () => ({ clearedCrates: clearedLadderCrates, onCrateBroken: (id: string) => { clearedLadderCrates.add(id); }, shieldCollected: shieldCollectedScene7, onShieldCollected: () => { shieldCollectedScene7 = true; } });
 let crowbarController: CrowbarController | null = null;
@@ -279,6 +286,40 @@ async function initializeApp() {
   setupViewToggle();
   setupSceneQuickMenu();
   initTouchControls();
+
+  hintManager = new AdaptiveHintManager();
+  const recordHintActivity = () => hintManager?.recordActivity();
+  window.addEventListener('keydown', recordHintActivity);
+  window.addEventListener('mousedown', recordHintActivity);
+  window.addEventListener('mousemove', recordHintActivity);
+  window.addEventListener('touchstart', recordHintActivity);
+
+  // CCTV screen click-to-teleport
+  window.addEventListener('click', event => {
+    if (activeSceneId !== 'scene7' || !currentPlayer?.isEnabled() || !activeCamera) return;
+    if (quickMenuOpen || !!currentSceneData?.isCinematic?.()) return;
+    if (cctvTeleportTime >= 0) return; // Already teleporting
+    cctvClickMouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    cctvClickMouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    cctvRaycaster.setFromCamera(cctvClickMouse, activeCamera);
+    const screenIndex = cctv.handleScreenClick(cctvRaycaster, activeCamera);
+    if (screenIndex === null) return;
+    const roomIds = cctv.roomIds;
+    const roomId = roomIds[screenIndex];
+    if (roomId === 'cafeteria') return; // Already in cafeteria
+    const sceneMap: Record<string, () => void> = {
+      'medical-bay': () => loadScene2(false, true),
+      'hallway': () => loadScene3(undefined, true),
+      'computer-room': () => loadScene4(undefined, 'back', true),
+    };
+    const teleport = sceneMap[roomId];
+    if (!teleport) return;
+    // Start hologram teleportation
+    cctvTeleportTime = 0;
+    cctvTeleportTarget = teleport;
+    currentPlayer.disable();
+    currentPlayer.clearInput();
+  });
 
   await yieldToMainThread();
   const { loadCharacter } = await import('./scripts/characterManager.js');
@@ -639,12 +680,12 @@ async function loadScene2(skipWake = false, openingEntry = false) {
   renderer.render(activeScene!, activeCamera!);
 }
 
-async function loadScene3(entryState?: PlayerTransitionState) {
+async function loadScene3(entryState?: PlayerTransitionState, teleportArrival = false) {
   const module = await prepareScene(3);
   if (!module) return;
   console.log('Loading scene 3...');
 
-  const sceneData = module.createScene({ audioManager, entryState, ...cargoAccess() });
+  const sceneData = module.createScene({ audioManager, entryState, teleportArrival, ...cargoAccess() });
   enterManagedScene('scene3', sceneData);
   currentSceneData = sceneData;
   activeScene = currentSceneData.scene;
@@ -722,14 +763,14 @@ async function transitionBackToScene2(entryState: PlayerTransitionState) {
   }
 }
 
-async function loadScene4(entryState?: PlayerTransitionState, entryDoor: 'back' | 'front' = 'back') {
+async function loadScene4(entryState?: PlayerTransitionState, entryDoor: 'back' | 'front' = 'back', teleportArrival = false) {
   const module = await prepareScene(4);
   if (!module) return;
   void prepareFirstPersonHands();
   console.log('Loading scene 4...');
 
   const sceneData = module.createScene({
-    audioManager, entryState, entryDoor, cafeteriaUnlocked: hasCrowbar, chestOpened: hasCrowbar,
+    audioManager, entryState, entryDoor, cafeteriaUnlocked: hasCrowbar, chestOpened: hasCrowbar, teleportArrival,
     onChestCollected: () => {
       hasCrowbar = true;
       crowbar.equip();
@@ -1728,10 +1769,41 @@ function animate() {
   updateViewButton();
   updateControlCard(delta);
 
+  if (hintManager && currentPlayer) {
+    hintManager.update(delta, {
+      currentScene: activeSceneId,
+      hasCrowbar,
+      hasLightsaber,
+      hasPistol: true,
+      hasGoggles: goggles.isCollected(),
+      shieldCollected: shieldCollectedScene7,
+      healthPackCollected: healthPackCollectedScene13,
+      bossDefeated: bayBossDefeated,
+      ladderCratesCleared: clearedLadderCrates.size > 0,
+      cargoDoorUnlocked,
+      playerPosition: { x: currentPlayer.body.position.x, y: currentPlayer.body.position.y, z: currentPlayer.body.position.z },
+    });
+  }
+
+  // CCTV hologram teleportation
+  if (cctvTeleportTime >= 0 && globalCharacter) {
+    cctvTeleportTime += delta;
+    const transition = hologramTransitionAt(cctvTeleportTime);
+    globalCharacter.setHologramTransition(transition);
+    if (cctvTeleportTime >= HOLOGRAM_TRANSFER_DURATION && cctvTeleportTarget) {
+      const target = cctvTeleportTarget;
+      cctvTeleportTime = -1;
+      cctvTeleportTarget = null;
+      target();
+    }
+  }
+
   // Character animations + view
   goggles.update();
   updatePlayerView(delta);
-  globalCharacter?.setHologramTransition(currentSceneData?.getHologramTransition?.() ?? null);
+  if (cctvTeleportTime < 0) {
+    globalCharacter?.setHologramTransition(currentSceneData?.getHologramTransition?.() ?? null);
+  }
 
   if (!sceneOwnsControls && !currentSceneData?.ownsWeaponInput) { pistol.update(delta); crowbar.update(delta); }
   if (!sceneOwnsControls && !currentSceneData?.ownsWeaponInput) lightsaber.update(delta);

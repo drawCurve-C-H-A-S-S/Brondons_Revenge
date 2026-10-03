@@ -7,10 +7,11 @@ import comicVert from '../../shaders/comic.vert.glsl?raw';
 import comicFrag from '../../shaders/comic.frag.glsl?raw';
 import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
 import { createScenePhysics, PHYSICS, hasNearbyActor } from '../../helpers/physics/scenePhysics.js';
+import { HOLOGRAM_TRANSFER_DURATION, hologramTransitionAt } from '../../scripts/characterManager.js';
 
-export function createScene({ audioManager, entryState, entryDoor, hasCrowbar = false, cargoDoorUnlocked = false, onCargoDoorOpened }: {
+export function createScene({ audioManager, entryState, entryDoor, hasCrowbar = false, cargoDoorUnlocked = false, onCargoDoorOpened, teleportArrival = false }: {
   audioManager?: unknown; entryState?: PlayerTransitionState; entryDoor?: 'front' | 'back' | 'left' | 'right';
-  hasCrowbar?: boolean; cargoDoorUnlocked?: boolean; onCargoDoorOpened?: () => void;
+  hasCrowbar?: boolean; cargoDoorUnlocked?: boolean; onCargoDoorOpened?: () => void; teleportArrival?: boolean;
 } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0a10);
@@ -389,6 +390,7 @@ export function createScene({ audioManager, entryState, entryDoor, hasCrowbar = 
   });
   player.setRotation(0, 0);
   player.enable();
+  let arrivalTime = teleportArrival ? 0 : HOLOGRAM_TRANSFER_DURATION;
   if (entryState) {
     // Restore at the appropriate door based on entryDoor
     const doorway = entryDoor === 'back' ? { x: 0, y: 0, z: -roomDepth / 2 }
@@ -461,6 +463,10 @@ export function createScene({ audioManager, entryState, entryDoor, hasCrowbar = 
   let flickerTime = 0;
   function updatePhysics(dt: number, thirdPerson: boolean = false) {
     dt = Number.isFinite(dt) ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime)) : 0;
+    if (arrivalTime < HOLOGRAM_TRANSFER_DURATION) {
+      player.clearInput();
+      arrivalTime = Math.min(HOLOGRAM_TRANSFER_DURATION, arrivalTime + dt);
+    }
     physics.step(dt, player, thirdPerson);
 
     // Flicker lights
@@ -568,6 +574,7 @@ export function createScene({ audioManager, entryState, entryDoor, hasCrowbar = 
     setLeftTrigger,
     setRightTrigger, hitCargoDoor, sideDoors: [doorLeft, doorRight],
     isCargoDoorUnlocked: () => cargoDoorUnlocked,
+    getHologramTransition: () => arrivalTime < HOLOGRAM_TRANSFER_DURATION ? hologramTransitionAt(arrivalTime, true) : null,
     dispose: () => { window.removeEventListener('keydown', onInteract); if (ownsPrompt) prompt?.classList.add('hidden'); player.dispose(); physics.dispose(); },
   };
 }

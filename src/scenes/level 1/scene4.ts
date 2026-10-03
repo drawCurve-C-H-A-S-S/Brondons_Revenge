@@ -9,6 +9,7 @@ import comicFrag from '../../shaders/comic.frag.glsl?raw';
 import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
 import { createScenePhysics, PHYSICS, hasNearbyActor } from '../../helpers/physics/scenePhysics.js';
 import { loadToolModel } from '../../core/loader.js';
+import { HOLOGRAM_TRANSFER_DURATION, hologramTransitionAt } from '../../scripts/characterManager.js';
 
 // Computer model imports (FBX for 1-2, OBJ for 3-8)
 import computer1Url from '../../assets/models/Retro computers/models/Computer1.fbx';
@@ -57,8 +58,8 @@ const TEXTURE_SETS = [
   { diffuse: tex8Url, normal: null, specular: null }, // Texture 8 has no normal/specular maps
 ];
 
-export function createScene({ audioManager, entryState, entryDoor = 'back', cafeteriaUnlocked = false, chestOpened, onChestCollected, preview = false }: {
-  audioManager?: unknown; entryState?: PlayerTransitionState; entryDoor?: 'back' | 'front'; cafeteriaUnlocked?: boolean; chestOpened?: boolean; onChestCollected?: () => void; preview?: boolean;
+export function createScene({ audioManager, entryState, entryDoor = 'back', cafeteriaUnlocked = false, chestOpened, onChestCollected, preview = false, teleportArrival = false }: {
+  audioManager?: unknown; entryState?: PlayerTransitionState; entryDoor?: 'back' | 'front'; cafeteriaUnlocked?: boolean; chestOpened?: boolean; onChestCollected?: () => void; preview?: boolean; teleportArrival?: boolean;
 } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0a10);
@@ -527,6 +528,7 @@ export function createScene({ audioManager, entryState, entryDoor = 'back', cafe
   });
   player.setRotation(0, 0);
   player.enable();
+  let arrivalTime = teleportArrival ? 0 : HOLOGRAM_TRANSFER_DURATION;
   if (entryState) {
     const entryZ = entryDoor === 'front' ? roomDepth / 2 : -roomDepth / 2;
     player.restoreTransition(entryState, { x: 0, y: 0, z: entryZ });
@@ -558,6 +560,10 @@ export function createScene({ audioManager, entryState, entryDoor = 'back', cafe
   let flickerTime = 0;
   function updatePhysics(dt: number, thirdPerson: boolean = false) {
     dt = Number.isFinite(dt) ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime)) : 0;
+    if (arrivalTime < HOLOGRAM_TRANSFER_DURATION) {
+      player.clearInput();
+      arrivalTime = Math.min(HOLOGRAM_TRANSFER_DURATION, arrivalTime + dt);
+    }
     physics.step(dt, player, thirdPerson);
 
     // Gentle light flicker (much subtler than scene3)
@@ -639,6 +645,7 @@ export function createScene({ audioManager, entryState, entryDoor = 'back', cafe
     forwardDoorTarget: frontDoorTarget,
     hitForwardDoor,
     setEnemyDefeated,
+    getHologramTransition: () => arrivalTime < HOLOGRAM_TRANSFER_DURATION ? hologramTransitionAt(arrivalTime, true) : null,
     dispose: () => {
       window.removeEventListener('keydown', onKeyDown);
       if (interactPrompt) interactPrompt.classList.add('hidden');
