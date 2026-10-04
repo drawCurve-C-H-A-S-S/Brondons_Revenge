@@ -6,6 +6,7 @@ import { createRescueSite, RESCUE_SITE, type RescueArrival } from '../../helpers
 import { COURSE_PLATFORMS, COURSE_ROBOTS, PLATFORM_COURSE, courseX, courseDistance,
   createJungleScrambler, createJungleScramblerPulse, type PlatformProgress, type PlatformCheckpoint } from '../../helpers/scene/junglePlatformCourse.js';
 import { disposeRoom } from '../../helpers/scene/shipRoom.js';
+import { emitComicEffect } from '../../helpers/scene/comicEffects.js';
 import { createPlayer, PLAYER_MAX_HEALTH } from '../../scripts/player.js';
 import { isTouchFire, consumePlatformerAim, resetTouchInput } from '../../scripts/touchControls.js';
 import { loadSharkModel, loadToolModel } from '../../core/loader.js';
@@ -315,6 +316,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
     if (!live() || (weapon !== 'pistol' && weapon !== 'crowbar') || !Number.isFinite(amount) || amount <= 0 || actor.health <= 0) return false;
     if (actor.boss && (weapon !== 'pistol' || phase !== 'boss' || orbHealth > 0 || bossStage !== 'open')) return false;
     actor.health = Math.max(0, actor.health - amount); actor.hitTime = 0.25;
+    emitComicEffect(scene, actor.health === 0 ? 'clank' : 'hit', { source: actor.root, weapon });
     if (!actor.boss) { actor.charge = -1; actor.cooldown = 1.2; }
     burst(actor.root.position.clone().add(new THREE.Vector3(0, 1, 0)));
     if (!actor.health) {
@@ -327,6 +329,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   function damageOrb(amount: number, weapon?: DamageWeapon) {
     if (!live() || phase !== 'scrambler' || courseDistance(player.body.position.x) < 94 || phaseTime < 1 || orbHealth <= 0 || weapon !== 'pistol' || !Number.isFinite(amount) || amount <= 0) return false;
     orbHealth = Math.max(0, orbHealth - amount); burst(scrambler.root.position);
+    emitComicEffect(scene, orbHealth === 0 ? 'boom' : 'hit', { source: scrambler.root, weapon });
     if (!orbHealth) { scramblerDeathGlow = 0; scrambler.root.visible = false; bossShield.visible = false; clearShots(); clearInput(); invulnerability = 2; }
     return true;
   }
@@ -341,8 +344,9 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
       { root: scrambler.root, damage: damageOrb },
     ];
   }
-  function fire(from: THREE.Vector3, to: THREE.Vector3, wave = false) {
+  function fire(from: THREE.Vector3, to: THREE.Vector3, wave = false, source?: THREE.Object3D) {
     const shot = shots.find(item => item.life <= 0); if (!shot) return;
+    emitComicEffect(scene, 'pew', { source, position: from, size: 1.5 });
     shot.life = 2.5; shot.wave = wave;
     shot.parried = false; shot.owner = 'boss';
     shot.mesh.position.copy(from); shot.mesh.scale.set(wave ? 3 : 1, wave ? 2.2 : 1, wave ? 6 : 1);
@@ -369,11 +373,11 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
       if (bossTime >= 1.2) { bossStage = 'attack'; bossTime = 0; burstShots = 0; warning.visible = false; animate(boss, 'Attack', true); }
     } else if (bossStage === 'attack') {
       if (bossVolley % 2) {
-        if (burstShots < 3 && bossTime >= burstShots * 0.2) { fire(muzzle, boss.aim, false); burstShots++; }
+        if (burstShots < 3 && bossTime >= burstShots * 0.2) { fire(muzzle, boss.aim, false, boss.root); burstShots++; }
       } else if (!burstShots) {
         const forward = new THREE.Vector3(p.x - muzzle.x, 0, p.z - muzzle.z).normalize();
         for (const angle of normalSpace ? [-0.4, 0, 0.4] : [0]) {
-          fire(muzzle, muzzle.clone().add(forward.clone().applyAxisAngle(up, angle)), true);
+          fire(muzzle, muzzle.clone().add(forward.clone().applyAxisAngle(up, angle)), true, boss.root);
         }
         burstShots++;
       }
@@ -407,7 +411,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
         actor.motor.drive(0, 0, 0); actor.charge -= dt;
         actor.root.rotation.y = actor.aim.x < actor.root.position.x ? -Math.PI / 2 : Math.PI / 2;
         if (actor.charge <= 0) {
-          fire(actor.root.position.clone().add(new THREE.Vector3(0, 1.05, 0)), actor.aim, false);
+          fire(actor.root.position.clone().add(new THREE.Vector3(0, 1.05, 0)), actor.aim, false, actor.root);
           actor.charge = -1; actor.cooldown = 1.6; animate(actor, 'Attack', true);
         }
       } else if (distance < 11 && actor.cooldown <= 0) {
@@ -632,6 +636,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
     roomId: 'scene18', scene, camera, physics, physicsWorld, player, course, ready: Promise.all([site.ready, robotReady, bossReady, gunReady, sharkReady]), cutsceneManager: null,
     ownsWeaponInput: true, clearInput, isCinematic: () => phase !== 'boss' && phase !== 'cleared', getDamageFlash: () => damageFlash,
     controlsReady: () => live() && !blocked(),
+    hasAimReticle: () => !reticle.classList.contains('hidden'),
     minimap: { radius: 35, floor: 0, openSky: true, prepare: site.prepareMinimap },
     isThirdPersonView: () => true,
     get forceThirdPerson() { return normalSpace; },

@@ -51,6 +51,20 @@ canvas {
 #crosshair::after { width: 2px; height: 18px; top: 0; left: 8px; }
 #crosshair[data-hit="true"] { color: #ff5555; }
 
+#look-reticle {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  transform: translate(-50%, -50%);
+  background: var(--comic-paper);
+  border: 1px solid var(--comic-ink);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 1500;
+}
+
 #interact-prompt {
   position: fixed;
   left: 50%;
@@ -138,9 +152,28 @@ canvas {
   text-shadow: 7px 9px 0 #090909, 10px 12px 0 #ffffff;
   will-change: transform;
 }
+.hangar-versus-name {
+  position: absolute;
+  top: clamp(16px, 3vw, 40px);
+  left: clamp(16px, 3vw, 40px);
+  color: #ffffff;
+  font: 900 italic clamp(28px, 4vw, 56px)/1 var(--comic-display);
+  -webkit-text-stroke: 3px #090909;
+  paint-order: stroke fill;
+  text-shadow: 4px 5px 0 #090909;
+}
+.hangar-versus-name.opponent {
+  top: auto;
+  left: auto;
+  right: clamp(16px, 3vw, 40px);
+  bottom: clamp(16px, 3vw, 40px);
+}
 .hangar-versus-active #hud,
 .hangar-versus-active #loading-bay-status,
 .hangar-versus-active #health-bar,
+.hangar-versus-active #shield-bar,
+.hangar-versus-active #boss-hud,
+.hangar-versus-active #boss-subtitles,
 .hangar-versus-active #minimap,
 .hangar-versus-active #touch-controls,
 .hangar-versus-active #control-card,
@@ -148,6 +181,112 @@ canvas {
 @media (max-width: 600px) {
   .hangar-versus { border-width: 5px; }
   .hangar-versus-badge { font-size: 82px; -webkit-text-stroke-width: 5px; }
+}
+
+.flight-versus {
+  position: fixed;
+  inset: 0;
+  border: 8px solid #090909;
+  box-shadow: inset 0 0 100px #0008;
+  pointer-events: none;
+  z-index: 1700;
+  overflow: hidden;
+}
+.flight-versus::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 5px);
+  width: 10px;
+  background: #090909;
+  box-shadow: -3px 0 0 #36c7ff, 3px 0 0 #ff4266;
+}
+.flight-versus-title {
+  position: absolute;
+  left: 50%;
+  top: max(18px, env(safe-area-inset-top));
+  transform: translateX(-50%) rotate(-2deg);
+  padding: 9px 20px;
+  border: 3px solid #090909;
+  background: #ffe32c;
+  box-shadow: 5px 5px 0 #090909;
+  color: #090909;
+  font: 900 italic clamp(14px, 1.8vw, 24px)/1 var(--comic-display);
+  white-space: nowrap;
+}
+.flight-versus-badge { font-size: clamp(80px, 10vw, 144px); filter: drop-shadow(0 0 22px #ffe32c55); }
+.flight-versus-label {
+  position: absolute;
+  left: 3%;
+  bottom: 12%;
+  width: 43%;
+  color: #fff;
+  text-shadow: 3px 4px 0 #090909;
+  font-family: var(--comic-display);
+}
+.flight-versus-label.enemy { left: auto; right: 3%; text-align: right; }
+.flight-versus-label strong {
+  display: block;
+  font-size: clamp(30px, 4vw, 64px);
+  font-style: italic;
+  -webkit-text-stroke: 3px #090909;
+  paint-order: stroke fill;
+}
+.flight-versus-label span {
+  display: inline-block;
+  margin: 6px 0;
+  padding: 6px 10px;
+  background: #087bbb;
+  border: 3px solid #090909;
+  box-shadow: 4px 4px 0 #090909;
+  font-size: clamp(12px, 1.4vw, 20px);
+}
+.flight-versus-label.enemy span { background: #bf2141; }
+.flight-versus-label small { display: block; font: 700 clamp(10px, 1vw, 14px)/1.5 var(--comic-body); letter-spacing: 0.08em; }
+.flight-versus-mission {
+  position: absolute;
+  bottom: 25px;
+  left: 50%;
+  transform: translateX(-50%) rotate(-2deg);
+  color: #ffe32c;
+  font: 900 italic clamp(15px, 2vw, 28px)/1 var(--comic-display);
+  -webkit-text-stroke: 2px #090909;
+  paint-order: stroke fill;
+  white-space: nowrap;
+}
+.flight-versus-skip {
+  position: absolute;
+  top: max(18px, env(safe-area-inset-top));
+  right: 16px;
+  padding: 8px 10px;
+  border: 2px solid #090909;
+  background: #e9f6ff;
+  box-shadow: 3px 3px 0 #090909;
+  color: #090909;
+  font: 700 11px/1.2 var(--comic-body);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.flight-versus-skip:focus-visible { outline: 3px solid #ffe32c; outline-offset: 4px; }
+.flight-versus-skip:disabled { opacity: 0.4; cursor: default; }
+.flight-versus.paused { filter: brightness(0.5); }
+body.flight-versus-active, body.flight-versus-active canvas { cursor: auto; }
+:is(.flight-versus-active, .flight-intro-active) :is(#hud, #health-bar, #shield-bar, #minimap, #control-card, #weapon-status,
+  #touch-controls, #view-toggle-btn, #flight-hud, #flight-controls, #space-crosshair, #space-boss-hud,
+  #space-enemy-count, #space-alert, #flight-powerups) { visibility: hidden; }
+.flight-versus-active #space-pause { z-index: 1800; }
+@media (max-aspect-ratio: 11/10) {
+  .flight-versus { border-width: 5px; }
+  .flight-versus::before { top: calc(50% - 5px); bottom: auto; left: 0; width: 100%; height: 10px; box-shadow: 0 -3px 0 #36c7ff, 0 3px 0 #ff4266; }
+  .flight-versus-title { left: 16px; transform: rotate(-2deg); padding: 7px 9px; font-size: 13px; }
+  .flight-versus-label { left: 4%; bottom: 53%; width: 90%; }
+  .flight-versus-label.enemy { right: 4%; bottom: 7%; width: 90%; }
+  .flight-versus-label strong { font-size: clamp(25px, 7vw, 44px); }
+  .flight-versus-label span { font-size: 12px; margin: 3px 0; }
+  .flight-versus-label small { font-size: 9px; }
+  .flight-versus-mission { bottom: 12px; font-size: 14px; }
+  .flight-versus-skip { right: 8px; font-size: 9px; }
 }
 
 #goggles-overlay {
@@ -301,6 +440,7 @@ canvas {
 /* Scene quick menu */
 body.quick-menu-open, body.quick-menu-open canvas { cursor: auto !important; }
 body.quick-menu-open #crosshair,
+body.quick-menu-open #look-reticle,
 body.quick-menu-open #space-crosshair,
 body.quick-menu-open #scene-menu-hint,
 body.quick-menu-open #control-card,
@@ -353,9 +493,11 @@ body.quick-menu-open #credits-content { animation-play-state: paused; }
 body.ship-map-open > :not(canvas):not(#pause-menu):not(script) { visibility: hidden; }
 #pause-map-panel { flex: 1; min-height: 0; margin: 0; gap: 8px; }
 #pause-map-panel > [data-pause-back] { display: none; }
-#ship-map-view { flex: 1; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 12px; }
+#ship-map-view { flex: 1; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 8px; }
 .ship-map-toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
 .ship-map-decks, .ship-map-tools { display: flex; align-items: stretch; gap: 4px; }
+.ship-map-tools { margin-left: auto; }
+.ship-map-decks[hidden], .ship-map-room-info[hidden], .ship-map-empty[hidden] { display: none; }
 #pause-menu .ship-map-decks button {
   display: flex; align-items: center; justify-content: center; gap: 7px;
   min-height: 38px; padding: 7px 12px; border-radius: 3px; font-size: 12px;
@@ -380,27 +522,29 @@ body.ship-map-open > :not(canvas):not(#pause-menu):not(script) { visibility: hid
   transform-origin: 0 50%; transform: rotate(var(--leader-angle, 0rad)) translateX(var(--leader-start, 0px)); pointer-events: none;
 }
 #pause-menu .ship-map-room-label[data-current="true"]::after { content: ''; position: absolute; width: 5px; height: 5px; top: -4px; right: -2px; border-radius: 50%; background: #fff; }
-.ship-map-compass { position: absolute; top: 10px; right: 12px; color: #b3c6c7; font: 11px monospace; pointer-events: none; }
-.ship-map-detail {
-  display: grid; grid-template-columns: minmax(180px, 260px) minmax(160px, 0.7fr) minmax(0, 1fr);
-  align-items: center; gap: 18px; padding-top: 12px; border-top: 1px solid #293c40;
+.ship-map-compass { position: absolute; top: 10px; right: 12px; width: 32px; height: 50px; text-align: center; color: #b3c6c7; font: 11px monospace; pointer-events: none; }
+.ship-map-compass::after {
+  content: ''; position: absolute; top: 24px; left: 11px; width: 10px; height: 20px; background: #75d9c5;
+  clip-path: polygon(50% 0, 100% 40%, 65% 40%, 65% 100%, 35% 100%, 35% 40%, 0 40%);
+  transform: rotate(var(--north-angle, 0rad));
 }
-.ship-map-room-picker { display: flex; flex-direction: column; gap: 4px; color: #90a6aa; font-size: 10px; }
-.ship-map-room-picker select { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid #344c51; border-radius: 3px; background: #101c23; color: #e5f1fa; font: 12px monospace; }
-.ship-map-room-info { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.ship-map-room-info {
+  position: absolute; left: 12px; bottom: 44px; max-width: min(340px, calc(100% - 24px));
+  min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 10px 14px;
+  border-left: 2px solid #75d9c5; background: #080d12dc; pointer-events: none;
+}
 .ship-map-room-info strong { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 .ship-map-room-info span { color: #9ab0b3; font-size: 11px; overflow-wrap: anywhere; }
-.ship-map-connections { display: flex; gap: 5px; flex-wrap: wrap; }
-#pause-menu .ship-map-connections button { padding: 5px 8px; min-height: 32px; border-radius: 3px; font-size: 10px; text-align: left; }
+.ship-map-help { position: absolute; bottom: 10px; left: 12px; right: 12px; color: #849a9e; font: 11px/1.5 monospace; pointer-events: none; }
+.ship-map-empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: #9ab0b3; pointer-events: none; }
 @media (max-width: 700px) {
   #pause-menu[data-screen="map"] { padding: 10px; gap: 8px; }
   #ship-map-view { gap: 8px; }
   .ship-map-toolbar { gap: 7px; }
   .ship-map-decks { width: 100%; }
   #pause-menu .ship-map-decks button { flex: 1; min-width: 0; padding: 7px 4px; gap: 4px; font-size: 10px; }
-  .ship-map-tools { margin-left: auto; }
-  .ship-map-detail { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; padding-top: 8px; }
-  .ship-map-connections { grid-column: 1 / -1; }
+  .ship-map-room-info { padding: 8px 10px; bottom: 56px; }
+  .ship-map-help { font-size: 10px; }
   .ship-map-room-info strong { font-size: 12px; }
   #pause-menu .ship-map-room-label { width: 25px; height: 25px; min-height: 25px; font-size: 10px; }
 }
@@ -802,8 +946,10 @@ body.space-flight:not(.space-paused),
 body.space-flight:not(.space-paused) canvas,
 body.space-cinematic, body.space-cinematic canvas { cursor: none; }
 body.space-flight #info, body.space-flight #crosshair,
+body.space-flight #look-reticle,
 body.space-flight #goggles-overlay, body.space-flight #goggles-status,
 body.space-cinematic #crosshair,
+body.space-cinematic #look-reticle,
 body.space-cinematic #goggles-overlay, body.space-cinematic #goggles-status { display: none !important; }
 
 #flight-hud {
@@ -1648,7 +1794,6 @@ body.quick-menu-open #stealth-retry { visibility: hidden; }
   #space-alert { top: 144px; }
   #space-enemy-count { right: 70px; }
   #shield-bar { bottom: 42px; }
-  .ship-map-detail { padding: 8px; }
 }
 @media (prefers-reduced-motion: reduce) {
   :is(#pause-menu, #scene-quick-menu, #control-card, #interact-prompt, #adaptive-hint, #boss-subtitles,
@@ -1664,3 +1809,42 @@ body.quick-menu-open #stealth-retry { visibility: hidden; }
   .credit-section { margin: 20px 0; }
   #stealth-letterbox::before, #stealth-letterbox::after { transition: none; }
 }
+
+#living-quarters-ui { position: fixed; inset: 0; pointer-events: none; z-index: 1800; font-family: var(--comic-body); color: var(--comic-ink); }
+#quarters-status { position: absolute; top: 18px; left: 18px; max-width: calc(100vw - 200px); padding: 8px 13px; background: var(--comic-yellow); border: 3px solid var(--comic-ink); box-shadow: 4px 4px 0 var(--comic-ink); transform: rotate(-1deg); line-height: 1.25; }
+#quarters-location { font: 22px/1.25 var(--comic-display); color: var(--comic-ink); text-transform: uppercase; }
+#quarters-interact, #quarters-notice { position: absolute; left: 50%; transform: translateX(-50%); padding: 10px 16px; border: 3px solid var(--comic-ink); box-shadow: 4px 4px 0 var(--comic-ink); text-align: center; font-size: 13px; font-weight: 700; color: var(--comic-ink); background: var(--comic-yellow); max-width: min(650px, calc(100vw - 36px)); width: max-content; }
+#quarters-interact { bottom: 20%; }
+#quarters-notice { bottom: 9%; background: var(--comic-paper); line-height: 1.6; }
+#quarters-room-name { position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%); max-width: calc(100vw - 36px); width: max-content; text-align: center; color: var(--comic-paper); font: 22px/1.5 var(--comic-display); text-shadow: 2px 2px 0 var(--comic-ink), -1px -1px 0 var(--comic-ink); -webkit-text-stroke: 0.6px var(--comic-ink); paint-order: stroke fill; }
+#quarters-loading { position: absolute; left: 50%; top: 12%; transform: translateX(-50%); padding: 10px 16px; border: 3px solid var(--comic-ink); box-shadow: 4px 4px 0 var(--comic-ink); background: var(--comic-cyan); text-align: center; font-size: 13px; font-weight: 700; max-width: min(650px, calc(100vw - 36px)); width: max-content; z-index: 3; }
+#quarters-letterbox::before, #quarters-letterbox::after { content: ''; position: absolute; width: 100%; height: 7%; background: var(--comic-ink); left: 0; }
+#quarters-letterbox::before { top: 0; }
+#quarters-letterbox::after { bottom: 0; }
+#quarters-subtitle { position: absolute; left: 50%; bottom: 9%; transform: translateX(-50%); width: min(720px, calc(100vw - 40px)); box-sizing: border-box; background: var(--comic-paper); border: 4px solid var(--comic-ink); box-shadow: 5px 5px 0 var(--comic-ink); padding: 12px 20px; }
+#quarters-speaker { color: #245468; font-family: var(--comic-display); font-size: 22px; }
+#quarters-subtitle-text { margin: 5px 0 0; font-size: 15px; line-height: 1.6; font-weight: 600; }
+#quarters-skip { position: absolute; right: 20px; top: 9%; pointer-events: auto; padding: 9px 14px; border: 3px solid var(--comic-ink); box-shadow: 3px 3px 0 var(--comic-ink); background: var(--comic-yellow); color: var(--comic-ink); font: 800 12px var(--comic-body); cursor: pointer; }
+#quarters-console-controls { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; align-items: center; justify-content: center; gap: 12px; width: max-content; max-width: calc(100vw - 32px); }
+#quarters-console-controls span, #quarters-console-controls button { padding: 9px 13px; border: 3px solid var(--comic-ink); box-shadow: 3px 3px 0 var(--comic-ink); background: var(--comic-paper); color: var(--comic-ink); font: 700 12px/1.4 var(--comic-body); text-align: center; }
+#quarters-console-controls button { flex-shrink: 0; pointer-events: auto; cursor: pointer; background: var(--comic-yellow); }
+body.quarters-interface:not(.quick-menu-open) canvas { cursor: none; touch-action: none; }
+body[data-scene="living-quarters"] #health-bar, body[data-scene="living-quarters"] #shield-bar { visibility: hidden; }
+body.quarters-cinematic #quarters-status, body.quarters-cinematic #look-reticle,
+body.quarters-cinematic #quarters-notice, body.quarters-cinematic #quarters-room-name, body.quarters-cinematic #view-toggle-btn,
+body.quarters-cinematic #touch-controls, body.quarters-cinematic #weapon-status { display: none !important; }
+body.quick-menu-open #living-quarters-ui { visibility: hidden; }
+#pause-menu .ship-map-room-label[data-locked="true"] { --room-color: #a0a5b3 !important; background: repeating-linear-gradient(135deg, #a0a5b3 0 5px, #788290 5px 8px); }
+@media (max-width: 700px), (max-height: 540px) {
+  #quarters-status { top: 10px; left: 10px; padding: 6px 10px; max-width: calc(100vw - 162px); }
+  #quarters-location { font-size: 18px; }
+  #quarters-subtitle { padding: 8px 12px; bottom: 9%; }
+  #quarters-subtitle-text { font-size: 12px; line-height: 1.45; }
+  #quarters-skip { right: 12px; font-size: 10px; }
+  #quarters-interact { bottom: 30%; font-size: 11px; }
+  #quarters-notice { bottom: 25%; font-size: 11px; }
+  #quarters-room-name { bottom: 18px; font-size: 17px; }
+  #quarters-console-controls { bottom: 10px; gap: 6px; width: calc(100vw - 24px); }
+  #quarters-console-controls span, #quarters-console-controls button { padding: 6px 8px; font-size: 10px; }
+}
+body.touch-device #quarters-room-name { bottom: 150px; }

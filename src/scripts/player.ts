@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 
 import { PHYSICS } from '../helpers/physics/scenePhysics.js';
+import { SLIDE_TACKLE, slideTackleMotion, slideTackleSpeed } from '../helpers/animation/slideTackle.js';
 import type { CargoTransfer } from './cargoPuzzle.js';
 
 // One-shot character actions (see characterManager.ts) on number keys 6-9.
@@ -38,6 +39,9 @@ export interface PlayerState {
   ventMode: boolean;
   boxHandling: boolean;
   boxMotion: number;
+  sliding: boolean;
+  slideTime: number;
+  slideYaw: number;
 }
 
 export const PLAYER_MAX_HEALTH = 100;
@@ -66,6 +70,8 @@ export interface PlayerTransitionState {
   shield?: number;
   cargo?: CargoTransfer;
   blockedKeys?: string[];
+  slide?: { time: number; yaw: number; entrySpeed: number };
+  slideCooldown?: number;
 }
 
 interface PlayerOptions {
@@ -120,6 +126,11 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   let sideScrollDepth: number | null = null;
   let inputLocked = false;
   let sprinting = false;
+  let sliding = false;
+  let slideTime = 0;
+  let slideYaw = 0;
+  let slideEntrySpeed: number = moveSpeed;
+  let slideCooldown = 0;
   let health = PLAYER_MAX_HEALTH;
   let shield = 0;
   const PLAYER_MAX_SHIELD = 50;
@@ -167,17 +178,23 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     if (ventMode && (e.code === 'KeyA' || e.code === 'KeyD') && !keys[e.code] && !e.repeat && turnRemaining === 0) {
       turnRemaining = e.code === 'KeyA' ? ventTurnAngle : -ventTurnAngle;
     }
-    if (!floating && !boxHandling && !crouchForced && !ventMode && e.code === 'Space' && !keys[e.code] && !e.repeat) jumpQueued = true;
-    // Toggle crouch with C key (only on fresh press, not repeat)
+    if (!sliding && !floating && !boxHandling && !crouchForced && !ventMode && e.code === 'Space' && !keys[e.code] && !e.repeat) jumpQueued = true;
     if (!floating && !boxHandling && e.code === 'KeyC' && !crouchForced && !keys[e.code] && !e.repeat) {
-      crouching = !crouching;
+      const forwardSpeed = -playerBody.velocity.x * Math.sin(yaw) - playerBody.velocity.z * Math.cos(yaw);
+      const runningForward = sideScrollDepth === null && keys.KeyW && !keys.KeyS && !crouching && !ventMode;
+      if (!sliding && runningForward && isOnGround && forwardSpeed > moveSpeed * 0.45 && slideCooldown <= 0) {
+        sliding = true; slideTime = 0; slideYaw = yaw; slideEntrySpeed = forwardSpeed;
+        jumpQueued = false; actionRequest = null; actionRequestLife = 0;
+      } else if (!sliding && !runningForward) {
+        crouching = !crouching;
+      }
     }
     // Sprint with Shift key
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
       sprinting = true;
     }
     const action = ACTION_KEYS[e.code];
-    if (!boxHandling && !ventMode && action && !keys[e.code] && !e.repeat && isOnGround) {
+    if (!sliding && !boxHandling && !ventMode && action && !keys[e.code] && !e.repeat && isOnGround) {
       actionRequest = action;
       // Life 3: survives two updateCamera calls per frame (physics.step + main.ts),
       // giving exactly one character-update window before expiry.
@@ -203,10 +220,16 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     if (floating) playerBody.velocity.y = 0;
     sprinting = false;
     turnRemaining = 0;
+    cancelSlide();
+  }
+
+  function cancelSlide() {
+    if (sliding) slideCooldown = SLIDE_TACKLE.cooldown;
+    sliding = false; slideTime = 0;
   }
 
   function requestAction(action: PlayerActionName) {
-    if (!enabled || inputLocked || !isOnGround || boxHandling || ventMode || actionRequest || (sideScrollDepth !== null && action !== 'Sword_Attack')) return false;
+    if (!enabled || inputLocked || sliding || !isOnGround || boxHandling || ventMode || actionRequest || (sideScrollDepth !== null && action !== 'Sword_Attack')) return false;
     actionRequest = action;
     actionRequestLife = 3;
     return true;
@@ -320,6 +343,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
 
   function beforePhysicsStep(_dt: number) {
     if (!enabled) return;
+    slideCooldown = Math.max(0, slideCooldown - _dt);
     if (ventMode) {
       crouching = true;
       jumpQueued = false;
@@ -356,6 +380,16 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     }
     let currentMoveSpeed = boxHandling ? 1.25 : ventMode ? 1.6 : crouching ? crouchMoveSpeed : moveSpeed;
     if (sprinting && !crouching) currentMoveSpeed = sprintMoveSpeed;
+    if (sliding) {
+      if (!isOnGround || slideTime >= SLIDE_TACKLE.duration) cancelSlide();
+      else {
+        desired.set(-Math.sin(slideYaw), 0, -Math.cos(slideYaw));
+        const exitSpeed = keys.KeyW && !keys.KeyS ? currentMoveSpeed : 0;
+        currentMoveSpeed = slideTackleSpeed(slideTime, slideEntrySpeed, exitSpeed);
+        slideTime = Math.min(SLIDE_TACKLE.duration, slideTime + _dt);
+        jumpQueued = false;
+      }
+    }
     if (isOnGround) {
       desired.y = -(desired.x * groundNormal.x + desired.z * groundNormal.z) / groundNormal.y;
       desired.normalize();
@@ -364,7 +398,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       playerBody.velocity.x = desired.x * currentMoveSpeed;
       playerBody.velocity.z = desired.z * currentMoveSpeed;
     }
-    if (jumpQueued && isOnGround && !crouching && !crouchForced) {
+    if (jumpQueued && !sliding && isOnGround && !crouching && !crouchForced) {
       playerBody.velocity.y = PHYSICS.jumpSpeed;
       isOnGround = false;
       intentionalJump = true;
@@ -385,6 +419,18 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       playerBody.aabbNeedsUpdate = true;
     }
     if (enabled && !climbing) updateGroundState(true);
+    if (sliding) {
+      if (!isOnGround) cancelSlide();
+      else for (const contact of physicsWorld.contacts) {
+        if (!contact.enabled) continue;
+        const first = contact.bi === playerBody;
+        if (!first && contact.bj !== playerBody) continue;
+        const normal = contact.ni.scale(first ? -1 : 1);
+        if (normal.y < minGroundY && normal.x * -Math.sin(slideYaw) + normal.z * -Math.cos(slideYaw) < -0.55) {
+          cancelSlide(); break;
+        }
+      }
+    }
   }
 
   function updateCamera(dt: number, thirdPerson: boolean = false) {
@@ -393,7 +439,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     // calls this once per render frame, before the character update).
     if (actionRequestLife > 0 && --actionRequestLife === 0) actionRequest = null;
     // Head bob
-    const isMoving = !climbing && getMoveDirection() && isOnGround;
+    const isMoving = !sliding && !climbing && getMoveDirection() && isOnGround;
     if (isMoving) {
       bobIntensity = Math.min(1, bobIntensity + dt * bobTransitionSpeed);
       bobTime += dt * bobFrequency;
@@ -409,7 +455,8 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     const bobPitch = Math.sin(bobTime * 2) * bobAmplitudePitch * bobIntensity * bobScale;
 
     // Camera
-    const currentEyeHeight = ventMode || (!climbing && (crouching || crouchForced)) ? crouchEyeHeight : eyeHeight;
+    const currentEyeHeight = sliding ? slideTackleMotion(slideTime).eyeHeight
+      : ventMode || (!climbing && (crouching || crouchForced)) ? crouchEyeHeight : eyeHeight;
     camera.position.set(
       playerBody.position.x + bobHorizontal,
       playerBody.position.y - playerRadius + currentEyeHeight + bobVertical,
@@ -418,7 +465,8 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     camera.rotation.order = 'YXZ';
     camera.rotation.y = yaw;
     camera.rotation.x = pitch + bobPitch;
-    camera.rotation.z = floating && !climbing ? Math.sin(floatTime * 0.85) * 0.012 : 0;
+    camera.rotation.z = sliding && !thirdPerson ? -slideTackleMotion(slideTime).low * 0.055
+      : floating && !climbing ? Math.sin(floatTime * 0.85) * 0.012 : 0;
     if (floating && !climbing) camera.position.y += Math.sin(floatTime * 1.4) * 0.025;
   }
 
@@ -441,6 +489,8 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       sprinting,
       health,
       shield,
+      slide: sliding ? { time: slideTime, yaw: slideYaw + rotation, entrySpeed: slideEntrySpeed } : undefined,
+      slideCooldown,
     };
   }
 
@@ -481,6 +531,13 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     if (Number.isFinite(state.shield)) shield = Math.max(0, Math.min(PLAYER_MAX_SHIELD, state.shield!));
     isOnGround = false;
     updateGroundState(false);
+    slideCooldown = Math.max(0, state.slideCooldown ?? 0);
+    if (state.slide && isOnGround && !crouching && !crouchForced && !ventMode && !climbing && !floating && !boxHandling
+      && sideScrollDepth === null && state.slide.time >= 0 && state.slide.time < SLIDE_TACKLE.duration) {
+      sliding = true; slideTime = state.slide.time; slideYaw = state.slide.yaw + rotation;
+      slideEntrySpeed = state.slide.entrySpeed;
+      jumpQueued = false;
+    }
     isPointerLocked = document.pointerLockElement != null;
     updateCamera(0);
   }
@@ -500,7 +557,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   return {
     body: playerBody,
     radius: playerRadius,
-    getHeadY: () => playerBody.position.y - playerRadius + eyeHeight,
+    getHeadY: () => playerBody.position.y - playerRadius + (sliding ? slideTackleMotion(slideTime).eyeHeight : eyeHeight),
     beforePhysicsStep,
     afterPhysicsStep,
     updateCamera,
@@ -517,6 +574,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     disable: () => { enabled = false; clearInput(); },
     isEnabled: () => enabled,
     setPosition: (x: number, y: number, z: number) => {
+      cancelSlide();
       playerBody.position.set(x, y, z);
       playerBody.velocity.set(0, 0, 0);
       playerBody.force.set(0, 0, 0);
@@ -534,6 +592,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     setForcedCrouch: (forced: boolean) => {
       crouchForced = forced;
       if (forced) {
+        cancelSlide();
         crouching = true;
         sprinting = false;
       }
@@ -541,6 +600,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     },
     setVentTurnAngle: (angle: number) => { ventTurnAngle = angle; },
     setBoxHandling: (active: boolean) => {
+      cancelSlide();
       boxHandling = active; lookLocked = active || ventMode;
       crouching = false; sprinting = false; jumpQueued = false;
       actionRequest = null; actionRequestLife = 0;
@@ -583,6 +643,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     },
     setZeroGravity: (active: boolean) => {
       if (active === floating) return;
+      cancelSlide();
       jumpQueued = false;
       actionRequest = null;
       actionRequestLife = 0;
@@ -647,8 +708,8 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     getDamageFlash: () => Math.max(0, 0.72 - (performance.now() - lastDamageAt) / 650),
     requestAction,
     getState: (): PlayerState => ({
-      isMoving: enabled && !climbing && (floating ? playerBody.velocity.lengthSquared() > 0.04
-        : sideScrollDepth !== null ? getMoveDirection() !== null && Math.abs(playerBody.velocity.x) > 0.05 : getMoveDirection() !== null),
+      isMoving: enabled && !climbing && (sliding || (floating ? playerBody.velocity.lengthSquared() > 0.04
+        : sideScrollDepth !== null ? getMoveDirection() !== null && Math.abs(playerBody.velocity.x) > 0.05 : getMoveDirection() !== null)),
       isOnGround,
       jumping: !isOnGround && intentionalJump && playerBody.velocity.y > 0.1,
       yaw,
@@ -656,7 +717,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       velocityY: playerBody.velocity.y,
       actionRequest,
       crouching: crouching || crouchForced,
-      sprinting,
+      sprinting: sprinting && !sliding,
       climbing,
       climbDirection,
       floating,
@@ -664,6 +725,9 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       ventMode,
       boxHandling,
       boxMotion: boxHandling ? playerBody.velocity.x * -Math.sin(yaw) + playerBody.velocity.z * -Math.cos(yaw) : 0,
+      sliding,
+      slideTime,
+      slideYaw,
     }),
   };
 }

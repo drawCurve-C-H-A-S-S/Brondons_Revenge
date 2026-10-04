@@ -91,7 +91,7 @@ export class CrowbarController {
 
   private swing() {
     const { scene, camera, player, openDoor } = this.context();
-    if (!this.equipped || this.cooldown > 0 || !player?.isEnabled() || player.getState().climbing || player.getState().ventMode || player.getState().boxHandling || !scene || !camera) return false;
+    if (!this.equipped || this.cooldown > 0 || !player?.isEnabled() || player.getState().sliding || player.getState().climbing || player.getState().ventMode || player.getState().boxHandling || !scene || !camera) return false;
     player.requestAction('Sword_Attack');
     openDoor();
     this.melee.reset();
@@ -112,7 +112,7 @@ export class CrowbarController {
     const { camera, player, character, thirdPerson, hasCrowbar, setCharacterEquipped, firstPersonHands: handsSource } = context;
     const firstPersonHands = typeof handsSource === 'function' ? handsSource() : handsSource;
     if (!hasCrowbar && this.equipped) this.holster();
-    const usable = !!player?.isEnabled() && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling;
+    const usable = !!player?.isEnabled() && !player.getState().sliding && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling;
     setCharacterEquipped(this.equipped && usable);
     this.root.visible = this.equipped && !thirdPerson && usable;
     const progress = this.swingTime > 0 ? 1 - this.swingTime / CROWBAR_SWING_DURATION : 1;
@@ -136,7 +136,7 @@ export class CrowbarController {
   renderFirstPerson(renderer: THREE.WebGLRenderer) {
     const { player, thirdPerson, hasCrowbar, firstPersonHands: handsSource } = this.context();
     const firstPersonHands = typeof handsSource === 'function' ? handsSource() : handsSource;
-    if (hasCrowbar && this.equipped && !thirdPerson && player?.isEnabled() && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling) firstPersonHands?.render(renderer);
+    if (hasCrowbar && this.equipped && !thirdPerson && player?.isEnabled() && !player.getState().sliding && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling) firstPersonHands?.render(renderer);
   }
 
   dispose() {

@@ -110,7 +110,7 @@ export class LightsaberController {
   private swing() {
     const { scene, camera, player, openDoor, attackClips } = this.context();
     if (this.inputBlocked() || !this.equipped || this.cooldown > 0 || !player?.isEnabled() || player.getHealth() <= 0
-      || player.getState().climbing || player.getState().ventMode || player.getState().boxHandling || !scene || !camera) return false;
+      || player.getState().sliding || player.getState().climbing || player.getState().ventMode || player.getState().boxHandling || !scene || !camera) return false;
     this.swingIndex++;
     this.attackClip = attackClips?.length ? attackClips[this.swingIndex % attackClips.length] : 'Sword_Attack';
     player.requestAction(this.attackClip);
@@ -141,7 +141,7 @@ export class LightsaberController {
     const { scene, camera, player, character, thirdPerson, hasLightsaber, setCharacterEquipped } = context;
     if (!hasLightsaber && this.equipped) this.holster();
     const usable = !!player?.isEnabled() && player.getHealth() > 0 && !player.getState().climbing
-      && !player.getState().ventMode && !player.getState().boxHandling;
+      && !player.getState().sliding && !player.getState().ventMode && !player.getState().boxHandling;
     const active = this.equipped && usable;
     setCharacterEquipped(active);
     if (active) {

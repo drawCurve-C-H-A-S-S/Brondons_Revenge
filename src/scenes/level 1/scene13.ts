@@ -4,12 +4,21 @@ import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { loadBoyModel, preloadBossModels } from '../../core/loader.js';
 import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
 import { roomBox, createSlidingPortal, disposeRoom } from '../../helpers/scene/shipRoom.js';
+import { createHangarVersus } from '../../helpers/scene/hangarVersus.js';
+import { createRecoveryPickup } from '../../helpers/scene/recoveryPickup.js';
 import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
 import { BOSS_RULES, createLoadingBayBoss, type BossPillar } from '../../scripts/mechBaymaxBoss.js';
 import { AudioManager, preloadAudio } from '../../helpers/audio/AudioManager.js';
 import bgmUrl from '../../assets/bgm/DonRevBGM1.m4a?url';
 
 export const BOSS_ENTRY_SECONDS = 7;
+export const BOSS_VERSUS_SECONDS = 2.6;
+export const ARENA_PILLAR_SUPPLIES = [
+  { id: 'warden-shield-west', kind: 'shield', x: -13, z: -15 },
+  { id: 'warden-health-west', kind: 'health', x: -13, z: 15 },
+  { id: 'warden-health-east', kind: 'health', x: 13, z: -15 },
+  { id: 'warden-shield-east', kind: 'shield', x: 13, z: 15 },
+] as const;
 
 export function preloadAssets() {
   preloadAudio(bgmUrl);
@@ -82,13 +91,22 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
     box([0.14, 1, 3], [x, 3.5, -22.5], amber);
   }
   const pillars: THREE.Mesh[] = [], covers: BossPillar[] = [];
+  const arenaSupplies: Array<{ id: string; kind: 'health' | 'shield'; collected: boolean; pickup: ReturnType<typeof createRecoveryPickup> }> = [];
   const rubble: Array<{ mesh: THREE.Mesh; velocity: THREE.Vector3; life: number }> = [];
   const rubbleGeometry = new THREE.BoxGeometry(1, 1, 1);
-  for (const x of [-13, 13]) for (const z of [-15, 15]) {
-    const pillar = box([3, 14, 3], [x, 7, z], wall, false); pillar.name = 'ArenaCoverPillar'; pillars.push(pillar);
-    const parts = [pillar, box([3.5, 0.35, 3.5], [x, 0.175, z], steel, false)];
+  for (const { id, kind, x, z } of ARENA_PILLAR_SUPPLIES) {
+    const side = Math.sign(x);
+    // Rear service recesses hold supplies; full-volume colliders retain the original cover behavior.
+    const pillar = box([2.5, 14, 3], [x - side * 0.25, 7, z], wall, false); pillar.name = 'ArenaCoverPillar'; pillars.push(pillar);
+    const parts = [pillar, box([3.5, 0.35, 3.5], [x, 0.175, z], steel, false),
+      box([0.5, 0.4, 3], [x + side * 1.25, 0.2, z], wall, false),
+      box([0.5, 12.6, 3], [x + side * 1.25, 7.7, z], wall, false)];
+    for (const offset of [-1, 1]) parts.push(box([0.5, 1, 1], [x + side * 1.25, 0.9, z + offset], wall, false));
     const bodies = [physics.addBox({ x: 3, y: 14, z: 3 }, { x, y: 7, z }), physics.addBox({ x: 3.5, y: 0.35, z: 3.5 }, { x, y: 0.175, z })];
-    for (const y of [1.2, 5.5, 10]) parts.push(box([3.06, 0.16, 3.06], [x, y, z], y === 1.2 ? amber : dark, false));
+    for (const y of [1.55, 5.5, 10]) parts.push(box([3.06, 0.16, 3.06], [x, y, z], y === 1.55 ? amber : dark, false));
+    const pickup = createRecoveryPickup(kind, new THREE.Vector3(x + side * 1.25, 0.88, z), { compact: true, illuminate: false });
+    pickup.root.name = id; pickup.root.visible = !defeated; pickup.root.userData.minimap = false; scene.add(pickup.root);
+    arenaSupplies.push({ id, kind, collected: false, pickup });
     let intact = true;
     covers.push({ position: new THREE.Vector3(x, 0, z), intact: () => intact, shatter() {
       if (!intact) return; intact = false; parts.forEach(part => { part.visible = false; }); bodies.forEach(body => physicsWorld.removeBody(body));
@@ -118,33 +136,10 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
 
   // --- Health Pack (appears after boss defeat) ---
   const healthPackPos = new THREE.Vector3(0, 1.2, -2.8);
-  const healthPackGroup = new THREE.Group();
-  healthPackGroup.position.copy(healthPackPos);
+  const healthPack = createRecoveryPickup('health', healthPackPos);
+  const healthPackGroup = healthPack.root;
   healthPackGroup.visible = defeated && !initialHealthPackCollected;
   scene.add(healthPackGroup);
-
-  const healthPackMat = new THREE.MeshStandardMaterial({
-    color: 0x2ecc40,
-    emissive: 0x7cf25a,
-    emissiveIntensity: 1.5,
-    metalness: 0.4,
-    roughness: 0.3
-  });
-  const healthPackBox = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.4, 0.4), healthPackMat);
-  healthPackGroup.add(healthPackBox);
-
-  // Red cross on top
-  const crossMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.8 });
-  const crossH = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.08, 0.12), crossMat);
-  crossH.position.y = 0.21;
-  healthPackGroup.add(crossH);
-  const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.35), crossMat);
-  crossV.position.y = 0.21;
-  healthPackGroup.add(crossV);
-
-  const healthPackLight = new THREE.PointLight(0x7cf25a, 2, 4);
-  healthPackLight.position.set(0, 0.3, 0);
-  healthPackGroup.add(healthPackLight);
   let healthPackCollected = initialHealthPackCollected;
   if (healthPackCollected) {
     healthPackGroup.visible = false;
@@ -157,7 +152,9 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
   if (checkpoint) player.setPosition(0, 0.3, defeated ? -6.2 : -10.2);
   door.openImmediately();
   let deathClock = 0;
-  let disposed = false, cleared = defeated, cinematic: 'entry' | 'awakening' | 'reveal' | 'lift' | null = defeated || checkpoint ? null : 'entry', cinematicTime = 0;
+  let disposed = false, cleared = defeated, cinematic: 'entry' | 'versus' | 'awakening' | 'reveal' | 'lift' | null = defeated || checkpoint ? null : 'entry', cinematicTime = 0;
+  let versus: ReturnType<typeof createHangarVersus> | null = null;
+  let arenaSupplyTime = 0, supplyNoticeTime = 0;
   let droneCutscene: { root: THREE.Object3D; stage: 'incoming' | 'impact'; clock: number; time: number; poseTime: number; impactPosition: THREE.Vector3 | null;
     start: THREE.Vector3; dodge: THREE.Vector3; impactStart: THREE.Vector3; recoil: THREE.Vector3;
     yaw: number; pitch: number; side: number; attackAngle: number; envelope: THREE.Box3 } | null = null;
@@ -220,6 +217,11 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
   const particles = Array.from({ length: 260 }, () => ({ start: new THREE.Vector3((Math.random() - 0.5) * 6, Math.random() * 7, (Math.random() - 0.5) * 5), drift: new THREE.Vector3((Math.random() - 0.5) * 2, 0.8 + Math.random(), (Math.random() - 0.5) * 2), size: 0.2 + Math.random() * 0.5 }));
   function freeze() { player.disable(); player.body.type = CANNON.Body.KINEMATIC; player.body.updateMassProperties(); player.body.velocity.set(0, 0, 0); }
   function release() { player.body.type = CANNON.Body.DYNAMIC; player.body.updateMassProperties(); player.enable(); }
+  function beginVersus() {
+    cinematic = 'versus'; cinematicTime = 0; door.setLocked(true); subtitles?.classList.add('hidden');
+    versus = createHangarVersus({ singleOpponent: true, playerName: 'BRONDON', opponentName: 'BAY WARDEN' });
+    versus.update(0);
+  }
   if (cinematic) freeze();
   const boss = createLoadingBayBoss(scene, physicsWorld, player, () => {
     cinematic = 'reveal'; cinematicTime = 0; freeze(); cloud.visible = true;
@@ -460,6 +462,7 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
       return true;
     }
     if (!cinematic) return false;
+    if (cinematic === 'versus') return true;
     if (cinematic === 'entry') {
       const p = player.body.position;
       camera.position.set(p.x + 2.1, p.y + 2.1, Math.max(-23.4, p.z - 3));
@@ -477,6 +480,14 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
   function updateCinematic(dt: number) {
     if (!cinematic) return;
     cinematicTime += dt;
+    if (cinematic === 'versus') {
+      versus?.update(cinematicTime);
+      if (cinematicTime >= BOSS_VERSUS_SECONDS) {
+        versus?.dispose(); versus = null;
+        cinematic = null; release(); boss.start();
+      }
+      return;
+    }
     if (cinematic === 'awakening') {
       subtitles?.classList.add('hidden');
       if (awakeningReleaseClock >= 0) {
@@ -493,7 +504,7 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
       const y = z < -21 ? 3 : z < -12 ? (-12 - z) / 3 : 0;
       player.setPosition(THREE.MathUtils.lerp(entryStart.x, 0, Math.min(1, distance * 5)), y + player.radius, z); player.setRotation(Math.PI);
       if (subtitles) { subtitles.classList.remove('hidden'); subtitles.textContent = cinematicTime < 5 ? 'LOWER LOADING BAY / 13' : 'That machine is guarding the bay.'; }
-      if (cinematicTime >= BOSS_ENTRY_SECONDS) { cinematic = null; release(); door.setLocked(true); boss.start(); subtitles?.classList.add('hidden'); }
+      if (cinematicTime >= BOSS_ENTRY_SECONDS) beginVersus();
     } else if (cinematic === 'lift') {
       platform.position.y = -12 * THREE.MathUtils.smoothstep(cinematicTime, 0, 4.5);
       liftBody.position.y = platform.position.y - 0.2; liftBody.aabbNeedsUpdate = true;
@@ -526,7 +537,7 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
   }
   function updateHud() {
     const s = boss.getStatus();
-    hud?.classList.toggle('hidden', cleared || cinematic === 'reveal' || cinematic === 'lift');
+    hud?.classList.toggle('hidden', cleared || cinematic === 'versus' || cinematic === 'reveal' || cinematic === 'lift');
     if (cleared && !cinematic && prompt) { prompt.textContent = 'Press E to interact — descend to hangar'; prompt.classList.toggle('hidden', !nearConsole()); }
     if (fill) fill.style.width = `${s.health / s.maxHealth * 100}%`;
     if (label) label.textContent = `BAY WARDEN / ${s.health} / ${s.maxHealth}`;
@@ -543,6 +554,9 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
     setBackTrigger: door.setTrigger, getDamageTargets: () => cleared || droneCutscene ? [] : boss.getDamageTargets(), setGogglesActive: boss.setGogglesActive,
     getParryableBolts: () => cleared || droneCutscene ? [] : boss.getParryableBolts(),
     getHealthPackCollected: () => healthPackCollected,
+    getArenaSupplies: () => arenaSupplies.map(supply => ({
+      id: supply.id, kind: supply.kind, collected: supply.collected, position: supply.pickup.root.position.clone(),
+    })),
     isCinematic: () => cinematic !== null || droneCutscene !== null,
     getCinematicDelta: () => cinematicDelta,
     getCinematicState: () => cinematic || droneCutscene ? { ...player.getState(), isMoving: cinematic === 'entry' && cinematicTime < 5.8, isOnGround: true, jumping: false, climbing: false, velocityY: 0 } : null,
@@ -558,6 +572,10 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
         lean: -droneCutscene.side * Math.sin(Math.min(1, clock / 1.3) * Math.PI) * 0.12 };
     },
     applyCinematicCamera,
+    updateCinematicCharacter(character: { model: THREE.Object3D } | null) {
+      if (cinematic === 'versus' && character) versus?.capture(character.model, [boss.root]);
+    },
+    renderCinematicOverlay(renderer: THREE.WebGLRenderer) { if (cinematic === 'versus') versus?.render(renderer); },
     applyEntryCamera() {
       if (returnClock <= 0) return;
       const blend = THREE.MathUtils.smootherstep(1 - returnClock / 0.3, 0, 1);
@@ -612,12 +630,33 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
       door.update(dt, player, cleared && !cinematic && door.near(player));
       if (disposed) return;
 
+      arenaSupplyTime += cinematicDelta;
+      if (supplyNoticeTime > 0) {
+        supplyNoticeTime = Math.max(0, supplyNoticeTime - cinematicDelta);
+        if (!supplyNoticeTime && !cinematic && !droneCutscene) subtitles?.classList.add('hidden');
+      }
+      for (const supply of arenaSupplies) {
+        const { pickup } = supply;
+        pickup.root.visible = !supply.collected && !cleared && cinematic !== 'reveal' && cinematic !== 'lift';
+        if (!pickup.root.visible) continue;
+        pickup.update(arenaSupplyTime);
+        if (cinematic || droneCutscene || !player.isEnabled() || player.getHealth() <= 0) continue;
+        const p = player.body.position, target = pickup.root.position;
+        if (Math.hypot(p.x - target.x, p.y - target.y, p.z - target.z) >= 1.1) continue;
+        const previous = supply.kind === 'shield' ? player.getShield() : player.getHealth();
+        const recovered = supply.kind === 'shield' ? player.addShield(50) : player.heal(100);
+        if (!recovered) continue;
+        supply.collected = true; pickup.root.visible = false; supplyNoticeTime = 1.8;
+        if (subtitles) {
+          const current = supply.kind === 'shield' ? player.getShield() : player.getHealth();
+          subtitles.textContent = `${supply.kind === 'shield' ? 'SHIELD' : 'HEALTH'} +${current - previous}`;
+          subtitles.classList.remove('hidden');
+        }
+      }
+
       // Health pack animation and collection
       if (healthPackGroup.visible && !healthPackCollected) {
-        const t = performance.now() * 0.001;
-        healthPackGroup.rotation.y = t * 1.2;
-        healthPackGroup.position.y = healthPackPos.y + Math.sin(t * 2) * 0.1;
-        healthPackMat.emissiveIntensity = 1.3 + Math.sin(t * 3) * 0.3;
+        healthPack.update(performance.now() * 0.001);
 
         const dx = player.body.position.x - healthPackPos.x;
         const dz = player.body.position.z - healthPackPos.z;
@@ -636,9 +675,9 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
       if (disposed) return; disposed = true;
       window.removeEventListener('keydown', onKey); prompt?.classList.add('hidden');
       hud?.classList.add('hidden'); subtitles?.classList.add('hidden');
+      versus?.dispose(); versus = null;
       boss.dispose(); boyMixer?.stopAllAction(); if (boy) boyMixer?.uncacheRoot(boy);
       player.dispose(); physics.dispose(); disposeRoom(scene); rubbleGeometry.dispose();
-      healthPackMat.dispose(); crossMat.dispose();
       audioManager.dispose();
     },
   };

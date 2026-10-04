@@ -6,6 +6,7 @@ import { createPlayer } from '../../scripts/player.js';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { loadToolModel, loadDinoModel } from '../../core/loader.js';
 import { disposeRoom } from '../../helpers/scene/shipRoom.js';
+import { emitComicEffect } from '../../helpers/scene/comicEffects.js';
 import type { DamageTarget, DamageWeapon } from '../../scripts/pistol.js';
 import type { CinematicPose } from '../../scripts/characterManager.js';
 import { PARRY_DAMAGE, type ParryableBolt } from '../../scripts/lightsaber.js';
@@ -240,6 +241,7 @@ export function createScene({ entryState, onRespawn, onPlatformer, section = 'ap
       || !Number.isFinite(amount) || amount <= 0 || (weapon !== 'pistol' && weapon !== 'crowbar' && weapon !== 'lightsaber')) return false;
     if (enemy.kind === 'dino') return false;
     enemy.health = Math.max(0, enemy.health - amount); enemy.ring.visible = false;
+    emitComicEffect(scene, enemy.health === 0 ? 'clank' : 'hit', { source: enemy.root, weapon });
     if (!enemy.health) {
       enemy.phase = 'dying'; enemy.body.collisionResponse = false; enemy.timer = Math.max(1, enemy.actions.get('TurnOff')?.getClip().duration ?? 1.3) + 0.25;
       enemy.body.type = CANNON.Body.KINEMATIC; enemy.body.velocity.set(0, 0, 0); enemy.body.force.set(0, 0, 0); enemy.body.updateMassProperties();
@@ -389,6 +391,7 @@ export function createScene({ entryState, onRespawn, onPlatformer, section = 'ap
   function fire(turret: { muzzle: THREE.Object3D; aim: THREE.Vector3 }, speed = 38) {
     const bolt = bolts.find(item => item.life <= 0); if (!bolt) return;
     turret.muzzle.getWorldPosition(origin);
+    emitComicEffect(scene, 'pew', { source: turret.muzzle.parent ?? turret.muzzle, position: origin, size: 1.5 });
     direction.copy(turret.aim).sub(origin).normalize();
     bolt.mesh.position.copy(origin); bolt.mesh.quaternion.setFromUnitVectors(up, direction);
     bolt.velocity.copy(direction).multiplyScalar(speed); bolt.life = 3; bolt.mesh.visible = true;
@@ -397,7 +400,7 @@ export function createScene({ entryState, onRespawn, onPlatformer, section = 'ap
   }
   function damageSentry(sentry: typeof sentries[number], amount: number, weapon?: DamageWeapon) {
     if (disposed || completed || deathClock > 0 || !player.isEnabled() || player.getHealth() <= 0 || !sentry.active
-      || (weapon !== 'pistol' && weapon !== 'crowbar' && weapon !== 'lightsaber') || !sentry.actor.damage(amount)) return false;
+      || (weapon !== 'pistol' && weapon !== 'crowbar' && weapon !== 'lightsaber') || !sentry.actor.damage(amount, weapon)) return false;
     if (sentry.actor.health === 0) {
       sentry.charge = -1; sentry.body.collisionResponse = false;
       sentry.body.type = CANNON.Body.KINEMATIC; sentry.body.velocity.set(0, 0, 0); sentry.body.force.set(0, 0, 0); sentry.body.updateMassProperties();

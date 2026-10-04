@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { loadPlayerModel } from '../core/loader.js';
 import { createCrowbar } from './items/createCrowbar.js';
+import { bakePosedLimb, disposeBakedLimb } from '../helpers/animation/bakePosedLimb.js';
 
 export async function createFirstPersonHands(loader?: GLTFLoader) {
   const gltf = await loadPlayerModel(loader);
@@ -26,60 +27,12 @@ export async function createFirstPersonHands(loader?: GLTFLoader) {
     const hand = model.getObjectByName(`hand_${side}`);
     const elbow = model.getObjectByName(`lowerarm_${side}`);
     if (!hand || !elbow) throw new Error(`MC.glb is missing the ${side} arm`);
-    const armBones = new Set<THREE.Object3D>();
-    elbow.traverse(bone => armBones.add(bone));
     const wrist = hand.getWorldPosition(new THREE.Vector3());
     const sourceDirection = elbow.getWorldPosition(new THREE.Vector3()).sub(wrist).normalize();
-    const arm = new THREE.Group();
+    const arm = bakePosedLimb(model, `lowerarm_${side}`, wrist);
     arm.position.copy(wristPosition);
     arm.quaternion.setFromUnitVectors(sourceDirection, elbowPosition.clone().sub(wristPosition).normalize());
     parent.add(arm);
-    let triangleCount = 0;
-
-    model.traverse(node => {
-      const mesh = node as THREE.SkinnedMesh;
-      if (!mesh.isSkinnedMesh) return;
-      const source = mesh.geometry;
-      const positions = source.getAttribute('position');
-      const skinIndex = source.getAttribute('skinIndex');
-      const skinWeight = source.getAttribute('skinWeight');
-      if (!skinIndex || !skinWeight) return;
-      const included = new Uint8Array(positions.count);
-      for (let i = 0; i < positions.count; i++) {
-        let weight = 0;
-        for (let j = 0; j < 4; j++) {
-          if (armBones.has(mesh.skeleton.bones[skinIndex.getComponent(i, j)])) weight += skinWeight.getComponent(i, j);
-        }
-        included[i] = weight >= 0.5 ? 1 : 0;
-      }
-      const indices: number[] = [];
-      const index = source.getIndex();
-      const count = index?.count ?? positions.count;
-      for (let i = 0; i < count; i += 3) {
-        const a = index ? index.getX(i) : i;
-        const b = index ? index.getX(i + 1) : i + 1;
-        const c = index ? index.getX(i + 2) : i + 2;
-        if (included[a] && included[b] && included[c]) {
-          indices.push(a, b, c);
-        }
-      }
-      if (!indices.length) return;
-      triangleCount += indices.length / 3;
-      const geometry = source.clone();
-      geometry.setIndex(indices); geometry.clearGroups();
-      const vertex = new THREE.Vector3();
-      for (let i = 0; i < positions.count; i++) {
-        mesh.getVertexPosition(i, vertex);
-        vertex.applyMatrix4(mesh.matrixWorld).sub(wrist);
-        geometry.getAttribute('position').setXYZ(i, vertex.x, vertex.y, vertex.z);
-      }
-      geometry.deleteAttribute('skinIndex'); geometry.deleteAttribute('skinWeight'); geometry.computeVertexNormals();
-      const material = Array.isArray(mesh.material)
-        ? mesh.material.map(item => { const clone = item.clone(); clone.side = THREE.DoubleSide; return clone; })
-        : (() => { const clone = mesh.material.clone(); clone.side = THREE.DoubleSide; return clone; })();
-      arm.add(new THREE.Mesh(geometry, material));
-    });
-    if (!triangleCount) throw new Error(`MC.glb has no ${side} arm triangles`);
     const grip = new THREE.Group();
     grip.quaternion.copy(hand.getWorldQuaternion(new THREE.Quaternion()));
     if (side === 'r') {
@@ -121,16 +74,7 @@ export async function createFirstPersonHands(loader?: GLTFLoader) {
       try { renderer.clearDepth(); renderer.render(viewScene, viewCamera); } finally { renderer.autoClear = oldAutoClear; }
     },
     dispose() {
-      const geometries = new Set<THREE.BufferGeometry>();
-      const materials = new Set<THREE.Material>();
-      handsGroup.traverse(object => {
-        const mesh = object as THREE.Mesh;
-        if (mesh.geometry) geometries.add(mesh.geometry);
-        const list = mesh.material ? (Array.isArray(mesh.material) ? mesh.material : [mesh.material]) : [];
-        list.forEach(material => materials.add(material));
-      });
-      geometries.forEach(geometry => geometry.dispose()); materials.forEach(material => material.dispose());
-      handsGroup.removeFromParent();
+      disposeBakedLimb(handsGroup);
     },
   };
 }

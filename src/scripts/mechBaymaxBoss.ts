@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { emitComicEffect } from '../helpers/scene/comicEffects.js';
 import * as CANNON from 'cannon-es';
 import { registerPhysicsActor } from '../helpers/physics/scenePhysics.js';
 import { PLAYER_MAX_HEALTH, type Player } from './player.js';
@@ -141,6 +142,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
         const validPhase = ['flying', 'windup', 'rushing', 'recovering', 'gravity'].includes(phase);
         if (disposed || !validPhase || !player.isEnabled() || (weapon !== 'pistol' && weapon !== 'lightsaber') || hits <= 0 || !Number.isFinite(amount) || amount <= 0) return false;
         hits--; if (targetsPhaseThreeMode) mesh.material = targetPhaseThree;
+        emitComicEffect(scene, 'hit', { source: mesh, weapon });
         cross.visible = hits > 0 && !targetsPhaseThreeMode;
         if (!hits) {
           const pos = mesh.getWorldPosition(new THREE.Vector3());
@@ -165,6 +167,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
       || !Number.isFinite(amount) || amount <= 0 || (weapon !== 'crowbar' && weapon !== 'pistol' && weapon !== 'lightsaber')) return false;
     const previousPhase = healthPhase();
     health = Math.max(0, health - amount); headCooldown = BOSS_RULES.headCooldown;
+    if (health > 0) emitComicEffect(scene, 'hit', { source: root, position: getHeadWorldPosition(), weapon });
     burst(getHeadWorldPosition());
     if (!health) finishBoss();
     else if (healthPhase() === 3 && !phaseThree) enterPhaseThree();
@@ -208,6 +211,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   }
   function finishBoss() {
     if (phase === 'droneExplosion') options.onDroneExplosionEnd?.();
+    emitComicEffect(scene, 'clank', { source: root });
     phase = 'defeated'; root.visible = false; clearBolts(); removeDrones();
     blast.visible = false; blastLight.intensity = 0;
     for (const { body } of colliders) if (body.world === world) world.removeBody(body);
@@ -520,6 +524,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   function droneTargets(): DamageTarget[] {
     return drones.filter(drone => drone.active).map(drone => ({ root: drone.root, body: drone.body, damage(amount: number, weapon?: string) {
       if (disposed || phase !== 'gravity' || !player.isEnabled() || (weapon !== 'pistol' && weapon !== 'lightsaber') || !Number.isFinite(amount) || amount <= 0 || !drone.active) return false;
+      emitComicEffect(scene, 'boom', { source: drone.root });
       drone.active = false; drone.root.visible = false;
       if (drone.body.world === world) world.removeBody(drone.body);
       const mesh = drone.root.getObjectByProperty('isMesh', true) as THREE.Mesh | undefined;
@@ -612,7 +617,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
           if (drone.state === 'orbit') {
             drone.laserCooldown -= dt;
             if (drone.laserCooldown <= 0) {
-              fireDroneBolt(from, facePlayer); drone.laserCooldown = BOSS_RULES.droneShotInterval;
+              fireDroneBolt(from, facePlayer, drone.root); drone.laserCooldown = BOSS_RULES.droneShotInterval;
             }
             if (!chargingDrone && drone.stateTime >= BOSS_RULES.droneOrbitHoldBase + drone.index * BOSS_RULES.droneOrbitHoldStep) {
               drone.state = 'windup'; drone.stateTime = 0; chargingDrone = drone;
@@ -647,6 +652,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
       }
       if (!droneDetonated && droneExplosionClock >= BOSS_RULES.droneDetonateAt) {
         droneDetonated = true;
+        emitComicEffect(scene, 'boom', { source: drone.root });
         blast.position.copy(drone.root.position); blastLight.position.copy(blast.position);
         blast.visible = true; drone.root.visible = false;
         burst(drone.root.position);
@@ -819,14 +825,16 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   function fireBolt(offsetAngle: number, muzzleIndexOverride?: number) {
     const side = (muzzleIndexOverride ?? (volleyMuzzle++ % 2)) === 0 ? 'l' : 'r';
     const from = getShoulderWorld(side as 'l' | 'r');
+    emitComicEffect(scene, 'pew', { source: root, position: from });
     const direction = chargedAim.clone().sub(from).normalize();
     if (offsetAngle !== 0) direction.applyAxisAngle(new THREE.Vector3(0, 1, 0), offsetAngle);
     const mesh = new THREE.Mesh(boxGeometry, targetCrossMat); mesh.name = 'BossLaser'; mesh.scale.set(0.12, 0.12, 1.2);
     mesh.position.copy(from); mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction); scene.add(mesh);
     bolts.push({ mesh, velocity: direction.multiplyScalar(BOSS_RULES.laserSpeed), life: 5, damage: BOSS_RULES.laserDamage, parried: false, owner: 'boss' });
   }
-  function fireDroneBolt(fromPosition: THREE.Vector3, targetPosition: THREE.Vector3) {
+  function fireDroneBolt(fromPosition: THREE.Vector3, targetPosition: THREE.Vector3, source?: THREE.Object3D) {
     const from = fromPosition.clone();
+    emitComicEffect(scene, 'pew', { source, position: from, size: 0.8 });
     const direction = targetPosition.clone().sub(from).normalize();
     const mesh = new THREE.Mesh(boxGeometry, droneBoltMaterial); mesh.name = 'DroneLaser'; mesh.scale.set(0.09, 0.09, 0.8);
     mesh.position.copy(from); mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction); scene.add(mesh);

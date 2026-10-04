@@ -3,6 +3,7 @@ import * as CANNON from 'cannon-es';
 import PF from 'pathfinding';
 import { loadToolModel } from '../../core/loader.js';
 import { disposeRoom } from '../../helpers/scene/shipRoom.js';
+import { clearComicEffects, emitComicEffect } from '../../helpers/scene/comicEffects.js';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
 import type { DamageTarget } from '../../scripts/pistol.js';
 import beamVertex from '../../shaders/stealthBeam.vert.glsl?raw';
@@ -276,6 +277,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
       bolt.position.copy(eye).add(aiming).multiplyScalar(0.5);
       bolt.quaternion.setFromUnitVectors(up, direction.normalize()); bolt.scale.y = length;
       scene.add(bolt); volleys.push({ mesh: bolt, life: 0.19 });
+      emitComicEffect(scene, 'pew', { source: actor.root, position: eye });
       animation(actor, 'attack'); callbacks.onAttack(actor, 10); fired++;
     }
     return fired;
@@ -310,6 +312,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
   function completeTakedown(id: string) {
     const actor = actors.find(candidate => candidate.id === id);
     if (!actor || alarmed || actor.mode === 'down' || actor.kind === 'eye') return false;
+    emitComicEffect(scene, 'clank', { source: actor.root });
     actor.mode = 'down'; actor.health = 0; actor.suspicion = 0; actor.downTime = 0;
     actor.body.collisionResponse = false; actor.beam.visible = actor.footprint.visible = false;
     animation(actor, 'down'); return true;
@@ -318,6 +321,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
     damage(amount, weapon) {
       if (actor.mode === 'down' || actor.mode === 'reserve' || !Number.isFinite(amount) || amount <= 0) return false;
       actor.health -= amount;
+      emitComicEffect(scene, actor.health <= 0 ? actor.kind === 'eye' ? 'boom' : 'clank' : 'hit', { source: actor.root, weapon });
       if (actor.health <= 0) { actor.mode = 'down'; actor.downTime = 0; actor.body.collisionResponse = false; animation(actor, 'down'); }
       if (weapon) forceAlarm(actor.id);
       return true;
@@ -471,6 +475,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
     }
   }
   function reset() {
+    clearComicEffects(scene);
     alarmed = false; encirclement = null; firing = false; elapsed = distractions = stepNoiseTime = 0;
     for (const volley of volleys) volley.mesh.removeFromParent(); volleys.length = 0;
     actors.forEach((actor, index) => {

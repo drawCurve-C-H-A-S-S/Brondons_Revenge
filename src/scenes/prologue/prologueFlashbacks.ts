@@ -1,18 +1,20 @@
 import * as THREE from 'three';
 import { clone as cloneRig } from 'three/addons/utils/SkeletonUtils.js';
 import { loadSubjectModel, loadToolModel } from '../../core/loader.js';
+import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
+import { createStealthHangar } from '../level 1 stage 1/stealthHangar.js';
 import hologramVertexShader from '../../shaders/hologram.vert.glsl?raw';
 import hologramFragmentShader from '../../shaders/hologram.frag.glsl?raw';
 
 export type PrologueShot = 'present' | 'asteroid' | 'collection' | 'ingest' | 'corruption'
-  | 'capture' | 'laboratory' | 'shield' | 'planet' | 'corridor' | 'patrol';
+  | 'capture' | 'laboratory' | 'shield' | 'planet' | 'corridor' | 'patrol' | 'stealth';
 
 export function createPrologueFlashbacks() {
   const textures = new Set<THREE.Texture>();
   type HologramPose = 'standing' | 'kneeling' | 'carrying' | 'restrained';
   const holograms: Array<{ group: THREE.Group; pose: HologramPose; height: number; mixer?: THREE.AnimationMixer }> = [];
   const scenes: THREE.Scene[] = [];
-  const robots: Array<{ root: THREE.Group; mixer?: THREE.AnimationMixer; phase: number }> = [];
+  const robots: Array<{ root: THREE.Group; mixer?: THREE.AnimationMixer; phase: number; hangar?: boolean; scan?: THREE.Mesh }> = [];
   const cameraRigs: THREE.Group[] = [];
   let disposed = false;
   let clock = 0;
@@ -444,7 +446,13 @@ export function createPrologueFlashbacks() {
     figure(capturedCrew, [(captiveIndex % 2 - 0.5) * 1.5, 0.02, -5 + Math.floor(captiveIndex / 2) * 1.9], 'restrained', 1.8);
   }
   capturedCrew.visible = false;
-  for (let robotIndex = 0; robotIndex < 3; robotIndex++) {
+  const stealthScene = newScene(0x0a0b16, true);
+  stealthScene.fog = new THREE.Fog(0x0a0b16, 28, 120);
+  const stealthPhysics = createScenePhysics();
+  createStealthHangar(stealthScene, stealthPhysics, 0);
+  figure(stealthScene, [19.4, 0.02, 9.7], 'kneeling');
+  const scanMaterial = new THREE.MeshBasicMaterial({ color: 0x7bead3, transparent: true, opacity: 0.13, depthWrite: false, toneMapped: false });
+  function patrolRobot(parent: THREE.Scene, robotIndex: number, x: number, hangar = false) {
     const root = new THREE.Group();
     const shell = new THREE.Mesh(new THREE.SphereGeometry(0.45, 16, 12), darkMetal);
     shell.scale.set(0.85, 0.6, 1.5);
@@ -457,14 +465,22 @@ export function createPrologueFlashbacks() {
       }
     }
     box(root, [0.15, 0.06, 0.03], [0, 0.35, 0.65], redStrip);
-    root.position.x = robotIndex === 2 ? -1.1 : robotIndex % 2 ? 2.1 : -2.1;
-    (robotIndex === 2 ? computerScene : securityScene).add(root);
-    robots.push({ root, phase: robotIndex * 2.2 });
+    root.position.x = x; parent.add(root);
+    let scan: THREE.Mesh | undefined;
+    if (hangar) {
+      const geometry = new THREE.CircleGeometry(7, 32, -Math.PI * 0.22, Math.PI * 0.44); geometry.rotateX(-Math.PI / 2);
+      scan = new THREE.Mesh(geometry, scanMaterial); scan.name = 'StealthPreviewScanField'; parent.add(scan);
+    }
+    robots.push({ root, phase: robotIndex * 2.2, hangar, scan });
   }
+  for (let robotIndex = 0; robotIndex < 3; robotIndex++)
+    patrolRobot(robotIndex === 2 ? computerScene : securityScene, robotIndex, robotIndex === 2 ? -1.1 : robotIndex % 2 ? 2.1 : -2.1);
+  for (const [index, x] of [36.8, 56.6, 69.1].entries()) patrolRobot(stealthScene, index + 3, x, true);
 
   const toolReady = loadToolModel('Enemy_Trilobite').then(gltf => {
     if (disposed) return;
     for (const robot of robots) {
+      robot.root.traverse(node => { if (node instanceof THREE.Mesh) node.geometry.dispose(); });
       robot.root.clear();
       const model = cloneRig(gltf.scene);
       const bounds = new THREE.Box3().setFromObject(model);
@@ -530,7 +546,7 @@ export function createPrologueFlashbacks() {
     present: null, asteroid: asteroidScene, collection: asteroidScene,
     ingest: computerScene, corruption: computerScene, capture: securityScene,
     laboratory: laboratoryScene, shield: shieldScene, planet: planetScene,
-    corridor: securityScene, patrol: securityScene,
+    corridor: securityScene, patrol: securityScene, stealth: stealthScene,
   };
   const focus = new THREE.Vector3();
   const start = new THREE.Vector3();
@@ -575,6 +591,15 @@ export function createPrologueFlashbacks() {
           updateMonitors(1, clock);
         }
         break;
+      case 'stealth':
+        if (elapsed < 3.8) {
+          start.set(19, 6.5, 27); end.set(28, 5.2, 23); focus.set(53, 2.5, 0); fov = 64;
+        } else if (elapsed < 6.4) {
+          start.set(33.2, 1.45, 11); end.set(34.8, 1.3, 8.5); focus.set(36.8, 0.6, -8); fov = 58;
+        } else {
+          start.set(55.8, 3.6, 25); end.set(58, 3.2, 23); focus.set(73, 1.8, 5); fov = 60;
+        }
+        break;
       default: return;
     }
     camera.position.lerpVectors(start, end, progress);
@@ -607,9 +632,13 @@ export function createPrologueFlashbacks() {
     });
     robots.forEach((robot, robotIndex) => {
       const travel = Math.sin(clock * 0.28 + robot.phase);
-      robot.root.position.z = robotIndex === 2 ? 0.85 + travel * 0.95 : travel * 8;
+      robot.root.position.z = robot.hangar ? travel * 24 : robotIndex === 2 ? 0.85 + travel * 0.95 : travel * 8;
       robot.root.position.y = Math.abs(Math.sin(clock * 8 + robot.phase)) * 0.018;
       robot.root.rotation.y = Math.cos(clock * 0.28 + robot.phase) > 0 ? 0 : Math.PI;
+      if (robot.scan) {
+        robot.scan.position.copy(robot.root.position); robot.scan.position.y = 0.022;
+        robot.scan.rotation.y = robot.root.rotation.y - Math.PI / 2;
+      }
       robot.mixer?.update(dt);
     });
     if (shot === 'ingest' || shot === 'corruption') {
@@ -620,6 +649,7 @@ export function createPrologueFlashbacks() {
   function dispose() {
     if (disposed) return;
     disposed = true;
+    stealthPhysics.dispose();
     for (const robot of robots) { robot.mixer?.stopAllAction(); if (robot.mixer) robot.mixer.uncacheRoot(robot.mixer.getRoot()); }
     for (const hologram of holograms) {
       hologram.mixer?.stopAllAction();

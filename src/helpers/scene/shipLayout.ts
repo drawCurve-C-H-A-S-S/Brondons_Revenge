@@ -2,6 +2,10 @@ import * as THREE from 'three';
 
 export type ShipDeck = 'upper' | 'main' | 'lower';
 export interface MapPortal { x: number; z: number; yaw: number; }
+export interface ShipMapBlock {
+  size: [number, number, number];
+  position: [number, number, number];
+}
 export interface ShipRoom {
   id: number;
   name: string;
@@ -11,6 +15,10 @@ export interface ShipRoom {
   position: THREE.Vector3;
   yaw: number;
   portals: Record<string, MapPortal>;
+  portalWidth?: number;
+  locked?: boolean;
+  description?: string;
+  mapContents?: readonly ShipMapBlock[];
 }
 export const SHIP_DECKS = {
   upper: { name: 'Vent deck', level: '+1', height: 18, color: '#efbe64' },

@@ -1,9 +1,12 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { loadToolModel } from '../../core/loader.js';
+import { loadToolModel, preloadToolModel } from '../../core/loader.js';
 import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
-import { roomBox, disposeRoom } from '../../helpers/scene/shipRoom.js';
-import { createPlayer } from '../../scripts/player.js';
+import { roomBox, disposeRoom, createSlidingPortal } from '../../helpers/scene/shipRoom.js';
+import { createShipInteriorMaterials, SHIP_INTERIOR_PALETTE } from '../../helpers/scene/shipInterior.js';
+import type { ShipMapLayout } from '../../core/shipMap.js';
+import type { ShipMapBlock } from '../../helpers/scene/shipLayout.js';
+import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
 import { getAudioSettings } from '../../helpers/audio/AudioManager.js';
 import { createStealthHangar, HANGAR_LAYOUT } from './stealthHangar.js';
 import { createStealthDirector, type StealthActor } from './stealthDirector.js';
@@ -12,31 +15,69 @@ import { HOLOGRAM_TRANSFER_DURATION, hologramTransitionAt } from '../../scripts/
 
 export const STORAGE_CLOSET = { width: 3.6, depth: 3.3, height: 3.05, doorWidth: 1.5, doorHeight: 2.55 };
 export const ALARM_SEQUENCE = { pullback: 2.4, approaches: 5.8, surround: 8.4, volley: 9.2, collapse: 10.1, retry: 12.2 };
+export const QUARTERS_PASSAGE_ENTRY = { x: -12.6, z: -2.5, midpointX: 0 };
 
-export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint = false, openingEntry = false, modelLoader = loadToolModel }: {
-  onComplete?: () => void; hintsEnabled?: boolean; restoreCheckpoint?: boolean; openingEntry?: boolean; modelLoader?: typeof loadToolModel;
+export const DECK_ONE_MAP: ShipMapLayout = {
+  name: 'Deck One', initialRoom: 29,
+  joins: [{ from: { room: 20, portal: 'forward' }, to: { room: 29, portal: 'quarters' } }],
+  rooms: [
+    { id: 29, name: 'Patrol passage', deck: 'main', width: 28, depth: 5, position: new THREE.Vector3(0, 0, -2.5),
+      yaw: 0, portalWidth: 3, description: 'Living quarters at the west bulkhead / Storage cover at the midpoint / Hangar to the east',
+      portals: { quarters: { x: -14, z: 0, yaw: Math.PI / 2 }, storage: { x: 0, z: 2.5, yaw: Math.PI },
+        hangar: { x: 14, z: 0, yaw: -Math.PI / 2 } } },
+    { id: 30, name: 'Storage room', deck: 'main', width: STORAGE_CLOSET.width, depth: STORAGE_CLOSET.depth,
+      position: new THREE.Vector3(0, 0, STORAGE_CLOSET.depth / 2), yaw: 0, portalWidth: STORAGE_CLOSET.doorWidth,
+      description: 'Concealed cover / Open and close the door, or peek from inside',
+      portals: { passage: { x: 0, z: -STORAGE_CLOSET.depth / 2, yaw: 0 } },
+      mapContents: [-1, 1].map((side): ShipMapBlock => ({ size: [0.72, 2.5, 1.5], position: [side * 1.3, 1.25, 0.2] })) },
+    { id: 31, name: 'Deck One cargo hangar', deck: 'main',
+      width: HANGAR_LAYOUT.bounds.maxX - HANGAR_LAYOUT.bounds.minX, depth: HANGAR_LAYOUT.bounds.maxZ - HANGAR_LAYOUT.bounds.minZ,
+      position: new THREE.Vector3(50, 0, 0), yaw: 0, portalWidth: 3.2,
+      description: 'Patrolled cargo aisles / Container ladders / Stage Two airlock',
+      portals: { passage: { x: -36, z: -2.5, yaw: Math.PI / 2 }, airlock: { x: 36, z: 20, yaw: -Math.PI / 2 } },
+      mapContents: HANGAR_LAYOUT.containers.map((cargo): ShipMapBlock => ({
+        size: [cargo.width, cargo.height * (cargo.stacked ? 2 : 1), cargo.depth],
+        position: [cargo.x - 50, cargo.height * (cargo.stacked ? 2 : 1) / 2, cargo.z],
+      })) },
+  ],
+  connections: [[29, 30], [29, 31]], playerPoint: (_id, position) => new THREE.Vector3(position.x, 2.2, position.z),
+};
+
+export async function preloadAssets() {
+  await Promise.all([preloadToolModel('Enemy_EyeDrone'), preloadToolModel('Enemy_Trilobite'), preloadToolModel('Enemy_QuadShell')]);
+}
+
+export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint = false, openingEntry = false, fromQuarters = false,
+  entryState, onReturnToQuarters, deferActivation = false, modelLoader = loadToolModel }: {
+  onComplete?: () => Promise<boolean>; hintsEnabled?: boolean; restoreCheckpoint?: boolean; openingEntry?: boolean; fromQuarters?: boolean;
+  entryState?: PlayerTransitionState; onReturnToQuarters?: (state: PlayerTransitionState) => Promise<boolean>;
+  deferActivation?: boolean; modelLoader?: typeof loadToolModel;
 } = {}) {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0a0a10);
-  scene.fog = new THREE.Fog(0x0a0a10, 42, 115);
+  let active = !deferActivation;
+  scene.background = new THREE.Color(SHIP_INTERIOR_PALETTE.background);
+  scene.fog = new THREE.Fog(SHIP_INTERIOR_PALETTE.background, 42, 115);
   const physics = createScenePhysics();
   const deckY = 12;
   const roomHeight = STORAGE_CLOSET.height;
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / Math.max(1, window.innerHeight), 0.05, 190);
-  const player = createPlayer({ camera, physicsWorld: physics.world, spawnPosition: { x: 0, y: deckY + PHYSICS.playerRadius, z: 2.25 } });
-  player.setRotation(0, 0);
+  const entry = fromQuarters ? QUARTERS_PASSAGE_ENTRY : { x: 0, z: 2.25 };
+  const player = createPlayer({ camera, physicsWorld: physics.world, spawnPosition: { x: entry.x, y: deckY + PHYSICS.playerRadius, z: entry.z } });
+  if (entryState) player.restoreTransition({ ...entryState,
+    position: { x: entry.x, y: deckY + player.radius, z: entry.z }, velocity: { x: 0, y: 0, z: 0 },
+    yaw: fromQuarters ? -Math.PI / 2 : 0, pitch: 0, heldKeys: [], sprinting: false, intentionalJump: false, jumpQueued: false,
+  }, { x: 0, y: 0, z: 0, yaw: -Math.PI });
+  player.setRotation(fromQuarters ? -Math.PI / 2 : 0, 0);
   player.enable();
 
-  const wall = new THREE.MeshStandardMaterial({ color: 0x6a6a74, metalness: 0.1, roughness: 0.75, emissive: 0x111118, emissiveIntensity: 0.35 });
-  const floor = new THREE.MeshStandardMaterial({ color: 0x555561, metalness: 0.15, roughness: 0.7, emissive: 0x111118, emissiveIntensity: 0.4 });
-  const trim = new THREE.MeshStandardMaterial({ color: 0x3c414f, metalness: 0.35, roughness: 0.65 });
-  const crate = new THREE.MeshStandardMaterial({ color: 0x64746e, metalness: 0.3, roughness: 0.74 });
+  const { steel: wall, dark, trim, cyan: lightStrip, deck: floor, deckTexture } = createShipInteriorMaterials(14, 2.5);
+  const storageFloor = floor.clone(); storageFloor.map = deckTexture.clone(); storageFloor.map.repeat.set(1.8, 1.65);
+  const crate = wall.clone(); crate.color.setHex(0x536b7d);
   const yellow = new THREE.MeshStandardMaterial({ color: 0xdab943, metalness: 0.25, roughness: 0.52 });
-  const lightStrip = new THREE.MeshBasicMaterial({ color: 0x3b5555 });
   const box = (size: [number, number, number], position: [number, number, number], material: THREE.Material = wall, solid = true) =>
     roomBox(scene, physics, size, [position[0], deckY + position[1], position[2]], material, solid);
 
-  box([STORAGE_CLOSET.width, 0.2, STORAGE_CLOSET.depth], [0, -0.1, STORAGE_CLOSET.depth / 2], floor);
+  box([STORAGE_CLOSET.width, 0.2, STORAGE_CLOSET.depth], [0, -0.1, STORAGE_CLOSET.depth / 2], storageFloor);
   box([28, 0.2, 5], [0, -0.1, -2.5], floor);
   box([0.2, roomHeight, STORAGE_CLOSET.depth], [-1.8, roomHeight / 2, 1.65]);
   box([0.2, roomHeight, STORAGE_CLOSET.depth], [1.8, roomHeight / 2, 1.65]);
@@ -44,9 +85,15 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   for (const side of [-1, 1]) {
     box([1, roomHeight, 0.2], [side * 1.3, roomHeight / 2, 0]);
     box([12.2, roomHeight, 0.2], [side * 7.9, roomHeight / 2, 0]);
-    if (side < 0) box([0.2, roomHeight, 5], [side * 14, roomHeight / 2, -2.5]);
     box([0.14, STORAGE_CLOSET.doorHeight, 0.32], [side * 0.84, STORAGE_CLOSET.doorHeight / 2, 0], trim);
   }
+  const quartersDoor = createSlidingPortal(scene, physics, { x: -14, y: deckY, z: -2.5, yaw: Math.PI / 2 },
+    5, roomHeight, 'LIVING QUARTERS', { doorHeight: 2.5 });
+  quartersDoor.setLocked(!onReturnToQuarters);
+  box([1.6, 0.2, 5], [-14.8, -0.1, -2.5], floor);
+  box([1.6, 0.16, 5], [-14.8, roomHeight, -2.5], dark).userData.minimap = false;
+  for (const z of [-5, 0]) box([1.6, roomHeight, 0.18], [-14.8, roomHeight / 2, z]);
+  box([0.12, roomHeight, 5], [-15.55, roomHeight / 2, -2.5], dark).userData.minimap = false;
   box([1.6, roomHeight - STORAGE_CLOSET.doorHeight, 0.2], [0, (roomHeight + STORAGE_CLOSET.doorHeight) / 2, 0]);
   box([1.82, 0.14, 0.32], [0, STORAGE_CLOSET.doorHeight + 0.07, 0], trim);
   box([28, roomHeight, 0.2], [0, roomHeight / 2, -5]);
@@ -54,7 +101,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     [[STORAGE_CLOSET.width, 0.16, STORAGE_CLOSET.depth], [0, roomHeight, 1.65]],
     [[28, 0.16, 5], [0, roomHeight, -2.5]],
   ] as Array<[[number, number, number], [number, number, number]]>) {
-    box(size, position, trim).userData.minimap = false;
+    box(size, position, dark).userData.minimap = false;
   }
   for (const x of [-1.3, 1.3]) {
     for (const z of [1.85]) {
@@ -67,15 +114,21 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     }
   }
   for (const x of [-12, -8, -4, 0, 4, 8, 12]) {
-    box([0.12, roomHeight, 0.12], [x, roomHeight / 2, -4.85], trim, false);
+    box([0.12, roomHeight, 0.12], [x, roomHeight / 2, -4.85], dark, false);
+    box([0.24, 0.17, 4.64], [x, roomHeight - 0.18, -2.5], trim, false);
     box([2.3, 0.045, 0.2], [x, roomHeight - 0.1, -2.5], lightStrip, false);
-    const light = new THREE.PointLight(0xc6d3e6, 5, 14);
+    const light = new THREE.PointLight(SHIP_INTERIOR_PALETTE.light, 5, 14);
     light.position.set(x, deckY + 2.7, -2.5);
     scene.add(light);
   }
+  for (const z of [-4.78, -0.22]) {
+    box([27.6, 0.022, 0.035], [0, 0.012, z], lightStrip, false);
+    box([27.6, 0.045, 0.05], [0, 0.18, z], trim, false);
+  }
+  for (const side of [-1, 1]) box([0.035, 0.022, 3.02], [side * 1.59, 0.012, 1.65], lightStrip, false);
   box([1.5, 0.025, 0.1], [0, 0.015, 0.25], yellow, false);
-  scene.add(new THREE.AmbientLight(0x445566, 2.8));
-  const roomLight = new THREE.PointLight(0xc6d3e6, 2.5, 7);
+  scene.add(new THREE.AmbientLight(SHIP_INTERIOR_PALETTE.ambient, 1.4));
+  const roomLight = new THREE.PointLight(SHIP_INTERIOR_PALETTE.light, 2.5, 7);
   roomLight.position.set(0, deckY + 2.75, 2.25);
   scene.add(roomLight);
 
@@ -90,7 +143,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   const handle = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.055, 0.09), trim);
   handle.position.set(1.27, 1.15, 0.105);
   doorPivot.add(handle);
-  const doorInset = new THREE.Mesh(new THREE.BoxGeometry(1.15, 1.65, 0.018), trim);
+  const doorInset = new THREE.Mesh(new THREE.BoxGeometry(1.15, 1.65, 0.018), dark);
   doorInset.position.set(0.75, 1.4, 0.07);
   doorPivot.add(doorInset);
   const doorIndicator = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.025, 0.012), lightStrip);
@@ -151,6 +204,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   retryButton.className = 'hidden';
   retryButton.textContent = 'Press R to retry from storage';
   retryButton.title = 'Retry from storage (R)';
+  if (fromQuarters) { retryButton.textContent = 'Press R to retry from passage'; retryButton.title = 'Retry from the quarters bulkhead (R)'; }
   document.body.appendChild(retryButton);
   const hint = document.createElement('aside');
   hint.id = 'prime-stealth-hint'; hint.className = 'hidden'; hint.setAttribute('aria-live', 'polite');
@@ -165,6 +219,8 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   const skip = document.createElement('button'); skip.id = 'stealth-cinematic-skip'; skip.className = 'hidden';
   skip.type = 'button'; document.body.appendChild(skip);
   const bars = document.createElement('div'); bars.id = 'stealth-letterbox'; bars.setAttribute('aria-hidden', 'true'); document.body.appendChild(bars);
+  const uiNodes = [status, actions, retryButton, hint, checkpointNotice, skip, bars];
+  if (!active) uiNodes.forEach(node => { node.style.visibility = 'hidden'; });
 
   const hangar = createStealthHangar(scene, physics, deckY);
 
@@ -177,14 +233,21 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   let caught = false;
   let lastDelta = 0;
   let checkpoint = restoreCheckpoint, introSeen = restoreCheckpoint, entranceRequested = false, complete = false;
+  let quartersRequested = false, passageCaptionTime = fromQuarters ? 8 : 0;
+  type Destination = 'quarters' | 'stage-two';
+  let doorwayTransfer: { destination: Destination; error: boolean } | null = null;
+  let blockedTransfer: Destination | null = null;
   let alarmAge = 0, hintTime = 0, hintCooldown = 3.5, noticeTime = 0, menuPaused = false;
   let hintsOn = hintsEnabled;
   let volleyCount = 0;
   let corridorDeathAt = -1;
   let corridorDeathFinished = false;
-  let arrivalTime = openingEntry && !restoreCheckpoint ? 0 : HOLOGRAM_TRANSFER_DURATION;
+  let arrivalTime = openingEntry && !restoreCheckpoint && !fromQuarters ? 0 : HOLOGRAM_TRANSFER_DURATION;
+  let corridorEngaged = !fromQuarters, corridorPatrolTime = 0;
   const usedHints = new Set<string>(), panelCooldowns = new Map<string, number>();
-  type Cinematic = { kind: 'reveal' | 'alarm' | 'capture' | 'takedown' | 'escape'; time: number; actor?: StealthActor; start: THREE.Vector3; cameraStart: THREE.Vector3; facing?: THREE.Vector3; approachActors?: StealthActor[]; entryWalk?: { start: THREE.Vector3; time: number } };
+  type Cinematic = { kind: 'reveal' | 'alarm' | 'capture' | 'takedown' | 'escape';
+    time: number; actor?: StealthActor; start: THREE.Vector3; startYaw: number; cameraStart: THREE.Vector3;
+    facing?: THREE.Vector3; approachActors?: StealthActor[]; entryWalk?: { start: THREE.Vector3; time: number } };
   let cinematic: Cinematic | null = null;
   let climbing: { ladder: typeof hangar.ladders[number]; down: boolean; time: number; start: THREE.Vector3; duration: number } | null = null;
   let alarmAudio: { context: AudioContext; oscillator: OscillatorNode; gain: GainNode } | null = null;
@@ -196,22 +259,26 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   const cinematicPosition = new THREE.Vector3(), cinematicFocus = new THREE.Vector3();
   const actorDirection = new THREE.Vector3();
 
+  function inStorage() {
+    return Math.abs(player.body.position.x) < STORAGE_CLOSET.width / 2
+      && player.body.position.z > 0.2 && player.body.position.z < STORAGE_CLOSET.depth;
+  }
   function observation() {
     const state = player.getState();
     return { position: player.body.position, crouching: state.crouching, sprinting: state.sprinting, moving: state.isMoving,
-      protected: peeking || director.isProtected(player.body.position)
-        || (player.body.position.z > 0.2 && player.body.position.x < 1.7),
-      enabled: checkpoint && !caught && !complete && cinematic?.kind !== 'reveal' && cinematic?.kind !== 'escape' };
+      protected: peeking || director.isProtected(player.body.position) || inStorage(),
+      enabled: checkpoint && !caught && !complete && !doorwayTransfer && cinematic?.kind !== 'reveal' && cinematic?.kind !== 'escape' };
   }
   const director = createStealthDirector(scene, physics, hangar, {
     onAlarm: actor => startAlarm(actor),
     onAttack: (_actor, damage) => {
-      if (!caught && cinematic?.kind !== 'reveal') {
+      if (!caught && !doorwayTransfer && cinematic?.kind !== 'reveal') {
         player.takeDamage(Math.min(damage, Math.max(0, player.getHealth() - 1))); ping(920, 0.12);
       }
     },
   }, modelLoader);
   const ready = Promise.all([corridorReady, director.ready]).then(() => undefined);
+  const map: ShipMapLayout = { ...DECK_ONE_MAP, initialRoom: fromQuarters ? 29 : 30 };
 
   function ensureAudio() {
     if (!alarmAudio && typeof window.AudioContext === 'function') {
@@ -245,22 +312,24 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   function startCinematic(kind: Cinematic['kind'], actor?: StealthActor) {
     if (disposed) return;
     if (peeking) endPeek(false);
-    cinematic = { kind, time: 0, actor, start: new THREE.Vector3().copy(player.body.position), cameraStart: camera.position.clone(),
+    cinematic = { kind, time: 0, actor, start: new THREE.Vector3().copy(player.body.position),
+      startYaw: player.getState().yaw, cameraStart: camera.position.clone(),
       facing: actor ? new THREE.Vector3(0, 0, 1).applyQuaternion(actor.root.quaternion) : undefined,
       entryWalk: kind === 'reveal' && !checkpoint ? { start: new THREE.Vector3().copy(player.body.position), time: 0 } : undefined,
       approachActors: kind === 'alarm' ? director.actors.filter(candidate => candidate.mode === 'charge').sort((first, second) =>
         first.root.position.distanceTo(new THREE.Vector3().copy(player.body.position))
         - second.root.position.distanceTo(new THREE.Vector3().copy(player.body.position))) : undefined };
-    lock(true); hideHint(); prompt?.classList.add('hidden');
-    document.body.classList.add('stealth-cinematic'); skip.classList.toggle('hidden', !canSkipCinematic());
+    lock(true); hideHint();
+    if (active) { prompt?.classList.add('hidden'); document.body.classList.add('stealth-cinematic'); }
+    skip.classList.toggle('hidden', !canSkipCinematic());
   }
   function endCinematic() {
     const kind = cinematic?.kind; cinematic = null;
-    document.body.classList.remove('stealth-cinematic'); skip.classList.add('hidden');
+    if (active) document.body.classList.remove('stealth-cinematic'); skip.classList.add('hidden');
     camera.fov = 75; camera.updateProjectionMatrix();
     if (!caught) lock(false);
-    if (kind === 'escape') { complete = true; lock(true); onComplete?.(); }
     if (kind === 'reveal') hintCooldown = 1.2;
+    else if (kind === 'escape') { complete = true; lock(true); void onComplete?.(); }
   }
   function startAlarm(actor?: StealthActor) {
     if (caught || complete || cinematic?.kind === 'alarm' || cinematic?.kind === 'capture' || alarmAge > 0) return;
@@ -287,7 +356,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     document.body.classList.add('storage-caught'); document.exitPointerLock?.();
   }
   function canSkipCinematic() {
-    return !disposed && !menuPaused && (corridorDeathAt >= 0 && !corridorDeathFinished && elapsed - corridorDeathAt < 2.5
+    return active && !disposed && !menuPaused && (corridorDeathAt >= 0 && !corridorDeathFinished && elapsed - corridorDeathAt < 2.5
       || !caught && (cinematic?.kind === 'alarm' || cinematic?.kind === 'capture' || cinematic?.kind === 'reveal' && checkpoint));
   }
   function finishCapture() {
@@ -340,6 +409,31 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   function nearDoor() {
     return Math.abs(player.body.position.x) < 1.5 && player.body.position.z > -1.3 && player.body.position.z < 1.9;
   }
+  function nearQuartersDoor() {
+    return !checkpoint && !!onReturnToQuarters && Math.hypot(player.body.position.x + 14, player.body.position.z + 2.5) < 2.6;
+  }
+  function transferError(request: NonNullable<typeof doorwayTransfer>, error: unknown) {
+    if (disposed || doorwayTransfer !== request) return;
+    console.error(`[StealthPassage] Unable to enter ${request.destination}:`, error);
+    request.error = true; complete = false; player.setInputLocked(false);
+    if (subtitle) { subtitle.textContent = 'Unable to load the next area. R to retry / E to cancel.'; subtitle.classList.remove('hidden'); }
+  }
+  function transferThroughDoor(destination: Destination) {
+    if (doorwayTransfer && !doorwayTransfer.error) return;
+    const request = { destination, error: false }; doorwayTransfer = request;
+    complete = destination === 'stage-two'; player.clearInput(); player.setInputLocked(true);
+    if (subtitle) { subtitle.textContent = destination === 'quarters' ? 'Opening living quarters...' : 'Opening Stage Two airlock...'; subtitle.classList.remove('hidden'); }
+    void Promise.resolve().then(() => {
+      if (destination === 'quarters') {
+        if (!onReturnToQuarters) throw new Error('The living-quarters return connection is not configured');
+        return onReturnToQuarters(player.captureTransition({ x: 0, y: 0, z: 0 }));
+      }
+      if (!onComplete) throw new Error('The Stage Two scene connection is not configured');
+      return onComplete();
+    }).then(entered => {
+      if (!entered) transferError(request, new Error('Doorway scene transfer was cancelled or failed'));
+    }, error => transferError(request, error));
+  }
 
   function endPeek(open: boolean) {
     peeking = false;
@@ -371,21 +465,24 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
 
   function resetEncounter() {
     endPeek(false);
-    elapsed = suspicion = doorAngle = alarmAge = volleyCount = 0; caught = complete = false; cinematic = climbing = null;
+    elapsed = suspicion = doorAngle = alarmAge = volleyCount = corridorPatrolTime = 0; corridorEngaged = !fromQuarters;
+    caught = complete = false; cinematic = climbing = null; doorwayTransfer = null; blockedTransfer = null;
+    quartersRequested = false; passageCaptionTime = 0;
     corridorDeathAt = -1;
     corridorDeathFinished = false;
     arrivalTime = HOLOGRAM_TRANSFER_DURATION;
     entranceRequested = checkpoint; introSeen = checkpoint; director.reset();
     player.setClimbing(false); player.enable();
-    const spawn = checkpoint ? HANGAR_LAYOUT.checkpoint : { x: 0, z: 2.25 };
+    const spawn = checkpoint ? HANGAR_LAYOUT.checkpoint : fromQuarters ? QUARTERS_PASSAGE_ENTRY : { x: 0, z: 2.25 };
     const state = player.captureTransition({ x: 0, y: 0, z: 0, yaw: 0 });
     player.restoreTransition({ ...state, position: { x: spawn.x, y: deckY + player.radius, z: spawn.z },
-      velocity: { x: 0, y: 0, z: 0 }, heldKeys: [], health: 100, shield: 0, yaw: checkpoint ? -Math.PI / 2 : 0,
+      velocity: { x: 0, y: 0, z: 0 }, heldKeys: [], health: 100, shield: 0, yaw: checkpoint || fromQuarters ? -Math.PI / 2 : 0,
       pitch: 0, crouching: false, sprinting: false, intentionalJump: false, jumpQueued: false }, { x: 0, y: 0, z: 0, yaw: -Math.PI });
-    panelCooldowns.clear(); usedHints.clear(); hideHint(); hintCooldown = 3; noticeTime = 0;
+    panelCooldowns.clear(); usedHints.clear(); hideHint(); hintCooldown = fromQuarters ? 0.5 : 3; noticeTime = 0;
     checkpointNotice.classList.add('hidden'); skip.classList.add('hidden');
     for (const panel of hangar.panels) { panel.indicator.color.setHex(0x92d1b5); panel.indicator.emissive.setHex(0x5aa883); }
     hangar.entrance.update(1, checkpoint); hangar.exit.update(1, false);
+    quartersDoor.update(1, player, false);
     if (alarmAudio) alarmAudio.gain.gain.value = 0;
     camera.fov = 75; camera.updateProjectionMatrix();
     syncDoor();
@@ -395,14 +492,17 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   }
 
   function interact() {
-    if (caught || complete || arrivalTime < HOLOGRAM_TRANSFER_DURATION) return;
+    if (caught || complete || doorwayTransfer || arrivalTime < HOLOGRAM_TRANSFER_DURATION) return;
     ensureAudio();
     if (cinematic) return;
     if (climbing) return;
     if (peeking) endPeek(true);
     else if (!checkpoint && nearDoor()) {
-      if (doorOpen) doorOpen = false;
+      if (player.body.position.z < 0) { doorOpen = !doorOpen; player.requestAction('Interact'); }
+      else if (doorOpen) doorOpen = false;
       else beginPeek();
+    } else if (nearQuartersDoor()) {
+      quartersRequested = !quartersRequested; player.requestAction('Interact');
     } else if (Math.hypot(player.body.position.x - 14, player.body.position.z + 2.5) < 2.4 && !checkpoint) {
       entranceRequested = true; player.setRotation(-Math.PI / 2, 0); startCinematic('reveal');
     } else {
@@ -420,8 +520,16 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   }
 
   function onKey(event: KeyboardEvent) {
-    if (event.repeat || document.hidden || document.body.classList.contains('quick-menu-open')) return;
+    if (!active || event.repeat || document.hidden || document.body.classList.contains('quick-menu-open')) return;
     if (event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if (doorwayTransfer?.error) {
+      if (event.code === 'KeyR') { event.preventDefault(); transferThroughDoor(doorwayTransfer.destination); }
+      else if (event.code === 'KeyE') {
+        event.preventDefault(); blockedTransfer = doorwayTransfer.destination; doorwayTransfer = null;
+        subtitle?.classList.add('hidden');
+      }
+      return;
+    }
     if (event.code === 'KeyE') { event.preventDefault(); interact(); }
     else if (event.code === 'KeyB' && peeking) { event.preventDefault(); endPeek(false); }
     else if (event.code === 'KeyB' && !checkpoint && nearDoor() && doorOpen && alarmAge === 0) { event.preventDefault(); endPeek(false); }
@@ -460,7 +568,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
         cinematicPosition.lerpVectors(new THREE.Vector3(18, deckY + 4, -5), new THREE.Vector3(25, deckY + 7.5, -10), time / 3.4);
         cinematicFocus.set(49, deckY + 2.8, 0);
       } else if (time < 6.4) {
-        const actor = director.actors[10];
+        const actor = director.actors[10] ?? director.actors[director.actors.length - 1];
         cinematicPosition.copy(actor.root.position).add(new THREE.Vector3(-2, 1.3, -4));
         cinematicFocus.copy(actor.root.position).add(new THREE.Vector3(2.5, -2.6, 2.5));
       } else if (time < 9.2) {
@@ -556,7 +664,8 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     if (!hintsOn || cinematic || peeking || alarmAge > 0 || caught || hintCooldown > 0) return;
     const position = player.body.position;
     if (!checkpoint) {
-      if (position.z > 0) showHint('closet', 'Wait for the camera to pass. The latch lets you look without stepping into its path.');
+      if (fromQuarters && !corridorEngaged) showHint('quarters-approach', 'Storage is at the midpoint. Open its door from the passage with E. When the eye approaches, hide inside and let it pass.');
+      else if (position.z > 0) showHint('closet', 'Wait for the camera to pass. The latch lets you look without stepping into its path.');
       else showHint('passage', 'The drone watches the direction it travels. Stay behind it until you reach the far door.');
     } else if (player.body.position.y > deckY + 2.8) showHint('roof', 'The catwalks are exposed, and the middle span is missing. Drop behind cargo and use another ladder when the eyes sweep your route.');
     else if (director.suspicion > 0.25) showHint('suspicion', 'They are checking that movement. Break the line of sight behind cargo; do not sprint.');
@@ -568,7 +677,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   }
 
   function updatePhysics(dt: number, thirdPerson = false) {
-    if (disposed) return;
+    if (disposed || !active) return;
     const frame = Number.isFinite(dt) ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime)) : 0;
     lastDelta = frame;
     elapsed += frame;
@@ -580,13 +689,15 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
       }
     }
     if (peeking) peekTime += frame;
-    const phase = 2.15 + elapsed * 0.19;
-    drone.position.set(Math.sin(phase) * 11, deckY + 2.02 + Math.sin(elapsed * 2.2) * 0.055, -2.5);
+    if (corridorEngaged) corridorPatrolTime += frame;
+    const patrolTime = fromQuarters ? corridorPatrolTime : elapsed, phase = 2.15 + patrolTime * 0.19;
+    drone.position.set(Math.sin(phase) * 11, deckY + 2.02 + Math.sin(patrolTime * 2.2) * 0.055, -2.5);
     droneFacing.x = Math.cos(phase) >= 0 ? 1 : -1;
     drone.lookAt(droneTarget.copy(drone.position).add(droneFacing));
     doorAngle = THREE.MathUtils.damp(doorAngle, doorOpen ? Math.PI / 2 : peeking ? 0.045 : 0, 9, frame);
     syncDoor();
     physics.step(frame, player, thirdPerson);
+    quartersDoor.update(frame, player, quartersRequested || doorwayTransfer?.destination === 'quarters');
     updateTraversal(frame, thirdPerson);
     roomLight.intensity = 2.5 * (0.95 + Math.sin(elapsed * 3.7) * 0.05);
     for (const [id, cooldown] of panelCooldowns) {
@@ -597,6 +708,10 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
       }
     }
     const position = player.body.position;
+    if (!corridorEngaged && !checkpoint && position.x >= QUARTERS_PASSAGE_ENTRY.midpointX) {
+      corridorEngaged = true; hintCooldown = 0;
+      showHint('corridor-midpoint', 'The eye is moving. Get into storage, close the door and wait for it to pass. Then slip out behind it.');
+    }
     const nearEntrance = Math.hypot(position.x - 14, position.z + 2.5) < 3;
     hangar.entrance.update(frame, alarmAge === 0 && (entranceRequested || (checkpoint && nearEntrance)));
     hangar.exit.update(frame, alarmAge === 0 && cinematic?.kind === 'escape');
@@ -614,11 +729,22 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
         player.setPosition(HANGAR_LAYOUT.checkpoint.x, deckY + player.radius, HANGAR_LAYOUT.checkpoint.z); startCinematic('reveal');
       } else skip.classList.remove('hidden');
     }
+    if (blockedTransfer === 'quarters' && position.x > -13.25 || blockedTransfer === 'stage-two' && position.x < 85.25) blockedTransfer = null;
+    if (!cinematic && !caught && !doorwayTransfer && quartersRequested && blockedTransfer !== 'quarters'
+      && quartersDoor.open > 0.95 && position.x < -14.4 && Math.abs(position.z + 2.5) < 1.6)
+      transferThroughDoor('quarters');
+    if (passageCaptionTime > 0 && !cinematic && !peeking && !doorwayTransfer) {
+      passageCaptionTime = Math.max(0, passageCaptionTime - frame);
+      if (subtitle) {
+        subtitle.textContent = 'Prime: Surveillance is live. The eye starts moving at halfway. Hide in storage as it passes, then sneak behind it.';
+        subtitle.classList.toggle('hidden', passageCaptionTime === 0);
+      }
+    }
     if (noticeTime > 0) { noticeTime -= frame; if (noticeTime <= 0) checkpointNotice.classList.add('hidden'); }
     director.update(frame, observation());
 
     let visible = false;
-    if (!peeking && !caught && !checkpoint && alarmAge === 0 && cinematic?.kind !== 'reveal') {
+    if (corridorEngaged && !peeking && !caught && !checkpoint && alarmAge === 0 && !doorwayTransfer) {
       const from = player.body.position.clone();
       from.set(drone.position.x, drone.position.y, drone.position.z);
       const to = player.body.position.clone();
@@ -678,17 +804,19 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     skip.classList.toggle('hidden', !canSkipCinematic()); skipHold.update(frame);
     if (complete) return;
     updateHints(frame);
-    const safe = director.isProtected(player.body.position) || peeking;
+    const safe = director.isProtected(player.body.position) || peeking || inStorage();
     status.dataset.state = caught || alarmAge > 0 ? 'caught' : suspicion > 0 ? 'suspicious' : safe ? 'safe' : 'unseen';
     stateLabel.textContent = caught ? corridorDeathAt >= 0 ? 'ELIMINATED' : 'OVERRUN'
       : alarmAge > 0 ? 'LOCKDOWN' : safe ? 'HIDDEN' : suspicion > 0 ? 'SUSPICIOUS' : 'UNSEEN';
-    status.querySelector<HTMLElement>('.stealth-deck')!.textContent = checkpoint ? 'DECK ONE / HANGAR' : 'DECK ONE / STORAGE';
+    status.querySelector<HTMLElement>('.stealth-deck')!.textContent = checkpoint ? 'DECK ONE / HANGAR'
+      : fromQuarters && !inStorage() ? 'DECK ONE / PATROL PASSAGE' : 'DECK ONE / STORAGE';
     suspicionFill.style.width = `${suspicion * 100}%`;
     suspicionTrack.setAttribute('aria-valuenow', String(Math.round(suspicion * 100)));
     droneLensMaterial.color.setHex(suspicion > 0 ? 0xff4659 : 0xffb64b);
     if (prompt) {
       let text = '';
-      if (!checkpoint && nearDoor()) text = doorOpen ? 'E: close door / B: hide' : 'E: peek';
+      if (!checkpoint && nearDoor()) text = doorOpen ? 'E: close door / B: hide' : player.body.position.z < 0 ? 'E: open storage door' : 'E: peek';
+      else if (nearQuartersDoor()) text = `E: ${quartersRequested ? 'close' : 'open'} living-quarters bulkhead`;
       else if (!checkpoint && nearEntrance) text = 'E: open bulkhead';
       else if (nearbyLadder()) text = player.body.position.y > deckY + 2.8 ? 'E: descend' : 'E: climb';
       else if (director.getTakedownCandidate(observation())) text = 'E: silent takedown';
@@ -698,10 +826,10 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
         else if (Math.abs(position.y - deckY - player.radius) < 0.8
           && Math.hypot(position.x - 86, position.z - 20) < 2.5) text = 'E: enter stage 2';
       }
-      prompt.textContent = text; prompt.classList.toggle('hidden', !text || peeking || caught || !!cinematic || !!climbing || alarmAge > 0);
+      prompt.textContent = text; prompt.classList.toggle('hidden', !text || peeking || caught || !!cinematic || !!climbing || !!doorwayTransfer || alarmAge > 0);
     }
   }
-  if (arrivalTime < HOLOGRAM_TRANSFER_DURATION) { lock(true); document.body.classList.add('stealth-cinematic'); }
+  if (arrivalTime < HOLOGRAM_TRANSFER_DURATION) { lock(true); if (active) document.body.classList.add('stealth-cinematic'); }
   if (restoreCheckpoint) {
     player.setPosition(HANGAR_LAYOUT.checkpoint.x, deckY + player.radius, HANGAR_LAYOUT.checkpoint.z);
     player.setRotation(-Math.PI / 2, 0); entranceRequested = true;
@@ -711,13 +839,23 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
 
   return {
     roomId: 'stage1-storage', scene, camera, physicsWorld: physics.world, player, ready, updatePhysics,
+    activate() {
+      if (disposed) throw new Error('Cannot activate a disposed stealth passage');
+      active = true; uiNodes.forEach(node => { node.style.visibility = ''; });
+      document.body.classList.toggle('stealth-cinematic', arrivalTime < HOLOGRAM_TRANSFER_DURATION || peeking || cinematic !== null);
+      player.enable(); updatePhysics(0);
+    },
+    requiresRecoveredPistol: fromQuarters,
+    getMapLayout: () => map,
+    getMapSceneId: () => `scene${checkpoint ? 31 : inStorage() ? 30 : 29}`,
     cutsceneManager: null,
     get ownsWeaponInput() { return arrivalTime < HOLOGRAM_TRANSFER_DURATION || peeking || caught || !!cinematic || !!climbing; },
     canToggleView: () => arrivalTime >= HOLOGRAM_TRANSFER_DURATION && !peeking && !caught && !cinematic && !climbing,
     controlsReady: () => false,
     isCinematic: () => arrivalTime < HOLOGRAM_TRANSFER_DURATION || peeking || !!cinematic || corridorDeathAt >= 0,
     hideCharacter: () => peeking,
-    getCinematicState: () => arrivalTime < HOLOGRAM_TRANSFER_DURATION || peeking || cinematic || corridorDeathAt >= 0 ? { ...player.getState(), isMoving: !!cinematic?.entryWalk && cinematic.entryWalk.time > 0 && cinematic.entryWalk.time < 1.6,
+    getCinematicState: () => arrivalTime < HOLOGRAM_TRANSFER_DURATION || peeking || cinematic || corridorDeathAt >= 0 ? { ...player.getState(),
+      isMoving: !!cinematic?.entryWalk && cinematic.entryWalk.time > 0 && cinematic.entryWalk.time < 1.6,
       isOnGround: true, sprinting: false } : null,
     getCinematicDelta: () => lastDelta,
     getHologramTransition: () => arrivalTime < HOLOGRAM_TRANSFER_DURATION ? hologramTransitionAt(arrivalTime, true) : null,
@@ -737,7 +875,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     },
     getDamageTargets: () => director.getDamageTargets(),
     getParryableBolts: () => [],
-    minimap: { bounds: { minX: -14, maxX: 86, minZ: -31, maxZ: 31 }, radius: 19, floor: deckY,
+    minimap: { bounds: { minX: -16, maxX: 86, minZ: -31, maxZ: 31 }, radius: 19, floor: deckY,
       deckLabel: 'DECK ONE', deck: 'upper', stairs: hangar.ladders.slice(0, 2).map(ladder => ({ x: ladder.x, z: ladder.z })) },
     getMinimapState: () => ({ position: player.body.position, yaw: player.getState().yaw,
       enemies: [{ id: 'storage-camera-drone', position: drone.position, yaw: Math.atan2(-droneFacing.x, -droneFacing.z), alerted: suspicion > 0, range: 7.5 }, ...director.getMinimapEnemies()],
@@ -746,17 +884,18 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     getHintsEnabled: () => hintsOn,
     setHintsEnabled: (value: boolean) => { hintsOn = value; if (!value) hideHint(); else hintCooldown = 0.5; },
     setMenuPaused: (value: boolean) => { menuPaused = value; if (value) skipHold.reset(); if (alarmAudio && value) alarmAudio.gain.gain.value = 0; },
-    getStageState: () => ({ checkpoint, introSeen, hintsEnabled: hintsOn, safeZone: director.safeZoneFor(player.body.position),
-      phase: arrivalTime < HOLOGRAM_TRANSFER_DURATION ? 'arrival' : caught ? 'caught' : complete ? 'complete' : cinematic?.kind ?? (climbing ? 'ladder' : checkpoint ? 'hangar' : peeking ? 'peek' : 'closet'),
+    getStageState: () => ({ checkpoint, introSeen, hintsEnabled: hintsOn, fromQuarters, corridorEngaged, safeZone: director.safeZoneFor(player.body.position),
+      phase: arrivalTime < HOLOGRAM_TRANSFER_DURATION ? 'arrival' : caught ? 'caught' : complete ? 'complete' : cinematic?.kind ?? (climbing ? 'ladder' : checkpoint ? 'hangar' : peeking ? 'peek' : fromQuarters && !inStorage() ? 'passage' : 'closet'),
       alarm: alarmAge > 0, suspicion, distractions: director.distractions, alarmTime: alarmAge, volleys: volleyCount, firingSquad: director.firingSquad }),
     stealth: director, hangar,
     dispose() {
       if (disposed) return;
       disposed = true;
       window.removeEventListener('keydown', onKey);
-      document.body.classList.remove('storage-peeking', 'storage-alert', 'storage-caught', 'stealth-cinematic');
-      prompt?.classList.add('hidden');
-      subtitle?.classList.add('hidden');
+      if (active) {
+        document.body.classList.remove('storage-peeking', 'storage-alert', 'storage-caught', 'stealth-cinematic');
+        prompt?.classList.add('hidden'); subtitle?.classList.add('hidden');
+      }
       skipHold.dispose();
       status.remove(); actions.remove(); retryButton.remove(); hint.remove(); checkpointNotice.remove(); skip.remove(); bars.remove();
       director.dispose();

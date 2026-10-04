@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { loadToolModel } from '../core/loader.js';
 import { disposeRoom } from '../helpers/scene/shipRoom.js';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
+import { emitComicEffect } from '../helpers/scene/comicEffects.js';
 
 type QuadShellAsset = Awaited<ReturnType<typeof loadToolModel>>;
 function releaseAsset(asset: QuadShellAsset) {
@@ -68,9 +69,10 @@ export function createRiverAmbusher(scene: THREE.Object3D, initialHealth = 125, 
       lamp.scale.setScalar(1 + chargeLevel * 2.5); lampMaterial.color.setHex(chargeLevel > 0.7 ? 0xffeeaa : 0xff5038);
       if (shotTime <= 0) play(restingClip());
     },
-    damage(amount: number) {
+    damage(amount: number, weapon?: string) {
       if (disposed || health <= 0 || !Number.isFinite(amount) || amount <= 0) return false;
       health = Math.max(0, health - amount); lampMaterial.color.setHex(0xffffff);
+      emitComicEffect(scene, health === 0 ? 'clank' : 'hit', { source: root, weapon });
       if (health === 0) { deathTime = 0; play('TurnOff', true); }
       return true;
     },

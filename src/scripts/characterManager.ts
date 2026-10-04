@@ -14,6 +14,7 @@ import { createCrowbar } from './items/createCrowbar.js';
 import { createLightsaber, disposeLightsaber, fitLightsaberToHand, fitWeaponToHand, getLightsaberAttackClips, LIGHTSABER_SWING_DURATION, type LightsaberAttackName } from './items/createLightsaber.js';
 import { LADDER } from '../utils/constants.js';
 import { createGoggles } from './rewardChest.js';
+import { SLIDE_TACKLE, slideTackleMotion } from '../helpers/animation/slideTackle.js';
 
 import type { PlayerState } from './player.js';
 
@@ -33,7 +34,7 @@ export function hologramTransitionAt(time: number, arriving = false): HologramTr
 }
 
 export interface CinematicPose {
-  clip: 'Walk_Loop' | 'Float_Loop' | 'Ladder_Climb_Loop' | 'Crouch_Idle_Loop' | 'Interact' | 'Idle_Loop' | 'Sprint_Loop' | 'Pistol_Aim_Neutral' | 'Pistol_Shoot' | 'Sword_Idle' | 'Sword_Attack' | 'Roll' | 'Hit_Chest' | 'Death01' | 'Jump_Start' | 'Jump_Loop' | 'Jump_Land' | 'Sitting_Enter';
+  clip: 'Walk_Loop' | 'Float_Loop' | 'Ladder_Climb_Loop' | 'Crouch_Idle_Loop' | 'Interact' | 'Idle_Loop' | 'Sprint_Loop' | 'Slide_Tackle' | 'Pistol_Aim_Neutral' | 'Pistol_Shoot' | 'Sword_Idle' | 'Sword_Attack' | 'Roll' | 'Hit_Chest' | 'Death01' | 'Jump_Start' | 'Jump_Loop' | 'Jump_Land' | 'Sitting_Enter';
   time: number;
   duration?: number;
   loop?: boolean;
@@ -54,6 +55,7 @@ const CLIP_NAMES = [
   'Crouch_Idle_Loop', 'Crouch_Fwd_Loop',
   'Ladder_Climb_Loop',
   'Float_Loop', 'Box_Push_Loop', 'Box_Pull_Loop',
+  'Slide_Tackle',
 ] as const;
 type ClipName = typeof CLIP_NAMES[number] | LightsaberAttackName;
 
@@ -62,7 +64,7 @@ type ClipName = typeof CLIP_NAMES[number] | LightsaberAttackName;
 const ACTION_CLIPS: ReadonlySet<string> = new Set([
   'Sword_Attack', 'Pistol_Shoot', 'Pistol_Reload', 'Dance_Loop', 'Interact',
 ]);
-const ONE_SHOT_CLIPS = ['Jump_Start', 'Jump_Land', ...ACTION_CLIPS];
+const ONE_SHOT_CLIPS = ['Jump_Start', 'Jump_Land', 'Slide_Tackle', ...ACTION_CLIPS];
 
 // Rotation offset: the UAL model's local forward is +Z, but the camera
 // looks toward -Z at yaw 0.  Adding PI keeps the model facing the same
@@ -209,6 +211,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
   model.rotation.set(0, MODEL_ROT_OFFSET, 0, 'YXZ');
 
   const transitionMeshes: Array<{ mesh: THREE.Mesh; material: THREE.Material | THREE.Material[] }> = [];
+  const animatedBones = new Set<THREE.Object3D>();
   const hologramMaterials = new Map<THREE.Material, THREE.Material>();
   const hologramUniforms = {
     hologramTime: { value: 0 },
@@ -221,6 +224,11 @@ export async function loadCharacter(loader?: GLTFLoader) {
   model.traverse((child: THREE.Object3D) => {
     child.layers.enable(0);
     child.layers.enable(1);
+    if (child instanceof THREE.SkinnedMesh) for (const joint of child.skeleton.bones) {
+      for (let bone: THREE.Object3D | null = joint; bone; bone = bone.parent) {
+        if (bone instanceof THREE.Bone) animatedBones.add(bone);
+      }
+    }
     if ((child as THREE.Mesh).isMesh) {
       const mesh = child as THREE.Mesh;
       transitionMeshes.push({ mesh, material: mesh.material });
@@ -235,12 +243,12 @@ export async function loadCharacter(loader?: GLTFLoader) {
 
   // Bake two-bone IK once at load time. The actual UAL leg names are thigh/calf.
   // Targets are model-local (+Z forward), independent of each bone's rest axes.
-  const rig: Array<{ bone: THREE.Bone; position: THREE.Vector3; quaternion: THREE.Quaternion }> = [];
+  const rig: Array<{ bone: THREE.Bone; position: THREE.Vector3; quaternion: THREE.Quaternion; scale: THREE.Vector3 }> = [];
   model.traverse(node => {
-    if ((node as THREE.Bone).isBone) rig.push({ bone: node as THREE.Bone, position: node.position.clone(), quaternion: node.quaternion.clone() });
+    if (node instanceof THREE.Bone && animatedBones.has(node)) rig.push({ bone: node, position: node.position.clone(), quaternion: node.quaternion.clone(), scale: node.scale.clone() });
   });
   function resetRig() {
-    for (const { bone, position, quaternion } of rig) { bone.position.copy(position); bone.quaternion.copy(quaternion); }
+    for (const { bone, position, quaternion, scale } of rig) { bone.position.copy(position); bone.quaternion.copy(quaternion); bone.scale.copy(scale); }
     model.updateMatrixWorld(true);
   }
   function aimBone(bone: THREE.Object3D, child: THREE.Object3D, target: THREE.Vector3) {
@@ -313,16 +321,33 @@ export async function loadCharacter(loader?: GLTFLoader) {
   const calibrationFacing = model.quaternion.clone(); model.quaternion.identity(); resetRig();
   orientHand('l', false); orientHand('r', false); resetRig(); model.quaternion.copy(calibrationFacing);
 
-  async function bakeTraversal(name: string, duration: number, climbing: boolean, handling = 0) {
+  async function bakeRigClip(name: string, duration: number, frames: number, pose: (time: number) => void) {
     const facing = model.quaternion.clone();
     model.quaternion.identity();
-    const times = Array.from({ length: 49 }, (_, i) => i * duration / 48);
+    const times = Array.from({ length: frames }, (_, i) => i * duration / (frames - 1));
     const rotations = rig.map(() => [] as number[]);
     const positions = rig.map(() => [] as number[]);
-    for (let frame = 0; frame < times.length; frame++) {
-      if (frame > 0 && frame % 2 === 0) await yieldToMainThread();
-      resetRig();
-      const phase = frame / 48;
+    const scales = rig.map(() => [] as number[]);
+    try {
+      for (let frame = 0; frame < times.length; frame++) {
+        if (frame > 0 && frame % 2 === 0) await yieldToMainThread();
+        resetRig(); pose(times[frame]);
+        rig.forEach(({ bone }, i) => {
+          rotations[i].push(...bone.quaternion.toArray()); positions[i].push(...bone.position.toArray()); scales[i].push(...bone.scale.toArray());
+        });
+      }
+    } finally {
+      resetRig(); model.quaternion.copy(facing); model.updateMatrixWorld(true);
+    }
+    return new THREE.AnimationClip(name, duration, rig.flatMap(({ bone }, i) => [
+      new THREE.QuaternionKeyframeTrack(`${bone.name}.quaternion`, times, rotations[i]),
+      new THREE.VectorKeyframeTrack(`${bone.name}.position`, times, positions[i]),
+      new THREE.VectorKeyframeTrack(`${bone.name}.scale`, times, scales[i]),
+    ]));
+  }
+  async function bakeTraversal(name: string, duration: number, climbing: boolean, handling = 0) {
+    return bakeRigClip(name, duration, 49, time => {
+      const phase = time / duration;
       for (const side of [1, -1]) {
         const suffix = side === 1 ? 'l' : 'r';
         const cycle = (phase + (side === 1 ? 0 : 0.5)) % 1;
@@ -344,21 +369,87 @@ export async function loadCharacter(loader?: GLTFLoader) {
         solveLimb(`thigh_${suffix}`, `calf_${suffix}`, `foot_${suffix}`, footTarget, new THREE.Vector3(side * 0.15, 0, 1));
         orientHand(suffix, climbing || handling !== 0, climbing || handling < 0);
       }
-      rig.forEach(({ bone }, i) => { rotations[i].push(...bone.quaternion.toArray()); positions[i].push(...bone.position.toArray()); });
-    }
-    resetRig();
-    model.quaternion.copy(facing);
-    model.updateMatrixWorld(true);
-    // Full-pose tracks prevent stale walk/aim tracks leaking into traversal.
-    return new THREE.AnimationClip(name, duration, rig.flatMap(({ bone }, i) => [
-      new THREE.QuaternionKeyframeTrack(`${bone.name}.quaternion`, times, rotations[i]),
-      new THREE.VectorKeyframeTrack(`${bone.name}.position`, times, positions[i]),
-    ]));
+    });
   }
   clips.push(await bakeTraversal('Ladder_Climb_Loop', LADDER.cycleDuration, true));
   clips.push(await bakeTraversal('Float_Loop', 2.4, false));
   clips.push(await bakeTraversal('Box_Push_Loop', 0.95, false, 1));
   clips.push(await bakeTraversal('Box_Pull_Loop', 1.05, false, -1));
+
+  const sprintClip = THREE.AnimationClip.findByName(clips, 'Sprint_Loop');
+  if (!sprintClip) throw new Error('Slide tackle animation requires Sprint_Loop');
+  const sampleMixer = new THREE.AnimationMixer(model);
+  const sampleAction = sampleMixer.clipAction(sprintClip).play();
+  const sampleSprint = (time: number) => {
+    resetRig(); sampleAction.reset().play(); sampleMixer.setTime(time);
+    return rig.map(({ bone }) => ({ position: bone.position.clone(), quaternion: bone.quaternion.clone(), scale: bone.scale.clone() }));
+  };
+  const entryPose = sampleSprint(sprintClip.duration * 0.2), exitPose = sampleSprint(sprintClip.duration * 0.7);
+  sampleMixer.stopAllAction(); sampleMixer.uncacheRoot(model); resetRig();
+  const facing = model.quaternion.clone(); model.quaternion.identity(); model.updateMatrixWorld(true);
+  const requireBone = (name: string) => {
+    const bone = rig.find(entry => entry.bone.name === name)?.bone;
+    if (!bone?.parent) throw new Error(`Slide tackle animation requires ${name}`);
+    return bone;
+  };
+  const pelvis = requireBone('pelvis'), spine = ['spine_01', 'spine_02', 'spine_03'].map(requireBone);
+  const neck = requireBone('neck_01'), slideHead = requireBone('Head');
+  const hipRest = pelvis.getWorldPosition(new THREE.Vector3());
+  const thigh = requireBone('thigh_l'), calf = requireBone('calf_l');
+  const foot = requireBone('foot_l');
+  const legLength = thigh.getWorldPosition(new THREE.Vector3()).distanceTo(calf.getWorldPosition(new THREE.Vector3()))
+    + calf.getWorldPosition(new THREE.Vector3()).distanceTo(foot.getWorldPosition(new THREE.Vector3()));
+  const feetRest = ['l', 'r'].map(suffix => requireBone(`foot_${suffix}`).getWorldQuaternion(new THREE.Quaternion()));
+  const floor = -modelOffsetY, ankleHeight = ventSoleOffset;
+  model.quaternion.copy(facing); model.updateMatrixWorld(true);
+  function rotateAnatomically(bone: THREE.Object3D, x: number, y = 0, z = 0) {
+    for (const [axis, angle] of [[new THREE.Vector3(1, 0, 0), x], [new THREE.Vector3(0, 1, 0), y], [new THREE.Vector3(0, 0, 1), z]] as const) {
+      if (!angle) continue;
+      axis.applyQuaternion(bone.getWorldQuaternion(new THREE.Quaternion()).invert());
+      bone.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(axis, angle)); model.updateMatrixWorld(true);
+    }
+  }
+  clips.push(await bakeRigClip('Slide_Tackle', SLIDE_TACKLE.duration, 85, time => {
+    const { low, recover } = slideTackleMotion(time);
+    const drop = THREE.MathUtils.smootherstep(time, 0.04, 0.3);
+    const plant = THREE.MathUtils.smootherstep(time, 0.78, 1.2);
+    const push = Math.sin(recover * Math.PI);
+    const hips = hipRest.clone();
+    hips.x -= low * legLength * 0.045;
+    hips.y = THREE.MathUtils.lerp(hipRest.y, floor + legLength * 0.29, low) - Math.sin(drop * Math.PI) * 0.06;
+    hips.z -= low * legLength * 0.11;
+    pelvis.position.copy(pelvis.parent!.worldToLocal(hips)); model.updateMatrixWorld(true);
+    rotateAnatomically(pelvis, -low * 0.33, low * 0.12, low * 0.24);
+    rotateAnatomically(spine[0], -low * 0.23 + push * 0.3, -low * 0.1, -low * 0.08);
+    rotateAnatomically(spine[1], -low * 0.15 + push * 0.12);
+    rotateAnatomically(spine[2], low * 0.05);
+    rotateAnatomically(neck, low * 0.3 - push * 0.16);
+    rotateAnatomically(slideHead, low * 0.28 - push * 0.08, -low * 0.06);
+    for (const [index, suffix] of ['l', 'r'].entries()) {
+      const side = suffix === 'l' ? 1 : -1;
+      const lead = suffix === 'l';
+      const footTarget = new THREE.Vector3(side * legLength * (lead ? 0.18 : 0.16),
+        floor + ankleHeight + (lead ? low * 0.025 : Math.sin(drop * Math.PI) * 0.1),
+        legLength * (lead ? THREE.MathUtils.lerp(0.86, 0.08, plant) * drop : THREE.MathUtils.lerp(0.045, -0.32, plant) * drop));
+      solveLimb(`thigh_${suffix}`, `calf_${suffix}`, `foot_${suffix}`, footTarget,
+        new THREE.Vector3(side * 0.16, lead ? 0.1 : 0.8, 1));
+      const boot = requireBone(`foot_${suffix}`);
+      const bootRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(lead ? -low * 0.38 : push * 0.15, side * low * 0.1, 0)).multiply(feetRest[index]);
+      boot.quaternion.copy(boot.parent!.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(bootRotation)); model.updateMatrixWorld(true);
+      const handTarget = lead
+        ? new THREE.Vector3(legLength * 0.49, floor + THREE.MathUtils.lerp(1.08, 0.67, low), legLength * 0.18)
+        : new THREE.Vector3(-legLength * 0.45, floor + THREE.MathUtils.lerp(1.06, 0.09, low), -legLength * 0.28 * low);
+      solveLimb(`upperarm_${suffix}`, `lowerarm_${suffix}`, `hand_${suffix}`, handTarget, new THREE.Vector3(side, -0.25, -0.65));
+      orientHand(suffix, false);
+    }
+    // Preserve the authored run pose at both ends; all travel belongs to physics.
+    const entry = 1 - THREE.MathUtils.smootherstep(time, 0, 0.12);
+    const exit = THREE.MathUtils.smootherstep(time, 1.27, SLIDE_TACKLE.duration);
+    rig.forEach(({ bone }, index) => {
+      const pose = exit > 0 ? exitPose[index] : entryPose[index], weight = exit > 0 ? exit : entry;
+      bone.position.lerp(pose.position, weight); bone.quaternion.slerp(pose.quaternion, weight); bone.scale.lerp(pose.scale, weight);
+    });
+  }));
 
   // This is the in-place UAL export. Preserve its original bone tracks.
   const actions = new Map<ClipName, THREE.AnimationAction>();
@@ -523,7 +614,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
     const next = actions.get(name);
     if (!next || (next === currentAction && !restart && !immediate)) return;
     const saberAttack = lightsaberEquipped && lightsaberAttacks.includes(name as LightsaberAttackName);
-    const blend = saberAttack ? 0.045 : 0.2;
+    const blend = name === 'Slide_Tackle' ? 0.08 : currentAction.getClip().name === 'Slide_Tackle' ? 0.14 : saberAttack ? 0.045 : 0.2;
     const sameAction = next === currentAction;
     if (immediate) mixer.stopAllAction();
     else if (!sameAction) currentAction.fadeOut(blend);
@@ -596,7 +687,8 @@ export async function loadCharacter(loader?: GLTFLoader) {
 
     let diff = yaw + MODEL_ROT_OFFSET - model.rotation.y;
     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-    model.rotation.y += diff * Math.min(1, 10 * dt);
+    if (playerState.sliding) model.rotation.y = playerState.slideYaw + MODEL_ROT_OFFSET;
+    else model.rotation.y += diff * Math.min(1, 10 * dt);
     const weightless = floating && !climbing;
     model.rotation.x = THREE.MathUtils.damp(model.rotation.x, weightless ? 0.08 : 0, 8, dt);
     model.rotation.z = THREE.MathUtils.damp(model.rotation.z, weightless ? Math.sin((floatTime ?? 0) * 1.2) * 0.035 : 0, 8, dt);
@@ -632,6 +724,10 @@ export async function loadCharacter(loader?: GLTFLoader) {
       const time = Math.max(0, cinematic.time) * (cinematic.duration ? duration / cinematic.duration : 1);
       next.paused = true;
       next.time = cinematic.loop ? time % duration : Math.min(time, duration);
+    } else if (playerState.sliding) {
+      fadeTo('Slide_Tackle');
+      currentAction.paused = true;
+      currentAction.time = THREE.MathUtils.clamp(playerState.slideTime, 0, SLIDE_TACKLE.duration);
     } else if (playerState.ventMode) {
       fadeTo(isMoving ? 'Crouch_Fwd_Loop' : 'Crouch_Idle_Loop', false, !wasVentMode);
     } else if (climbing) {
@@ -691,7 +787,9 @@ export async function loadCharacter(loader?: GLTFLoader) {
       base.scale.copy(base.bone.scale);
     }
     // The second mixer owns only spine/arms/head; hips and legs retain locomotion.
-    const handsFree = !climbing && !playerState.ventMode && !boxHandling;
+    const slideAction = actions.get('Slide_Tackle');
+    const slideBlending = playerState.sliding || !!(slideAction?.isScheduled() && slideAction.getEffectiveWeight() > 0.01);
+    const handsFree = !slideBlending && !climbing && !playerState.ventMode && !boxHandling;
     socket.visible = handsFree;
     crowbar.visible = crowbarEquipped && handsFree;
     lightsaber.visible = lightsaberEquipped && handsFree;
@@ -768,7 +866,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
       model.updateMatrixWorld(true);
     }
     const pistolTarget = armed && handsFree && !cinematic ? 1 : 0;
-    pistolBlend = playerState.ventMode ? 0 : THREE.MathUtils.damp(pistolBlend, pistolTarget, 14, dt);
+    pistolBlend = playerState.ventMode || slideBlending ? 0 : THREE.MathUtils.damp(pistolBlend, pistolTarget, 14, dt);
     if (!cinematic && handsFree && pistolRequest) {
       if (freshActionRequest === 'Pistol_Reload') weapon.reload();
       else weapon.shoot();
@@ -794,7 +892,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
     }
     const crouchBlending = [actions.get('Crouch_Idle_Loop'), actions.get('Crouch_Fwd_Loop')]
       .some(action => action?.isRunning() && action.getEffectiveWeight() > 0);
-    const groundCrouch = !cinematic && (crouching || crouchBlending) && isOnGround && !climbing && !floating && !boxHandling;
+    const groundCrouch = !cinematic && !slideBlending && (crouching || crouchBlending) && isOnGround && !climbing && !floating && !boxHandling;
     if ((playerState.ventMode || groundCrouch) && ventFeet.length) {
       model.updateMatrixWorld(true);
       const feetY = Math.min(...ventFeet.map(bone => bone.getWorldPosition(ventFootPosition).y));

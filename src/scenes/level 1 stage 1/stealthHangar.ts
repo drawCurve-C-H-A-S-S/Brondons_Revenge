@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
 import { roomBox } from '../../helpers/scene/shipRoom.js';
+import { createShipInteriorMaterials, SHIP_INTERIOR_PALETTE } from '../../helpers/scene/shipInterior.js';
 import { createEscapeShip } from '../../scripts/items/createEscapeShip.js';
 import beamVertex from '../../shaders/stealthBeam.vert.glsl?raw';
 import beamFragment from '../../shaders/stealthBeam.frag.glsl?raw';
@@ -22,30 +23,17 @@ export const HANGAR_LAYOUT = {
 } as const;
 
 export function createStealthHangar(scene: THREE.Scene, physics: Physics, deckY: number) {
-  const steel = new THREE.MeshStandardMaterial({ color: 0x70707a, roughness: 0.74, metalness: 0.2, emissive: 0x111118, emissiveIntensity: 0.42 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x353943, roughness: 0.68, metalness: 0.45, emissive: 0x0a0a10, emissiveIntensity: 0.35 });
-  const floor = steel.clone();
-  const pixels = new Uint8Array(128 * 128 * 4);
-  for (let row = 0; row < 128; row++) for (let column = 0; column < 128; column++) {
-    const index = (row * 128 + column) * 4;
-    const seam = row % 32 < 2 || column % 32 < 2;
-    const scratch = ((column * 19 + row * 37) % 113) < 4;
-    const shade = seam ? 62 : scratch ? 93 : 164 + ((column * 13 + row * 7) % 21);
-    pixels[index] = shade; pixels[index + 1] = shade; pixels[index + 2] = shade + 5; pixels[index + 3] = 255;
-  }
-  const plateTexture = new THREE.DataTexture(pixels, 128, 128);
-  plateTexture.wrapS = plateTexture.wrapT = THREE.RepeatWrapping;
-  plateTexture.repeat.set(18, 15.5); plateTexture.needsUpdate = true;
-  floor.map = plateTexture;
+  const { steel, dark, trim, cyan: teal, deck: floor } = createShipInteriorMaterials(36, 31);
+  const panelSteel = steel.clone(); panelSteel.color.setHex(0x61758a);
   const yellow = new THREE.MeshStandardMaterial({ color: 0xb9a45c, roughness: 0.78, metalness: 0.25 });
-  const teal = new THREE.MeshStandardMaterial({ color: 0x63998d, emissive: 0x2c554d, emissiveIntensity: 0.8 });
-  const white = new THREE.MeshStandardMaterial({ color: 0xb7bfce, emissive: 0xa5b8d2, emissiveIntensity: 1.2 });
-  const cargoMaterials = [0x647d72, 0x7b525a, 0x7b7e89, 0x747392].map(color =>
-    new THREE.MeshStandardMaterial({ color, roughness: 0.82, metalness: 0.25, emissive: 0x111118, emissiveIntensity: 0.35 }));
+  const white = new THREE.MeshStandardMaterial({ color: SHIP_INTERIOR_PALETTE.light, emissive: SHIP_INTERIOR_PALETTE.light, emissiveIntensity: 1.2 });
+  const cargoMaterials = [0x536b7d, 0x65717f, 0x455967, 0x68758a].map(color => {
+    const material = steel.clone(); material.color.setHex(color); return material;
+  });
   const obstacles: THREE.Box3[] = [];
   const details = new Map<THREE.Material, THREE.Matrix4[]>();
   const transform = new THREE.Object3D();
-  function detail(size: [number, number, number], position: [number, number, number], material = dark, yaw = 0) {
+  function detail(size: [number, number, number], position: [number, number, number], material: THREE.Material = dark, yaw = 0) {
     transform.position.set(position[0], deckY + position[1], position[2]);
     transform.rotation.set(0, yaw, 0); transform.scale.set(...size); transform.updateMatrix();
     let matrices = details.get(material);
@@ -71,10 +59,22 @@ export function createStealthHangar(scene: THREE.Scene, physics: Physics, deckY:
     box([0.4, 12, upperLength], [x, 6, doorZ + 1.6 + upperLength / 2]);
     box([0.4, 8.6, 3.2], [x, 7.7, doorZ]);
   }
+  for (const sign of [-1, 1]) {
+    for (const x of [22, 30, 38, 46, 54, 62, 70, 78]) {
+      detail([7.2, 4.8, 0.06], [x, 4.6, sign * 30.76], panelSteel);
+      detail([0.08, 10.8, 0.1], [x + 3.75, 5.5, sign * 30.72]);
+      detail([6.7, 0.055, 0.08], [x, 2.1, sign * 30.7], trim);
+      detail([6.7, 0.055, 0.08], [x, 7.1, sign * 30.7], trim);
+    }
+    detail([70, 0.025, 0.035], [50, 0.014, sign * 30.3], teal);
+    detail([70, 0.045, 0.08], [50, 0.2, sign * 30.65], trim);
+    detail([70, 0.035, 0.045], [50, 7.5, sign * 30.65], teal);
+  }
   for (const x of [18, 34, 50, 66, 82]) {
+    detail([0.12, 0.025, 52], [x, 10.63, 0], teal);
     for (const sign of [-1, 1]) {
       box([0.75, 12, 0.85], [x, 6, sign * 30.4], dark);
-      detail([1.3, 0.2, 61], [x, 11.1, 0]);
+      detail([1.3, 0.2, 61], [x, 11.1, 0], trim);
       detail([0.18, 0.5, 61], [x - 0.55, 10.9, 0]);
       detail([0.18, 0.5, 61], [x + 0.55, 10.9, 0]);
       detail([0.1, 0.45, 0.05], [x, 1.2, sign * 29.95], yellow);
@@ -115,7 +115,7 @@ export function createStealthHangar(scene: THREE.Scene, physics: Physics, deckY:
     box([3.3, 0.18, 2.7], [refuge.x, 2.5, refuge.z], dark).userData.minimap = false;
     detail([1.3, 0.7, 0.25], [refuge.x, 1.2, refuge.z - refuge.facing * 1.15], steel);
     detail([0.5, 0.06, 0.06], [refuge.x, 1.55, refuge.z - refuge.facing * 0.98], teal);
-    const light = new THREE.PointLight(0x84b9ae, 2.3, 4);
+    const light = new THREE.PointLight(SHIP_INTERIOR_PALETTE.light, 2.3, 4);
     light.position.set(refuge.x, deckY + 2.1, refuge.z); scene.add(light);
     safeZones.push({ id: `service-bay-${index}`, kind: 'refuge', bounds: new THREE.Box3(
       new THREE.Vector3(refuge.x - 1.35, deckY, refuge.z - 1.1),
@@ -202,7 +202,7 @@ export function createStealthHangar(scene: THREE.Scene, physics: Physics, deckY:
     detail([66, 0.065, 0.08], [50, 9.7, z], yellow);
     for (const x of [23, 47, 71]) {
       detail([1.4, 0.07, 0.25], [x, 7.8, z], white);
-      const light = new THREE.PointLight(0xb3c3dd, 8.5, 23);
+      const light = new THREE.PointLight(SHIP_INTERIOR_PALETTE.light, 8.5, 23);
       light.position.set(x, deckY + 7.5, z); scene.add(light);
     }
   }
@@ -221,11 +221,11 @@ export function createStealthHangar(scene: THREE.Scene, physics: Physics, deckY:
   physics.addBox({ x: 9.2, y: 2.8, z: 7.8 }, { x: 76.95, y: deckY + 1.4, z: 25 });
   obstacles.push(new THREE.Box3(new THREE.Vector3(72.35, deckY, 21.1), new THREE.Vector3(81.55, deckY + 2.8, 28.9)));
   for (const z of [21, 29]) detail([9.4, 0.025, 0.1], [77, 0.02, z], yellow);
-  const shipLight = new THREE.PointLight(0xd5e5de, 10, 14);
+  const shipLight = new THREE.PointLight(SHIP_INTERIOR_PALETTE.light, 10, 14);
   shipLight.position.set(78, deckY + 4.8, 24); scene.add(shipLight);
-  const exitLight = new THREE.PointLight(0x9bcac1, 8, 12);
+  const exitLight = new THREE.PointLight(SHIP_INTERIOR_PALETTE.light, 8, 12);
   exitLight.position.set(84, deckY + 3, 20); scene.add(exitLight);
-  const fillLight = new THREE.HemisphereLight(0xb8c9d9, 0x3b3a42, 0.65);
+  const fillLight = new THREE.HemisphereLight(0xbbd7ed, 0x273342, 1.8);
   fillLight.visible = false; scene.add(fillLight);
   const beacon = new THREE.Group(); beacon.name = 'CentralRotatingAlarmBeacon';
   beacon.position.set(50, deckY + 11.1, 0); scene.add(beacon);
@@ -282,12 +282,18 @@ export function createStealthHangar(scene: THREE.Scene, physics: Physics, deckY:
     shape.lineTo(1.43, 3.65); shape.lineTo(1.84, 3.18); shape.lineTo(1.84, 0);
     shape.lineTo(1.6, 0); shape.lineTo(1.6, 3.04); shape.lineTo(1.23, 3.4);
     shape.lineTo(-1.23, 3.4); shape.lineTo(-1.6, 3.04); shape.lineTo(-1.6, 0); shape.closePath();
-    const frame = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: 0.4, bevelEnabled: false }), dark);
+    const frame = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: 0.4, bevelEnabled: false }), trim);
     frame.position.z = -0.2; group.add(frame);
     const leaves = [-1, 1].map(sign => {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(1.6, 3.38, 0.16), steel);
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(1.6, 3.38, 0.16), dark);
       mesh.position.set(sign * 0.8, 1.69, 0); group.add(mesh);
       const body = physics.addBoxFromMesh(mesh);
+      for (const face of [-1, 1]) {
+        const inset = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.98, 0.03), steel);
+        inset.position.z = face * 0.095; mesh.add(inset);
+        const status = new THREE.Mesh(new THREE.BoxGeometry(0.025, 2.95, 0.02), teal);
+        status.position.set(-sign * 0.735, 0, face * 0.1); mesh.add(status);
+      }
       return { mesh, body, sign };
     });
     const seam = new THREE.Mesh(new THREE.BoxGeometry(0.035, 2.8, 0.19), teal);

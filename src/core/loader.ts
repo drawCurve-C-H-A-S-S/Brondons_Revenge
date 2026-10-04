@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneRig } from 'three/addons/utils/SkeletonUtils.js';
-import playerModelUrl from '../assets/models/MC.glb';
+import playerModelUrl from '../assets/models/Don.glb';
 import subjectModelUrl from '../assets/models/Subject.glb';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import dinoModelUrl from '../assets/models/Dino/dino.glb';
@@ -13,7 +13,8 @@ const gltfLoader = new GLTFLoader();
 const playerLoader = new GLTFLoader();
 const playerTemplates = new WeakMap<GLTFLoader, Promise<GLTF>>();
 const modelTemplates = new Map<string, Promise<GLTF>>();
-type ToolModelName = 'Enemy_Trilobite' | 'Enemy_QuadShell' | 'Enemy_EyeDrone' | 'Gun_Pistol' | 'Gun_Revolver' | 'Prop_Chest';
+type ToolModelName = 'Enemy_Trilobite' | 'Enemy_QuadShell' | 'Enemy_EyeDrone' | 'Gun_Pistol' | 'Gun_Revolver'
+  | 'Prop_Chest' | 'Prop_Desk_Small' | 'Prop_Chair';
 const toolTemplates = new Map<ToolModelName, Promise<GLTF>>();
 
 export function yieldToMainThread(): Promise<void> {
@@ -112,6 +113,8 @@ const toolAssets = import.meta.glob<string>([
   '../assets/models/Tools/Gun_Pistol.{gltf,bin}',
   '../assets/models/Tools/Gun_Revolver.{gltf,bin}',
   '../assets/models/Tools/Prop_Chest.{gltf,bin}',
+  '../assets/models/Tools/Prop_Desk_Small.{gltf,bin}',
+  '../assets/models/Tools/Prop_Chair.{gltf,bin}',
   '../assets/textures/*.png',
 ], { eager: true, query: '?url', import: 'default' });
 const toolUrls = new Map(Object.entries(toolAssets).map(([path, url]) => [path.split('/').pop()!, url]));

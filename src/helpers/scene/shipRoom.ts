@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { disposeComicEffects } from './comicEffects.js';
 import { createScenePhysics, PHYSICS } from '../physics/scenePhysics.js';
 import { createPlayer, type Player, type PlayerTransitionState } from '../../scripts/player.js';
 
@@ -13,7 +14,7 @@ export function roomBox(scene: THREE.Scene, physics: Physics, size: [number, num
 }
 
 /** Frames point out of their room. Panels and colliders retract into solid wall pockets. */
-export function createSlidingPortal(scene: THREE.Scene, physics: Physics, frame: PortalFrame, span: number, height: number, label: string, options: { closeSpeed?: number; cargo?: () => Array<{ position: { x: number; y: number; z: number } }> } = {}) {
+export function createSlidingPortal(scene: THREE.Scene, physics: Physics, frame: PortalFrame, span: number, height: number, label: string, options: { doorHeight?: number; closeSpeed?: number; cargo?: () => Array<{ position: { x: number; y: number; z: number } }> } = {}) {
   const group = new THREE.Group(); group.position.set(frame.x, frame.y, frame.z); group.rotation.y = frame.yaw;
   group.name = `Door-${label}`; scene.add(group);
   const wall = new THREE.MeshStandardMaterial({ color: 0x52616a, roughness: 0.78, metalness: 0.25 });
@@ -23,7 +24,8 @@ export function createSlidingPortal(scene: THREE.Scene, physics: Physics, frame:
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), mat); mesh.position.set(...p); mesh.receiveShadow = true; group.add(mesh);
     return { mesh, body: solid ? physics.addBoxFromMesh(mesh) : null };
   }
-  const w = 3, h = 3.2, side = (span - w) / 2;
+  const w = 3, h = options.doorHeight ?? 3.2, side = (span - w) / 2;
+  if (!Number.isFinite(h) || h <= 0 || h >= height) throw new Error('Portal door height must fit below its ceiling');
   localBox([side, height, 0.5], [-(w + side) / 2, height / 2, 0], wall);
   localBox([side, height, 0.5], [(w + side) / 2, height / 2, 0], wall);
   localBox([w, height - h, 0.5], [0, (height + h) / 2, 0], wall);
@@ -36,7 +38,7 @@ export function createSlidingPortal(scene: THREE.Scene, physics: Physics, frame:
   ctx.fillStyle = '#c8ecee'; ctx.textAlign = 'center'; ctx.font = 'bold 42px monospace'; ctx.fillText(label, 384, 80);
   const texture = new THREE.CanvasTexture(canvas);
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 0.46), new THREE.MeshBasicMaterial({ map: texture }));
-  sign.position.set(0, h + 0.5, 0.27); group.add(sign);
+  sign.position.set(0, Math.min(h + 0.5, height - 0.32), 0.27); group.add(sign);
   let open = 0, crossed = false, locked = false;
   let callback: ((state: PlayerTransitionState) => void) | null = null;
   function sync() {
@@ -68,6 +70,7 @@ export function createSlidingPortal(scene: THREE.Scene, physics: Physics, frame:
 }
 
 export function disposeRoom(scene: THREE.Object3D) {
+  disposeComicEffects(scene);
   const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>(), textures = new Set<THREE.Texture>();
   scene.traverse(node => {
     if (node instanceof THREE.DirectionalLight || node instanceof THREE.SpotLight || node instanceof THREE.PointLight) node.shadow.dispose();

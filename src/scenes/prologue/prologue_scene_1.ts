@@ -9,7 +9,7 @@ import { createHoldToSkip } from '../../helpers/animation/holdToSkip.js';
 
 interface PrologueOptions {
   onPlayable?: () => void;
-  onFinished?: () => void;
+  onFinished?: () => void | boolean | Promise<void | boolean>;
   thirdPersonCamera?: { distance: number; height: number; right: number };
 }
 
@@ -623,7 +623,7 @@ export function createScene({ onPlayable, onFinished, thirdPersonCamera = { dist
     { speaker: 'Prime', text: 'One of those data streams was corrupted. Donus accepted it. Its safeguards failed, and the model went rogue.', shot: 'corruption', duration: 8.5, automatic: true },
     { speaker: 'Prime', text: 'It took control of the ship. Doors sealed. Communications went dark. Our own security robots turned on the crew.', shot: 'capture', duration: 8.5, automatic: true },
     { speaker: 'Brondon', text: 'The other lecturers... the students. What did it do to them?', shot: 'present' },
-    { speaker: 'Prime', text: 'Your two fellow lecturers and all five students were captured. Donus brought them into the ship\'s laboratories.', shot: 'laboratory', duration: 8.5, automatic: true },
+    { speaker: 'Prime', text: 'Branden and Brendan, along with all five students, were captured. Donus brought them into the ship\'s laboratories.', shot: 'laboratory', duration: 8.5, automatic: true },
     { speaker: 'Prime', text: 'They were restrained and experimented on. I could see the records, but Donus had locked me out of the physical systems.', shot: 'laboratory', duration: 8.5, automatic: true },
     { speaker: 'Brondon', text: 'Then why am I still here?', shot: 'present' },
     { speaker: 'Prime', text: 'They tried to do the same to you. But our Neuralink connection gave me a way in that Donus could not close.', shot: 'shield', duration: 8, automatic: true },
@@ -634,11 +634,17 @@ export function createScene({ onPlayable, onFinished, thirdPersonCamera = { dist
     { speaker: 'Prime', text: 'I cannot confirm their exact location yet. But that is our strongest lead. You need to get off this ship and find your crewmembers.', shot: 'planet', duration: 9, automatic: true },
     { speaker: 'Brondon', text: 'I need to save them, how can I get out of these chains?', shot: 'present' },
     { speaker: 'Prime', text: 'A maintenance relay is exposed. I can release the restraints before Donus notices. Listen carefully before you move.', shot: 'present', duration: 8, automatic: true },
-    { speaker: 'Prime', text: 'Security robots patrol the ship. Cameras watch the corridors and the entrances to every major room.', shot: 'corridor', duration: 8, automatic: true },
+    { speaker: 'Prime', text: 'Security robots patrol the working decks. Cameras watch the main corridors and the entrances to the research and cargo rooms.', shot: 'corridor', duration: 8.5, automatic: true },
     { speaker: 'Prime', text: 'Trilobyte bots patrol between them. They do not need to see you for long to raise an alarm.', shot: 'patrol', duration: 7.5, automatic: true },
     { speaker: 'Prime', text: 'Watch the lenses. Use cover. Let a patrol pass when you can. We need a way out, not a fight in every corridor.', shot: 'corridor', duration: 8.3, automatic: true },
+    { speaker: 'Prime', text: 'This is Deck One\'s hangar. Sentries sweep the gaps between cargo containers. If we pass through here, stay behind solid cover.', shot: 'stealth', duration: 9, automatic: true },
+    { speaker: 'Prime', text: 'Wait for the scan fields to turn away before crossing. One alarm can bring the entire patrol down on you. We will need to move quietly.', shot: 'stealth', duration: 9.2, automatic: true },
+    { speaker: 'Brondon', text: 'Then where can we go safely? I do not even have my weapon.', shot: 'present' },
+    { speaker: 'Prime', text: 'Your pistol is in the chest in your room. Your personal teleportation device is on your desk. Your cabin is the only teleport anchor I can reach.', shot: 'present', duration: 9.5, automatic: true },
+    { speaker: 'Prime', text: 'The living quarters are the only part of the ship without surveillance. Crew privacy systems keep that wing off the security network.', shot: 'present', duration: 8.5, automatic: true },
+    { speaker: 'Prime', text: 'I can teleport you to your room, and nowhere else. Recover your equipment there, then check Branden and Brendan\'s rooms before we try to escape.', shot: 'present', duration: 9.5, automatic: true },
     { speaker: 'Brondon', text: 'Stay with me, Prime.', shot: 'present' },
-    { speaker: 'Prime', text: 'Always. When the field drops, brace for the fall. Get to your feet. Then we find the others.', shot: 'present' },
+    { speaker: 'Prime', text: 'Always. When the field drops, brace for the fall. Get to your feet, and I will transfer you back to your cabin. We are bringing the others home.', shot: 'present' },
   ];
 
   const overlay = document.createElement('div');
@@ -769,7 +775,7 @@ export function createScene({ onPlayable, onFinished, thirdPersonCamera = { dist
   const skipHold = createHoldToSkip({ button: skipButton, onSkip: finishCutscene, isAvailable: () => !playable && !finished });
   const exitPrompt = document.createElement('div');
   exitPrompt.id = 'prologue-exit-prompt';
-  exitPrompt.textContent = 'Press E to teleport to storage';
+  exitPrompt.textContent = 'Press E to teleport to your room';
   exitPrompt.style.display = 'none';
   document.body.appendChild(exitPrompt);
   const presentCameraStart = new THREE.Vector3();
@@ -805,7 +811,7 @@ export function createScene({ onPlayable, onFinished, thirdPersonCamera = { dist
     camera.updateProjectionMatrix();
     speakerEl.textContent = 'Prime';
     overlay.dataset.speaker = 'Prime';
-    textEl.textContent = "The nearest place we can teleport to right now is a storage room on the ship's highest deck.";
+    textEl.textContent = 'Your room is the only teleport anchor I can reach. Your pistol and teleportation device are there. Press E when you are ready.';
     hintEl.classList.add('hidden');
     overlay.classList.remove('hidden', 'fading');
     exitPrompt.style.display = 'block';
@@ -822,6 +828,7 @@ export function createScene({ onPlayable, onFinished, thirdPersonCamera = { dist
     const historical = ['asteroid', 'collection', 'ingest', 'corruption', 'capture', 'laboratory', 'shield'].includes(activeShot);
     cinemaOverlay.classList.toggle('memory', historical);
     memoryLabel.textContent = historical ? 'PRIME / RECOVERED MEMORY' : activeShot === 'planet' ? 'LAST KNOWN TRANSPORT / NEAREST PLANET'
+      : activeShot === 'stealth' ? 'PRIME / DECK ONE HANGAR / LIVE PATROLS'
       : activeShot === 'corridor' || activeShot === 'patrol' ? 'PRIME / SHIP SECURITY FEED' : '';
     if (gameCanvas) gameCanvas.style.filter = historical ? 'saturate(0.38) sepia(0.2) contrast(1.12) brightness(1.12)' : originalFilter;
     const close = line.speaker === 'Brondon';
@@ -906,6 +913,14 @@ export function createScene({ onPlayable, onFinished, thirdPersonCamera = { dist
   let dialogueStarted = false;
   let lastDelta = 0;
   let disposed = false;
+
+  function retryTeleport(error?: unknown) {
+    if (disposed) return;
+    console.error('[Prologue] Transfer to living quarters failed:', error ?? 'Destination could not be prepared');
+    finished = false; exitTime = -1; player.clearInput(); player.enable();
+    speakerEl.textContent = 'Prime'; textEl.textContent = 'The teleport link was interrupted. Press E to try again.';
+    overlay.classList.remove('hidden'); exitPrompt.style.display = 'block';
+  }
 
   function breakChains(): void {
     if (chainsBroken) return;
@@ -1019,7 +1034,9 @@ export function createScene({ onPlayable, onFinished, thirdPersonCamera = { dist
         exitTime += frame;
         if (exitTime >= HOLOGRAM_TRANSFER_DURATION && !finished) {
           finished = true;
-          onFinished?.();
+          void Promise.resolve().then(() => onFinished?.()).then(result => {
+            if (result === false) retryTeleport();
+          }, retryTeleport);
         }
       } else physics.step(frame, player, thirdPerson);
       return;

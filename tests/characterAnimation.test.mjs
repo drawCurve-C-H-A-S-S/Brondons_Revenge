@@ -152,6 +152,48 @@ test('wake-up initializes grounded state before the first animation update', asy
   assert.equal(player.getState().isMoving, false);
 });
 
+for (const asset of ['Don.glb', 'MC.glb', 'Subject.glb']) {
+  test(`${asset} loads the slide on its actual skinned joints, including the capital-H head bone`, async t => {
+    const { character, player } = await fixture(t, asset);
+    const slide = character.mixer._actions.find(action => action.getClip().name === 'Slide_Tackle');
+    assert.ok(slide, 'The production character must finish loading with a slide clip');
+    const clip = slide.getClip();
+    assert.equal(clip.duration, 1.4);
+    assert.ok(clip.tracks.some(track => track.name === 'Head.quaternion'));
+    const skins = []; character.model.traverse(node => { if (node.isSkinnedMesh) skins.push(node); });
+    for (const track of clip.tracks) {
+      const { nodeName } = THREE.PropertyBinding.parseTrackName(track.name);
+      const bone = THREE.PropertyBinding.findNode(character.model, nodeName);
+      assert.ok(bone?.isBone, `${track.name} must bind to a real bone`);
+      assert.ok(skins.some(mesh => mesh.skeleton.bones.includes(bone)), `${track.name} must deform the skin`);
+      assert.ok(Array.from(track.values).every(Number.isFinite), `${track.name} must not contain invalid IK results`);
+    }
+    const pose = time => {
+      character.update(0.1, player.body.position, { ...player.getState(), sliding: true, slideTime: time, slideYaw: 0 }, true, player.radius);
+      character.model.updateMatrixWorld(true);
+      return Object.fromEntries(['pelvis', 'Head', 'thigh_l', 'calf_l', 'foot_l', 'thigh_r', 'calf_r', 'foot_r', 'hand_r'].map(name => [
+        name, character.model.getObjectByName(name).getWorldPosition(new THREE.Vector3()),
+      ]));
+    };
+    const standing = pose(0), sliding = pose(0.5);
+    assert.ok(sliding.pelvis.y < standing.pelvis.y - 0.5, 'Hips must drop into a real floor-level slide');
+    assert.ok(sliding.Head.y < standing.Head.y - 0.45, 'Spine and head must follow the lowered pelvis');
+    const knee = suffix => sliding[`thigh_${suffix}`].clone().sub(sliding[`calf_${suffix}`]).normalize()
+      .dot(sliding[`foot_${suffix}`].clone().sub(sliding[`calf_${suffix}`]).normalize());
+    assert.ok(knee('l') < -0.85, 'Leading leg must extend, not form a squat');
+    assert.ok(knee('r') > -0.4, 'Trailing leg must tuck at the knee');
+    assert.ok(sliding.foot_l.y > 0 && sliding.foot_l.y < 0.2, 'Leading heel must skim the floor');
+    assert.ok(sliding.hand_r.y > 0 && sliding.hand_r.y < 0.2, 'Trailing hand must brace close to the floor');
+    for (const track of clip.tracks.filter(track => track.name === 'root.position')) {
+      for (let index = 3; index < track.values.length; index++) {
+        assert.ok(Math.abs(track.values[index] - track.values[index % 3]) < 1e-5, 'Physics must exclusively own root travel');
+      }
+    }
+    const recovered = pose(1.4);
+    assert.ok(recovered.pelvis.y > sliding.pelvis.y + 0.5, 'Recovery must stand the skeleton back up');
+  });
+}
+
 test('grounded WASD selects Walk_Loop and release returns to Idle_Loop', async t => {
   const { frame, key, weight, character } = await fixture(t);
   frame(15);

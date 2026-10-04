@@ -46,17 +46,34 @@ function browser(t) {
     play() { this.paused = false; return Promise.resolve(); }
     pause() { this.paused = true; }
   };
-  globalThis.HTMLElement = class {};
+  class Element extends EventTarget {
+    style = {}; dataset = {}; textContent = ''; classes = new Set(); children = [];
+    set className(value) { this.classes = new Set(value.split(/\s+/).filter(Boolean)); }
+    get className() { return [...this.classes].join(' '); }
+    classList = {
+      add: (...names) => names.forEach(name => this.classes.add(name)),
+      remove: (...names) => names.forEach(name => this.classes.delete(name)),
+      contains: name => this.classes.has(name),
+      toggle: (name, value) => { this.classList[value ? 'add' : 'remove'](name); return value; },
+    };
+    appendChild(node) { this.children.push(node); node.parentElement = this; return node; }
+    remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(node => node !== this); }
+    setAttribute(name, value) { this[name] = String(value); }
+    closest() { return null; }
+    requestPointerLock() {}
+    getContext() { return new Proxy({}, { get: () => () => {} }); }
+  }
+  globalThis.HTMLElement = Element;
   globalThis.self = globalThis;
   globalThis.window = Object.assign(new EventTarget(), { innerWidth: 1280, innerHeight: 720 });
-  globalThis.document = Object.assign(new EventTarget(), { body: { requestPointerLock() {} }, pointerLockElement: null,
+  globalThis.document = Object.assign(new EventTarget(), { body: new Element(), pointerLockElement: null,
     getElementById(id) {
       if (!elements.has(id)) { const classes = new Set(['hidden']); elements.set(id, { style: {}, dataset: {}, textContent: '', classList: {
         add: (...names) => names.forEach(n => classes.add(n)), remove: (...names) => names.forEach(n => classes.delete(n)),
         contains: n => classes.has(n), toggle(n, active) { if (active) classes.add(n); else classes.delete(n); },
       } }); }
       return elements.get(id);
-    }, createElement: () => ({ getContext: () => new Proxy({}, { get: () => () => {} }) }) });
+    }, createElement: () => new Element() });
   const cleanups = []; t.cleanup = fn => cleanups.push(fn);
   t.after(() => { for (const cleanup of cleanups.reverse()) cleanup(); Object.assign(globalThis, old); });
   return elements;
@@ -197,7 +214,7 @@ test('Scene 13 Phase 3 is selectable in the quick menu with its own respawn rout
 });
 
 for (const fps of [30, 60, 144]) {
-  test(`Stair intro owns camera and animation, preserves health and releases controls at ${fps} FPS`, async t => {
+  test(`Stair and versus intro own camera, preserve health and release controls at ${fps} FPS`, async t => {
     const { data, elements } = await fixture(t);
     assert.equal(data.player.isEnabled(), false); assert.equal(data.isCinematic(), true);
     assert.equal(data.getCinematicState().isMoving, true); assert.equal(data.boss.getStatus().phase, 'dormant');
@@ -206,6 +223,11 @@ for (const fps of [30, 60, 144]) {
     step(data, 3, fps); assert.ok(data.player.body.position.y < start.y - 0.5); assert.ok(Math.abs(data.player.body.position.x) < 0.01);
     assert.ok(data.camera.position.z > -24); assert.equal(data.player.getHealth(), 100);
     step(data, 4.2, fps); key('KeyA', 'keyup'); key('Space', 'keyup');
+    assert.equal(data.isCinematic(), true); assert.equal(data.player.isEnabled(), false);
+    assert.equal(data.boss.getStatus().phase, 'dormant');
+    assert.equal(document.body.classList.contains('hangar-versus-active'), true);
+    step(data, 2.6, fps);
+    assert.equal(document.body.classList.contains('hangar-versus-active'), false);
     assert.equal(data.isCinematic(), false); assert.equal(data.player.body.type, CANNON.Body.DYNAMIC);
     assert.equal(data.player.isEnabled(), true); assert.equal(data.boss.getStatus().phase, 'flying');
     assert.ok(Math.abs(data.player.body.position.y - 0.3) < 0.03); assert.equal(data.player.getState().isOnGround, true);
@@ -213,7 +235,7 @@ for (const fps of [30, 60, 144]) {
     key('KeyW'); step(data, 0.3, fps); key('KeyW', 'keyup'); assert.ok(data.player.body.position.z > -9.3);
   });
   test(`Four targets, 10-second head window and two-hit subsequent rounds at ${fps} FPS`, async t => {
-    const { data } = await fixture(t); step(data, 7.2, fps); cover(data);
+    const { data } = await fixture(t); step(data, 9.8, fps); cover(data);
     assert.equal(data.boss.headTarget.damage(35, 'crowbar'), false);
     assert.equal(data.boss.targets[0].damage(35, 'crowbar'), false);
     assert.equal(data.boss.targets[0].damage(NaN, 'pistol'), false);
@@ -232,7 +254,7 @@ for (const fps of [30, 60, 144]) {
     down(data, fps); assert.equal(data.boss.getStatus().health, rules.health - rules.headDamage);
   });
   test(`Green lasers hit a stationary player, can be dodged, and stop at all four pillars at ${fps} FPS`, async t => {
-    const { data } = await fixture(t); step(data, 7.1, fps); data.player.setPosition(0, 0.3, 10);
+    const { data } = await fixture(t); step(data, 9.8, fps); data.player.setPosition(0, 0.3, 10);
     step(data, 3, fps); assert.ok(data.player.getHealth() < 100, 'uncovered stationary player takes a laser hit');
     data.player.heal(100); data.player.setPosition(0, 0.3, 10);
     while (!data.boss.getStatus().charging) step(data, 1 / fps, fps);
@@ -242,12 +264,35 @@ for (const fps of [30, 60, 144]) {
       data.player.setPosition(sx * 16.5, 0.3, sz * 19); data.player.heal(100); step(data, 5, fps);
       assert.equal(data.player.getHealth(), 100, `pillar ${sx},${sz} blocks lasers`);
     }
+
+    test('four rear pillar caches provide exactly two shields and two health boxes during combat', async t => {
+      const { data } = await fixture(t, { checkpoint: true });
+      const supplies = data.getArenaSupplies();
+      assert.equal(supplies.length, 4);
+      assert.equal(supplies.filter(supply => supply.kind === 'shield').length, 2);
+      assert.equal(supplies.filter(supply => supply.kind === 'health').length, 2);
+      for (const supply of supplies) {
+        assert.equal(Math.abs(supply.position.x), 14.25);
+        assert.equal(Math.abs(supply.position.z), 15);
+        data.player.setPosition(Math.sign(supply.position.x) * 15.08, 0.3, supply.position.z);
+        if (supply.kind === 'health') {
+          step(data, 0.01);
+          assert.equal(data.getArenaSupplies().find(item => item.id === supply.id).collected, false, 'Full health must not waste a box');
+          data.player.takeDamage(60, true);
+        } else if (data.player.getShield() > 0) data.player.takeDamage(data.player.getShield(), true);
+        step(data, 0.02);
+        assert.equal(data.getArenaSupplies().find(item => item.id === supply.id).collected, true);
+        if (supply.kind === 'shield') assert.equal(data.player.getShield(), 50);
+        else assert.equal(data.player.getHealth(), 100);
+      }
+      assert.equal(data.getArenaSupplies().filter(supply => supply.collected).length, 4);
+    });
     assert.equal(data.boss.root.position.x, 0); assert.equal(data.boss.root.position.z, 0);
   });
 }
 
 test('Targets remain unobstructed as the boss faces the player around the entire room', async t => {
-  const { data } = await fixture(t); step(data, 7.1);
+  const { data } = await fixture(t); step(data, 9.8);
   for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
     data.player.setPosition(Math.sin(angle) * 9, 0.3, Math.cos(angle) * 9); step(data, 1 / 60);
     const from = new THREE.Vector3(data.player.body.position.x, 1.6, data.player.body.position.z);
@@ -260,7 +305,7 @@ test('Targets remain unobstructed as the boss faces the player around the entire
 });
 
 test('Goggles reveal the head in yellow; real crowbar reaches it without goggles in either view', async t => {
-  const { data, elements } = await fixture(t); step(data, 7.1); cover(data); down(data);
+  const { data, elements } = await fixture(t); step(data, 9.8); cover(data); down(data);
   const ordinary = data.boss.head.material; data.setGogglesActive(true); assert.equal(data.boss.head.material.color.getHex(), 0xffd126);
   data.setGogglesActive(false); assert.equal(data.boss.head.material, ordinary);
   let thirdPerson = false;
@@ -285,7 +330,7 @@ test('Goggles reveal the head in yellow; real crowbar reaches it without goggles
 
 test('Defeat fades black particles, reveals the actual boy.glb, thanks player and restores control', async t => {
   let completed = 0;
-  const { data, elements } = await fixture(t, { onDefeated: () => completed++ }); step(data, 7.1); cover(data);
+  const { data, elements } = await fixture(t, { onDefeated: () => completed++ }); step(data, 9.8); cover(data);
   const boy = data.scene.getObjectByName('FreedBoy'); assert.ok(boy); assert.equal(boy.visible, false);
   assert.ok(boy.getObjectsByProperty('isMesh', true).length > 0, 'real GLB mesh loaded');
   const requiredHits = Math.ceil(rules.health / rules.headDamage);

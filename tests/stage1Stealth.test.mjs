@@ -253,6 +253,7 @@ function stageBrowser() {
     closest() { return null; }
     querySelector(selector) { if (!this.selectors.has(selector)) this.selectors.set(selector, new Element()); return this.selectors.get(selector); }
     requestPointerLock() {}
+    getContext() { const ctx = new Proxy(function () {}, { get: (_t, prop) => prop === 'width' ? 0 : ctx, apply: () => ctx }); return ctx; }
   }
   const elements = new Map(), body = new Element();
   body.classes.clear();

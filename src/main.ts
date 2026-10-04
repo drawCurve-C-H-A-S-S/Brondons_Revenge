@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { applyThirdPersonCamera, applyTraversalCamera, isCameraForcedFirstPerson, resetThirdPersonCamera } from './core/camera.js';
+import { disposeComicEffects, updateComicEffects } from './helpers/scene/comicEffects.js';
 import { createSceneMinimap } from './core/renderer.js';
-import { createShipMap } from './core/shipMap.js';
+import { createShipMap, createShipMapProgress, SHIP_MAP_LAYOUT, type ShipMapLayout } from './core/shipMap.js';
+import { createQuartersProgress } from './scenes/living quarters/layout.js';
 import { createScene as createScene1 } from './scenes/scene1.js';
 import { createHoldToSkip } from './helpers/animation/holdToSkip.js';
 import { createCargoPuzzleState } from './scripts/cargoPuzzle.js';
@@ -35,6 +37,7 @@ import jungleMusicUrl from './assets/bgm/DonRevJungleLoop.m4a';
 
 const sceneImports = {
   0: () => import('./scenes/prologue/prologue_scene_1.js'),
+  0.5: () => import('./scenes/living quarters/scene.js'),
   1.1: () => import('./scenes/level 1 stage 1/storageRoom.js'),
   2: () => import('./scenes/level 1/scene2.js'),
   3: () => import('./scenes/level 1/scene3.js'),
@@ -90,13 +93,14 @@ function background(task: () => Promise<unknown> | void) {
 
 function warmScene(id: SceneModuleId) {
   void background(async () => {
-    if (id === 13) await (await sceneModule(13)).preloadAssets();
+    if (id === 0.5) await (await sceneModule(0.5)).preloadAssets();
+    else if (id === 13) await (await sceneModule(13)).preloadAssets();
     else await sceneModule(id);
   });
 }
 
 const upcomingScenes: Partial<Record<SceneModuleId, readonly SceneModuleId[]>> = {
-  0: [1.1], 2: [3], 3: [4, 5, 6], 4: [7], 7: [8], 8: [9, 10, 11],
+  0: [0.5], 2: [3], 3: [4, 5, 6], 4: [7], 7: [8], 8: [9, 10, 11],
   9: [12], 10: [12], 11: [12, 13], 12: [13], 13: [14],
   14: [15], 15: [16], 16: [17], 17: [18], 18: [19],
 };
@@ -173,6 +177,9 @@ function advanceSceneActions(dt: number) {
 let scene1SkipVisible = false;
 let scene1SkipHold: ReturnType<typeof createHoldToSkip> | null = null;
 let cargoPuzzle = createCargoPuzzleState();
+let quartersProgress = createQuartersProgress();
+const shipMapProgress = createShipMapProgress();
+let mappedSceneData: unknown = null;
 const heldSwitchHandle = createHandle();
 let bayBossDefeated = false;
 let traversalState: PlayerTransitionState | undefined;
@@ -186,6 +193,7 @@ const npcManager = new NPCEnemyManager();
 
 // --- Crowbar pickup (scene4 chest, persists once collected) ---
 let hasCrowbar = false;
+let hasPistol = false;
 let cargoDoorUnlocked = false;
 const clearedLadderCrates = new Set<string>();
 let shieldCollectedScene7 = false;
@@ -222,6 +230,7 @@ const pistol = new PistolController(() => ({
   scene: activeScene, camera: activeCamera, world: currentSceneData?.physicsWorld ?? null,
   player: cargoPuzzle.handle === 'carried' || currentSceneData?.ownsWeaponInput ? null : currentPlayer, character: globalCharacter?.model ?? null,
   thirdPerson: isGameplayThirdPerson(), targets: [...npcManager.getDamageTargets(), ...(currentSceneData?.getDamageTargets?.() ?? [])],
+  hasPistol,
   weaponAnimation: currentSceneData?.ownsWeaponInput ? undefined : globalCharacter?.weapon,
   holsterOther: () => { crowbarController?.holster(); lightsaberController?.holster(); },
   onShot: (point, origin) => currentSceneData?.onPistolShot?.(point, origin),
@@ -335,9 +344,10 @@ async function initializeApp() {
   } else {
     console.warn('Failed to load character, continuing without character');
   }
-  if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('stage1-stealth')) await loadStage1Storage();
+  if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('living-quarters')) await loadLivingQuarters();
+  else if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('stage1-stealth')) await loadStage1Storage();
   warmScene(0);
-  warmScene(1.1);
+  warmScene(0.5);
   void background(() => preloadAudio(shipMusicUrl));
   void background(() => preloadToolModel('Enemy_EyeDrone'));
   void background(() => preloadToolModel('Enemy_Trilobite'));
@@ -351,7 +361,8 @@ let shownControl: ControlCard | null = null;
 let controlTime = 0;
 const controlCard = document.getElementById('control-card')!;
 const lessons: Record<string, Omit<ControlCard, 'key' | 'scene'>> = {
-  basics: { title: 'You’re awake', lines: ['WASD — walk · Shift — sprint', 'Mouse — look · Click the world to capture the mouse', 'Space — jump · C — crouch · E — interact', 'K — equip pistol · Left click — shoot', 'V or the view button — switch first / third person · M — pause'], touch: ['Drag on the left to walk; drag on the right to look.', 'RUN, JUMP, CROUCH and USE are your movement controls.', 'PISTOL equips your gun; SHOOT fires it.', 'Tap VIEW to switch first / third person · MENU to pause.'] },
+  quarters: { title: 'Living quarters', lines: ['WASD - walk / Shift - sprint / Mouse - look', 'C while moving forward - slide tackle; otherwise crouch', 'Look at a nameplate to see the room name', 'E - use doors, chests and devices', 'Unlocked doors play a short walk-through cinematic', 'V - first / third person / M - pause, then Map', 'Recover your gear and search Branden and Brendan\'s rooms'], touch: ['Left stick - walk / Right drag - look', 'CROUCH while moving forward - slide tackle', 'Look at nameplates to see room names automatically', 'USE - open doors and chests, recover gear', 'VIEW - first / third person / MENU - pause and map', 'Recover your gear and check the other lecturers\' rooms'] },
+  basics: { title: 'You’re awake', lines: ['WASD — walk · Shift — sprint', 'C while moving forward — slide tackle; otherwise crouch', 'Mouse — look · Click the world to capture the mouse', 'Space — jump · E — interact', 'K — equip pistol · Left click — shoot', 'V or the view button — switch first / third person · M — pause'], touch: ['Drag on the left to walk; drag on the right to look.', 'RUN, JUMP, CROUCH and USE are your movement controls.', 'CROUCH while moving forward performs a slide tackle.', 'PISTOL equips your gun; SHOOT fires it.', 'Tap VIEW to switch first / third person · MENU to pause.'] },
   pistol: { title: 'Pistol', lines: ['K — equip / holster', 'Left click — shoot at your crosshair'], touch: ['PISTOL — equip / holster', 'SHOOT — fire at your crosshair'] },
   crowbar: { title: 'Crowbar acquired', lines: ['T — equip / holster', 'Left click — swing'], touch: ['CROW — equip / holster', 'SWING — attack'] },
   lightsaber: { title: 'Lightsaber acquired', lines: ['L — equip / holster', 'Left click — slash'], touch: ['SABER — equip / holster', 'SLASH — attack'] },
@@ -361,7 +372,7 @@ const lessons: Record<string, Omit<ControlCard, 'key' | 'scene'>> = {
   flight: { title: 'Flight controls', lines: ['WASD — dodge · Mouse — aim', 'Hold left click — fire · Space — evade', 'V or the view button — cockpit / chase camera · M — pause'], touch: ['Left stick — dodge · Right drag — aim', 'Hold FIRE — shoot · EVADE — dodge', 'VIEW — cockpit / chase camera · MENU — pause']},
   flightSide: { title: 'Sidescroll flight', lines: ['WASD / arrows — move · Hold left click — fire straight', 'W / S + Space — dodge up / down'], touch: ['Left stick — move · Hold FIRE — fire straight', 'Stick up / down + EVADE — vertical dodge'] },
   flightTop: { title: 'Top-down flight', lines: ['WASD / arrows — move · Hold left click — fire upward', 'A / D + Space — evade left / right'], touch: ['Left stick — move · Hold FIRE — fire upward', 'Stick left / right + EVADE — lateral dodge'] },
-  jungle: { title: 'Back on the ground', lines: ['WASD — walk · Shift — sprint · Space — jump', 'K — pistol · T — crowbar · Left click — attack', 'V or the view button — change view'], touch: ['Left stick — walk · Right drag — look', 'RUN / JUMP — sprint and jump', 'PISTOL / CROW — select weapon · SHOOT / SWING — attack', 'VIEW — change view'] },
+  jungle: { title: 'Back on the ground', lines: ['WASD — walk · Shift — sprint · Space — jump', 'C while moving forward — slide tackle; otherwise crouch', 'K — pistol · T — crowbar · Left click — attack', 'V or the view button — change view'], touch: ['Left stick — walk · Right drag — look', 'RUN / JUMP — sprint and jump', 'CROUCH while moving forward — slide tackle', 'PISTOL / CROW — select weapon · SHOOT / SWING — attack', 'VIEW — change view'] },
   platformer: { title: 'Platforming controls', lines: ['A / D or arrows — move · Space — jump', 'Shift — sprint · C — crouch', 'Mouse — aim · K — gun · T — crowbar', 'Hold left click — attack'], touch: ['Left stick — move · JUMP — jump', 'RUN — sprint · CROUCH — crouch', 'Right drag — aim · PISTOL / CROW — select weapon', 'Hold FIRE — attack'] },
 };
 function introduceControls(key: string, scene?: string) {
@@ -374,9 +385,10 @@ function dismissControls() {
 function enterHudScene(id: string) {
   document.body.dataset.scene = id;
   dismissControls();
+  document.getElementById('look-reticle')?.classList.add('hidden');
   controlQueue = controlQueue.filter(card => !card.scene);
   minimap.reset();
-  const key = id === 'scene2' ? 'basics' : id === 'scene8' ? 'vent'
+  const key = id === 'living-quarters' ? 'quarters' : id === 'scene2' ? 'basics' : id === 'scene8' ? 'vent'
     : id === 'scene10' || id === 'scene11' ? 'cargo' : id === 'scene15' ? 'flight'
     : id === 'scene17' || id === 'scene19' ? 'jungle' : id === 'scene18' ? 'platformer' : null;
   if (key) introduceControls(key, id);
@@ -410,7 +422,7 @@ function updateControlCard(dt: number) {
 function renderMinimap() {
   // Level 2 (flight scene15 and crash scene16) scenes never show the map overlay.
   if (activeSceneId === 'scene1' || activeSceneId === 'scene15' || activeSceneId === 'scene16'
-    || !activeScene || !currentPlayer) { minimap.hide(); return; }
+    || currentSceneData?.hideMinimap?.() || !activeScene || !currentPlayer) { minimap.hide(); return; }
   const state = currentSceneData?.getMinimapState?.();
   minimap.render(currentSceneData?.getRenderScene?.() ?? activeScene,
     state?.position ?? currentPlayer.body.position, state?.yaw ?? currentPlayer.getState().yaw,
@@ -438,6 +450,7 @@ function canToggleView() {
     && !currentSceneData?.isCinematic?.() && !currentSceneData?.forceThirdPerson && !currentSceneData?.ownsWeaponInput);
 }
 function updateViewButton() {
+  document.getElementById('touch-pistol')?.classList.toggle('hidden', !hasPistol || !!currentSceneData?.isCinematic?.());
   document.getElementById('touch-lightsaber')?.classList.toggle('hidden', !hasLightsaber || !!currentSceneData?.ownsWeaponInput || !!currentSceneData?.isCinematic?.());
   const btn = document.getElementById('view-toggle-btn') as HTMLButtonElement;
   const state = currentPlayer?.getState();
@@ -463,6 +476,8 @@ async function loadPrologue1() {
   retireTraversalRoom();
   currentSceneData?.dispose?.();
   if (currentSceneData === scene1Data) scene1Data = null;
+  quartersProgress = createQuartersProgress(); hasPistol = false; pistol.holster();
+  shipMapProgress.reset(); shipMap?.dispose(); shipMap = null; shipMapLayout = undefined; mappedSceneData = null;
   activeSceneId = 'prologue1'; currentPlayer = null;
   enterHudScene('prologue1');
   currentSceneData = module.createScene({
@@ -475,9 +490,9 @@ async function loadPrologue1() {
       updatePlayerView(0);
     },
     onFinished: async () => {
-      if (activeSceneId !== 'prologue1') return;
+      if (activeSceneId !== 'prologue1') return true;
       isThirdPerson = true;
-      await loadStage1Storage();
+      return loadLivingQuarters();
     },
   });
   activeScene = currentSceneData.scene;
@@ -488,15 +503,73 @@ async function loadPrologue1() {
   if (orbitControls) { orbitControls.object = activeCamera!; orbitControls.enabled = false; }
 }
 
-async function loadStage1Storage() {
+interface PreparedOpeningScene {
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  player: Player;
+  ready: Promise<unknown>;
+  activate(): void;
+  dispose(): void;
+}
+
+async function prepareOpeningScene(data: PreparedOpeningScene, source: unknown, request: number) {
+  data.player.disable();
+  try {
+    await data.ready;
+    await renderer.compileAsync(data.scene, data.camera);
+  } catch (error) {
+    data.dispose();
+    throw error;
+  }
+  if (request !== sceneRequestVersion || source !== currentSceneData) { data.dispose(); return false; }
+  return true;
+}
+
+async function loadLivingQuarters(fromPassage = false, entryState?: PlayerTransitionState) {
+  const module = await prepareScene(0.5);
+  if (!module) return false;
+  hideScene1Skip(); pistol.holster(); crowbar.holster(); lightsaber.holster();
+  pistol.update(0); crowbar.update(0); lightsaber.update(0);
+  const source = currentSceneData, request = sceneRequestVersion;
+  const sceneData = module.createScene({
+    progress: quartersProgress, fromPassage, entryState, deferActivation: true,
+    warmRoom: async (scene, camera) => { await renderer.compileAsync(scene, camera); },
+    onPistolCollected: () => { hasPistol = true; introduceControls('pistol'); },
+    preparePassage: async () => { await (await sceneModule(1.1)).preloadAssets(); },
+    onExitToPassage: state => loadStage1Storage(true, state),
+  });
+  if (!await prepareOpeningScene(sceneData, source, request)) return false;
+  retireTraversalRoom(); currentSceneData?.dispose?.();
+  hasPistol = quartersProgress.pistolCollected;
+  enterManagedScene('living-quarters', sceneData);
+  currentSceneData = sceneData; activeScene = sceneData.scene; activeCamera = sceneData.camera;
+  currentPlayer = sceneData.player; updatePhysics = sceneData.updatePhysics; cutsceneManager = null; isThirdPerson = true;
+  sceneData.activate();
+  shipMapProgress.reveal(sceneData.getMapLayout());
+  if (globalCharacter) {
+    activeScene.add(globalCharacter.model); globalCharacter.setFacing(currentPlayer.getState().yaw);
+    globalCharacter.setHologramTransition(sceneData.getHologramTransition());
+  }
+  if (orbitControls) { orbitControls.object = activeCamera; orbitControls.enabled = false; }
+  updatePlayerView(0);
+  return true;
+}
+
+async function loadStage1Storage(fromQuarters = false, entryState?: PlayerTransitionState) {
   const module = await prepareScene(1.1);
-  if (!module) return;
+  if (!module) return false;
   hideScene1Skip();
+  const source = currentSceneData, request = sceneRequestVersion;
+  const sceneData = module.createScene({ hintsEnabled: stealthHintsEnabled, openingEntry: !fromQuarters, fromQuarters, entryState,
+    deferActivation: true,
+    onReturnToQuarters: state => loadLivingQuarters(true, state), onComplete: async () => {
+      if (activeSceneId !== 'stage1-storage') return false;
+      await loadScene2(true, true);
+      return activeSceneId === 'scene2';
+    } });
+  if (!await prepareOpeningScene(sceneData, source, request)) return false;
   retireTraversalRoom();
   currentSceneData?.dispose?.();
-  const sceneData = module.createScene({ hintsEnabled: stealthHintsEnabled, openingEntry: true, onComplete: () => {
-    if (activeSceneId === 'stage1-storage') void loadScene2(true, true);
-  } });
   enterManagedScene('stage1-storage', sceneData);
   currentSceneData = sceneData;
   activeScene = sceneData.scene;
@@ -505,6 +578,8 @@ async function loadStage1Storage() {
   updatePhysics = sceneData.updatePhysics;
   cutsceneManager = null;
   isThirdPerson = true;
+  sceneData.activate();
+  shipMapProgress.reveal(sceneData.getMapLayout());
   if (globalCharacter) {
     activeScene.add(globalCharacter.model);
     globalCharacter.setHologramTransition(sceneData.getHologramTransition());
@@ -513,6 +588,7 @@ async function loadStage1Storage() {
   if (orbitControls) { orbitControls.object = activeCamera; orbitControls.enabled = false; }
   updatePlayerView(0);
   warmScene(2);
+  return true;
 }
 
 // --- Load Scene 1 ---
@@ -865,6 +941,9 @@ function hideScene1Skip() {
 }
 
 function enterManagedScene(id: string, sceneData: any) {
+  if (activeScene) disposeComicEffects(activeScene);
+  // Legacy combat scenes started with the pistol; only the new opening requires recovery.
+  if (id === 'stage1-storage' && !sceneData.requiresRecoveredPistol || (id.startsWith('scene') && Number(id.slice(5)) >= 2)) hasPistol = true;
   lightsaber.detach();
   heldSwitchHandle.removeFromParent();
   globalCharacter?.model.removeFromParent();
@@ -885,6 +964,7 @@ function enterManagedScene(id: string, sceneData: any) {
 }
 
 function retireTraversalRoom() {
+  if (activeScene) disposeComicEffects(activeScene);
   // The persistent character is not scene-owned geometry.
   lightsaber.detach();
   heldSwitchHandle.removeFromParent();
@@ -1368,6 +1448,7 @@ function updatePlayerView(dt: number) {
 // --- Direct scene selection ---
 const SCENE_CHOICES = [
   [0, 'Prologue — awakening'],
+  [0.5, 'Living quarters - crew cabins'],
   [1.1, 'Level 1 stage 1 - Deck One Hangar'],
   [1, 'Space prologue'], [2, 'Medical bay'], [3, 'Passageway'], [4, 'Computer room'],
   [5, 'Cargo hold'], [6, 'Target range'], [7, 'Cafeteria'], [8, 'Vent junction'],
@@ -1383,10 +1464,20 @@ const developerError = document.getElementById('developer-password-error')!;
 type MenuScreen = 'home' | 'map' | 'sound' | 'controls' | 'developer' | 'scenes';
 let menuScreen: MenuScreen | null = null;
 let shipMap: ReturnType<typeof createShipMap> | null = null;
+let shipMapLayout: ShipMapLayout | undefined;
 let controlsReturnScreen: 'home' | 'scenes' = 'home';
 // Memory only: survives menus and scene changes, but resets on browser refresh.
 let developerUnlocked = false;
 let resumePointerTarget: HTMLElement | null = null;
+
+function chartCurrentMapSection() {
+  const layout: ShipMapLayout | undefined = currentSceneData?.getMapLayout?.();
+  if (layout) shipMapProgress.reveal(layout);
+  else {
+    const id = Number((currentSceneData?.getSceneId?.() ?? activeSceneId).replace('scene', ''));
+    if (SHIP_MAP_LAYOUT.rooms.some(room => room.id === id)) shipMapProgress.reveal(SHIP_MAP_LAYOUT);
+  }
+}
 
 function clearSceneInput() {
   resetTouchInput();
@@ -1394,7 +1485,8 @@ function clearSceneInput() {
   currentSceneData?.clearInput?.();
 }
 function renderControlsReference() {
-  const owned = new Set<string>(['pistol']);
+  const owned = new Set<string>();
+  if (hasPistol) owned.add('pistol');
   if (hasCrowbar) owned.add('crowbar');
   if (hasLightsaber) owned.add('lightsaber');
   if (goggles.isCollected()) owned.add('goggles');
@@ -1466,7 +1558,8 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
   }
   if (screen !== 'scenes') {
     document.getElementById('pause-menu-title')!.textContent = screen === 'controls' ? (developerUnlocked ? 'All Controls' : 'Controls')
-      : screen === 'map' ? 'Ship Map' : screen === 'sound' ? 'Sound' : screen === 'developer' || prologue ? 'Developer Mode' : 'Pause';
+      : screen === 'map' ? 'Ship Map'
+      : screen === 'sound' ? 'Sound' : screen === 'developer' || prologue ? 'Developer Mode' : 'Pause';
     document.getElementById('pause-home')!.classList.toggle('hidden', screen !== 'home');
     document.getElementById('pause-stealth-settings')!.classList.toggle('hidden', screen !== 'home' || !currentSceneData?.setHintsEnabled);
     (document.getElementById('stealth-hints-toggle') as HTMLInputElement).checked = currentSceneData?.getHintsEnabled?.() ?? stealthHintsEnabled;
@@ -1487,8 +1580,12 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
   }
   if (!dialog.open) dialog.showModal();
   if (screen === 'map') {
-    shipMap ??= createShipMap(renderer, document.getElementById('ship-map-view')!);
-    shipMap.open(currentSceneData?.getSceneId?.() ?? activeSceneId, currentPlayer?.body.position, currentPlayer?.getState().yaw);
+    chartCurrentMapSection();
+    const layout = shipMapProgress.getLayout();
+    if (shipMap && layout !== shipMapLayout) { shipMap.dispose(); shipMap = null; }
+    shipMapLayout = layout;
+    shipMap ??= createShipMap(renderer, document.getElementById('ship-map-view')!, layout);
+    shipMap.open(currentSceneData?.getMapSceneId?.() ?? currentSceneData?.getSceneId?.() ?? activeSceneId, currentPlayer?.body.position, currentPlayer?.getState().yaw);
     document.querySelector<HTMLElement>('.ship-map-canvas')?.focus();
     return;
   }
@@ -1524,13 +1621,14 @@ async function jumpToScene(id: number) {
   for (const overlay of ['credits-overlay', 'menu-buttons', 'crowbar-overlay', 'boss-hud', 'boss-subtitles', 'escape-qte', 'loading-bay-status', 'space-cinematic-caption']) document.getElementById(overlay)?.classList.add('hidden');
   const fade = document.getElementById('fade-overlay'); fade?.classList.remove('active', 'black'); fade?.classList.add('hidden');
   // Developer spawn grants the tools but equips nothing; the player selects them per scene.
-  hasCrowbar = true; hasLightsaber = true; shieldCollectedScene7 = true; goggles.collect(false);
+  hasPistol = true; hasCrowbar = true; hasLightsaber = true; shieldCollectedScene7 = true; goggles.collect(false);
   if (id >= 8 && id <= 12) cargoPuzzle = createCargoPuzzleState(id);
   if (id === 13) bayBossDefeated = false;
   const request = sceneRequestVersion + 1;
   try {
     switch (id) {
       case 0: await loadPrologue1(); break;
+      case 0.5: await loadLivingQuarters(); break;
       case 1.1: await loadStage1Storage(); break;
       case 1: loadScene1(); break;
       case 2: await loadScene2(true); break;
@@ -1703,6 +1801,7 @@ function respawnAtCapsule() {
 function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
+  if (mappedSceneData !== currentSceneData) { mappedSceneData = currentSceneData; chartCurrentMapSection(); }
   scene1SkipHold?.update(delta);
   if (quickMenuOpen) {
     controlCard.classList.add('hidden');
@@ -1758,12 +1857,19 @@ function animate() {
 
   // Cutscenes
   if (cutsceneManager) cutsceneManager.update(delta);
+  const inScene1 = currentSceneData === scene1Data && !currentPlayer?.isEnabled();
+  const inCutscene = !!cutsceneManager || !!deathPresentation || !!currentSceneData?.isCinematic?.();
+  const aiming = pistol.isAiming();
   const crosshair = document.getElementById('crosshair');
   if (crosshair) {
-    const inScene1 = currentSceneData === scene1Data && !currentPlayer?.isEnabled();
-    const inCutscene = !!cutsceneManager || !!deathPresentation || !!currentSceneData?.isCinematic?.();
-    crosshair.style.display = (inScene1 || inCutscene || !pistol.isAiming()) ? 'none' : '';
+    crosshair.style.display = (inScene1 || inCutscene || !aiming) ? 'none' : '';
   }
+  const onFoot = !!currentPlayer && !!activeScene && activeSceneId !== 'scene1'
+    && activeSceneId !== 'scene15' && activeSceneId !== 'scene16'
+    && (currentPlayer.isEnabled() || !!currentSceneData?.controlsReady?.());
+  const aimingReticle = aiming || !!currentSceneData?.hasAimReticle?.();
+  document.getElementById('look-reticle')?.classList.toggle('hidden',
+    !onFoot || inCutscene || cctvTeleportTime >= 0 || aimingReticle);
 
   const sceneOwnsControls = !!deathPresentation || !!currentSceneData?.isCinematic?.();
   updateViewButton();
@@ -1774,7 +1880,7 @@ function animate() {
       currentScene: activeSceneId,
       hasCrowbar,
       hasLightsaber,
-      hasPistol: true,
+      hasPistol,
       hasGoggles: goggles.isCollected(),
       shieldCollected: shieldCollectedScene7,
       healthPackCollected: healthPackCollectedScene13,
@@ -1801,6 +1907,7 @@ function animate() {
   // Character animations + view
   goggles.update();
   updatePlayerView(delta);
+  currentSceneData?.updateInteractionFocus?.();
   if (cctvTeleportTime < 0) {
     globalCharacter?.setHologramTransition(currentSceneData?.getHologramTransition?.() ?? null);
   }
@@ -1827,7 +1934,9 @@ function animate() {
 
   // Render
   if (activeScene && activeCamera) {
-    renderGameScene(currentSceneData?.getRenderScene?.() ?? activeScene, activeCamera);
+    const scene = currentSceneData?.getRenderScene?.() ?? activeScene;
+    updateComicEffects(scene, activeCamera, delta, renderer);
+    renderGameScene(scene, activeCamera);
     renderMinimap();
   }
 }

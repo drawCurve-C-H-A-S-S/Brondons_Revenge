@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 
-export function createHangarVersus() {
+export function createHangarVersus({ singleOpponent = false, playerName, opponentName }: {
+  singleOpponent?: boolean; playerName?: string; opponentName?: string;
+} = {}) {
   const panels = [new THREE.Scene(), new THREE.Scene()];
   const cameras = [new THREE.PerspectiveCamera(38, 1, 0.02, 80), new THREE.PerspectiveCamera(48, 1, 0.02, 80)];
   const materials = new Map<THREE.Material, THREE.MeshToonMaterial>();
@@ -39,8 +41,15 @@ export function createHangarVersus() {
   });
   const frame = document.createElement('div'); frame.className = 'hangar-versus hidden'; frame.setAttribute('aria-hidden', 'true');
   const badge = document.createElement('div'); badge.className = 'hangar-versus-badge'; badge.textContent = 'VS'; frame.appendChild(badge); document.body.appendChild(frame);
+  const names = [playerName, opponentName].flatMap((name, index) => {
+    if (!name) return [];
+    const label = document.createElement('div'); label.className = `hangar-versus-name${index === 1 ? ' opponent' : ''}`;
+    label.textContent = name; frame.appendChild(label); return [label];
+  });
   const viewport = new THREE.Vector4(), scissor = new THREE.Vector4(), clearColor = new THREE.Color(), size = new THREE.Vector2();
   let captured = false;
+  let opponentFrame: { center: THREE.Vector3; size: THREE.Vector3 } | null = null;
+  const opponentAngle = new THREE.Vector3(-0.18, 0.06, 1).normalize();
 
   function copyModel(source: THREE.Object3D) {
     const model = clone(source); model.position.set(0, 0, 0); model.rotation.set(0, 0, 0); model.visible = true;
@@ -48,13 +57,14 @@ export function createHangarVersus() {
       node.layers.set(0);
       if (!(node instanceof THREE.Mesh)) return;
       node.castShadow = node.receiveShadow = false;
+      if (node instanceof THREE.SkinnedMesh) { node.boundingBox = null; node.boundingSphere = null; }
       const convert = (original: THREE.Material) => {
         let material = materials.get(original);
         if (!material) {
           const surface = original as THREE.MeshStandardMaterial;
           material = new THREE.MeshToonMaterial({ color: surface.color?.clone() ?? new THREE.Color(0xffffff),
             map: surface.map ?? null, gradientMap: ramp, side: original.side, transparent: original.transparent,
-            opacity: original.opacity, alphaTest: original.alphaTest });
+            opacity: original.opacity, alphaTest: original.alphaTest, visible: original.visible });
           materials.set(original, material);
         }
         return material;
@@ -67,21 +77,41 @@ export function createHangarVersus() {
   return {
     capture(player: THREE.Object3D, crowd: readonly THREE.Object3D[]) {
       if (captured) return;
+      if (singleOpponent && crowd.length !== 1) throw new Error('A single-opponent versus screen requires exactly one opponent.');
       const portrait = copyModel(player); panels[0].add(portrait); portrait.rotation.y = -0.14; portrait.updateMatrixWorld(true);
       const head = portrait.getObjectByName('head');
       const focus = head?.getWorldPosition(new THREE.Vector3()) ?? new THREE.Vector3(0, 1.65, 0);
       focus.y += 0.08;
       cameras[0].position.copy(focus).add(new THREE.Vector3(0.35, 0.08, 1.65)); cameras[0].lookAt(focus);
-      crowd.slice(0, 18).forEach((source, index) => {
-        const robot = copyModel(source); robot.position.set((index % 6 - 2.5) * 2.15, 0, -Math.floor(index / 6) * 2.15); panels[1].add(robot);
-      });
-      cameras[1].position.set(0.8, 2.6, 10.5); cameras[1].lookAt(0, 0.6, -1.5); captured = true;
+      if (singleOpponent) {
+        const robot = copyModel(crowd[0]); panels[1].add(robot); robot.rotation.y = 0.14; robot.updateMatrixWorld(true);
+        robot.traverse(node => { if (node instanceof THREE.SkinnedMesh) node.skeleton.update(); });
+        const bounds = new THREE.Box3(), meshBounds = new THREE.Box3();
+        robot.traverse(node => {
+          if (!(node instanceof THREE.Mesh)) return;
+          for (let ancestor: THREE.Object3D | null = node; ancestor; ancestor = ancestor.parent) if (!ancestor.visible) return;
+          const surfaces = Array.isArray(node.material) ? node.material : [node.material];
+          if (surfaces.some(surface => surface.visible && surface.opacity > 0)) bounds.union(meshBounds.setFromObject(node));
+        });
+        if (bounds.isEmpty()) throw new Error('The versus opponent has no visible model to frame.');
+        opponentFrame = { center: bounds.getCenter(new THREE.Vector3()), size: bounds.getSize(new THREE.Vector3()) };
+      } else {
+        crowd.slice(0, 18).forEach((source, index) => {
+          const robot = copyModel(source); robot.position.set((index % 6 - 2.5) * 2.15, 0, -Math.floor(index / 6) * 2.15); panels[1].add(robot);
+        });
+        cameras[1].position.set(0.8, 2.6, 10.5); cameras[1].lookAt(0, 0.6, -1.5);
+      }
+      captured = true;
     },
     update(time: number) {
       frame.classList.remove('hidden'); document.body.classList.add('hangar-versus-active');
       const entry = THREE.MathUtils.smootherstep(time, 0.25, 0.85);
       const punch = Math.sin(THREE.MathUtils.clamp((time - 0.75) / 0.35, 0, 1) * Math.PI) * 0.18;
       badge.style.transform = `translate(-50%, -50%) translate(${(1 - entry) * -window.innerWidth * 0.8}px, ${(1 - entry) * -90}px) rotate(${-18 + entry * 8}deg) scale(${0.3 + entry * 0.7 + punch})`;
+      names.forEach((label, index) => {
+        label.style.opacity = String(entry);
+        label.style.transform = `translateX(${(1 - entry) * (index === 0 ? -36 : 36)}px) rotate(-3deg)`;
+      });
       backgrounds.forEach(material => { material.uniforms.uTime.value = time; });
     },
     hide() { frame.classList.add('hidden'); document.body.classList.remove('hangar-versus-active'); },
@@ -96,6 +126,12 @@ export function createHangarVersus() {
         panels.forEach((panel, index) => {
           const height = index === 0 ? size.y - half : half, bottom = index === 0 ? half : 0;
           cameras[index].aspect = size.x / Math.max(1, height); cameras[index].updateProjectionMatrix();
+          if (index === 1 && opponentFrame) {
+            const tangent = Math.tan(THREE.MathUtils.degToRad(cameras[1].fov / 2));
+            const distance = Math.max(opponentFrame.size.y, opponentFrame.size.x / cameras[1].aspect) / (2 * tangent) * 1.15 + opponentFrame.size.z / 2;
+            cameras[1].position.copy(opponentFrame.center).addScaledVector(opponentAngle, distance);
+            cameras[1].lookAt(opponentFrame.center);
+          }
           renderer.setViewport(0, bottom, size.x, height); renderer.setScissor(0, bottom, size.x, height);
           renderer.setClearColor(index === 0 ? 0x087bdd : 0xdd2635, 1); renderer.clear(true, true, false); renderer.render(panel, cameras[index]);
         });
