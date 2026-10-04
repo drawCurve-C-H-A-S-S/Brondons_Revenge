@@ -58,8 +58,8 @@ const TEXTURE_SETS = [
   { diffuse: tex8Url, normal: null, specular: null }, // Texture 8 has no normal/specular maps
 ];
 
-export function createScene({ audioManager, entryState, entryDoor = 'back', cafeteriaUnlocked = false, chestOpened, onChestCollected, preview = false, teleportArrival = false }: {
-  audioManager?: unknown; entryState?: PlayerTransitionState; entryDoor?: 'back' | 'front'; cafeteriaUnlocked?: boolean; chestOpened?: boolean; onChestCollected?: () => void; preview?: boolean; teleportArrival?: boolean;
+export function createScene({ audioManager, entryState, entryDoor = 'back', cafeteriaUnlocked = false, chestOpened, onChestCollected, preview = false, teleportArrival = false, teleportDeviceCollected: initialTeleportDeviceCollected = false, onTeleportDeviceCollected }: {
+  audioManager?: unknown; entryState?: PlayerTransitionState; entryDoor?: 'back' | 'front'; cafeteriaUnlocked?: boolean; chestOpened?: boolean; onChestCollected?: () => void; preview?: boolean; teleportArrival?: boolean; teleportDeviceCollected?: boolean; onTeleportDeviceCollected?: () => void;
 } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0a10);
@@ -516,6 +516,31 @@ export function createScene({ audioManager, entryState, entryDoor = 'back', cafe
   }
   window.addEventListener('keydown', onKeyDown);
 
+  // --- Teleportation Device Collectible ---
+  const teleportDevicePos = new THREE.Vector3(-roomWidth / 2 + 0.6, 1.2, 0);
+  const teleportDeviceGeo = new THREE.OctahedronGeometry(0.25, 0);
+  const teleportDeviceMat = new THREE.MeshStandardMaterial({
+    color: 0x9b59b6,
+    emissive: 0x8e44ad,
+    emissiveIntensity: 1.5,
+    metalness: 0.7,
+    roughness: 0.3,
+    transparent: true,
+    opacity: 0.9,
+  });
+  const teleportDevice = new THREE.Mesh(teleportDeviceGeo, teleportDeviceMat);
+  teleportDevice.position.copy(teleportDevicePos);
+  teleportDevice.castShadow = true;
+  scene.add(teleportDevice);
+  const teleportDeviceLight = new THREE.PointLight(0x8e44ad, 2, 4);
+  teleportDeviceLight.position.copy(teleportDevicePos);
+  scene.add(teleportDeviceLight);
+  let teleportDeviceCollected = initialTeleportDeviceCollected;
+  if (teleportDeviceCollected) {
+    teleportDevice.visible = false;
+    teleportDeviceLight.visible = false;
+  }
+
   // --- Camera ---
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
 
@@ -634,6 +659,65 @@ export function createScene({ audioManager, entryState, entryDoor = 'back', cafe
       const inRange = chestReady && !chestLooted && enemyDefeated && Math.hypot(dxChest, dzChest) <= interactRange;
       interactPrompt.classList.toggle('hidden', !inRange);
     }
+
+    // Teleportation device collection
+    if (!teleportDeviceCollected) {
+      const t = performance.now() * 0.001;
+      teleportDevice.rotation.y = t * 1.5;
+      teleportDevice.rotation.x = Math.sin(t * 2) * 0.2;
+      teleportDevice.position.y = teleportDevicePos.y + Math.sin(t * 2.5) * 0.1;
+      teleportDeviceMat.emissiveIntensity = 1.2 + Math.sin(t * 3) * 0.3;
+
+      const dx = px - teleportDevicePos.x;
+      const dz = pz - teleportDevicePos.z;
+      if (Math.hypot(dx, dz) < 1.2 && player.isEnabled()) {
+        teleportDeviceCollected = true;
+        teleportDevice.visible = false;
+        teleportDeviceLight.visible = false;
+        onTeleportDeviceCollected?.();
+      }
+    }
+  }
+
+  // --- Teleportation Device Placed Marker ---
+  let placedMarkerMesh: THREE.Mesh | null = null;
+  let placedMarkerLight: THREE.PointLight | null = null;
+
+  function createPlacedMarker(position: THREE.Vector3) {
+    // Remove existing marker if any
+    if (placedMarkerMesh) {
+      scene.remove(placedMarkerMesh);
+      placedMarkerMesh.geometry.dispose();
+      (placedMarkerMesh.material as THREE.Material).dispose();
+      placedMarkerMesh = null;
+    }
+    if (placedMarkerLight) {
+      scene.remove(placedMarkerLight);
+      placedMarkerLight = null;
+    }
+
+    // Create a glowing cylinder marker
+    const markerGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.05, 16);
+    const markerMat = new THREE.MeshStandardMaterial({
+      color: 0x9b59b6,
+      emissive: 0x8e44ad,
+      emissiveIntensity: 2,
+      metalness: 0.5,
+      roughness: 0.3,
+      transparent: true,
+      opacity: 0.8,
+    });
+    placedMarkerMesh = new THREE.Mesh(markerGeo, markerMat);
+    placedMarkerMesh.position.copy(position);
+    placedMarkerMesh.position.y = 0.025; // Just above the floor
+    placedMarkerMesh.receiveShadow = true;
+    scene.add(placedMarkerMesh);
+
+    // Add a point light for glow effect
+    placedMarkerLight = new THREE.PointLight(0x8e44ad, 3, 5);
+    placedMarkerLight.position.copy(position);
+    placedMarkerLight.position.y = 0.5;
+    scene.add(placedMarkerLight);
   }
 
   return {
@@ -646,11 +730,19 @@ export function createScene({ audioManager, entryState, entryDoor = 'back', cafe
     hitForwardDoor,
     setEnemyDefeated,
     getHologramTransition: () => arrivalTime < HOLOGRAM_TRANSFER_DURATION ? hologramTransitionAt(arrivalTime, true) : null,
+    getTeleportDeviceCollected: () => teleportDeviceCollected,
+    createPlacedMarker,
     dispose: () => {
       window.removeEventListener('keydown', onKeyDown);
       if (interactPrompt) interactPrompt.classList.add('hidden');
       player.dispose();
       physics.dispose();
+      teleportDeviceGeo.dispose();
+      teleportDeviceMat.dispose();
+      if (placedMarkerMesh) {
+        placedMarkerMesh.geometry.dispose();
+        (placedMarkerMesh.material as THREE.Material).dispose();
+      }
     },
   };
 }

@@ -25,6 +25,7 @@ import { GogglesPostProcess } from './scripts/gogglesPostProcess.js';
 import { LightsaberController } from './scripts/lightsaber.js';
 import { AdaptiveHintManager } from './scripts/adaptiveHints.js';
 import { createCctvSystem } from './scripts/cctv.js';
+import { TeleportationDeviceController } from './scripts/teleportationDevice.js';
 import type { createFirstPersonHands } from './scripts/firstPersonHands.js';
 import { initTouchControls, setTouchFlightMode, resetTouchInput } from './scripts/touchControls.js';
 import { PixelArtPass } from './core/PixelArtPass.js';
@@ -119,8 +120,6 @@ const gogglesPostProcess = new GogglesPostProcess(renderer);
 const pixelArtPass = new PixelArtPass();
 const retroConsolePass = new RetroConsolePass();
 const minimap = createSceneMinimap(renderer, document.getElementById('minimap')!);
-const cctvRaycaster = new THREE.Raycaster();
-const cctvClickMouse = new THREE.Vector2();
 
 // --- Audio Manager stub ---
 const audioManager = null;
@@ -201,6 +200,10 @@ let healthPackCollectedScene13 = false;
 let hintManager: AdaptiveHintManager | null = null;
 let cctvTeleportTime = -1;
 let cctvTeleportTarget: (() => void) | null = null;
+let cctvLookedAtScreen: number | null = null;
+const cctvCenterRaycaster = new THREE.Raycaster();
+const cctvPrompt = document.getElementById('interact-prompt');
+let cctvPromptVisible = false;
 const cargoAccess = () => ({ hasCrowbar, cargoDoorUnlocked, onCargoDoorOpened: () => { cargoDoorUnlocked = true; } });
 const ladderAccess = () => ({ clearedCrates: clearedLadderCrates, onCrateBroken: (id: string) => { clearedLadderCrates.add(id); }, shieldCollected: shieldCollectedScene7, onShieldCollected: () => { shieldCollectedScene7 = true; } });
 let crowbarController: CrowbarController | null = null;
@@ -277,6 +280,93 @@ const goggles = new GogglesController(() => ({
   onToggle: active => gogglesPostProcess.setActive(active),
 }));
 
+// --- Teleportation Device ---
+let teleportDeviceMessageTimeout: number | null = null;
+function showTeleportDeviceMessage(message: string) {
+  const prompt = document.getElementById('interact-prompt');
+  if (!prompt) return;
+  prompt.textContent = message;
+  prompt.classList.remove('hidden');
+  if (teleportDeviceMessageTimeout) clearTimeout(teleportDeviceMessageTimeout);
+  teleportDeviceMessageTimeout = window.setTimeout(() => {
+    prompt.classList.add('hidden');
+    teleportDeviceMessageTimeout = null;
+  }, 3000);
+}
+
+const teleportDevice = new TeleportationDeviceController(() => ({
+  currentSceneId: activeSceneId ?? '',
+  isBossFight: () => activeSceneId === 'scene13',
+  getPlayerPosition: () => currentPlayer ? { x: currentPlayer.body.position.x, y: currentPlayer.body.position.y, z: currentPlayer.body.position.z } : { x: 0, y: 0, z: 0 },
+  getPlayerRotation: () => currentPlayer?.getState().yaw ?? 0,
+  onTeleport: (sceneId, position, rotation) => {
+    // Check if teleporting within the same scene
+    if (sceneId === activeSceneId) {
+      // Same-scene teleport: reposition player directly
+      cctvTeleportTime = 0;
+      cctvTeleportTarget = () => {
+        if (currentPlayer) {
+          currentPlayer.setPosition(position.x, position.y, position.z);
+          currentPlayer.setRotation(rotation, 0);
+          currentPlayer.enable();
+        }
+      };
+      if (currentPlayer) {
+        currentPlayer.disable();
+        currentPlayer.clearInput();
+      }
+    } else {
+      // Cross-scene teleport: load the target scene with proper entry state
+      cctvTeleportTime = 0;
+      cctvTeleportTarget = () => {
+        // Create a PlayerTransitionState for the target position
+        const entryState: PlayerTransitionState = {
+          position: { x: position.x, y: position.y, z: position.z },
+          velocity: { x: 0, y: 0, z: 0 },
+          yaw: rotation,
+          pitch: 0,
+          heldKeys: [],
+          intentionalJump: false,
+          jumpQueued: false,
+          bobTime: 0,
+          bobIntensity: 0,
+          crouching: false,
+          sprinting: false,
+        };
+        
+        // Load the appropriate scene
+        if (sceneId === 'scene4') {
+          void loadScene4(entryState, 'back', false);
+        } else if (sceneId === 'scene7') {
+          void loadScene7(entryState);
+        } else if (sceneId === 'scene3') {
+          void loadScene3(entryState);
+        } else if (sceneId === 'scene2') {
+          // scene2 doesn't accept entryState, so load it and reposition after
+          void loadScene2(false, false).then(() => {
+            if (currentPlayer) {
+              currentPlayer.setPosition(position.x, position.y, position.z);
+              currentPlayer.setRotation(rotation, 0);
+            }
+          });
+        }
+        // Add more scenes as needed
+      };
+      if (currentPlayer) {
+        currentPlayer.disable();
+        currentPlayer.clearInput();
+      }
+    }
+  },
+  onPlace: (sceneId, position, rotation) => {
+    // Store placement in current scene
+    if (currentSceneData && 'createPlacedMarker' in currentSceneData) {
+      (currentSceneData as any).createPlacedMarker(new THREE.Vector3(position.x, position.y, position.z));
+    }
+  },
+  showMessage: showTeleportDeviceMessage,
+}));
+
 // --- Controls ---
 let orbitControls: OrbitControls | null = null;
 
@@ -303,18 +393,14 @@ async function initializeApp() {
   window.addEventListener('mousemove', recordHintActivity);
   window.addEventListener('touchstart', recordHintActivity);
 
-  // CCTV screen click-to-teleport
-  window.addEventListener('click', event => {
+  // CCTV screen E-to-teleport
+  window.addEventListener('keydown', event => {
+    if (event.code !== 'KeyE' || event.repeat) return;
     if (activeSceneId !== 'scene7' || !currentPlayer?.isEnabled() || !activeCamera) return;
     if (quickMenuOpen || !!currentSceneData?.isCinematic?.()) return;
-    if (cctvTeleportTime >= 0) return; // Already teleporting
-    cctvClickMouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-    cctvClickMouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-    cctvRaycaster.setFromCamera(cctvClickMouse, activeCamera);
-    const screenIndex = cctv.handleScreenClick(cctvRaycaster, activeCamera);
-    if (screenIndex === null) return;
+    if (cctvTeleportTime >= 0 || cctvLookedAtScreen === null) return;
     const roomIds = cctv.roomIds;
-    const roomId = roomIds[screenIndex];
+    const roomId = roomIds[cctvLookedAtScreen];
     if (roomId === 'cafeteria') return; // Already in cafeteria
     const sceneMap: Record<string, () => void> = {
       'medical-bay': () => loadScene2(false, true),
@@ -328,6 +414,10 @@ async function initializeApp() {
     cctvTeleportTarget = teleport;
     currentPlayer.disable();
     currentPlayer.clearInput();
+    cctvPrompt?.classList.add('hidden');
+    cctvPromptVisible = false;
+    cctv.highlightScreen(null);
+    cctvLookedAtScreen = null;
   });
 
   await yieldToMainThread();
@@ -847,10 +937,14 @@ async function loadScene4(entryState?: PlayerTransitionState, entryDoor: 'back' 
 
   const sceneData = module.createScene({
     audioManager, entryState, entryDoor, cafeteriaUnlocked: hasCrowbar, chestOpened: hasCrowbar, teleportArrival,
+    teleportDeviceCollected: teleportDevice.isCollected(),
     onChestCollected: () => {
       hasCrowbar = true;
       crowbar.equip();
       introduceControls('crowbar');
+    },
+    onTeleportDeviceCollected: () => {
+      teleportDevice.collect();
     },
   });
   enterManagedScene('scene4', sceneData);
@@ -1891,6 +1985,37 @@ function animate() {
     });
   }
 
+  // CCTV look-at detection (per-frame raycast from camera center)
+  if (activeSceneId === 'scene7' && currentPlayer?.isEnabled() && activeCamera && !quickMenuOpen && !currentSceneData?.isCinematic?.() && cctvTeleportTime < 0) {
+    cctvCenterRaycaster.setFromCamera(new THREE.Vector2(0, 0), activeCamera);
+    const screenIndex = cctv.getLookedAtScreen(cctvCenterRaycaster, activeCamera);
+    if (screenIndex !== null) {
+      const roomIds = cctv.roomIds;
+      const roomId = roomIds[screenIndex];
+      const canTeleport = roomId !== 'cafeteria';
+      cctv.highlightScreen(canTeleport ? screenIndex : null);
+      cctvLookedAtScreen = canTeleport ? screenIndex : null;
+      const visible = canTeleport;
+      if (cctvPrompt && visible !== cctvPromptVisible) {
+        cctvPromptVisible = visible;
+        cctvPrompt.textContent = `Press E to teleport to ${roomId.replace('-', ' ')}`;
+        cctvPrompt.classList.toggle('hidden', !visible);
+      }
+    } else {
+      cctv.highlightScreen(null);
+      cctvLookedAtScreen = null;
+      if (cctvPrompt && cctvPromptVisible) {
+        cctvPromptVisible = false;
+        cctvPrompt.classList.add('hidden');
+      }
+    }
+  } else if (cctvPrompt && cctvPromptVisible) {
+    cctvPromptVisible = false;
+    cctvPrompt.classList.add('hidden');
+    cctv.highlightScreen(null);
+    cctvLookedAtScreen = null;
+  }
+
   // CCTV hologram teleportation
   if (cctvTeleportTime >= 0 && globalCharacter) {
     cctvTeleportTime += delta;
@@ -1906,6 +2031,7 @@ function animate() {
 
   // Character animations + view
   goggles.update();
+  teleportDevice.update(delta);
   updatePlayerView(delta);
   currentSceneData?.updateInteractionFocus?.();
   if (cctvTeleportTime < 0) {
