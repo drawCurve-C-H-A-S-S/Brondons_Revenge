@@ -74,20 +74,22 @@ export function createCctvSystem(renderer: THREE.WebGLRenderer) {
   );
   panel.add(housing);
   const screens = targets.map((target, index) => {
+    const material = new THREE.MeshBasicMaterial({ map: target.texture, toneMapped: false });
     const screen = new THREE.Mesh(
       new THREE.PlaneGeometry(2.35, 1.32),
-      new THREE.MeshBasicMaterial({ map: target.texture, toneMapped: false }),
+      material,
     );
     screen.position.set(index % 2 === 0 ? -1.3 : 1.3, index < 2 ? 0.78 : -0.78, 0.095);
+    screen.name = `cctv-screen-${index}`;
     panel.add(screen);
-    return screen;
+    return { mesh: screen, material, originalPosition: screen.position.clone() };
   });
-  const indicators = screens.map((screen, index) => {
+  const indicators = screens.map((screenObj, index) => {
     const indicator = new THREE.Mesh(
       new THREE.CircleGeometry(0.09, 16),
       new THREE.MeshBasicMaterial({ color: 0x39d98a, toneMapped: false }),
     );
-    indicator.position.set(screen.position.x + 0.98, screen.position.y + 0.49, 0.11);
+    indicator.position.set(screenObj.mesh.position.x + 0.98, screenObj.mesh.position.y + 0.49, 0.11);
     indicator.name = `cctv-occupancy-${index + 1}`;
     panel.add(indicator);
     return indicator;
@@ -146,19 +148,52 @@ export function createCctvSystem(renderer: THREE.WebGLRenderer) {
     return source;
   }
 
+  let highlightedScreenIndex = -1;
+
   function handleScreenClick(raycaster: THREE.Raycaster, camera: THREE.Camera): number | null {
-    const intersects = raycaster.intersectObjects(screens, false);
+    const screenMeshes = screens.map(s => s.mesh);
+    const intersects = raycaster.intersectObjects(screenMeshes, false);
     if (intersects.length === 0) return null;
     const clickedScreen = intersects[0].object;
     for (let i = 0; i < screens.length; i++) {
-      if (screens[i] === clickedScreen) return i;
+      if (screens[i].mesh === clickedScreen) return i;
     }
     return null;
+  }
+
+  function getLookedAtScreen(raycaster: THREE.Raycaster, camera: THREE.Camera): number | null {
+    const screenMeshes = screens.map(s => s.mesh);
+    const intersects = raycaster.intersectObjects(screenMeshes, false);
+    if (intersects.length === 0) return null;
+    const lookedAtScreen = intersects[0].object;
+    for (let i = 0; i < screens.length; i++) {
+      if (screens[i].mesh === lookedAtScreen) return i;
+    }
+    return null;
+  }
+
+  function highlightScreen(index: number | null) {
+    if (highlightedScreenIndex === index) return;
+    // Reset previous highlight
+    if (highlightedScreenIndex >= 0 && highlightedScreenIndex < screens.length) {
+      const prev = screens[highlightedScreenIndex];
+      prev.mesh.position.copy(prev.originalPosition);
+      prev.mesh.scale.set(1, 1, 1);
+    }
+    highlightedScreenIndex = index ?? -1;
+    // Apply new highlight
+    if (index !== null && index >= 0 && index < screens.length) {
+      const curr = screens[index];
+      curr.mesh.position.z = curr.originalPosition.z + 0.05;
+      curr.mesh.scale.set(1.05, 1.05, 1);
+    }
   }
 
   return {
     update,
     handleScreenClick,
+    getLookedAtScreen,
+    highlightScreen,
     roomIds,
     dispose: () => {
       panel.removeFromParent();
