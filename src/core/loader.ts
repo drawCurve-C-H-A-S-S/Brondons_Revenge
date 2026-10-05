@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneRig } from 'three/addons/utils/SkeletonUtils.js';
-import playerModelUrl from '../assets/models/MC.glb';
+import playerModelUrl from '../assets/models/conjoinedbrondon.glb';
 import subjectModelUrl from '../assets/models/Subject.glb';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import dinoModelUrl from '../assets/models/Dino/dino.glb';
