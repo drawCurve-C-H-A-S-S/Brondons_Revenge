@@ -16,7 +16,7 @@ export interface ShipMapLayout {
   playerPoint: (id: number, position: { x: number; y: number; z: number }) => THREE.Vector3 | null;
   joins?: readonly ShipMapJoin[];
   ventPaths?: readonly (readonly THREE.Vector3[])[];
-  verticalLinks?: readonly (typeof SHIP_VERTICAL_LINKS)[number][];
+  verticalLinks?: readonly { id: number; position: THREE.Vector3; upper: number; label: string }[];
 }
 
 export const SHIP_MAP_LAYOUT: ShipMapLayout = {

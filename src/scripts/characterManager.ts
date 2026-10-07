@@ -21,11 +21,14 @@ import type { PlayerState } from './player.js';
 interface Vec3Like { x: number; y: number; z: number; }
 
 export const HOLOGRAM_TRANSFER_DURATION = 1.95;
+export const TELEPORT_TRANSFER_DURATION = 0.18;
 
 interface HologramTransition { blend: number; opacity: number; time: number; }
 
-export function hologramTransitionAt(time: number, arriving = false): HologramTransition {
-  const phase = arriving ? HOLOGRAM_TRANSFER_DURATION - time : time;
+export function hologramTransitionAt(time: number, arriving = false, duration = HOLOGRAM_TRANSFER_DURATION): HologramTransition {
+  const span = Number.isFinite(duration) && duration > 0 ? duration : HOLOGRAM_TRANSFER_DURATION;
+  const elapsed = Number.isFinite(time) ? THREE.MathUtils.clamp(time / span, 0, 1) : 0;
+  const phase = (arriving ? 1 - elapsed : elapsed) * HOLOGRAM_TRANSFER_DURATION;
   return {
     blend: THREE.MathUtils.smoothstep(phase, 0, 0.55),
     opacity: 1 - THREE.MathUtils.smoothstep(phase, 0.75, 1.65),
@@ -188,6 +191,8 @@ export function createPrologueGetUpClip(gltf: { scene: THREE.Object3D; animation
     new THREE.VectorKeyframeTrack(`${bone.name}.scale`, times, poses.flatMap(pose => pose[boneIndex].scale.toArray())),
   ]));
 }
+
+export { createMechAnimator, type MechBoneMap, type MechPoseName } from './mechAnimation.js';
 
 export async function loadCharacter(loader?: GLTFLoader) {
 

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneRig } from 'three/addons/utils/SkeletonUtils.js';
 import playerModelUrl from '../assets/models/Don.glb';
+import mcModelUrl from '../assets/models/MC.glb';
 import subjectModelUrl from '../assets/models/Subject.glb';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import dinoModelUrl from '../assets/models/Dino/dino.glb';
@@ -13,7 +14,7 @@ const gltfLoader = new GLTFLoader();
 const playerLoader = new GLTFLoader();
 const playerTemplates = new WeakMap<GLTFLoader, Promise<GLTF>>();
 const modelTemplates = new Map<string, Promise<GLTF>>();
-type ToolModelName = 'Enemy_Trilobite' | 'Enemy_QuadShell' | 'Enemy_EyeDrone' | 'Gun_Pistol' | 'Gun_Revolver'
+type ToolModelName = 'Enemy_Trilobite' | 'Enemy_QuadShell' | 'Enemy_EyeDrone' | 'Gun_Pistol' | 'Gun_Revolver' | 'Gun_Rifle'
   | 'Prop_Chest' | 'Prop_Desk_Small' | 'Prop_Chair';
 const toolTemplates = new Map<ToolModelName, Promise<GLTF>>();
 
@@ -75,6 +76,7 @@ export async function preloadBossModels() {
 
 export async function loadBossModel() { return cloneModel(await modelTemplate(bossModelUrl)); }
 export async function loadBoyModel() { return cloneModel(await modelTemplate(boyModelUrl)); }
+export async function loadMCModel() { return cloneModel(await modelTemplate(mcModelUrl)); }
 export async function loadSubjectModel() { return cloneModel(await modelTemplate(subjectModelUrl)); }
 export async function preloadToolModel(name: ToolModelName) { await toolTemplate(name); }
 
@@ -112,6 +114,7 @@ const toolAssets = import.meta.glob<string>([
   '../assets/models/Tools/Enemy_EyeDrone.{gltf,bin}',
   '../assets/models/Tools/Gun_Pistol.{gltf,bin}',
   '../assets/models/Tools/Gun_Revolver.{gltf,bin}',
+  '../assets/models/Tools/Gun_Rifle.{gltf,bin}',
   '../assets/models/Tools/Prop_Chest.{gltf,bin}',
   '../assets/models/Tools/Prop_Desk_Small.{gltf,bin}',
   '../assets/models/Tools/Prop_Chair.{gltf,bin}',

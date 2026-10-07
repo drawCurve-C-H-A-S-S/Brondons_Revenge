@@ -1,15 +1,20 @@
 /**
- * Scene 1 - Space exterior with starfield and compound spaceship.
- * Cutscene camera fly-through, comic shader materials.
+ * Scene 1 - Space exterior with starfield and imported mothership.
+ * Cutscene camera fly-through with the model's authored materials.
  */
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { loadModel } from '../core/loader.js';
+import mothershipUrl from '../assets/models/mothership.glb';
 import { CutsceneManager } from '../helpers/animation/CutsceneManager.js';
 import { disposeRoom } from '../helpers/scene/shipRoom.js';
-import comicVert from '../shaders/comic.vert.glsl?raw';
-import comicFrag from '../shaders/comic.frag.glsl?raw';
+// import comicVert from '../shaders/comic.vert.glsl?raw';
+// import comicFrag from '../shaders/comic.frag.glsl?raw';
 
-export function createScene({ audioManager }: { audioManager?: unknown } = {}) {
+export function createScene({ audioManager, loadShip = loadModel }: {
+  audioManager?: unknown;
+  loadShip?: typeof loadModel;
+} = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x020510);
   scene.fog = new THREE.Fog(0x020510, 30, 120);
@@ -37,9 +42,12 @@ export function createScene({ audioManager }: { audioManager?: unknown } = {}) {
   const stars = new THREE.Points(starGeo, starMat);
   scene.add(stars);
 
-  // --- Spaceship (compound primitive shapes) ---
+  // --- Mothership ---
   const ship = new THREE.Group();
+  ship.name = 'Mothership';
+  let disposed = false;
 
+  /* Original primitive spaceship (kept for reference).
   const comicMaterial = new THREE.ShaderMaterial({
     vertexShader: comicVert, fragmentShader: comicFrag,
     uniforms: {
@@ -158,6 +166,26 @@ export function createScene({ audioManager }: { audioManager?: unknown } = {}) {
   const antennaTip = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), antennaTipMat);
   antennaTip.position.set(0.6, 0.82, 0);
   ship.add(antennaTip);
+  */
+
+  const ready = loadShip(mothershipUrl).then(model => {
+    if (disposed) { disposeRoom(model); return; }
+    const modelRoot = new THREE.Group();
+    modelRoot.add(model);
+    modelRoot.rotation.y = -Math.PI / 2;
+    const bounds = new THREE.Box3().setFromObject(modelRoot);
+    const size = bounds.getSize(new THREE.Vector3());
+    const span = Math.max(size.x, size.y, size.z);
+    if (!Number.isFinite(span) || span <= 0) {
+      disposeRoom(modelRoot);
+      throw new Error('Mothership model has invalid or empty bounds');
+    }
+    // Fit the authored model to the original ship's local-space envelope.
+    const scale = 4.6 / span;
+    modelRoot.scale.setScalar(scale);
+    modelRoot.position.copy(bounds.getCenter(new THREE.Vector3())).multiplyScalar(-scale);
+    ship.add(modelRoot);
+  });
 
   ship.scale.set(10, 10, 10);
   ship.position.set(0, 15, 0);
@@ -210,6 +238,7 @@ export function createScene({ audioManager }: { audioManager?: unknown } = {}) {
     ship.rotation.z = Math.sin(t * 0.8) * 0.04;
     ship.rotation.x = Math.sin(t * 0.6) * 0.02;
 
+    /* Primitive spaceship animation (kept for reference).
     // Pulse engine glow
     const pulse = 1.5 + Math.sin(t * 8) * 0.5;
     engineLightL.intensity = pulse;
@@ -219,6 +248,7 @@ export function createScene({ audioManager }: { audioManager?: unknown } = {}) {
     comicMaterial.uniforms.uTime.value = t;
     comicMaterialBlue.uniforms.uTime.value = t;
     comicMaterialRed.uniforms.uTime.value = t;
+    */
 
     // Animate starfield
     const positions = stars.geometry.attributes.position.array as Float32Array;
@@ -270,9 +300,12 @@ export function createScene({ audioManager }: { audioManager?: unknown } = {}) {
     camera,
     physicsWorld,
     updatePhysics,
+    ready,
     cutsceneManager,
     lastSplinePoint,
     dispose() {
+      if (disposed) return;
+      disposed = true;
       cutsceneManager.onStateChange = undefined;
       cutsceneManager.clear();
       disposeRoom(scene);

@@ -532,13 +532,14 @@ export function createScene({ audioManager, entryState, entryDoor = 'back', cafe
   teleportDevice.position.copy(teleportDevicePos);
   teleportDevice.castShadow = true;
   scene.add(teleportDevice);
+  // Keep this light in the shader layout after collection to avoid recompiling the room.
   const teleportDeviceLight = new THREE.PointLight(0x8e44ad, 2, 4);
   teleportDeviceLight.position.copy(teleportDevicePos);
   scene.add(teleportDeviceLight);
   let teleportDeviceCollected = initialTeleportDeviceCollected;
   if (teleportDeviceCollected) {
     teleportDevice.visible = false;
-    teleportDeviceLight.visible = false;
+    teleportDeviceLight.intensity = 0;
   }
 
   // --- Camera ---
@@ -673,51 +674,10 @@ export function createScene({ audioManager, entryState, entryDoor = 'back', cafe
       if (Math.hypot(dx, dz) < 1.2 && player.isEnabled()) {
         teleportDeviceCollected = true;
         teleportDevice.visible = false;
-        teleportDeviceLight.visible = false;
+        teleportDeviceLight.intensity = 0;
         onTeleportDeviceCollected?.();
       }
     }
-  }
-
-  // --- Teleportation Device Placed Marker ---
-  let placedMarkerMesh: THREE.Mesh | null = null;
-  let placedMarkerLight: THREE.PointLight | null = null;
-
-  function createPlacedMarker(position: THREE.Vector3) {
-    // Remove existing marker if any
-    if (placedMarkerMesh) {
-      scene.remove(placedMarkerMesh);
-      placedMarkerMesh.geometry.dispose();
-      (placedMarkerMesh.material as THREE.Material).dispose();
-      placedMarkerMesh = null;
-    }
-    if (placedMarkerLight) {
-      scene.remove(placedMarkerLight);
-      placedMarkerLight = null;
-    }
-
-    // Create a glowing cylinder marker
-    const markerGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.05, 16);
-    const markerMat = new THREE.MeshStandardMaterial({
-      color: 0x9b59b6,
-      emissive: 0x8e44ad,
-      emissiveIntensity: 2,
-      metalness: 0.5,
-      roughness: 0.3,
-      transparent: true,
-      opacity: 0.8,
-    });
-    placedMarkerMesh = new THREE.Mesh(markerGeo, markerMat);
-    placedMarkerMesh.position.copy(position);
-    placedMarkerMesh.position.y = 0.025; // Just above the floor
-    placedMarkerMesh.receiveShadow = true;
-    scene.add(placedMarkerMesh);
-
-    // Add a point light for glow effect
-    placedMarkerLight = new THREE.PointLight(0x8e44ad, 3, 5);
-    placedMarkerLight.position.copy(position);
-    placedMarkerLight.position.y = 0.5;
-    scene.add(placedMarkerLight);
   }
 
   return {
@@ -731,7 +691,6 @@ export function createScene({ audioManager, entryState, entryDoor = 'back', cafe
     setEnemyDefeated,
     getHologramTransition: () => arrivalTime < HOLOGRAM_TRANSFER_DURATION ? hologramTransitionAt(arrivalTime, true) : null,
     getTeleportDeviceCollected: () => teleportDeviceCollected,
-    createPlacedMarker,
     dispose: () => {
       window.removeEventListener('keydown', onKeyDown);
       if (interactPrompt) interactPrompt.classList.add('hidden');
@@ -739,10 +698,6 @@ export function createScene({ audioManager, entryState, entryDoor = 'back', cafe
       physics.dispose();
       teleportDeviceGeo.dispose();
       teleportDeviceMat.dispose();
-      if (placedMarkerMesh) {
-        placedMarkerMesh.geometry.dispose();
-        (placedMarkerMesh.material as THREE.Material).dispose();
-      }
     },
   };
 }

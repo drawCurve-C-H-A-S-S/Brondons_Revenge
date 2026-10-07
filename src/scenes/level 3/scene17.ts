@@ -16,8 +16,9 @@ import { AudioManager } from '../../helpers/audio/AudioManager.js';
 import jungleBgmUrl from '../../assets/bgm/DonRevJungleLoop.m4a?url';
 
 /** Shared jungle encounters, with distinct bridge and downstream/facility checkpoints. */
-export function createScene({ entryState, onRespawn, onPlatformer, section = 'approach', loadModel = loadToolModel, loadDinosaur = loadDinoModel }: {
-  entryState?: RescueArrival; onRespawn: () => void; onPlatformer?: (state: RescueArrival) => void; section?: 'approach' | 'return';
+export function createScene({ entryState, onRespawn, onPlatformer, onFinished, section = 'approach', loadModel = loadToolModel, loadDinosaur = loadDinoModel }: {
+  entryState?: RescueArrival; onRespawn: () => void; onPlatformer?: (state: RescueArrival) => void;
+  onFinished?: (state: RescueArrival) => void; section?: 'approach' | 'return';
   loadModel?: typeof loadToolModel; loadDinosaur?: typeof loadDinoModel;
 }) {
   const returning = section === 'return';
@@ -584,6 +585,7 @@ export function createScene({ entryState, onRespawn, onPlatformer, section = 'ap
     completed = true; stopDefense(); freezePlayer(); status?.classList.add('hidden'); prompt?.classList.add('hidden');
     if (caption) { caption.textContent = 'FACILITY REACHED / END OF SCENE 19'; caption.classList.remove('hidden'); }
     if (document.pointerLockElement) document.exitPointerLock();
+    if (returning) onFinished?.({ ...entryState, pilotState: player.captureTransition({ x: 0, y: 0, z: 0 }) });
   }
   function bridgeView() {
     if (bridgeClock < 0 || !scrambler) return;

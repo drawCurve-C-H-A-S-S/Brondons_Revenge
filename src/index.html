@@ -140,10 +140,8 @@
       <button type="button" data-pause-back>Back</button>
     </section>
     <form id="pause-developer-form" class="pause-panel hidden">
-      <label for="developer-password">Developer password</label>
-      <input id="developer-password" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" required aria-describedby="developer-password-error" />
-      <p id="developer-password-error" role="alert"></p>
-      <button type="submit">Unlock</button>
+      <p>Unlock scene selection and all controls for local playtesting.</p>
+      <button id="developer-unlock" type="submit">Unlock</button>
       <button type="button" data-pause-back>Back</button>
     </form>
   </dialog>
@@ -155,8 +153,8 @@
       </div>
       <button id="scene-quick-close" type="button">Back <kbd>Esc</kbd></button>
     </header>
-    <p id="scene-menu-description">Jump to any scene with full health, a crowbar, pistol, lightsaber, and goggles.</p>
-    <p class="scene-menu-gear"><kbd>T</kbd> crowbar · <kbd>K</kbd> pistol · <kbd>L</kbd> lightsaber · <kbd>N</kbd> goggles</p>
+    <p id="scene-menu-description">Jump to any scene with full health, a crowbar, pistol, lightsaber, goggles, and teleportation device.</p>
+    <p class="scene-menu-gear">Hold <kbd>Tab</kbd> to select weapons · <kbd>Q</kbd> place anchor · <kbd>T</kbd> teleport · <kbd>N</kbd> goggles</p>
     <button id="scene-quick-controls" type="button">All Controls</button>
     <div id="scene-quick-list" role="group" aria-label="Choose a scene"></div>
     <p id="scene-menu-error" role="alert"></p>

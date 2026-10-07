@@ -414,6 +414,31 @@ test('Dinosaur impact shatters jungle rocks with level-one box debris', async t 
   assert.equal(data.scene.children.filter(node => node.name === 'BreakableDebris').length, 10);
 });
 
+test('scene-owned weapons use the selector, support holstering, and remain frozen under the wheel', async t => {
+  const { data, body, canvas } = await fixture(t);
+  assert.equal(data.canSelectWeapon(), false, 'Entry cinematic cannot open the selector');
+  until(data, () => data.canSelectWeapon());
+  data.selectWeapon('crowbar'); assert.equal(data.getEquippedWeapon(), 'crowbar');
+  key('KeyK'); key('KeyT'); key('KeyL');
+  assert.equal(data.getEquippedWeapon(), 'crowbar', 'Old weapon shortcuts cannot conflict with teleport');
+  body.classList.add('quick-menu-open'); data.clearInput();
+  const snapshot = data.getPlatformerStatus(), position = data.player.body.position.clone();
+  data.selectWeapon('pistol'); step(data, 1);
+  assert.deepEqual(data.getPlatformerStatus(), snapshot);
+  assert.deepEqual(data.player.body.position, position);
+  assert.equal(data.canSelectWeapon(), false);
+  body.classList.remove('quick-menu-open');
+  data.selectWeapon('lightsaber'); assert.equal(data.getCinematicWeapon(), 'lightsaber');
+  data.selectWeapon('unarmed'); assert.equal(data.getCinematicWeapon(), null);
+  document.pointerLockElement = canvas;
+  window.dispatchEvent(new MouseEvent('mousedown', { button: 0 }));
+  for (let frame = 0; frame < 20; frame++) {
+    data.updatePhysics(1 / 60);
+    assert.equal(data.getPlatformerStatus().shots.friendly, 0, 'Unarmed cannot fire the hidden pistol');
+  }
+  window.dispatchEvent(new MouseEvent('mouseup', { button: 0 }));
+});
+
 test('Routing and presentation keep scene 19 defenses and normal weapon/view ownership intact', async () => {
   const source = async path => readFile(new URL(`../src/${path}`, import.meta.url), 'utf8');
   const [main, bridge, returnScene, css, html] = await Promise.all([
@@ -422,10 +447,13 @@ test('Routing and presentation keep scene 19 defenses and normal weapon/view own
   assert.doesNotMatch(main, /loadRiver18|onRiver/); assert.match(main, /onPlatformer: loadPlatformer18/);
   assert.match(main, /onRespawn: state => loadPlatformer18\(checkpointArrival\(state\)\)/);
   assert.match(main, /weaponAnimation: currentSceneData\?\.ownsWeaponInput \? undefined/);
-  assert.match(main, /function toggleView\(\)\s*\{\s*if \(currentSceneData\?\.ownsWeaponInput\) return/);
+  assert.match(main, /function toggleView\(\)\s*\{\s*if \(!canToggleView\(\)\) return/);
+  assert.match(main, /!currentSceneData\?\.forceThirdPerson && !currentSceneData\?\.ownsWeaponInput/);
   assert.match(returnScene, /section: 'return'/); assert.match(bridge, /site\.breakBridge\(/);
   for (const behavior of ['updateSentries', 'updateDefense', 'updatePatrols', 'doorLatched', 'applyEntryCamera']) assert.ok(bridge.includes(behavior));
   assert.doesNotMatch(css, /river-run|river-hud|river-lane-controls/);
   assert.match(css, /jungle-platformer #touch-controls:not\(\.flight-mode\) #touch-fire \{ display: block/);
-  assert.match(html, /18: keep up with the camera; A\/D or arrows move, Space jumps/);
+  assert.match(main, /A \/ D or arrows — move · Space — jump/);
+  assert.match(main, /Mouse — aim · Hold Tab — select weapon/);
+  assert.match(html, /Hold <kbd>Tab<\/kbd> to select weapons/);
 });

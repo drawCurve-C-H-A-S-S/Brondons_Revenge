@@ -149,14 +149,28 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   const jungleObstacleBodies = new WeakSet<CANNON.Body>();
   type TreePart = { source: THREE.InstancedMesh; index: number };
   const obstacleVisuals = new Map<CANNON.Body, { entry: typeof obstacles[number]; rock?: THREE.Mesh; farMesh?: THREE.Mesh; size?: THREE.Vector3; parts?: TreePart[] }>();
-  const pendingImpacts: Array<{ body: CANNON.Body; from: Point }> = [];
-  const fallingTrees: Array<{ age: number; direction: THREE.Vector3; parts: Array<{ mesh: THREE.InstancedMesh; index: number; rest: THREE.Matrix4; pivot: THREE.Vector3 }> }> = [];
+  const pendingImpacts: Array<{ body: CANNON.Body; from: Point; disintegrate: boolean }> = [];
+  const fallingTrees: Array<{ age: number; direction: THREE.Vector3; disintegrate: boolean; parts: Array<{ mesh: THREE.InstancedMesh; index: number; rest: THREE.Matrix4; pivot: THREE.Vector3 }> }> = [];
   const rockDebris = createBreakableDebris(scene, 0x58654a);
   function breakJungleObstacle(body: CANNON.Body, from: Point) {
-    if (obstacleVisuals.has(body) && !pendingImpacts.some(impact => impact.body === body)) pendingImpacts.push({ body, from: { x: from.x, y: from.y, z: from.z } });
+    if (obstacleVisuals.has(body) && !pendingImpacts.some(impact => impact.body === body)) {
+      pendingImpacts.push({ body, from: { x: from.x, y: from.y, z: from.z }, disintegrate: false });
+    }
+  }
+  function disintegrateTrees(center: Point, radius: number) {
+    const positions: Point[] = [], radiusSquared = radius * radius;
+    for (const [body, visual] of obstacleVisuals) {
+      if (!visual.parts?.length) continue;
+      const dx = visual.entry.x - center.x, dz = visual.entry.z - center.z;
+      if (dx * dx + dz * dz > radiusSquared) continue;
+      if (pendingImpacts.some(impact => impact.body === body)) continue;
+      positions.push({ x: visual.entry.x, y: body.position.y + 8, z: visual.entry.z });
+      pendingImpacts.push({ body, from: { x: center.x, y: center.y, z: center.z }, disintegrate: true });
+    }
+    return positions;
   }
   function applyObstacleImpacts() {
-    for (const { body, from } of pendingImpacts.splice(0)) {
+    for (const { body, from, disintegrate } of pendingImpacts.splice(0)) {
       const visual = obstacleVisuals.get(body); if (!visual) continue;
       obstacleVisuals.delete(body);
       const { entry, rock, farMesh, size, parts } = visual;
@@ -175,7 +189,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
       if (parts) {
         const direction = new THREE.Vector3(entry.x - from.x, 0, entry.z - from.z).normalize();
         if (!direction.lengthSq()) direction.set(1, 0, 0);
-        fallingTrees.push({ age: 0, direction, parts: parts.map(part => {
+        fallingTrees.push({ age: 0, direction, disintegrate, parts: parts.map(part => {
           const { mesh, index } = instanceLocations.get(part.source)![part.index], rest = new THREE.Matrix4();
           mesh.getMatrixAt(index, rest);
           mesh.frustumCulled = false;
@@ -185,19 +199,28 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     }
   }
   const fallMatrix = new THREE.Matrix4(), fallRotation = new THREE.Matrix4(), fallOffset = new THREE.Matrix4(), fallAxis = new THREE.Vector3();
+  const scaleMatrix = new THREE.Matrix4();
   function updateFallingTrees(dt: number) {
     for (let i = fallingTrees.length - 1; i >= 0; i--) {
       const tree = fallingTrees[i]; tree.age = Math.min(1.4, tree.age + dt);
-      const tilt = THREE.MathUtils.smoothstep(tree.age, 0, 1.4) * Math.PI * 0.48;
+      const progress = THREE.MathUtils.smoothstep(tree.age, 0, 1.4);
+      const tilt = progress * (tree.disintegrate ? Math.PI * 0.06 : Math.PI * 0.48);
       fallAxis.set(tree.direction.z, 0, -tree.direction.x);
       fallRotation.makeRotationAxis(fallAxis, tilt);
       for (const { mesh, index, rest, pivot } of tree.parts) {
         mesh.frustumCulled = false;
         fallMatrix.makeTranslation(pivot.x, pivot.y, pivot.z).multiply(fallRotation)
           .multiply(fallOffset.makeTranslation(-pivot.x, -pivot.y, -pivot.z)).multiply(rest);
+        if (tree.disintegrate) {
+          const scale = Math.max(0.001, 1 - progress);
+          fallMatrix.multiply(scaleMatrix.makeScale(scale, scale, scale));
+        }
         mesh.setMatrixAt(index, fallMatrix); mesh.instanceMatrix.needsUpdate = true;
       }
       if (tree.age >= 1.4) {
+        for (const { mesh, index } of tree.parts) {
+          if (tree.disintegrate) { mesh.setMatrixAt(index, scaleMatrix.makeScale(0, 0, 0)); mesh.instanceMatrix.needsUpdate = true; }
+        }
         for (const mesh of new Set(tree.parts.map(part => part.mesh))) {
           mesh.computeBoundingBox(); mesh.computeBoundingSphere(); mesh.frustumCulled = true;
           const chunk = renderChunks.find(item => item.mesh === mesh);
@@ -434,7 +457,9 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     mountain.position.set(Math.sin(angle) * 205, 8, Math.cos(angle) * 205); mountain.rotation.y = i; scene.add(mountain);
   }
   box([1, 24, 32], [-35, 12, -71]); box([1, 24, 32], [35, 12, -71]); box([70, 24, 1], [0, 12, -87]);
-  box([71, 0.8, 33], [0, 24, -71], dark); box([70, 0.2, 32], [0, -0.1, -71], dark);
+  const facilityRoof = box([71, 0.8, 33], [0, 24, -71], dark);
+  facilityRoof.name = 'RescueSiteFacilityRoof';
+  box([70, 0.2, 32], [0, -0.1, -71], dark);
   const door = createSlidingPortal(scene, physics, { x: 0, y: 0, z: RESCUE_SITE.doorZ, yaw: 0 }, 70, 24, 'AI RESEARCH / ACCESS 17');
   for (const x of [-30, -20, -10, 10, 20, 30]) {
     box([1.1, 24.6, 1.4], [x, 12.1, -54.5], dark);
@@ -445,9 +470,10 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   }
   box([10, 0.5, 4], [0, 4.5, -53.5], dark); box([9.5, 0.09, 0.12], [0, 4.17, -51.55], red, false);
   cargoSign(scene, 'C E N T R A L   I N T E L L I G E N C E', [0, 18, -54.2], 22);
+  const rooftopEquipment = new THREE.Group(); rooftopEquipment.name = 'FacilityRooftopEquipment'; scene.add(rooftopEquipment);
   for (const x of [-12, 15]) {
-    box([9, 4, 9], [x, 26, -72], dark); box([9.4, 0.3, 9.4], [x, 28, -72], trim, false);
-    const aerial = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 12, 10), trim); aerial.position.set(x, 30, -72); scene.add(aerial);
+    rooftopEquipment.add(box([9, 4, 9], [x, 26, -72], dark), box([9.4, 0.3, 9.4], [x, 28, -72], trim, false));
+    const aerial = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 12, 10), trim); aerial.position.set(x, 30, -72); rooftopEquipment.add(aerial);
   }
   const scramblerLauncher = platformer ? createFacilityScramblerLauncher(scene) : null;
   const turrets = [-11, 11].map(x => {
@@ -551,8 +577,13 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     return () => { for (const [object, visible] of visibility) object.visible = visible; };
   }
   let windTime = 0;
-  return { scene, ship, pod, boy, door, turrets, ready, pathLength, nearestPathPoint, isWalkable, trackStaticBody, updateActivePhysics, activatePhysicsNear, updateVisibility, prepareMinimap, isReady: () => settled,
+  return { scene, ship, pod, boy, door, facilityRoof, rooftopEquipment, turrets, ready, pathLength, nearestPathPoint, isWalkable, trackStaticBody, updateActivePhysics, activatePhysicsNear, updateVisibility, prepareMinimap, isReady: () => settled,
+    releasePropCulling(root: THREE.Object3D) {
+      const index = distantProps.findIndex(prop => prop.root === root);
+      if (index >= 0) distantProps.splice(index, 1);
+    },
     distanceToSafePath: (x: number, z: number) => routeDistance(x, z), isJungleObstacleBody: (body: CANNON.Body) => obstacleVisuals.has(body), breakJungleObstacle,
+    disintegrateTrees,
     setWalking(value: boolean) { if (value === walking) return; walking = value; (value ? idle : walk)?.fadeOut(0.2); (value ? walk ?? idle : idle)?.reset().fadeIn(0.2).play(); },
     bridge, water, exitLog, damageBridge, breakBridge, platformCourse, scramblerLauncher,
     setImpact(age: number) {

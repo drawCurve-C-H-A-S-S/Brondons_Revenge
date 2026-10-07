@@ -17,7 +17,7 @@ Everything flows from `main.ts`. If you need to add a new system (physics, audio
 
 ## How to create a new scene
 
-Create a `createScene()` factory in the appropriate folder under `src/scenes/`: `level 1/` holds scenes 2–14, `level 2/` holds scenes 15, 15.5 (`scene15-5.ts`), and 16, and `level 3/` holds scenes 17–19. Scene 1 remains at the root. Use this minimal playable-scene pattern from a level folder (not the old `build()` / `Player` class APIs):
+Create a `createScene()` factory in the appropriate folder under `src/scenes/`: `level 1/` holds scenes 2–14, `level 2/` holds scenes 15, 15.5 (`scene15-5.ts`), and 16, and `level 3/` holds scenes 17–19 plus the final-boss scene 21. Scene 1 remains at the root. The restored finale progression runs from scene 16 through scenes 17–19, then enters scene 21 from scene 19's facility door. Use this minimal playable-scene pattern from a level folder (not the old `build()` / `Player` class APIs):
 
 ```typescript
 import * as THREE from 'three';

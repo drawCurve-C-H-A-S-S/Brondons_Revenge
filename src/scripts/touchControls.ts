@@ -84,6 +84,15 @@ export function refreshTouchAttackButton() {
   button.disabled = !weapon;
 }
 
+type WeaponSlot = 'pistol' | 'crowbar' | 'lightsaber';
+const weaponEquipHandlers = new Map<WeaponSlot, () => void>();
+
+/** Touch and keyboard selection share the host's inventory and equip rules. */
+export function registerWeaponEquip(slot: WeaponSlot, handler: () => void) {
+  weaponEquipHandlers.set(slot, handler);
+  return () => { if (weaponEquipHandlers.get(slot) === handler) weaponEquipHandlers.delete(slot); };
+}
+
 function dispatchKeyDown(code: string) {
   window.dispatchEvent(new KeyboardEvent('keydown', { code, key: code, bubbles: true }));
 }
@@ -309,9 +318,9 @@ export function initTouchControls() {
   bindButton('touch-sprint', 'ShiftLeft');
   bindButton('touch-interact', 'KeyE');
   bindButton('touch-crouch', 'KeyC');
-  bindButton('touch-pistol', 'KeyK');
-  bindButton('touch-crowbar', 'KeyT');
-  bindButton('touch-lightsaber', 'KeyL');
+  for (const slot of ['pistol', 'crowbar', 'lightsaber'] as const) {
+    bindPressControl(`touch-${slot}`, () => weaponEquipHandlers.get(slot)?.());
+  }
   bindButton('touch-goggles', 'KeyN');
   bindButton('touch-action9', 'Digit9');
   bindButton('touch-view', 'KeyV');
@@ -344,7 +353,7 @@ function bindPressControl(elementId: string, onPress: () => void, onRelease: () 
     && !(element as HTMLButtonElement).disabled && !document.hidden
     && !document.body.classList.contains('quick-menu-open')
     && (!document.body.classList.contains('jungle-platformer') ||
-      ['touch-jump', 'touch-fire', 'touch-menu', 'touch-crouch', 'touch-pistol', 'touch-crowbar', 'touch-sprint'].includes(elementId));
+      ['touch-jump', 'touch-fire', 'touch-menu', 'touch-crouch', 'touch-pistol', 'touch-crowbar', 'touch-lightsaber', 'touch-sprint'].includes(elementId));
   const reset = (cancelled = true) => {
     const previous = press;
     press = null;

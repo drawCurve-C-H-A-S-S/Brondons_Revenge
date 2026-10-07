@@ -57,20 +57,12 @@ export class LightsaberController {
     this.root.name = 'PlayerLightsaber';
     this.root.add(createLightsaber());
     this.root.visible = false;
-    window.addEventListener('keydown', this.onKeyDown);
     document.addEventListener('mousedown', this.onMouseDown);
     this.unregisterTouchAttack = registerTouchAttackCallback(() => this.swing(), () => this.equipped ? 'SLASH' : null);
   }
 
   private inputBlocked() { return this.disposed || document.hidden || document.body.classList.contains('quick-menu-open'); }
-  private onKeyDown = (event: KeyboardEvent) => {
-    if (event.code !== 'KeyL' || event.repeat || this.inputBlocked()) return;
-    if (event.target instanceof HTMLElement && event.target.closest('button, dialog, input, textarea, select, [contenteditable="true"]')) return;
-    const { player, hasLightsaber } = this.context();
-    if (!hasLightsaber || !player?.isEnabled()) return;
-    event.preventDefault();
-    if (this.equipped) this.holster(); else this.equip();
-  };
+  isEquipped() { return this.equipped; }
 
   holster() {
     this.equipped = false;
@@ -179,7 +171,6 @@ export class LightsaberController {
     this.holster();
     this.disposed = true;
     this.unregisterTouchAttack();
-    window.removeEventListener('keydown', this.onKeyDown);
     document.removeEventListener('mousedown', this.onMouseDown);
     this.audio.dispose();
     disposeLightsaber(this.root);

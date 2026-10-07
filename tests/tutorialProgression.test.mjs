@@ -95,7 +95,7 @@ test('real weapon input rejects wrong tools and breaks targets/crates in both vi
   f.camera.position.set(0, 1.3, 0); f.camera.lookAt(0, 1.3, -1);
   document.pointerLockElement = document.body;
   crowbar.equip(); click(); assert.equal(target.broken, false, 'Crowbar cannot break a pistol target'); crowbar.holster();
-  key('KeyK'); assert.equal(pistol.shoot(), true); assert.equal(target.broken, true);
+  pistol.equip(); assert.equal(pistol.shoot(), true); assert.equal(target.broken, true);
   const crate = f.breakables.add('Crate', 'crowbar', new THREE.Vector3(0, 0.6, -1.2), new THREE.Vector3(1, 1.2, 1));
   f.camera.lookAt(0, 0.7, -1.2); advanceWeapons(0.3); assert.equal(pistol.shoot(), true); assert.equal(crate.broken, false); pistol.holster();
   crowbar.equip(); advanceWeapons(0.4); click();
@@ -129,6 +129,8 @@ async function mobileWeapons(t) {
   await pistol.ready;
   crowbar = new CrowbarController(() => ({ ...context(), holsterOther: () => pistol.holster() }));
   t.cleanup(() => { pistol.dispose(); crowbar.dispose(); });
+  t.cleanup(touchControls.registerWeaponEquip('pistol', () => pistol.isEquipped() ? pistol.holster() : pistol.equip()));
+  t.cleanup(touchControls.registerWeaponEquip('crowbar', () => crowbar.isEquipped() ? crowbar.holster() : crowbar.equip()));
   touchControls.initTouchControls();
   t.cleanup(() => touchControls.disposeTouchControls());
   const attack = document.getElementById('touch-attack');

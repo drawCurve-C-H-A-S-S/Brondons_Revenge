@@ -47,22 +47,11 @@ export class CrowbarController {
     this.root.rotation.set(-0.45, 0.35, 0.35);
     this.root.visible = false;
     this.status = document.getElementById('weapon-status');
-    window.addEventListener('keydown', this.onKeyDown);
     document.addEventListener('mousedown', this.onMouseDown);
     this.unregisterTouchAttack = registerTouchAttackCallback(() => this.swing(), () => this.equipped ? 'SWING' : null);
   }
 
-  private onKeyDown = (event: KeyboardEvent) => {
-    if (event.code !== 'KeyT' || event.repeat) return;
-    const { player, hasCrowbar } = this.context();
-    if (!hasCrowbar || !player?.isEnabled()) return;
-    event.preventDefault();
-    if (!this.equipped) this.context().holsterOther?.();
-    this.equipped = !this.equipped;
-    refreshTouchAttackButton();
-    if (this.status) this.status.textContent = this.equipped
-      ? 'T: holster | Left click: crowbar' : 'T: equip crowbar';
-  };
+  isEquipped() { return this.equipped; }
 
   holster() {
     this.equipped = false;
@@ -81,7 +70,7 @@ export class CrowbarController {
     this.context().holsterOther?.();
     this.equipped = true;
     refreshTouchAttackButton();
-    if (this.status) this.status.textContent = 'T: holster | Left click: crowbar';
+    if (this.status) this.status.textContent = 'Hold Tab: weapons | Left click: crowbar';
   }
 
   private onMouseDown = (event: MouseEvent) => {
@@ -91,7 +80,7 @@ export class CrowbarController {
 
   private swing() {
     const { scene, camera, player, openDoor } = this.context();
-    if (!this.equipped || this.cooldown > 0 || !player?.isEnabled() || player.getState().sliding || player.getState().climbing || player.getState().ventMode || player.getState().boxHandling || !scene || !camera) return false;
+    if (document.hidden || document.body.classList.contains('quick-menu-open') || !this.equipped || this.cooldown > 0 || !player?.isEnabled() || player.getState().sliding || player.getState().climbing || player.getState().ventMode || player.getState().boxHandling || !scene || !camera) return false;
     player.requestAction('Sword_Attack');
     openDoor();
     this.melee.reset();
@@ -142,7 +131,6 @@ export class CrowbarController {
   dispose() {
     this.holster();
     this.unregisterTouchAttack();
-    window.removeEventListener('keydown', this.onKeyDown);
     document.removeEventListener('mousedown', this.onMouseDown);
     this.root.removeFromParent();
     this.context().setCharacterEquipped(false);

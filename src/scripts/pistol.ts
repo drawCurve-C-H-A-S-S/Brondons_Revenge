@@ -107,22 +107,13 @@ export class PistolController {
       console.error('[Pistol] Load failed:', error);
       if (this.status) this.status.textContent = 'Pistol unavailable';
     });
-    window.addEventListener('keydown', this.onKeyDown);
     document.addEventListener('mousedown', this.onMouseDown);
     window.addEventListener('blur', this.clearFeedback);
     document.addEventListener('pointerlockchange', this.onPointerLockChange);
     this.unregisterTouchAttack = registerTouchAttackCallback(() => this.shoot(), () => this.equipped ? 'SHOOT' : null);
   }
 
-  private onKeyDown = (event: KeyboardEvent) => {
-    if (event.code !== 'KeyK' || event.repeat || this.context().hasPistol === false || !this.context().player?.isEnabled()) return;
-    if (event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable="true"]')) return;
-    event.preventDefault();
-    if (!this.equipped) this.context().holsterOther?.();
-    this.equipped = !this.equipped;
-    this.context().weaponAnimation?.setEquipped(this.equipped && this.loaded);
-    this.updateStatus();
-  };
+  isEquipped() { return this.equipped; }
 
   private onMouseDown = (event: MouseEvent) => {
     const touchActive = (window as any).__touchActive === true;
@@ -135,7 +126,7 @@ export class PistolController {
     refreshTouchAttackButton();
     if (this.crosshair && !this.isAiming()) this.crosshair.style.display = 'none';
     if (this.status) this.status.textContent = this.context().hasPistol === false ? 'Recover your pistol from your cabin chest' : this.equipped
-      ? (this.loaded ? 'K: holster | Left click: shoot' : 'Loading pistol...') : 'K: equip pistol';
+      ? (this.loaded ? 'Hold Tab: weapons | Left click: shoot' : 'Loading pistol...') : 'Hold Tab: weapons';
   }
 
   isAiming() {
@@ -164,7 +155,7 @@ export class PistolController {
 
   shoot() {
     const { scene, camera, world, player, character, targets, weaponAnimation, onShot } = this.context();
-    if (this.context().hasPistol === false || !this.equipped || !this.loaded || this.cooldown > 0 || !player?.isEnabled() || player.getState().sliding || player.getState().climbing || player.getState().ventMode || player.getState().boxHandling || !scene || !camera) return false;
+    if (document.hidden || document.body.classList.contains('quick-menu-open') || this.context().hasPistol === false || !this.equipped || !this.loaded || this.cooldown > 0 || !player?.isEnabled() || player.getState().sliding || player.getState().climbing || player.getState().ventMode || player.getState().boxHandling || !scene || !camera) return false;
     this.update(0);
     camera.updateMatrixWorld(true);
     const aim = new THREE.Raycaster();
@@ -246,7 +237,6 @@ export class PistolController {
   dispose() {
     this.unregisterTouchAttack();
     this.disposed = true;
-    window.removeEventListener('keydown', this.onKeyDown);
     document.removeEventListener('mousedown', this.onMouseDown);
     window.removeEventListener('blur', this.clearFeedback);
     document.removeEventListener('pointerlockchange', this.onPointerLockChange);

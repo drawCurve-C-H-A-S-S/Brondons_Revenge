@@ -372,7 +372,8 @@ test('pistol input and programmatic equipping respect recovery, while legacy con
     character: null, thirdPerson: false, targets: [] }), async () => prop('Gun_Revolver'));
   t.after(() => { pistol.dispose(); player.dispose(); physics.dispose(); }); await pistol.ready;
   pistol.equip(); key('KeyK'); assert.equal(pistol.shoot(), false); assert.equal(pistol.isAiming(), false);
-  hasPistol = true; pistol.update(0); key('KeyK'); assert.equal(pistol.shoot(), true);
+  hasPistol = true; pistol.update(0); key('KeyK'); assert.equal(pistol.isEquipped(), false);
+  pistol.equip(); assert.equal(pistol.shoot(), true);
   hasPistol = false; pistol.update(0); assert.equal(pistol.root.visible, false); assert.equal(pistol.shoot(), false);
   const legacy = new PistolController(() => ({ scene, camera, world: physics.world, player,
     character: null, thirdPerson: false, targets: [] }), async () => prop('Gun_Revolver'));

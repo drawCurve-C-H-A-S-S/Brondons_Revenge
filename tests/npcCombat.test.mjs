@@ -206,7 +206,7 @@ test('pistol is fixed to the animated grip, survives view switches, and firing c
   const shot = t.mock.method(character.weapon, 'shoot');
   await pistol.ready;
   document.pointerLockElement = document.body;
-  key('KeyK');
+  pistol.equip();
   character.update(1 / 60, { x: 0, y: 0.3, z: 0 }, { yaw: 0, pitch: 0, isOnGround: true, isMoving: false }, true, 0.3);
   pistol.update(0);
   assert.equal(pistol.root.parent, character.weapon.socket);
@@ -221,7 +221,7 @@ test('pistol is fixed to the animated grip, survives view switches, and firing c
   assert.equal(pistol.root.parent, scene);
   thirdPerson = true; pistol.update(0);
   assert.equal(pistol.root.parent, character.weapon.socket);
-  key('KeyK'); pistol.update(0);
+  pistol.holster(); pistol.update(0);
   assert.equal(pistol.root.parent, null);
 });
 
@@ -257,8 +257,8 @@ test('crosshair eligibility follows the loaded active gun and playable aiming st
   assert.equal(pistol.isAiming(), false, 'switching away from the gun removes eligibility');
   assert.equal(elements.crosshair.style.display, 'none');
   assert.equal(elements.crosshair.dataset.hit, 'false');
-  key('KeyK'); assert.equal(pistol.isAiming(), true);
-  key('KeyK'); assert.equal(pistol.isAiming(), false);
+  pistol.equip(); assert.equal(pistol.isAiming(), true);
+  pistol.holster(); assert.equal(pistol.isAiming(), false);
 });
 
 async function manager(t, load = () => toolModel('Enemy_Trilobite')) {
@@ -477,7 +477,7 @@ test('hitscan respects visible cover and static physics but never mutates enviro
   assert.equal(fixture.health(), 100, 'Ray queries do not apply damage themselves');
 });
 
-test('real pistol toggles on K, fires NPC-only damage, obeys input gates, and persists across scenes', async t => {
+test('real pistol uses selector-driven equipping, fires NPC-only damage, obeys input gates, and persists across scenes', async t => {
   const elements = browser(t);
   const fixture = shootingScene();
   let enabled = true;
@@ -488,7 +488,8 @@ test('real pistol toggles on K, fires NPC-only damage, obeys input gates, and pe
   document.pointerLockElement = document.body;
   click(); assert.equal(fixture.health(), 100);
   key('KeyK'); key('KeyK', 'keydown', { repeat: true });
-  pistol.update(0);
+  assert.equal(pistol.isEquipped(), false, 'K is no longer a weapon shortcut');
+  pistol.equip(); pistol.update(0);
   assert.equal(pistol.root.visible, true);
   assert.equal(pistol.root.parent, fixture.scene);
   assert.ok(pistol.root.getObjectsByProperty('isMesh', true).length > 1, 'Actual pistol mesh loaded');
@@ -506,12 +507,15 @@ test('real pistol toggles on K, fires NPC-only damage, obeys input gates, and pe
   enabled = false;
   click(); assert.equal(fixture.health(), 50);
   enabled = true;
+  document.body.classList.add('quick-menu-open');
+  click(); assert.equal(fixture.health(), 50, 'Paused selector blocks attacks');
+  document.body.classList.remove('quick-menu-open');
   const next = new THREE.Scene();
   context = { ...context, scene: next, targets: [] };
   pistol.update(0);
   assert.equal(pistol.root.parent, next);
   assert.equal(pistol.root.visible, true);
-  key('KeyK'); pistol.update(0);
+  pistol.holster(); pistol.update(0);
   assert.equal(pistol.root.visible, false);
   click(); assert.equal(fixture.health(), 50);
 });

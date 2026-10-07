@@ -43,6 +43,7 @@ Always test the production build locally before deploying. The LAMP server serve
 
 ## On-foot HUD
 
+
 The small centre dot is shared across on-foot gameplay, rather than belonging to
 one scene. A gun aim crosshair replaces it when active. It is hidden during
 cutscenes, menus and teleport transfers, and is not shown in Level 2.
@@ -200,6 +201,29 @@ Their roster is maintained in [layout.ts](./src/scenes/living%20quarters/layout.
 - Pausing, focus loss, restarting and changing flight phases clear pending
   presses, so input cannot carry an unintended shot into the next section.
 
+## Scene 21: Final boss
+
+Scene 19's facility exit leads into the Quintet finale. The taller summit room
+has individual ceiling spotlights and synchronized student dialogue. The roof
+blows clear, the students enter their mech one at a time, and the shuttle recalls
+from its Scene 17 jungle parking spot to morph into Prime Frame. A comic VS
+screen introduces the fight; there are no generated platforms under the mechs.
+
+Use **A / D** to move, **J** for alternating native/custom sword strikes, **F**
+to draw the back-mounted rifle and fire a two-handed salvo, **hold R** for a
+draining shield, **Space** to boost, and **E** for overdrive. Release R to recharge
+the shield. **W / S** control altitude in space. Custom QTE poses animate only the
+upper body, without added knee-winding motion; swords use the lightsaber grip.
+
+The Quintet drops a planet-breaking bomb before the orbital phase. Follow the
+QTE prompts, including **D** mashing during the blade lock, to reach the ending
+and centered credits with image-only dancing Brondon copies. Failure gives a
+game-over screen and checkpoint retry. Hold **Enter** during the opening
+cutscenes to skip to the VS introduction.
+
+For local playtesting, open the pause menu, select **Developer Mode**, and click
+**Unlock**. No password is required.
+
 ## Project Structure
 
 ```
@@ -224,7 +248,7 @@ project-root/
       living quarters/      Shared habitat scene with lazy cabin interiors
       level 1/              Scenes 2–14
       level 2/              Scenes 15, 15.5 (scene15-5.ts), and 16
-      level 3/              Scenes 17–19
+      level 3/              Scenes 17–19 and final boss scene 21
     scripts/
       player.ts             Example player controller class
     helpers/                Reusable managers (see MANAGERS.md)
@@ -250,6 +274,34 @@ Important:
 - All paths must be relative (no leading `/`)
 - Asset filenames must match case exactly (Linux server)
 - Use lowercase filenames with hyphens, no spaces
+
+## Final chapter: The Quintet
+
+The restored route is scene 16 crash landing → scene 17 jungle approach → scene
+18 facility encounter → scene 19 summit return. Crossing the facility door in
+scene 19 starts scene 21 on the same rescue-site world, above the facility roof.
+The reveal and each student's close-up share one dialogue timeline. After the
+roof shatters, the five students ascend one at a time and merge into the enemy's
+chest through colored beams. The actual shuttle lifts off from its jungle
+parking spot, flies to Brondon, disassembles, and morphs into Prime Frame. A comic
+VS introduction leads into the duel on the facility's exposed top floor; there
+are no generated mech platforms.
+
+During mech combat, **A / D** move, **J** alternates the rig's sword attack with
+a custom backhand, and **F** draws the asset rifle over the left shoulder,
+stows the sword, fires a two-handed salvo, and returns both weapons. Most motion
+uses the models' native clips. Custom QTE poses affect the upper body only, with
+no added knee-winding or airborne leg-swing overlays. **Hold R** to raise the draining shield and parry a timed attack,
+**Space** boosts, and **E** uses a charged overdrive. Release R to recharge the
+shield; an empty shield briefly breaks before it can recover. In orbit, **W / S**
+rise and dive. The Quintet drops a planet-breaking bomb; the detonation removes
+the terrestrial environment and leaves rocky debris in orbit. The final
+quick-time sequence includes rifle fire, dodging, missile cuts, and a close-up
+of the actual sword contact during the **D** mash. It is required to defeat the Quintet;
+failing it triggers the game-over screen and a checkpoint retry. Hold **Enter**
+during the reveal and transformations to skip ahead to the VS introduction.
+Victory credits are centered over differently oriented dancing-Brondon sprites
+rendered from the character model; these are images, not cloned players or physics.
 
 ## Tech Stack
 

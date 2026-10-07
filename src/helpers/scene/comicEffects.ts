@@ -108,7 +108,8 @@ export function emitComicEffect(container: THREE.Object3D, kind: ComicEffectKind
     release(system, lowPriority < 0 ? 0 : lowPriority);
   }
   const word = kind === 'hit'
-    ? options.weapon === 'lightsaber' || options.weapon === 'laser' ? 'ZAP!' : options.weapon === 'crowbar' ? 'KRAK!' : ['BAM!', 'PING!', 'KRAK!'][system.serial % 3]
+    ? options.weapon === 'sword' ? ['SHING!', 'SWOOSH!', 'KRAK!'][system.serial % 3]
+      : options.weapon === 'lightsaber' || options.weapon === 'laser' ? 'ZAP!' : options.weapon === 'crowbar' ? 'KRAK!' : ['BAM!', 'PING!', 'KRAK!'][system.serial % 3]
     : `${kind.toUpperCase()}!`;
   const anchor = options.anchor ?? ((kind === 'hit' || kind === 'pew') ? options.source ?? null : null);
   const localPoint = anchor ? anchor.worldToLocal(point.clone()) : point.clone();

@@ -13,8 +13,9 @@ import type { PassageDestination } from './scenes/level 1/scene12.js';
 import type { LaunchState } from './scenes/level 1/scene14.js';
 import type { FlightExitState } from './scenes/level 2/scene15.js';
 import type { RescueArrival } from './helpers/scene/rescueSite.js';
+import type { FinaleCheckpoint } from './scripts/finaleDirector.js';
 import type { loadCharacter } from './scripts/characterManager.js';
-import { HOLOGRAM_TRANSFER_DURATION, hologramTransitionAt } from './scripts/characterManager.js';
+import { HOLOGRAM_TRANSFER_DURATION, TELEPORT_TRANSFER_DURATION, hologramTransitionAt } from './scripts/characterManager.js';
 import type { Player, PlayerTransitionState } from './scripts/player.js';
 import { PLAYER_MAX_HEALTH } from './scripts/player.js';
 import { NPCEnemyManager } from './scripts/npc-enemy-robots.js';
@@ -25,13 +26,14 @@ import { GogglesPostProcess } from './scripts/gogglesPostProcess.js';
 import { LightsaberController } from './scripts/lightsaber.js';
 import { AdaptiveHintManager } from './scripts/adaptiveHints.js';
 import { createCctvSystem } from './scripts/cctv.js';
-import { TeleportationDeviceController } from './scripts/teleportationDevice.js';
+import { TeleportationDeviceController, teleportPlayer } from './scripts/teleportationDevice.js';
+import { createWeaponWheel, type WeaponId, type WeaponWheelEntry } from './scripts/weaponWheel.js';
 import type { createFirstPersonHands } from './scripts/firstPersonHands.js';
-import { initTouchControls, setTouchFlightMode, resetTouchInput } from './scripts/touchControls.js';
+import { initTouchControls, setTouchFlightMode, resetTouchInput, registerWeaponEquip } from './scripts/touchControls.js';
 import { PixelArtPass } from './core/PixelArtPass.js';
 import { RetroConsolePass } from './core/RetroConsolePass.js';
 import { getAudioSettings, preloadAudio, setAudioVolume, setAudioMenuPaused } from './helpers/audio/AudioManager.js';
-import { preloadJungleModels, preloadToolModel, yieldToMainThread } from './core/loader.js';
+import { preloadToolModel, yieldToMainThread } from './core/loader.js';
 import shipMusicUrl from './assets/bgm/DonRevBGM1.m4a';
 import flightMusicUrl from './assets/bgm/DonRevLevel2.m4a';
 import jungleMusicUrl from './assets/bgm/DonRevJungleLoop.m4a';
@@ -58,6 +60,7 @@ const sceneImports = {
   17: () => import('./scenes/level 3/scene17.js'),
   18: () => import('./scenes/level 3/scene18.js'),
   19: () => import('./scenes/level 3/scene19.js'),
+  21: () => import('./scenes/level 3/scene21.js'),
 };
 type SceneModuleId = keyof typeof sceneImports;
 const sceneModules = new Map<SceneModuleId, Promise<unknown>>();
@@ -103,7 +106,7 @@ function warmScene(id: SceneModuleId) {
 const upcomingScenes: Partial<Record<SceneModuleId, readonly SceneModuleId[]>> = {
   0: [0.5], 2: [3], 3: [4, 5, 6], 4: [7], 7: [8], 8: [9, 10, 11],
   9: [12], 10: [12], 11: [12, 13], 12: [13], 13: [14],
-  14: [15], 15: [16], 16: [17], 17: [18], 18: [19],
+  14: [15], 15: [16], 16: [17], 17: [18], 18: [19], 19: [21],
 };
 
 // --- Renderer ---
@@ -135,11 +138,19 @@ let lastSplinePoint: THREE.Vector3 | null = null;
 let creditsTimer: number | null = null;
 let activeSceneId = 'scene1';
 let quickMenuOpen = false;
+let weaponWheelOpen = false;
+let teleportLoading = false;
+let teleportArrivalTime = -1;
 let stealthHintsEnabled = true;
 let nextSceneActionId = 0;
 const pendingSceneActions = new Map<number, { remaining: number; run: () => void }>();
 
 function renderGameScene(scene: THREE.Scene, camera: THREE.Camera) {
+  if (currentSceneData?.renderSceneWithEffects) {
+    currentSceneData.renderSceneWithEffects(renderer, scene, camera);
+    currentSceneData.renderCinematicOverlay?.(renderer);
+    return;
+  }
   goggles.update();
   gogglesPostProcess.render(scene, camera, () => {
     renderSceneEffects(scene, camera);
@@ -287,85 +298,112 @@ function showTeleportDeviceMessage(message: string) {
   if (!prompt) return;
   prompt.textContent = message;
   prompt.classList.remove('hidden');
-  if (teleportDeviceMessageTimeout) clearTimeout(teleportDeviceMessageTimeout);
-  teleportDeviceMessageTimeout = window.setTimeout(() => {
+  if (teleportDeviceMessageTimeout) pendingSceneActions.delete(teleportDeviceMessageTimeout);
+  teleportDeviceMessageTimeout = scheduleSceneAction(() => {
     prompt.classList.add('hidden');
     teleportDeviceMessageTimeout = null;
   }, 3000);
 }
 
+const teleportSceneLoaders: Record<string, () => Promise<unknown>> = {
+  scene2: () => loadScene2(true), scene3: () => loadScene3(), scene4: () => loadScene4(),
+  scene5: () => loadScene5(), scene6: () => loadScene6(), scene7: () => loadScene7(),
+  scene8: () => loadScene8(), scene9: () => loadScene9(), scene10: () => loadExtensionRoom(10),
+  scene11: () => loadExtensionRoom(11), scene12: () => loadPassage12(),
+};
+
+function equipmentInputBlocked() {
+  return document.hidden || quickMenuOpen || weaponWheelOpen || teleportLoading || cctvTeleportTime >= 0
+    || !!deathPresentation || !currentPlayer?.isEnabled() || currentPlayer.getHealth() <= 0
+    || cargoPuzzle.handle === 'carried' || !!document.getElementById('fade-overlay')?.classList.contains('active')
+    || (currentSceneData?.ownsWeaponInput ? !currentSceneData?.canSelectWeapon?.() : !!currentSceneData?.isCinematic?.());
+}
+
 const teleportDevice = new TeleportationDeviceController(() => ({
-  currentSceneId: activeSceneId ?? '',
+  currentSceneId: activeSceneId,
   isBossFight: () => activeSceneId === 'scene13',
-  getPlayerPosition: () => currentPlayer ? { x: currentPlayer.body.position.x, y: currentPlayer.body.position.y, z: currentPlayer.body.position.z } : { x: 0, y: 0, z: 0 },
+  isInputBlocked: () => equipmentInputBlocked() || !!currentSceneData?.ownsWeaponInput
+    || !!currentPlayer?.getState().climbing || !!currentPlayer?.getState().boxHandling,
+  getActiveScene: () => activeScene,
+  getPlayerRadius: () => currentPlayer?.radius ?? 0.3,
+  getPlayerPosition: () => currentPlayer ? { ...currentPlayer.body.position } : { x: 0, y: 0, z: 0 },
   getPlayerRotation: () => currentPlayer?.getState().yaw ?? 0,
-  onTeleport: (sceneId, position, rotation) => {
-    // Check if teleporting within the same scene
-    if (sceneId === activeSceneId) {
-      // Same-scene teleport: reposition player directly
-      cctvTeleportTime = 0;
-      cctvTeleportTarget = () => {
-        if (currentPlayer) {
-          currentPlayer.setPosition(position.x, position.y, position.z);
-          currentPlayer.setRotation(rotation, 0);
-          currentPlayer.enable();
-        }
-      };
-      if (currentPlayer) {
-        currentPlayer.disable();
-        currentPlayer.clearInput();
-      }
-    } else {
-      // Cross-scene teleport: load the target scene with proper entry state
-      cctvTeleportTime = 0;
-      cctvTeleportTarget = () => {
-        // Create a PlayerTransitionState for the target position
-        const entryState: PlayerTransitionState = {
-          position: { x: position.x, y: position.y, z: position.z },
-          velocity: { x: 0, y: 0, z: 0 },
-          yaw: rotation,
-          pitch: 0,
-          heldKeys: [],
-          intentionalJump: false,
-          jumpQueued: false,
-          bobTime: 0,
-          bobIntensity: 0,
-          crouching: false,
-          sprinting: false,
-        };
-        
-        // Load the appropriate scene
-        if (sceneId === 'scene4') {
-          void loadScene4(entryState, 'back', false);
-        } else if (sceneId === 'scene7') {
-          void loadScene7(entryState);
-        } else if (sceneId === 'scene3') {
-          void loadScene3(entryState);
-        } else if (sceneId === 'scene2') {
-          // scene2 doesn't accept entryState, so load it and reposition after
-          void loadScene2(false, false).then(() => {
-            if (currentPlayer) {
-              currentPlayer.setPosition(position.x, position.y, position.z);
-              currentPlayer.setRotation(rotation, 0);
-            }
-          });
-        }
-        // Add more scenes as needed
-      };
-      if (currentPlayer) {
-        currentPlayer.disable();
-        currentPlayer.clearInput();
-      }
-    }
-  },
-  onPlace: (sceneId, position, rotation) => {
-    // Store placement in current scene
-    if (currentSceneData && 'createPlacedMarker' in currentSceneData) {
-      (currentSceneData as any).createPlacedMarker(new THREE.Vector3(position.x, position.y, position.z));
-    }
-  },
+  onTeleport: (sceneId, position, rotation) => { void teleportToAnchor(sceneId, position, rotation); },
   showMessage: showTeleportDeviceMessage,
 }));
+
+async function teleportToAnchor(sceneId: string, position: { x: number; y: number; z: number }, rotation: number) {
+  if (!currentPlayer || teleportLoading) return;
+  const state = currentPlayer.captureTransition({ x: 0, y: 0, z: 0 });
+  if (sceneId !== activeSceneId) {
+    const load = teleportSceneLoaders[sceneId];
+    if (!load) { showTeleportDeviceMessage('Cannot return to that scripted area. Place the device in an exploration room.'); return; }
+    // Start loading immediately; never delay the handoff behind a dissolve or a fade.
+    teleportLoading = true;
+    clearSceneInput();
+    traversalState = undefined;
+    const request = sceneRequestVersion + 1;
+    try {
+      await load();
+      if (request !== sceneRequestVersion || activeSceneId !== sceneId) return;
+    } catch (error) {
+      console.error('Teleport failed:', error);
+      showTeleportDeviceMessage('Teleport failed. Your anchor is saved; try again.');
+      return;
+    } finally {
+      teleportLoading = false;
+    }
+  }
+  if (!currentPlayer) return;
+  teleportPlayer(currentPlayer, position, rotation, state);
+  currentPlayer.enable();
+  if (activeCamera) resetThirdPersonCamera(activeCamera);
+  globalCharacter?.setFacing(rotation);
+  teleportArrivalTime = 0;
+  updatePlayerView(0);
+  globalCharacter?.setHologramTransition(hologramTransitionAt(0, true, TELEPORT_TRANSFER_DURATION));
+  teleportDevice.update(0);
+}
+
+function weaponEntries(): WeaponWheelEntry[] {
+  const entries: WeaponWheelEntry[] = [{ id: 'unarmed', label: 'Unarmed' }];
+  if (hasPistol) entries.push({ id: 'pistol', label: 'Pistol' });
+  if (hasCrowbar) entries.push({ id: 'crowbar', label: 'Crowbar' });
+  if (hasLightsaber) entries.push({ id: 'lightsaber', label: 'Lightsaber' });
+  return entries;
+}
+function equippedWeapon(): WeaponId {
+  if (currentSceneData?.ownsWeaponInput) return currentSceneData.getEquippedWeapon?.() ?? 'unarmed';
+  return lightsaber.isEquipped() ? 'lightsaber' : crowbar.isEquipped() ? 'crowbar' : pistol.isEquipped() ? 'pistol' : 'unarmed';
+}
+function selectWeapon(id: WeaponId) {
+  if (equipmentInputBlocked() || !weaponEntries().some(entry => entry.id === id)) return;
+  if (currentSceneData?.ownsWeaponInput) currentSceneData.selectWeapon(id);
+  else {
+    pistol.holster(); crowbar.holster(); lightsaber.holster();
+    if (id === 'pistol') pistol.equip();
+    else if (id === 'crowbar') crowbar.equip();
+    else if (id === 'lightsaber') lightsaber.equip();
+  }
+  const status = document.getElementById('weapon-status');
+  if (status) status.textContent = `${weaponEntries().find(entry => entry.id === id)!.label} | Hold Tab: weapons`;
+  updatePlayerView(0);
+}
+const weaponWheel = createWeaponWheel({
+  getEntries: weaponEntries, getCurrentId: equippedWeapon, isBlocked: equipmentInputBlocked, onSelect: selectWeapon,
+  setPaused(paused) {
+    weaponWheelOpen = paused;
+    clearSceneInput();
+    const blocked = paused || quickMenuOpen;
+    document.body.classList.toggle('quick-menu-open', blocked);
+    if (blocked) setAudioMenuPaused(true);
+    currentSceneData?.setMenuPaused?.(blocked);
+    if (!blocked) setAudioMenuPaused(false);
+  },
+});
+for (const id of ['pistol', 'crowbar', 'lightsaber'] as const) {
+  registerWeaponEquip(id, () => selectWeapon(equippedWeapon() === id ? 'unarmed' : id));
+}
 
 // --- Controls ---
 let orbitControls: OrbitControls | null = null;
@@ -380,7 +418,7 @@ function initializeControls() {
 
 // --- Initialize App ---
 async function initializeApp() {
-  loadScene1();
+  await loadScene1();
   initializeControls();
   setupViewToggle();
   setupSceneQuickMenu();
@@ -452,18 +490,20 @@ let controlTime = 0;
 const controlCard = document.getElementById('control-card')!;
 const lessons: Record<string, Omit<ControlCard, 'key' | 'scene'>> = {
   quarters: { title: 'Living quarters', lines: ['WASD - walk / Shift - sprint / Mouse - look', 'C while moving forward - slide tackle; otherwise crouch', 'Look at a nameplate to see the room name', 'E - use doors, chests and devices', 'Unlocked doors play a short walk-through cinematic', 'V - first / third person / M - pause, then Map', 'Recover your gear and search Branden and Brendan\'s rooms'], touch: ['Left stick - walk / Right drag - look', 'CROUCH while moving forward - slide tackle', 'Look at nameplates to see room names automatically', 'USE - open doors and chests, recover gear', 'VIEW - first / third person / MENU - pause and map', 'Recover your gear and check the other lecturers\' rooms'] },
-  basics: { title: 'You’re awake', lines: ['WASD — walk · Shift — sprint', 'C while moving forward — slide tackle; otherwise crouch', 'Mouse — look · Click the world to capture the mouse', 'Space — jump · E — interact', 'K — equip pistol · Left click — shoot', 'V or the view button — switch first / third person · M — pause'], touch: ['Drag on the left to walk; drag on the right to look.', 'RUN, JUMP, CROUCH and USE are your movement controls.', 'CROUCH while moving forward performs a slide tackle.', 'PISTOL equips your gun; SHOOT fires it.', 'Tap VIEW to switch first / third person · MENU to pause.'] },
-  pistol: { title: 'Pistol', lines: ['K — equip / holster', 'Left click — shoot at your crosshair'], touch: ['PISTOL — equip / holster', 'SHOOT — fire at your crosshair'] },
-  crowbar: { title: 'Crowbar acquired', lines: ['T — equip / holster', 'Left click — swing'], touch: ['CROW — equip / holster', 'SWING — attack'] },
-  lightsaber: { title: 'Lightsaber acquired', lines: ['L — equip / holster', 'Left click — slash'], touch: ['SABER — equip / holster', 'SLASH — attack'] },
+  basics: { title: 'You’re awake', lines: ['WASD — walk · Shift — sprint', 'C while moving forward — slide tackle; otherwise crouch', 'Mouse — look · Click the world to capture the mouse', 'Space — jump · E — interact', 'Hold Tab — weapons · Aim and release to equip · Left click — shoot', 'V or the view button — switch first / third person · M — pause'], touch: ['Drag on the left to walk; drag on the right to look.', 'RUN, JUMP, CROUCH and USE are your movement controls.', 'CROUCH while moving forward performs a slide tackle.', 'PISTOL equips your gun; SHOOT fires it.', 'Tap VIEW to switch first / third person · MENU to pause.'] },
+  pistol: { title: 'Pistol', lines: ['Hold Tab — select pistol; select Unarmed to holster', 'Left click — shoot at your crosshair'], touch: ['PISTOL — equip / holster', 'SHOOT — fire at your crosshair'] },
+  crowbar: { title: 'Crowbar acquired', lines: ['Hold Tab — select crowbar; select Unarmed to holster', 'Left click — swing'], touch: ['CROW — equip / holster', 'SWING — attack'] },
+  lightsaber: { title: 'Lightsaber acquired', lines: ['Hold Tab — select lightsaber; select Unarmed to holster', 'Left click — slash'], touch: ['SABER — equip / holster', 'SLASH — attack'] },
+  teleport: { title: 'Teleportation device', lines: ['Q — place purple anchor', 'T — teleport instantly to your anchor'], touch: ['Keyboard Q — place anchor; T — teleport'] },
   goggles: { title: 'Scanner goggles acquired', lines: ['N — wear / remove goggles'], touch: ['GOGGLES — wear / remove'] },
   vent: { title: 'Vent traversal', lines: ['W / S — crawl forward / backward', 'A / D — turn at junctions', 'E — use a ladder · Space — drop while descending'], touch: ['Left stick — crawl and turn at junctions', 'USE — take a ladder · JUMP — drop while descending'] },
   cargo: { title: 'Handling cargo', lines: ['E — grab / release a nearby box', 'WASD — move while holding it'], touch: ['USE — grab / release a nearby box', 'Left stick — move the box'] },
   flight: { title: 'Flight controls', lines: ['WASD — dodge · Mouse — aim', 'Hold left click — fire · Space — evade', 'V or the view button — cockpit / chase camera · M — pause'], touch: ['Left stick — dodge · Right drag — aim', 'Hold FIRE — shoot · EVADE — dodge', 'VIEW — cockpit / chase camera · MENU — pause']},
   flightSide: { title: 'Sidescroll flight', lines: ['WASD / arrows — move · Hold left click — fire straight', 'W / S + Space — dodge up / down'], touch: ['Left stick — move · Hold FIRE — fire straight', 'Stick up / down + EVADE — vertical dodge'] },
   flightTop: { title: 'Top-down flight', lines: ['WASD / arrows — move · Hold left click — fire upward', 'A / D + Space — evade left / right'], touch: ['Left stick — move · Hold FIRE — fire upward', 'Stick left / right + EVADE — lateral dodge'] },
-  jungle: { title: 'Back on the ground', lines: ['WASD — walk · Shift — sprint · Space — jump', 'C while moving forward — slide tackle; otherwise crouch', 'K — pistol · T — crowbar · Left click — attack', 'V or the view button — change view'], touch: ['Left stick — walk · Right drag — look', 'RUN / JUMP — sprint and jump', 'CROUCH while moving forward — slide tackle', 'PISTOL / CROW — select weapon · SHOOT / SWING — attack', 'VIEW — change view'] },
-  platformer: { title: 'Platforming controls', lines: ['A / D or arrows — move · Space — jump', 'Shift — sprint · C — crouch', 'Mouse — aim · K — gun · T — crowbar', 'Hold left click — attack'], touch: ['Left stick — move · JUMP — jump', 'RUN — sprint · CROUCH — crouch', 'Right drag — aim · PISTOL / CROW — select weapon', 'Hold FIRE — attack'] },
+  jungle: { title: 'Back on the ground', lines: ['WASD — walk · Shift — sprint · Space — jump', 'C while moving forward — slide tackle; otherwise crouch', 'Hold Tab — select weapon · Left click — attack', 'V or the view button — change view'], touch: ['Left stick — walk · Right drag — look', 'RUN / JUMP — sprint and jump', 'CROUCH while moving forward — slide tackle', 'PISTOL / CROW — select weapon · SHOOT / SWING — attack', 'VIEW — change view'] },
+  platformer: { title: 'Platforming controls', lines: ['A / D or arrows — move · Space — jump', 'Shift — sprint · C — crouch', 'Mouse — aim · Hold Tab — select weapon', 'Hold left click — attack'], touch: ['Left stick — move · JUMP — jump', 'RUN — sprint · CROUCH — crouch', 'Right drag — aim · PISTOL / CROW — select weapon', 'Hold FIRE — attack'] },
+  finale: { title: 'Final boss controls', lines: ['A / D — move · J — sword · F — rifle salvo', 'Hold R — shield / parry · Space — boost · E — overdrive', 'W / S — rise or dive in space · Hold Enter — skip to the VS intro'], touch: ['LEFT / RIGHT — move · UP / DOWN — fly in space', 'SWORD — attack · SHIELD — hold to block / parry · BOOST — dash', 'RIFLE — draw and fire a salvo · OVERDRIVE — special attack'] },
 };
 function introduceControls(key: string, scene?: string) {
   if (seenControls.has(key) || controlQueue.some(card => card.key === key) || shownControl?.key === key) return;
@@ -480,7 +520,7 @@ function enterHudScene(id: string) {
   minimap.reset();
   const key = id === 'living-quarters' ? 'quarters' : id === 'scene2' ? 'basics' : id === 'scene8' ? 'vent'
     : id === 'scene10' || id === 'scene11' ? 'cargo' : id === 'scene15' ? 'flight'
-    : id === 'scene17' || id === 'scene19' ? 'jungle' : id === 'scene18' ? 'platformer' : null;
+    : id === 'scene21' ? 'finale' : null;
   if (key) introduceControls(key, id);
 }
 function updateControlCard(dt: number) {
@@ -511,7 +551,7 @@ function updateControlCard(dt: number) {
 }
 function renderMinimap() {
   // Level 2 (flight scene15 and crash scene16) scenes never show the map overlay.
-  if (activeSceneId === 'scene1' || activeSceneId === 'scene15' || activeSceneId === 'scene16'
+  if (activeSceneId === 'scene1' || activeSceneId === 'scene15' || activeSceneId === 'scene16' || activeSceneId === 'scene21'
     || currentSceneData?.hideMinimap?.() || !activeScene || !currentPlayer) { minimap.hide(); return; }
   const state = currentSceneData?.getMinimapState?.();
   minimap.render(currentSceneData?.getRenderScene?.() ?? activeScene,
@@ -540,8 +580,10 @@ function canToggleView() {
     && !currentSceneData?.isCinematic?.() && !currentSceneData?.forceThirdPerson && !currentSceneData?.ownsWeaponInput);
 }
 function updateViewButton() {
-  document.getElementById('touch-pistol')?.classList.toggle('hidden', !hasPistol || !!currentSceneData?.isCinematic?.());
-  document.getElementById('touch-lightsaber')?.classList.toggle('hidden', !hasLightsaber || !!currentSceneData?.ownsWeaponInput || !!currentSceneData?.isCinematic?.());
+  const weaponsVisible = currentSceneData?.ownsWeaponInput ? !!currentSceneData?.canSelectWeapon?.() : !currentSceneData?.isCinematic?.();
+  document.getElementById('touch-pistol')?.classList.toggle('hidden', !hasPistol || !weaponsVisible);
+  document.getElementById('touch-crowbar')?.classList.toggle('hidden', !hasCrowbar || !weaponsVisible);
+  document.getElementById('touch-lightsaber')?.classList.toggle('hidden', !hasLightsaber || !weaponsVisible);
   const btn = document.getElementById('view-toggle-btn') as HTMLButtonElement;
   const state = currentPlayer?.getState();
   const third = currentSceneData?.isThirdPersonView?.() ?? ((isThirdPerson || !!currentSceneData?.forceThirdPerson
@@ -655,7 +697,7 @@ async function loadStage1Storage(fromQuarters = false, entryState?: PlayerTransi
     onReturnToQuarters: state => loadLivingQuarters(true, state), onComplete: async () => {
       if (activeSceneId !== 'stage1-storage') return false;
       await loadScene2(true, true);
-      return activeSceneId === 'scene2';
+      return document.body.dataset.scene === 'scene2';
     } });
   if (!await prepareOpeningScene(sceneData, source, request)) return false;
   retireTraversalRoom();
@@ -682,7 +724,7 @@ async function loadStage1Storage(fromQuarters = false, entryState?: PlayerTransi
 }
 
 // --- Load Scene 1 ---
-function loadScene1() {
+async function loadScene1() {
   sceneRequestVersion++;
   activeSceneId = 'scene1'; currentPlayer = null;
   enterHudScene('scene1');
@@ -703,6 +745,9 @@ function loadScene1() {
     activeCamera!.position.set(5, 5, 5);
     activeCamera!.lookAt(0, 0, 0);
   }
+
+  await introScene.ready;
+  if (currentSceneData !== introScene) return;
 
   if (cutsceneManager) {
     cutsceneManager.play('cutscene_1788121916257');
@@ -945,6 +990,7 @@ async function loadScene4(entryState?: PlayerTransitionState, entryDoor: 'back' 
     },
     onTeleportDeviceCollected: () => {
       teleportDevice.collect();
+      introduceControls('teleport');
     },
   });
   enterManagedScene('scene4', sceneData);
@@ -1035,6 +1081,9 @@ function hideScene1Skip() {
 }
 
 function enterManagedScene(id: string, sceneData: any) {
+  weaponWheel.close();
+  teleportDevice.detachMarker();
+  teleportArrivalTime = -1;
   if (activeScene) disposeComicEffects(activeScene);
   // Legacy combat scenes started with the pistol; only the new opening requires recovery.
   if (id === 'stage1-storage' && !sceneData.requiresRecoveredPistol || (id.startsWith('scene') && Number(id.slice(5)) >= 2)) hasPistol = true;
@@ -1053,11 +1102,12 @@ function enterManagedScene(id: string, sceneData: any) {
   if (sceneId === 14) void background(() => preloadAudio(flightMusicUrl));
   if (sceneId === 15) {
     void background(() => preloadAudio(jungleMusicUrl));
-    void background(preloadJungleModels);
   }
 }
 
 function retireTraversalRoom() {
+  weaponWheel.close();
+  teleportDevice.detachMarker();
   if (activeScene) disposeComicEffects(activeScene);
   // The persistent character is not scene-owned geometry.
   lightsaber.detach();
@@ -1205,7 +1255,7 @@ async function loadCrash16(entryState?: FlightExitState) {
   setTouchFlightMode(false);
   activateExtension(module.createScene({
     entryState,
-    onFinished: loadGround17,
+    onFinished: arrival => { void loadGround17(arrival); },
   }), 'scene16');
 }
 
@@ -1237,9 +1287,22 @@ async function loadGround19(entryState?: RescueArrival) {
   const module = await prepareScene(19);
   if (!module) return;
   hideScene1Skip(); retireTraversalRoom(); setTouchFlightMode(false);
-  activateExtension(module.createScene({ entryState,
+  activateExtension(module.createScene({
+    entryState,
     onRespawn: () => loadGround19(checkpointArrival(entryState)),
+    onFinished: next => { void loadScene21(next); },
   }), 'scene19');
+}
+
+async function loadScene21(entryState?: RescueArrival, checkpoint?: FinaleCheckpoint) {
+  const module = await prepareScene(21);
+  if (!module) return;
+  hideScene1Skip(); retireTraversalRoom(); setTouchFlightMode(false);
+  activateExtension(module.createScene({
+    entryState, checkpoint, renderer,
+    onFinished: () => { showMenuButtons(); },
+    onRetry: next => { void loadScene21(entryState, next); },
+  }), 'scene21');
 }
 
 async function loadPassage12(entryState?: PlayerTransitionState, from: PassageDestination = 10) {
@@ -1548,13 +1611,11 @@ const SCENE_CHOICES = [
   [5, 'Cargo hold'], [6, 'Target range'], [7, 'Cafeteria'], [8, 'Vent junction'],
   [9, 'Zero-gravity loading bay'], [10, 'Durable cargo puzzle'], [11, 'Mixed cargo puzzle'],
   [12, 'Transfer passage'], [13, 'Bay Warden boss'], [14, 'Hangar escape'],
-  [15, 'Space combat'], [15.5, 'Sidescroll Scrambler'], [15.75, 'Top-down Red Scrambler'], [16, 'Jungle crash cutscene'],
-  [17, 'Jungle bridge scrambler'], [18, 'Jungle platformer'], [19, 'Facility approach'],
+  [15, 'Space combat'], [15.5, 'Sidescroll Scrambler'], [15.75, 'Top-down Red Scrambler'], [16, 'Crash landing'],
+  [17, 'Jungle approach'], [18, 'Facility defenses'], [19, 'Facility summit'], [21, 'Final boss / The Quintet'],
 ] as const;
 const quickMenu = document.getElementById('scene-quick-menu') as HTMLDialogElement;
 const pauseMenu = document.getElementById('pause-menu') as HTMLDialogElement;
-const developerPassword = document.getElementById('developer-password') as HTMLInputElement;
-const developerError = document.getElementById('developer-password-error')!;
 type MenuScreen = 'home' | 'map' | 'sound' | 'controls' | 'developer' | 'scenes';
 let menuScreen: MenuScreen | null = null;
 let shipMap: ReturnType<typeof createShipMap> | null = null;
@@ -1584,6 +1645,7 @@ function renderControlsReference() {
   if (hasCrowbar) owned.add('crowbar');
   if (hasLightsaber) owned.add('lightsaber');
   if (goggles.isCollected()) owned.add('goggles');
+  if (teleportDevice.isCollected()) owned.add('teleport');
   const touch = document.body.classList.contains('touch-device');
   document.getElementById('pause-controls-description')!.textContent = developerUnlocked
     ? 'Developer mode: all tool and tutorial controls are available.'
@@ -1610,6 +1672,7 @@ function renderControlsReference() {
   list.scrollTop = 0;
 }
 function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
+  weaponWheel.close();
   if (screen === 'developer' && developerUnlocked) screen = 'scenes';
   if (screen === menuScreen) return;
   const prologue = activeSceneId === 'scene1';
@@ -1622,9 +1685,6 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
   if (screen !== 'map') shipMap?.hide();
   quickMenuOpen = screen !== null;
   pauseMenu.dataset.screen = screen ?? '';
-  developerPassword.value = '';
-  developerPassword.removeAttribute('aria-invalid');
-  developerError.textContent = '';
   if (!wasOpen && quickMenuOpen) {
     resumePointerTarget = document.pointerLockElement as HTMLElement | null;
     if (resumePointerTarget) document.exitPointerLock();
@@ -1691,7 +1751,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
     current?.focus(); current?.scrollIntoView({ block: 'nearest' });
   } else {
     const focusId = screen === 'controls' ? 'pause-controls-list' : screen === 'sound' ? 'bgm-volume'
-      : screen === 'developer' ? 'developer-password' : prologue ? 'pause-developer' : 'pause-resume';
+      : screen === 'developer' ? 'developer-unlock' : prologue ? 'pause-developer' : 'pause-resume';
     document.getElementById(focusId)?.focus();
   }
 }
@@ -1700,6 +1760,10 @@ function backFromMenu() {
 }
 async function jumpToScene(id: number) {
   if (menuScreen !== 'scenes' || !developerUnlocked || !SCENE_CHOICES.some(([scene]) => scene === id)) return;
+  weaponWheel.close();
+  teleportDevice.detachMarker();
+  cctvTeleportTime = teleportArrivalTime = -1; cctvTeleportTarget = null;
+  globalCharacter?.setHologramTransition(null);
   pendingSceneActions.clear(); creditsTimer = null;
   setTouchFlightMode(false);
   clearSceneInput();
@@ -1716,6 +1780,8 @@ async function jumpToScene(id: number) {
   const fade = document.getElementById('fade-overlay'); fade?.classList.remove('active', 'black'); fade?.classList.add('hidden');
   // Developer spawn grants the tools but equips nothing; the player selects them per scene.
   hasPistol = true; hasCrowbar = true; hasLightsaber = true; shieldCollectedScene7 = true; goggles.collect(false);
+  teleportDevice.collect(false);
+  quartersProgress.pistolCollected = true;
   if (id >= 8 && id <= 12) cargoPuzzle = createCargoPuzzleState(id);
   if (id === 13) bayBossDefeated = false;
   const request = sceneRequestVersion + 1;
@@ -1724,7 +1790,7 @@ async function jumpToScene(id: number) {
       case 0: await loadPrologue1(); break;
       case 0.5: await loadLivingQuarters(); break;
       case 1.1: await loadStage1Storage(); break;
-      case 1: loadScene1(); break;
+      case 1: await loadScene1(); break;
       case 2: await loadScene2(true); break;
       case 3: await loadScene3(); break;
       case 4: await loadScene4(); break;
@@ -1743,6 +1809,7 @@ async function jumpToScene(id: number) {
       case 17: await loadGround17(); break;
       case 18: await loadPlatformer18(); break;
       case 19: await loadGround19(); break;
+      case 21: await loadScene21(); break;
     }
     if (request !== sceneRequestVersion) return;
     const spawnedPlayer = currentSceneData?.player as Player | undefined;
@@ -1791,20 +1858,8 @@ function setupSceneQuickMenu() {
   document.getElementById('pause-developer-form')!.addEventListener('submit', event => {
     event.preventDefault(); event.stopPropagation();
     if (menuScreen !== 'developer' || !pauseMenu.open) return;
-    // This is a local testing convenience, not a security boundary.
-    if (developerPassword.value !== 'brondon') {
-      developerPassword.value = '';
-      developerPassword.setAttribute('aria-invalid', 'true');
-      developerError.textContent = 'Incorrect password. Try again.';
-      developerPassword.focus();
-      return;
-    }
     developerUnlocked = true;
     setPauseMenu('scenes');
-  });
-  developerPassword.addEventListener('input', () => {
-    developerPassword.removeAttribute('aria-invalid');
-    developerError.textContent = '';
   });
   quickMenu.addEventListener('click', event => {
     event.stopPropagation();
@@ -1861,7 +1916,7 @@ function setupSceneQuickMenu() {
 }
 
 // --- Start ---
-initializeApp();
+initializeApp().catch(error => console.error('Failed to initialize game:', error));
 
 // --- Resize ---
 window.addEventListener('resize', () => {
@@ -1897,7 +1952,7 @@ function animate() {
   const delta = clock.getDelta();
   if (mappedSceneData !== currentSceneData) { mappedSceneData = currentSceneData; chartCurrentMapSection(); }
   scene1SkipHold?.update(delta);
-  if (quickMenuOpen) {
+  if (quickMenuOpen || weaponWheelOpen || teleportLoading || document.hidden) {
     controlCard.classList.add('hidden');
     if (shipMap?.visible) { shipMap.render(); return; }
     if (activeScene && activeCamera) renderGameScene(currentSceneData?.getRenderScene?.() ?? activeScene, activeCamera);
@@ -1936,8 +1991,8 @@ function animate() {
       if (!deathPresentation.managed && deathPresentation.elapsed >= 2.5) { deathPresentation = null; respawnAtCapsule(); }
     }
   }
-  if (healthBarEl) healthBarEl.style.display = activeSceneId === 'scene1' || activeSceneId === 'prologue1' ? 'none' : '';
-  if (shieldBarEl) shieldBarEl.style.display = activeSceneId === 'scene1' || activeSceneId === 'prologue1' ? 'none' : '';
+  if (healthBarEl) healthBarEl.style.display = activeSceneId === 'scene1' || activeSceneId === 'prologue1' || activeSceneId === 'scene21' ? 'none' : '';
+  if (shieldBarEl) shieldBarEl.style.display = activeSceneId === 'scene1' || activeSceneId === 'prologue1' || activeSceneId === 'scene21' ? 'none' : '';
 
   // Record pursuit before stepping the active world; retired worlds step separately.
   npcManager.update(delta);
@@ -2017,10 +2072,10 @@ function animate() {
   }
 
   // CCTV hologram teleportation
-  if (cctvTeleportTime >= 0 && globalCharacter) {
+  if (cctvTeleportTime >= 0) {
     cctvTeleportTime += delta;
     const transition = hologramTransitionAt(cctvTeleportTime);
-    globalCharacter.setHologramTransition(transition);
+    globalCharacter?.setHologramTransition(transition);
     if (cctvTeleportTime >= HOLOGRAM_TRANSFER_DURATION && cctvTeleportTarget) {
       const target = cctvTeleportTarget;
       cctvTeleportTime = -1;
@@ -2034,8 +2089,14 @@ function animate() {
   teleportDevice.update(delta);
   updatePlayerView(delta);
   currentSceneData?.updateInteractionFocus?.();
+  if (teleportArrivalTime >= 0) {
+    teleportArrivalTime += Math.min(delta, 0.1);
+    if (teleportArrivalTime >= TELEPORT_TRANSFER_DURATION) teleportArrivalTime = -1;
+  }
   if (cctvTeleportTime < 0) {
-    globalCharacter?.setHologramTransition(currentSceneData?.getHologramTransition?.() ?? null);
+    globalCharacter?.setHologramTransition(teleportArrivalTime >= 0
+      ? hologramTransitionAt(teleportArrivalTime, true, TELEPORT_TRANSFER_DURATION)
+      : currentSceneData?.getHologramTransition?.() ?? null);
   }
 
   if (!sceneOwnsControls && !currentSceneData?.ownsWeaponInput) { pistol.update(delta); crowbar.update(delta); }
