@@ -53,6 +53,7 @@ const sceneImports = {
   17: () => import('./scenes/level 3/scene17.js'),
   18: () => import('./scenes/level 3/scene18.js'),
   19: () => import('./scenes/level 3/scene19.js'),
+  20: () => import('./scenes/level 3/scene20.js'),
   21: () => import('./scenes/level 3/scene21.js'),
 };
 type SceneModuleId = keyof typeof sceneImports;
@@ -1118,8 +1119,19 @@ async function loadGround19(entryState?: RescueArrival) {
   activateExtension(module.createScene({
     entryState,
     onRespawn: () => loadGround19(checkpointArrival(entryState)),
-    onFinished: next => { void loadScene21(next); },
+    onFinished: next => { void loadFacility20(next); },
   }), 'scene19');
+}
+
+async function loadFacility20(entryState?: RescueArrival) {
+  const module = await prepareScene(20);
+  if (!module) return;
+  hideScene1Skip(); retireTraversalRoom(); setTouchFlightMode(false);
+  activateExtension(module.createScene({
+    entryState,
+    onRespawn: () => loadFacility20(checkpointArrival(entryState)),
+    onFinished: next => { void loadScene21(next); },
+  }), 'scene20');
 }
 
 async function loadScene21(entryState?: RescueArrival, checkpoint?: FinaleCheckpoint) {
@@ -1247,7 +1259,7 @@ const SCENE_CHOICES = [
   [1, 'Space prologue'], [5, 'Stage 2 camera - Cargo hold'], [6, 'Stage 2 camera - Target range'],
   [13, 'Bay 13 - Bay Warden boss'], [14, 'Hangar escape'],
   [15, 'Space combat'], [15.5, 'Sidescroll Scrambler'], [15.75, 'Top-down Red Scrambler'], [16, 'Crash landing'],
-  [17, 'Jungle approach'], [18, 'Facility defenses'], [19, 'Facility summit'], [21, 'Final boss / Sudoers 5'],
+  [17, 'Jungle approach'], [18, 'Facility defenses'], [19, 'Facility summit'], [20, 'AI research facility'], [21, 'Final boss / Sudoers 5'],
 ] as const;
 const quickMenu = document.getElementById('scene-quick-menu') as HTMLDialogElement;
 const pauseMenu = document.getElementById('pause-menu') as HTMLDialogElement;
@@ -1451,6 +1463,7 @@ async function jumpToScene(id: number) {
       case 17: await loadGround17(); break;
       case 18: await loadPlatformer18(); break;
       case 19: await loadGround19(); break;
+      case 20: await loadFacility20(); break;
       case 21: await loadScene21(); break;
     }
     if (request !== sceneRequestVersion) return;

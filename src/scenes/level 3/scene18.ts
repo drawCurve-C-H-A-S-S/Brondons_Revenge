@@ -15,7 +15,7 @@ import { traceShot, type DamageTarget, type DamageWeapon } from '../../scripts/p
 import { PARRY_DAMAGE, type ParryableBolt } from '../../scripts/lightsaber.js';
 
 type Phase = 'entry' | 'traversal' | 'scrambler' | 'warp' | 'boss' | 'cleared' | 'sharkAttack' | 'exit' | 'death' | 'done';
-type RiverShark = { root: THREE.Group; mixer: THREE.AnimationMixer; baseY: number; baseZ: number; side: number; phase: number };
+type RiverShark = { root: THREE.Group; mixer: THREE.AnimationMixer; baseY: number; baseZ: number; side: number; phase: number; baseYaw: number; swimRate: number; scale: number };
 type Actor = {
   id: string; root: THREE.Group; body: CANNON.Body; motor: ReturnType<typeof createGroundMotor>;
   mixer: THREE.AnimationMixer; clips: THREE.AnimationClip[]; animation: string;
@@ -111,14 +111,19 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
     for (const [index, placement] of placements.entries()) {
       const model = clone(sharkTemplate), root = new THREE.Group();
       root.name = `RiverShark-${index}`; root.add(model);
+      // Deterministic per-individual variety so the shoal is not a row of clones.
+      const scale = 0.86 + ((index * 37) % 10) / 10 * 0.28;
+      const swimRate = 0.82 + ((index * 53) % 10) / 10 * 0.3;
+      const baseYaw = placement.side > 0 ? Math.PI : 0;
+      root.scale.setScalar(scale);
       const baseY = RESCUE_SITE.riverY - 0.62, baseZ = RESCUE_SITE.riverZ + placement.side * 5.2;
       root.position.set(courseX(placement.u), baseY, baseZ);
-      root.rotation.y = placement.side > 0 ? Math.PI : 0;
+      root.rotation.y = baseYaw;
       root.traverse(node => { if (node instanceof THREE.Mesh) { node.castShadow = true; node.receiveShadow = true; } });
       scene.add(root);
       const mixer = new THREE.AnimationMixer(root), swim = sharkAnimations[0];
       if (swim) mixer.clipAction(swim).setLoop(THREE.LoopRepeat, Infinity).play();
-      sharks.push({ root, mixer, baseY, baseZ, side: placement.side, phase: index * 1.7 });
+      sharks.push({ root, mixer, baseY, baseZ, side: placement.side, phase: index * 1.7, baseYaw, swimRate, scale });
     }
     sharksReady = true;
   }).catch(error => {
@@ -288,15 +293,22 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   function updateSharks(dt: number) {
     for (const shark of sharks) {
       const attacking = phase === 'sharkAttack' && shark === bitingShark;
-      shark.mixer.update(dt * (attacking ? 1.8 : 1));
+      shark.mixer.update(dt * (attacking ? 1.8 : shark.swimRate));
       if (!attacking) {
-        shark.root.position.y = shark.baseY + Math.sin(elapsed * 1.8 + shark.phase) * 0.035;
+        const bob = elapsed * 1.8 + shark.phase;
+        const steer = elapsed * 0.5 + shark.phase;
+        shark.root.position.y = shark.baseY + Math.sin(bob) * 0.05;
+        shark.root.rotation.y = shark.baseYaw + Math.sin(steer) * 0.12;
+        shark.root.rotation.z = Math.cos(steer) * 0.06;
+        shark.root.rotation.x = Math.sin(bob * 0.9) * 0.035;
         continue;
       }
       const lunge = smooth(phaseTime, 0, 0.28), recoil = smooth(phaseTime, 0.52, 0.82);
       const approach = lunge * (1 - recoil * 0.2);
       shark.root.position.z = THREE.MathUtils.lerp(shark.baseZ, DEPTH, approach);
       shark.root.position.y = shark.baseY + approach * 1.15;
+      shark.root.rotation.y = shark.baseYaw;
+      shark.root.rotation.z = 0;
       shark.root.rotation.x = -shark.side * approach * 0.14;
     }
   }
