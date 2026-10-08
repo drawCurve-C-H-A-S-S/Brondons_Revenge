@@ -17,6 +17,7 @@ export class GogglesController {
   isCollected() { return this.collected; }
   isEquipped() { return this.equipped; }
   collect(equip = true) { this.collected = true; this.equipped = equip; this.update(); }
+  reset() { this.collected = this.equipped = false; this.update(); }
   private onKeyDown = (event: KeyboardEvent) => {
     if (event.code !== 'KeyN' || event.repeat || !this.collected || !this.context().player?.isEnabled()
       || document.hidden || document.body.classList.contains('quick-menu-open')) return;

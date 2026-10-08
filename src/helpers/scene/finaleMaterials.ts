@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import type { MechSide } from '../../scripts/mechDuel.js';
 
 export const MECH_HEIGHT = 16;
-export const FRAME_COLORS = { hero: 0x63eaff, enemy: 0xff4a8d } as const;
+export const FRAME_COLORS = { hero: 0x99dbe5, enemy: 0xb72e3e } as const;
+export const SLASH_MARK_LIFETIME = 1.65;
 
 function dataTexture(data: Uint8Array, size: number, color = false) {
   const buffer = new ArrayBuffer(data.byteLength);
@@ -23,9 +24,9 @@ export function createArmorTextures(side?: MechSide) {
     const rivet = ((x % 64 - 5) ** 2 + (y % 32 - 5) ** 2) < 3;
     const scratch = Math.sin(y * 5.3 + Math.sin(x * 0.035)) > 0.96;
     const stripe = side === 'hero' && x % 64 >= 51 && x % 64 <= 55;
-    const paint = seam ? 32 : rivet ? 205 : Math.floor((side === 'enemy' ? 102 : 174) + grain * 24 + (scratch ? 24 : 0));
+    const paint = seam ? 24 : rivet ? 155 : Math.floor((side === 'enemy' ? 73 : 174) + grain * 24 + (scratch ? 24 : 0));
     const color = stripe ? [217, 133, 53] : side === 'enemy'
-      ? [paint, Math.floor(paint * 0.82), Math.min(255, paint + 28)]
+      ? [paint, Math.floor(paint * 0.9), Math.floor(paint * 0.95)]
       : [paint, Math.min(255, paint + 8), Math.min(255, paint + 15)];
     albedo.set([...color, 255], i);
     normal.set([Math.round(128 + Math.sin(x * 1.7) * 9), seam ? 95 : Math.round(128 + (grain - 0.5) * 13), 251, 255], i);
@@ -38,12 +39,18 @@ export function createArmorTextures(side?: MechSide) {
 
 export function createIndustrialSkin(side: MechSide) {
   const textures = createArmorTextures(side);
+  const cutStarts = Array.from({ length: 12 }, () => new THREE.Vector4());
+  const cutEnds = Array.from({ length: 12 }, () => new THREE.Vector3());
+  const cutTimes = new Float64Array(12).fill(-Infinity);
+  let cutCursor = 0;
   const uniforms = {
     uFrameTime: { value: 0 }, uBuild: { value: 1 }, uDamage: { value: 0 }, uDissolve: { value: 0 },
     uMechInverse: { value: new THREE.Matrix4() }, uFrameGlow: { value: new THREE.Color(FRAME_COLORS[side]) },
+    uCutStarts: { value: cutStarts }, uCutEnds: { value: cutEnds },
+    uCutColor: { value: new THREE.Color(FRAME_COLORS[side === 'hero' ? 'enemy' : 'hero']) },
   };
   const material = new THREE.MeshPhysicalMaterial({
-    color: side === 'hero' ? 0xc0d7e2 : 0x665b79, map: textures.map, normalMap: textures.normalMap,
+    color: side === 'hero' ? 0xc0d7e2 : 0x48454a, map: textures.map, normalMap: textures.normalMap,
     normalScale: new THREE.Vector2(0.55, 0.55), roughnessMap: textures.roughnessMap,
     metalness: 0.94, roughness: 0.62, clearcoat: 0.35, clearcoatRoughness: 0.25,
     emissive: FRAME_COLORS[side], emissiveIntensity: 0.025, envMapIntensity: 1.7,
@@ -58,6 +65,9 @@ export function createIndustrialSkin(side: MechSide) {
     uniform float uDamage;
     uniform float uDissolve;
     uniform vec3 uFrameGlow;
+    uniform vec4 uCutStarts[12];
+    uniform vec3 uCutEnds[12];
+    uniform vec3 uCutColor;
     float armorHash(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 39.425))) * 43758.5453); }
   `;
   function inject(shader: Shader, surface: boolean) {
@@ -81,34 +91,77 @@ export function createIndustrialSkin(side: MechSide) {
       shader.fragmentShader = shader.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         float construction = (1.0 - smoothstep(0.0, 0.04, abs(buildHeight - uBuild))) * step(uBuild, 0.995);
         float circuit = pow(max(0.0, sin(vArmorP.y * 40.0 + uFrameTime * 1.2)), 24.0) * seam;
-        totalEmissiveRadiance += uFrameGlow * (construction * 5.0 + circuit * 0.12);
+        totalEmissiveRadiance += uFrameGlow * (construction * ${side === 'hero' ? '5.0' : '2.8'} + circuit * 0.08);
+        float engraving = 0.0;
+        for (int i = 0; i < 12; i++) {
+          vec2 a = uCutStarts[i].xy;
+          vec2 delta = uCutEnds[i].xy - a;
+          float along = clamp(dot(vMechP.xy - a, delta) / max(dot(delta, delta), 0.001), 0.0, 1.0);
+          float distanceToCut = length(vMechP.xy - a - delta * along);
+          engraving = max(engraving, (1.0 - smoothstep(0.035, 0.15, distanceToCut)) * uCutStarts[i].w);
+        }
+        totalEmissiveRadiance += uCutColor * engraving * 7.0;
         totalEmissiveRadiance += vec3(1.0, 0.18, 0.025) * uDamage * armorHash(floor(vArmorP * 15.0)) * 0.65;`);
     }
   }
   material.onBeforeCompile = shader => inject(shader, true);
   depth.onBeforeCompile = shader => inject(shader, false);
-  material.customProgramCacheKey = () => 'finale-pbr-armor-v3';
-  depth.customProgramCacheKey = () => 'finale-pbr-armor-depth-v3';
+  material.customProgramCacheKey = () => `finale-pbr-armor-cuts-${side}-v4`;
+  depth.customProgramCacheKey = () => `finale-pbr-armor-depth-${side}-v4`;
   return { material, depth, uniforms,
+    engrave(from: THREE.Vector3, to: THREE.Vector3) {
+      const index = cutCursor++ % cutStarts.length;
+      cutStarts[index].set(from.x, from.y, from.z, 1);
+      cutEnds[index].copy(to); cutTimes[index] = uniforms.uFrameTime.value;
+    },
     update(root: THREE.Object3D, time: number, build: number, damage: number, dissolve: number) {
       root.updateMatrixWorld(true); uniforms.uMechInverse.value.copy(root.matrixWorld).invert();
       uniforms.uFrameTime.value = time; uniforms.uBuild.value = build;
       uniforms.uDamage.value = damage; uniforms.uDissolve.value = dissolve;
+      for (let i = 0; i < cutStarts.length; i++) {
+        cutStarts[i].w = Math.max(0, 1 - (time - cutTimes[i]) / SLASH_MARK_LIFETIME) ** 1.5;
+      }
     },
     dispose() { material.dispose(); depth.dispose(); textures.dispose(); },
   };
 }
 
+export function createBeamMaterial(color: number) {
+  return new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: new THREE.Color(color) }, uTime: { value: 0 }, uPower: { value: 1 } },
+    vertexShader: `varying vec2 vUv; varying vec3 vNormal; varying vec3 vView;
+      void main() { vUv = uv; vec4 p = modelViewMatrix * vec4(position, 1.0);
+        vNormal = normalize(normalMatrix * normal); vView = -p.xyz; gl_Position = projectionMatrix * p; }`,
+    fragmentShader: `uniform vec3 uColor; uniform float uTime; uniform float uPower;
+      varying vec2 vUv; varying vec3 vNormal; varying vec3 vView;
+      void main() {
+        float facing = abs(dot(normalize(vNormal), normalize(vView)));
+        float core = pow(facing, 5.0);
+        float filament = pow(0.5 + 0.5 * sin(vUv.x * 50.265 + vUv.y * 9.0 - uTime * 19.0), 16.0);
+        float flow = 0.92 + 0.08 * sin(vUv.y * 42.0 - uTime * 32.0);
+        vec3 light = mix(uColor * 3.5, vec3(8.0), core * 0.9) + uColor * filament * 2.0;
+        gl_FragColor = vec4(light * flow, (0.15 + facing * 0.55) * uPower);
+      }`,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
+  });
+}
+
 export function createEnergyMaterial(color: number) {
   return new THREE.ShaderMaterial({
     uniforms: { uColor: { value: new THREE.Color(color) }, uTime: { value: 0 }, uPower: { value: 1 } },
-    vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    vertexShader: `varying vec2 vUv; varying vec3 vNormal; varying vec3 vView;
+      void main() { vUv = uv; vec4 p = modelViewMatrix * vec4(position, 1.0);
+        vNormal = normalize(normalMatrix * normal); vView = -p.xyz; gl_Position = projectionMatrix * p; }`,
     fragmentShader: `
-      uniform vec3 uColor; uniform float uTime; uniform float uPower; varying vec2 vUv;
+      uniform vec3 uColor; uniform float uTime; uniform float uPower;
+      varying vec2 vUv; varying vec3 vNormal; varying vec3 vView;
       void main() {
-        float edge = pow(max(0.0, 1.0 - abs(vUv.x * 2.0 - 1.0)), 1.4);
-        float noise = 0.75 + 0.25 * sin(vUv.y * 50.0 - uTime * 19.0 + sin(vUv.x * 37.0));
-        gl_FragColor = vec4(uColor * (1.5 + edge * 1.7), edge * noise * uPower);
+        float core = pow(abs(dot(normalize(vNormal), normalize(vView))), 2.0);
+        float helix = pow(0.5 + 0.5 * sin(vUv.x * 31.416 + vUv.y * 58.0 - uTime * 17.0), 14.0);
+        float stream = 0.8 + 0.2 * sin(vUv.y * 83.0 - uTime * 24.0);
+        float ends = smoothstep(0.0, 0.045, vUv.y) * (1.0 - smoothstep(0.95, 1.0, vUv.y));
+        vec3 light = mix(uColor * 2.8, vec3(6.0, 6.4, 6.6), core * 0.8) + uColor * helix * 4.0;
+        gl_FragColor = vec4(light, (0.16 + core * 0.65 + helix * 0.4) * stream * ends * uPower);
       }`,
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
   });

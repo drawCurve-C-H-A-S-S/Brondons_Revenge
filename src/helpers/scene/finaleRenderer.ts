@@ -9,9 +9,10 @@ export function createFinaleRenderer(renderer: THREE.WebGLRenderer, scene: THREE
   const pmrem = new THREE.PMREMGenerator(renderer), room = new RoomEnvironment();
   const environment = pmrem.fromScene(room, 0.04); room.dispose(); pmrem.dispose();
   scene.environment = environment.texture;
+  scene.environmentIntensity = 0.7;
   const size = renderer.getSize(new THREE.Vector2()), composer = new EffectComposer(renderer);
   const render = new RenderPass(scene, camera);
-  const bloom = new UnrealBloomPass(size, mobile ? 0.4 : 0.65, 0.55, 1.05);
+  const bloom = new UnrealBloomPass(size, mobile ? 0.45 : 0.68, 0.48, 1.35);
   const output = new OutputPass(); composer.addPass(render); composer.addPass(bloom); composer.addPass(output);
   let width = size.x, height = size.y, disposed = false;
   return {

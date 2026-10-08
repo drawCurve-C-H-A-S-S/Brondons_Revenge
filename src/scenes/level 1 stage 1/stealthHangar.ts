@@ -14,6 +14,7 @@ export const HANGAR_LAYOUT = {
   entrance: { x: 14, z: -2.5 },
   checkpoint: { x: 17.4, z: -2.5 },
   exit: { x: 86, z: 20 },
+  musicTriggerX: 43,
   containers: [27, 43, 63, 75].flatMap((x, column) => [-15, 0, 15].map((z, row) => ({
     x, z, width: 8, depth: 6, height: 3.2, stacked: (column + row) % 3 !== 1, color: (column + row) % 4,
   }))),
@@ -314,6 +315,10 @@ export function createStealthHangar(scene: THREE.Scene, physics: Physics, deckY:
   box([3, 0.2, 3.2], [87.2, -0.1, 20], floor);
   box([3, 3.4, 0.25], [87.4, 1.7, 18.28], dark);
   box([3, 3.4, 0.25], [87.4, 1.7, 21.72], dark);
+  box([0.25, 3.4, 3.7], [88.85, 1.7, 20], dark);
+  box([3.2, 0.2, 3.7], [87.4, 3.5, 20], dark).userData.minimap = false;
+  const innerSeam = new THREE.Mesh(new THREE.BoxGeometry(0.03, 2.8, 0.05), teal);
+  innerSeam.position.set(88.71, deckY + 1.4, 20); scene.add(innerSeam);
   return { obstacles, safeZones, ladders, rooftops, platforms, scanSurfaces, panels, entrance, exit, shuttle, fillLight, beacon, alarmSpots, updateAlarm, materials: { steel, dark, teal },
     bounds: HANGAR_LAYOUT.bounds, deckY };
 }

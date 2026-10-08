@@ -14,7 +14,7 @@ export function roomBox(scene: THREE.Scene, physics: Physics, size: [number, num
 }
 
 /** Frames point out of their room. Panels and colliders retract into solid wall pockets. */
-export function createSlidingPortal(scene: THREE.Scene, physics: Physics, frame: PortalFrame, span: number, height: number, label: string, options: { doorHeight?: number; closeSpeed?: number; cargo?: () => Array<{ position: { x: number; y: number; z: number } }> } = {}) {
+export function createSlidingPortal(scene: THREE.Scene, physics: Physics, frame: PortalFrame, span: number, height: number, label: string, options: { doorHeight?: number; closeSpeed?: number; sign?: boolean; cargo?: () => Array<{ position: { x: number; y: number; z: number } }> } = {}) {
   const group = new THREE.Group(); group.position.set(frame.x, frame.y, frame.z); group.rotation.y = frame.yaw;
   group.name = `Door-${label}`; scene.add(group);
   const wall = new THREE.MeshStandardMaterial({ color: 0x52616a, roughness: 0.78, metalness: 0.25 });
@@ -38,7 +38,7 @@ export function createSlidingPortal(scene: THREE.Scene, physics: Physics, frame:
   ctx.fillStyle = '#c8ecee'; ctx.textAlign = 'center'; ctx.font = 'bold 42px monospace'; ctx.fillText(label, 384, 80);
   const texture = new THREE.CanvasTexture(canvas);
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 0.46), new THREE.MeshBasicMaterial({ map: texture }));
-  sign.position.set(0, Math.min(h + 0.5, height - 0.32), 0.27); group.add(sign);
+  sign.position.set(0, Math.min(h + 0.5, height - 0.32), 0.27); sign.visible = options.sign !== false; group.add(sign);
   let open = 0, crossed = false, locked = false;
   let callback: ((state: PlayerTransitionState) => void) | null = null;
   function sync() {

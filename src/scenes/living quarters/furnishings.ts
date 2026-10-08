@@ -3,6 +3,10 @@ import { loadToolModel } from '../../core/loader.js';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
 import { cabinCenter, cabinPoint, type CabinDefinition, type QuartersProgress } from './layout.js';
 import { createRescueDesktop, drawDesktopBackground } from './surfaces.js';
+import { createCrewChest } from '../../helpers/scene/crewChest.js';
+import { createGoggles } from '../../scripts/rewardChest.js';
+import { createTeleportCrystal } from '../../scripts/teleportationDevice.js';
+import { createShipTerminal } from '../../helpers/scene/shipInterior.js';
 
 type Physics = ReturnType<typeof createScenePhysics>;
 export type CabinProp = 'Prop_Desk_Small' | 'Prop_Chair' | 'Gun_Revolver';
@@ -180,16 +184,10 @@ export async function createCabinFurnishings(cabin: CabinDefinition, physics: Ph
     chair.position.add(new THREE.Vector3(cabin.side * -0.55, 0, 1.65)); root.add(chair);
     collider(chairSize, cabinPoint(cabin, -0.55, chairSize.y / 2, 1.65));
 
-    const computer = new THREE.Group(); computer.name = 'CabinComputer';
-    computer.position.set(cabin.side * -0.55, deskSize.y, 2.75); root.add(computer);
-    box(computer, 'TerminalFoot', [0.48, 0.035, 0.25], [0, 0.018, 0]);
-    box(computer, 'TerminalStand', [0.08, 0.17, 0.07], [0, 0.1, 0]);
-    box(computer, 'TerminalHousing', [0.66, 0.4, 0.09], [0, 0.33, 0]);
     const desktop = cabin.id === 'branden' ? createRescueDesktop(progress) : null;
-    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.34),
-      new THREE.MeshBasicMaterial({ map: desktop?.texture ?? desktopTexture(cabin), toneMapped: false }));
-    screen.name = 'CabinComputerScreen'; screen.rotation.y = Math.PI; screen.position.set(0, 0.33, -0.047); computer.add(screen);
-    box(computer, 'TerminalKeyboard', [0.54, 0.025, 0.17], [0, 0.014, -0.26], pale);
+    const terminal = createShipTerminal(desktop?.texture ?? desktopTexture(cabin)), computer = terminal.root, screen = terminal.screen;
+    computer.name = 'CabinComputer'; screen.name = 'CabinComputerScreen';
+    computer.position.set(cabin.side * -0.55, deskSize.y, 2.75); root.add(computer);
 
     const poster = new THREE.Mesh(new THREE.PlaneGeometry(1.03, 1.55),
       new THREE.MeshBasicMaterial({ map: posterTexture(cabin), toneMapped: false }));
@@ -198,18 +196,10 @@ export async function createCabinFurnishings(cabin: CabinDefinition, physics: Ph
     const light = new THREE.PointLight(cabin.accent, 4, 7.5, 1.5);
     light.position.set(0, 2.8, 0); root.add(light);
 
-    const chest = new THREE.Group(); chest.name = 'CrewFootlocker';
+    const footlocker = createCrewChest(cabin.accent), chest = footlocker.root, lidPivot = footlocker.lidPivot;
     chest.position.set(cabin.side * 1.7, 0, 0.65); chest.rotation.y = cabin.side * Math.PI / 2;
-    const lidPivot = new THREE.Group(); lidPivot.position.set(0, 0.55, 0.4);
     if (cabin.role === 'lecturer') {
       root.add(chest);
-      box(chest, 'ChestBase', [1.3, 0.55, 0.8], [0, 0.275, 0]);
-      box(chest, 'ChestInterior', [1.15, 0.035, 0.64], [0, 0.558, 0],
-        new THREE.MeshStandardMaterial({ color: 0x0b111b, roughness: 0.9 }));
-      chest.add(lidPivot);
-      box(lidPivot, 'ChestLid', [1.32, 0.12, 0.82], [0, 0.06, -0.4]);
-      box(lidPivot, 'ChestLidAccent', [1.0, 0.022, 0.025], [0, 0.128, -0.4], glow);
-      box(chest, 'ChestLatch', [0.18, 0.18, 0.035], [0, 0.45, -0.42], pale);
       collider(new THREE.Vector3(0.82, 0.68, 1.32), cabinPoint(cabin, 1.7, 0.34, 0.65));
     }
     const pistol = models[2];
@@ -217,6 +207,10 @@ export async function createCabinFurnishings(cabin: CabinDefinition, physics: Ph
       pistol.name = 'RecoveredPistol'; fitCabinProp(pistol, 0.15, 0.57, 0.24);
       pistol.position.y += 0.58; chest.add(pistol);
     }
+    const crystal = cabin.id === 'brendan' ? createTeleportCrystal() : null;
+    if (crystal) { crystal.position.y = 0.85; chest.add(crystal); }
+    const goggles = cabin.id === 'branden' ? createGoggles() : null;
+    if (goggles) { goggles.position.y = 0.69; goggles.scale.setScalar(1.7); chest.add(goggles); }
 
     const teleporter = new THREE.Group(); teleporter.name = 'PersonalTeleportDevice';
     if (cabin.id === 'brondon') {
@@ -226,18 +220,22 @@ export async function createCabinFurnishings(cabin: CabinDefinition, physics: Ph
       box(teleporter, 'TeleporterInset', [0.13, 0.006, 0.08], [0, 0.039, 0], pale);
       led.position.set(0.045, 0.05, 0); teleporter.add(led);
     }
-    let openness = progress.openedChests.has(cabin.id) ? 1 : 0;
+    footlocker.update(0, progress.openedChests.has(cabin.id), true);
     function update(dt: number, clock: number) {
       const open = progress.openedChests.has(cabin.id);
-      openness = THREE.MathUtils.clamp(openness + (open ? 1 : -1) * dt * 1.7, 0, 1);
-      lidPivot.rotation.x = openness * 1.38;
-      if (pistol) pistol.visible = openness > 0.15 && !progress.pistolCollected;
+      footlocker.update(dt, open);
+      if (pistol) pistol.visible = footlocker.openness > 0.15 && !progress.pistolCollected;
+      if (crystal) {
+        crystal.visible = footlocker.openness > 0.15 && !progress.crystalCollected;
+        crystal.rotation.y = clock * 1.4; crystal.position.y = 0.85 + Math.sin(clock * 2) * 0.045;
+      }
+      if (goggles) goggles.visible = footlocker.openness > 0.15 && !progress.gogglesCollected;
       teleporter.visible = cabin.id === 'brondon' && !progress.teleporterCollected;
       glow.emissiveIntensity = 1.4 + Math.sin(clock * 2.6) * 0.3;
     }
     update(0, 0);
     return {
-      root, desk, chair, bed, computer, screen, desktop, poster, chest, teleporter, lidPivot,
+      root, desk, chair, bed, computer, screen, desktop, poster, chest, teleporter, lidPivot, crystal, goggles,
       chestPoint: cabinPoint(cabin, 1.7, 0.6, 0.65),
       teleporterPoint: cabinPoint(cabin, -1.12, deskSize.y + 0.085, 2.41),
       update,

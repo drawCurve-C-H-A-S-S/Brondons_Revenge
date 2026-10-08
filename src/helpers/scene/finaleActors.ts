@@ -4,8 +4,8 @@ import { loadSubjectModel } from '../../core/loader.js';
 import { CABINS } from '../../scenes/living quarters/layout.js';
 import { createStudentBoardingClip, createStudentPoseClip } from '../../scripts/mechAnimation.js';
 
-export const QUINTET = CABINS.filter(cabin => cabin.role === 'student').map((cabin, index) => ({
-  name: cabin.occupant, color: [0xa571ff, 0xffbb45, 0xff4f9c, 0x43daff, 0x70ff98][index],
+export const SUDOERS_5 = CABINS.filter(cabin => cabin.role === 'student').map((cabin, index) => ({
+  name: cabin.occupant, color: [0x8e3039, 0x9c4940, 0x752e38, 0xa34a50, 0x873e48][index],
 }));
 
 export function normalizeFinaleActor(source: THREE.Object3D, height: number) {
@@ -40,7 +40,7 @@ export function captureFinaleResources(root: THREE.Object3D, shared = false) {
 }
 
 export function createFinaleStudents(loadModel = loadSubjectModel) {
-  const root = new THREE.Group(); root.name = 'TheQuintet';
+  const root = new THREE.Group(); root.name = 'Sudoers5';
   type Student = {
     root: THREE.Group; model: THREE.Object3D; mixer: THREE.AnimationMixer;
     actions: Record<'walk' | 'idle' | 'talk' | 'pose' | 'board', THREE.AnimationAction>; mode: string;
@@ -57,7 +57,7 @@ export function createFinaleStudents(loadModel = loadSubjectModel) {
       return clip;
     }
     const walk = required('Walk_Loop'), idle = required('Idle_Loop'), talk = required('Idle_Talking_Loop');
-    QUINTET.forEach((student, i) => {
+    SUDOERS_5.forEach((student, i) => {
       const actor = new THREE.Group(); actor.name = student.name;
       const model = clone(asset.scene); actor.add(normalizeFinaleActor(model, 1.83)); root.add(actor);
       const mixer = new THREE.AnimationMixer(model);

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { BAY_FOURTEEN_MAP } from '../level 1 stage 2/stageTwoLayout.js';
 import * as CANNON from 'cannon-es';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { loadToolModel } from '../../core/loader.js';
@@ -6,12 +7,10 @@ import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.
 import { roomBox, disposeRoom } from '../../helpers/scene/shipRoom.js';
 import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
 import type { CinematicPose } from '../../scripts/characterManager.js';
-import { createEscapeShip, addPlanetBackdrop } from '../../scripts/items/createEscapeShip.js';
+import { createEscapeShip, addPlanetBackdrop, animatePlanetBackdrop } from '../../scripts/items/createEscapeShip.js';
 import type { DamageTarget } from '../../scripts/pistol.js';
 import { isTouchActive } from '../../scripts/touchControls.js';
-import { AudioManager } from '../../helpers/audio/AudioManager.js';
 import { createHangarVersus } from '../../helpers/scene/hangarVersus.js';
-import bgmUrl from '../../assets/bgm/DonRevBGM1.m4a?url';
 import saberGlowVertex from '../../shaders/saberGlow.vert.glsl?raw';
 import saberGlowFragment from '../../shaders/saberGlow.frag.glsl?raw';
 import fireVertexShader from '../../shaders/fireExplosion.vert.glsl?raw';
@@ -76,8 +75,6 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
   for (const z of [-25, -5, 15]) { const light = new THREE.PointLight(0xb3def7, 180, 40); light.position.set(0, 12, z); scene.add(light); }
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 5000);
   const versus = createHangarVersus();
-  const audioManager = new AudioManager({ camera, getFile: (path: string) => path === 'bgm1' ? { content: bgmUrl } : null });
-  audioManager.setBgm({ path: 'bgm1', loop: true, volume: 0.5, autoplay: true });
   const player = createPlayer({ camera, physicsWorld, spawnPosition: { x: 0, y: 3.3, z: -29 } }); player.enable();
   if (entryState) player.restoreTransition({ ...entryState, position: { x: 0, y: 3.3, z: -29 }, velocity: { x: 0, y: 0, z: 0 }, yaw: Math.PI, pitch: 0, heldKeys: [], crouching: false, intentionalJump: false, jumpQueued: false }, { x: 0, y: 0, z: 0, yaw: -Math.PI });
   player.setRotation(Math.PI); player.disable(); player.body.type = CANNON.Body.KINEMATIC; player.body.collisionResponse = false; player.body.updateMassProperties();
@@ -570,6 +567,7 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
     renderCinematicOverlay(renderer: THREE.WebGLRenderer) { if (phase === 'versus') versus.render(renderer); },
     clearInput: () => pressed.clear(),
     onPlayerDeath() { fail(); return true; },
+    getSceneId: () => 'scene14', getMapLayout: () => BAY_FOURTEEN_MAP,
     getEscapeStatus: () => ({ phase, stage, expected, timeLeft, loaded, paused, clock, shot, impact }),
     updatePhysics(dt: number, thirdPerson = false) {
       if (disposed || transferred) return;
@@ -686,10 +684,10 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
         }
         if (clock > 3.2) { transferred = true; onFailure(); return; }
       }
-      audioManager.update();
       ship.update(dt); updateRobots(dt * motionScale); physics.step(dt, player, thirdPerson);
       if (status) status.textContent = assetError ? 'ROBOT ASSETS COULD NOT LOAD / E: retry' : phase === 'arrival' ? '14 / HANGAR\nLift arriving. One ship. Too many robots.' : phase === 'reveal' ? 'ESCAPE SHUTTLE / SWARM BLOCKING THE DECK' : phase === 'charge' ? 'INCOMING CHARGE' : phase === 'launch' ? 'HANGAR DEPRESSURIZING\nAll robots are being pulled into space. Launching toward the planet...' : phase === 'aboard' ? 'COCKPIT SEALED / PRESS E TO LAUNCH' : 'BREAK THROUGH THE SWARM';
       updateShot(realDt); cameraView();
+      if (planet.visible) animatePlanetBackdrop(planet, dt);
     },
     dispose() {
       if (disposed) return; disposed = true;
@@ -702,7 +700,7 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
       prompt?.classList.add('hidden'); subtitles?.classList.add('hidden'); status?.classList.add('hidden');
       if (gun) { gun.removeFromParent(); scene.add(gun); }
       robots.forEach(r => { r.mixer.stopAllAction(); r.mixer.uncacheRoot(r.root); r.root.traverse(node => { if (node instanceof THREE.SkinnedMesh) node.skeleton.dispose(); }); });
-      audioManager.dispose(); player.dispose(); physics.dispose(); disposeRoom(scene);
+      player.dispose(); physics.dispose(); disposeRoom(scene);
     },
   };
 }

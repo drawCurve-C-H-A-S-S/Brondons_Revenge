@@ -185,7 +185,8 @@ function onTouchStart(event: TouchEvent) {
   if (document.body.classList.contains('quick-menu-open') || document.body.dataset.scene === 'scene1') return;
   const width = window.innerWidth;
   const minimap = document.getElementById('minimap');
-  const mapBounds = minimap && !minimap.classList.contains('hidden') ? minimap.getBoundingClientRect() : null;
+  const mapBounds = minimap && !minimap.classList.contains('hidden') && !document.body.classList.contains('stage-two-maze')
+    ? minimap.getBoundingClientRect() : null;
 
   for (const touch of Array.from(event.changedTouches)) {
     if (isInteractiveTarget(touch.target)) continue;

@@ -119,6 +119,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   let floatingStrafeHeight = 0;
   let floatTime = 0;
   let ventMode = false;
+  let overheadMovement = false;
   let turnRemaining = 0;
   let ventTurnAngle = Math.PI;
   let boxHandling = false;
@@ -175,7 +176,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     if (e.code === 'Space' || (ventMode && ['KeyA', 'KeyD'].includes(e.code))) e.preventDefault();
     // Remember held movement during scripted traversal, but never queue a jump/action.
     if (climbing) { keys[e.code] = true; return; }
-    if (ventMode && (e.code === 'KeyA' || e.code === 'KeyD') && !keys[e.code] && !e.repeat && turnRemaining === 0) {
+    if (ventMode && !overheadMovement && (e.code === 'KeyA' || e.code === 'KeyD') && !keys[e.code] && !e.repeat && turnRemaining === 0) {
       turnRemaining = e.code === 'KeyA' ? ventTurnAngle : -ventTurnAngle;
     }
     if (!sliding && !floating && !boxHandling && !crouchForced && !ventMode && e.code === 'Space' && !keys[e.code] && !e.repeat) jumpQueued = true;
@@ -261,6 +262,12 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
 
   // --- Movement direction ---
   function getMoveDirection(): { x: number; z: number } | null {
+    if (overheadMovement) {
+      const x = Number(!!(keys.KeyD || keys.ArrowRight)) - Number(!!(keys.KeyA || keys.ArrowLeft));
+      const z = Number(!!(keys.KeyS || keys.ArrowDown)) - Number(!!(keys.KeyW || keys.ArrowUp));
+      const length = Math.hypot(x, z);
+      return length ? { x: x / length, z: z / length } : null;
+    }
     if (floatingStrafeOnly) {
       const right = Number(!!keys.KeyD) - Number(!!keys.KeyA);
       return right ? { x: right * Math.cos(yaw), z: -right * Math.sin(yaw) } : null;
@@ -363,6 +370,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     }
     sprinting = !crouchForced && !boxHandling && !!(keys['ShiftLeft'] || keys['ShiftRight']);
     const moveDir = getMoveDirection();
+    if (overheadMovement && moveDir) yaw = Math.atan2(-moveDir.x, -moveDir.z);
     if (sideScrollDepth !== null && moveDir) yaw = moveDir.x < 0 ? Math.PI / 2 : -Math.PI / 2;
     const desired = new CANNON.Vec3(moveDir?.x ?? 0, 0, moveDir?.z ?? 0);
     if (floating) {
@@ -599,6 +607,9 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       updateCamera(0);
     },
     setVentTurnAngle: (angle: number) => { ventTurnAngle = angle; },
+    setOverheadMovement: (active: boolean) => {
+      overheadMovement = active; turnRemaining = 0; clearInput();
+    },
     setBoxHandling: (active: boolean) => {
       cancelSlide();
       boxHandling = active; lookLocked = active || ventMode;
@@ -618,6 +629,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       playerBody.aabbNeedsUpdate = true;
       playerBody.wakeUp();
       ventMode = active;
+      if (!active) overheadMovement = false;
       turnRemaining = 0;
       crouchForced = active;
       crouching = active;

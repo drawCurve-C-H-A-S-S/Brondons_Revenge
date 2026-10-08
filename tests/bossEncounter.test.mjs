@@ -47,7 +47,7 @@ function browser(t) {
     pause() { this.paused = true; }
   };
   class Element extends EventTarget {
-    style = {}; dataset = {}; textContent = ''; classes = new Set(); children = [];
+    style = { setProperty(name, value) { this[name] = value; } }; dataset = {}; textContent = ''; classes = new Set(); children = [];
     set className(value) { this.classes = new Set(value.split(/\s+/).filter(Boolean)); }
     get className() { return [...this.classes].join(' '); }
     classList = {
@@ -328,9 +328,34 @@ test('Goggles reveal the head in yellow; real crowbar reaches it without goggles
   assert.match(elements.get('boss-health-label').textContent, /BAY WARDEN/);
 });
 
+test('Bay Warden music victory is raised only by a new final defeat, not a phase change or a cleared-room visit', async t => {
+  const bytes = await readFile(new URL('../src/assets/models/bayboss.glb', import.meta.url));
+  const bossData = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const loadBoss = () => {
+    const loader = new GLTFLoader();
+    loader.register(() => ({ name: 'NodeBossImageTransport', loadTexture: async () => new THREE.Texture() }));
+    return loader.parseAsync(bossData.slice(0), '');
+  };
+  const { data } = await fixture(t, { loadBoss, checkpoint: true });
+  assert.equal(data.hasBossVictory(), false);
+  cover(data); down(data);
+  assert.equal(data.boss.headTarget.damage(rules.health * 0.25, 'pistol'), true);
+  assert.equal(data.hasBossVictory(), false);
+  untilPhase(data, 'flying'); down(data);
+  assert.equal(data.boss.headTarget.damage(data.boss.getStatus().health, 'pistol'), true);
+  assert.equal(data.boss.getStatus().phase, 'defeated');
+  assert.equal(data.hasBossVictory(), true);
+  step(data, 0.5); assert.equal(data.hasBossVictory(), true);
+  data.dispose();
+  const next = createScene({ defeated: true, checkpoint: true, loadBoy, loadDrone, loadBoss });
+  t.cleanup(() => next.dispose()); await next.ready;
+  assert.equal(next.hasBossVictory(), false);
+});
+
 test('Defeat fades black particles, reveals the actual boy.glb, thanks player and restores control', async t => {
   let completed = 0;
   const { data, elements } = await fixture(t, { onDefeated: () => completed++ }); step(data, 9.8); cover(data);
+  assert.equal(data.hasBossVictory(), false);
   const boy = data.scene.getObjectByName('FreedBoy'); assert.ok(boy); assert.equal(boy.visible, false);
   assert.ok(boy.getObjectsByProperty('isMesh', true).length > 0, 'real GLB mesh loaded');
   const requiredHits = Math.ceil(rules.health / rules.headDamage);
@@ -346,6 +371,7 @@ test('Defeat fades black particles, reveals the actual boy.glb, thanks player an
   assert.equal(boy.visible, false, 'rescue waits for final phase');
   assert.equal(data.boss.headTarget.damage(rules.phaseThreeHealth, 'pistol'), true);
   assert.equal(data.boss.getStatus().health, 0, JSON.stringify(data.boss.getStatus()));
+  assert.equal(data.hasBossVictory(), true);
   assert.equal(data.isCinematic(), true); assert.equal(data.player.isEnabled(), false); assert.equal(boy.visible, true);
   const cloud = data.scene.getObjectByName('BossBlackParticles'); assert.equal(cloud.visible, true);
   assert.equal(data.getDamageTargets().length, 0); assert.equal(data.boss.getStatus().projectiles, 0);
@@ -358,7 +384,32 @@ test('Defeat fades black particles, reveals the actual boy.glb, thanks player an
   step(data, 2); assert.equal(completed, 1);
   data.dispose(); assert.equal(data.physicsWorld.bodies.length, 0);
   const next = createScene({ defeated: true, loadBoy, loadDrone }); t.cleanup(() => next.dispose()); await next.ready;
+  assert.equal(next.hasBossVictory(), false, 'Revisiting a cleared boss must not replay victory');
   assert.equal(next.isCinematic(), false); assert.equal(next.getDamageTargets().length, 0); assert.equal(next.scene.getObjectByName('FreedBoy').visible, true);
+});
+
+test('holding Enter skips only the victory dialogue and preserves the unlocked lift exactly once', async t => {
+  let completed = 0;
+  const bytes = await readFile(new URL('../src/assets/models/bayboss.glb', import.meta.url));
+  const loadBoss = () => {
+    const loader = new GLTFLoader();
+    loader.register(() => ({ name: 'NodeSkipImageTransport', loadTexture: async () => new THREE.Texture() }));
+    return loader.parseAsync(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), '');
+  };
+  const { data } = await fixture(t, { checkpoint: true, loadBoss, onDefeated: () => completed++ });
+  cover(data); untilPhase(data, 'flying'); down(data);
+  assert.equal(data.boss.headTarget.damage(data.boss.getStatus().health, 'pistol'), true);
+  const hold = seconds => { key('Enter'); step(data, seconds); key('Enter', 'keyup'); };
+  hold(1.3);
+  assert.equal(completed, 0, 'The shell-breaking animation cannot be skipped');
+  step(data, 2.3);
+  hold(0.4); step(data, 0.9); assert.equal(completed, 0, 'A released hold does not complete');
+  hold(1.2);
+  assert.equal(completed, 1); assert.equal(data.isCinematic(), false); assert.equal(data.player.isEnabled(), true);
+  assert.equal(data.scene.getObjectByName('BossBlackParticles').visible, false);
+  assert.equal(data.elevator.consoleBody.collisionResponse, true);
+  assert.equal(data.elevator.console.position.y, 0);
+  hold(1.4); step(data, 3); assert.equal(completed, 1);
 });
 
 for (const fps of [30, 60, 144]) {

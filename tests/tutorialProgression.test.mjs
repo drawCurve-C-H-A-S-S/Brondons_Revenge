@@ -111,6 +111,47 @@ test('real weapon input rejects wrong tools and breaks targets/crates in both vi
   assert.ok(!f.world.bodies.includes(third.body));
 });
 
+for (const thirdPerson of [false, true]) {
+  test(`ladder crate breaks with a rendered crowbar and decorative sprites in ${thirdPerson ? 'third' : 'first'} person`, t => {
+    browser(t); const f = fixture(t);
+    const character = new THREE.Group(), renderedWeapon = new THREE.Group();
+    renderedWeapon.name = 'crowbar'; renderedWeapon.position.set(0.4, 2, 0.8);
+    character.add(renderedWeapon); f.scene.add(character);
+    const caption = new THREE.Sprite(new THREE.SpriteMaterial());
+    caption.position.set(0, 1.1, -0.4); f.scene.add(caption);
+    const crate = f.breakables.add('StoreroomLadderCrate', 'crowbar',
+      new THREE.Vector3(0, 0.65, -1.8), new THREE.Vector3(1.65, 1.3, 1.4));
+    const crowbar = new CrowbarController(() => ({ ...f, character, thirdPerson, hasCrowbar: true,
+      targets: f.breakables.getDamageTargets(), setCharacterEquipped() {}, doorTarget: null, openDoor() {} }));
+    t.cleanup(() => { crowbar.dispose(); caption.material.dispose(); });
+    f.camera.position.set(0.7, 1.9, 1.5); f.camera.lookAt(0, 1.1, -1.8);
+    document.pointerLockElement = document.body; crowbar.equip(); click();
+    assert.equal(crate.broken, false, 'Starting the attack does not skip the contact sweep');
+    for (let frame = 0; frame < 24; frame++) crowbar.update(1 / 60);
+    assert.equal(crate.broken, true, 'Rig pose and camera offset cannot shorten crowbar reach');
+    assert.ok(!f.world.bodies.includes(crate.body), 'The broken crate no longer blocks the ladder');
+  });
+}
+
+test('crew reward chest faces into the room and rotates its collider without loading the model chest', async t => {
+  browser(t); const f = fixture(t);
+  let modelRequests = 0;
+  const yaw = -Math.PI / 2;
+  const chest = createRewardChest({ ...f, world: f.world, position: new THREE.Vector3(-1.5, 0, 0), yaw,
+    reward: 'lightsaber', style: 'crew', unlocked: () => true, onCollect: () => true },
+    async () => { modelRequests++; throw new Error('The heavy chest must not be requested'); });
+  t.cleanup(() => chest.dispose()); await chest.ready;
+  assert.equal(modelRequests, 0);
+  const front = new THREE.Vector3(0, 0, -1).applyQuaternion(chest.root.quaternion);
+  assert.ok(front.x > 0.999 && Math.abs(front.z) < 0.001);
+  const body = f.world.bodies.at(-1);
+  const physicalFront = body.quaternion.vmult(new CANNON.Vec3(0, 0, -1));
+  assert.ok(physicalFront.x > 0.999 && Math.abs(physicalFront.z) < 0.001);
+  chest.root.updateMatrixWorld(true);
+  const latch = chest.root.getObjectByName('ChestLatch').getWorldPosition(new THREE.Vector3());
+  assert.ok(latch.x > chest.root.position.x, 'The latch is on the approach side, not against the wall');
+});
+
 function input(element, type, properties = {}) {
   const event = new Event(type, { bubbles: true, cancelable: true });
   Object.defineProperties(event, Object.fromEntries(Object.entries(properties).map(([name, value]) => [name, { value }])));

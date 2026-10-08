@@ -121,13 +121,20 @@ function textureFor(system: ComicSystem, effect: Effect) {
   const key = `${effect.kind}:${effect.word}`;
   let texture = system.textures.get(key);
   if (texture) return texture;
+  texture = new THREE.CanvasTexture(createComicEffectArtwork(effect.kind, effect.word));
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter; texture.generateMipmaps = false;
+  system.textures.set(key, texture); return texture;
+}
+
+export function createComicEffectArtwork(kind: ComicEffectKind, word = `${kind.toUpperCase()}!`) {
   const canvas = document.createElement('canvas'), context = canvas.getContext('2d');
   if (!context) throw new Error('Comic combat effects require a 2D canvas context');
   const font = 'italic 900 104px Impact, Haettenschweiler, "Franklin Gothic Heavy", sans-serif';
   context.font = font;
-  canvas.width = Math.ceil(context.measureText(effect.word).width + 110); canvas.height = 190;
+  canvas.width = Math.ceil(context.measureText(word).width + 110); canvas.height = 190;
   context.font = font; context.textAlign = 'center'; context.textBaseline = 'middle'; context.lineJoin = 'round';
-  const style = STYLE[effect.kind], x = canvas.width / 2, y = canvas.height / 2;
+  const style = STYLE[kind], x = canvas.width / 2, y = canvas.height / 2;
   if (style.burst) {
     const burst = () => {
       context.beginPath();
@@ -146,13 +153,11 @@ function textureFor(system: ComicSystem, effect: Effect) {
     }
     context.restore();
   }
-  context.strokeStyle = '#f7fbff'; context.lineWidth = style.burst ? 16 : 10; context.strokeText(effect.word, x, y + 5);
-  context.strokeStyle = '#17191f'; context.lineWidth = style.burst ? 10 : 6; context.strokeText(effect.word, x, y + 5);
-  context.fillStyle = effect.kind === 'boom' ? '#fff3a5' : effect.kind === 'clank' ? '#f7fbff' : style.color;
-  context.fillText(effect.word, x, y + 5);
-  texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
-  texture.minFilter = THREE.LinearFilter; texture.generateMipmaps = false;
-  system.textures.set(key, texture); return texture;
+  context.strokeStyle = '#f7fbff'; context.lineWidth = style.burst ? 16 : 10; context.strokeText(word, x, y + 5);
+  context.strokeStyle = '#17191f'; context.lineWidth = style.burst ? 10 : 6; context.strokeText(word, x, y + 5);
+  context.fillStyle = kind === 'boom' ? '#fff3a5' : kind === 'clank' ? '#f7fbff' : style.color;
+  context.fillText(word, x, y + 5);
+  return canvas;
 }
 
 export function updateComicEffects(container: THREE.Object3D, camera: THREE.Camera, dt: number, renderer: THREE.WebGLRenderer) {

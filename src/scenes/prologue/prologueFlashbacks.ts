@@ -5,6 +5,7 @@ import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
 import { createStealthHangar } from '../level 1 stage 1/stealthHangar.js';
 import hologramVertexShader from '../../shaders/hologram.vert.glsl?raw';
 import hologramFragmentShader from '../../shaders/hologram.frag.glsl?raw';
+import { createEarthTextures, createEarthGroup, updateEarthGroup } from '../../scripts/earthTexture.js';
 
 export type PrologueShot = 'present' | 'asteroid' | 'collection' | 'ingest' | 'corruption'
   | 'capture' | 'laboratory' | 'shield' | 'planet' | 'corridor' | 'patrol' | 'stealth';
@@ -363,38 +364,8 @@ export function createPrologueFlashbacks() {
 
   const planetScene = newScene();
   stars(planetScene);
-  const planetCanvas = document.createElement('canvas');
-  planetCanvas.width = 1024;
-  planetCanvas.height = 512;
-  const planetContext = planetCanvas.getContext('2d')!;
-  planetContext.fillStyle = '#325a66';
-  planetContext.fillRect(0, 0, 1024, 512);
-  for (let landIndex = 0; landIndex < 180; landIndex++) {
-    planetContext.fillStyle = landIndex % 3 ? '#536955' : '#617964';
-    planetContext.beginPath();
-    planetContext.ellipse(noise(landIndex * 4) * 1024, noise(landIndex * 4 + 1) * 512,
-      8 + noise(landIndex * 4 + 2) * 50, 5 + noise(landIndex * 4 + 3) * 24, noise(landIndex + 8) * Math.PI, 0, Math.PI * 2);
-    planetContext.fill();
-  }
-  for (let cloudIndex = 0; cloudIndex < 110; cloudIndex++) {
-    planetContext.fillStyle = 'rgba(219, 233, 226, 0.28)';
-    planetContext.beginPath();
-    planetContext.ellipse(noise(cloudIndex + 1000) * 1024, noise(cloudIndex + 1200) * 512,
-      15 + noise(cloudIndex + 3000) * 80, 3 + noise(cloudIndex + 2000) * 14, -0.15, 0, Math.PI * 2);
-    planetContext.fill();
-  }
-  const planetTexture = new THREE.CanvasTexture(planetCanvas);
-  planetTexture.colorSpace = THREE.SRGBColorSpace;
-  textures.add(planetTexture);
-  const planet = new THREE.Mesh(new THREE.SphereGeometry(5, 64, 48), new THREE.MeshStandardMaterial({ map: planetTexture, roughness: 1 }));
-  planet.position.set(0, 0, -3);
+  const planet = createEarthGroup(planetScene, new THREE.Vector3(0, 0, -3), 5, createEarthTextures());
   planet.rotation.z = 0.22;
-  planetScene.add(planet);
-  const atmosphere = new THREE.Mesh(new THREE.SphereGeometry(5.09, 48, 32), new THREE.MeshBasicMaterial({
-    color: 0x7baab9, transparent: true, opacity: 0.13, side: THREE.BackSide, depthWrite: false,
-  }));
-  atmosphere.position.copy(planet.position);
-  planetScene.add(atmosphere);
   const transport = spacecraft(planetScene, [-5.5, 1, 5], 0.28);
   transport.rotation.y = 0.3;
 
@@ -620,7 +591,7 @@ export function createPrologueFlashbacks() {
       member.position.y = 0.16 + Math.sin(clock * 0.6 + crewIndex) * 0.009;
     });
     surveyShip.position.y = 5 + Math.sin(clock * 0.15) * 0.15;
-    planet.rotation.y = clock * 0.025;
+    updateEarthGroup(planet, dt);
     transport.position.x = -5.5 + Math.sin(clock * 0.15) * 0.8;
     shield.rotation.y = clock * 0.16;
     shieldMaterial.opacity = 0.11 + Math.sin(clock * 3) * 0.025;

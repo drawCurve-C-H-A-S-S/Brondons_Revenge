@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { loadModel } from '../core/loader.js';
-import mothershipUrl from '../assets/models/mothership.glb';
+import { createMothership } from '../helpers/scene/mothership.js';
 import { CutsceneManager } from '../helpers/animation/CutsceneManager.js';
 import { disposeRoom } from '../helpers/scene/shipRoom.js';
 // import comicVert from '../shaders/comic.vert.glsl?raw';
@@ -43,8 +43,7 @@ export function createScene({ audioManager, loadShip = loadModel }: {
   scene.add(stars);
 
   // --- Mothership ---
-  const ship = new THREE.Group();
-  ship.name = 'Mothership';
+  const mothership = createMothership(loadShip), ship = mothership.root;
   let disposed = false;
 
   /* Original primitive spaceship (kept for reference).
@@ -168,37 +167,8 @@ export function createScene({ audioManager, loadShip = loadModel }: {
   ship.add(antennaTip);
   */
 
-  const ready = loadShip(mothershipUrl).then(model => {
-    if (disposed) { disposeRoom(model); return; }
-    const modelRoot = new THREE.Group();
-    modelRoot.add(model);
-    modelRoot.rotation.y = -Math.PI / 2;
-    const bounds = new THREE.Box3().setFromObject(modelRoot);
-    const size = bounds.getSize(new THREE.Vector3());
-    const span = Math.max(size.x, size.y, size.z);
-    if (!Number.isFinite(span) || span <= 0) {
-      disposeRoom(modelRoot);
-      throw new Error('Mothership model has invalid or empty bounds');
-    }
-    // Fit the authored model to the original ship's local-space envelope.
-    const scale = 4.6 / span;
-    modelRoot.scale.setScalar(scale);
-    modelRoot.position.copy(bounds.getCenter(new THREE.Vector3())).multiplyScalar(-scale);
-    ship.add(modelRoot);
-  });
-
-  ship.scale.set(10, 10, 10);
-  ship.position.set(0, 15, 0);
-  ship.rotation.y = -Math.PI / 2;
+  const ready = mothership.ready;
   scene.add(ship);
-
-  // Ship self-illumination
-  const shipGlowLight = new THREE.PointLight(0x88aacc, 3, 30);
-  shipGlowLight.position.set(0, 0, 0);
-  ship.add(shipGlowLight);
-  const shipFrontLight = new THREE.PointLight(0xaaccff, 2, 20);
-  shipFrontLight.position.set(2, 0, 0);
-  ship.add(shipFrontLight);
 
   // Moonlight
   const dirLight = new THREE.DirectionalLight(0x8899cc, 0.8);
@@ -308,6 +278,7 @@ export function createScene({ audioManager, loadShip = loadModel }: {
       disposed = true;
       cutsceneManager.onStateChange = undefined;
       cutsceneManager.clear();
+      mothership.dispose();
       disposeRoom(scene);
     },
   };

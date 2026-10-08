@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { createCrowbar } from './items/createCrowbar.js';
 import type { DamageTarget } from './pistol.js';
-import { MeleeSwing, getAttackSegment, getWeaponSegment } from './melee.js';
+import { MeleeSwing, getAttackSegment } from './melee.js';
 import type { Player } from './player.js';
 import { registerTouchAttackCallback, refreshTouchAttackButton } from './touchControls.js';
 
@@ -98,7 +98,7 @@ export class CrowbarController {
     this.cooldown = Math.max(0, this.cooldown - frame);
     this.swingTime = Math.max(0, this.swingTime - frame);
     const context = this.context();
-    const { camera, player, character, thirdPerson, hasCrowbar, setCharacterEquipped, firstPersonHands: handsSource } = context;
+    const { camera, player, thirdPerson, hasCrowbar, setCharacterEquipped, firstPersonHands: handsSource } = context;
     const firstPersonHands = typeof handsSource === 'function' ? handsSource() : handsSource;
     if (!hasCrowbar && this.equipped) this.holster();
     const usable = !!player?.isEnabled() && !player.getState().sliding && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling;
@@ -114,8 +114,8 @@ export class CrowbarController {
       this.swingTime = 0; this.swingPlayer = null; this.melee.reset(); return;
     }
     if (previousSwing > 0) {
-      const weapon = thirdPerson ? character?.getObjectByName('crowbar') : this.root.getObjectByName('crowbar');
-      const segment = weapon ? getWeaponSegment(weapon) : getAttackSegment(player, progress);
+      // The attack follows player aim; presentation rigs must not shorten its physical reach.
+      const segment = getAttackSegment(player, progress);
       if (frame > 0) {
         if (this.melee.update(context, segment, [this.root]) && this.status) this.status.dataset.hit = 'true';
       } else this.melee.prime(segment);

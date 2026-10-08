@@ -1,14 +1,17 @@
 import * as THREE from 'three';
+import { teleportPlayer } from '../../scripts/teleportationDevice.js';
+import { BAY_THIRTEEN_MAP } from '../level 1 stage 2/stageTwoLayout.js';
 import * as CANNON from 'cannon-es';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { loadBoyModel, preloadBossModels } from '../../core/loader.js';
 import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
 import { roomBox, createSlidingPortal, disposeRoom } from '../../helpers/scene/shipRoom.js';
 import { createHangarVersus } from '../../helpers/scene/hangarVersus.js';
+import { createHoldToSkip } from '../../helpers/animation/holdToSkip.js';
 import { createRecoveryPickup } from '../../helpers/scene/recoveryPickup.js';
 import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
 import { BOSS_RULES, createLoadingBayBoss, type BossPillar } from '../../scripts/mechBaymaxBoss.js';
-import { AudioManager, preloadAudio } from '../../helpers/audio/AudioManager.js';
+import { preloadMusic } from '../../helpers/audio/bufferedMusic.js';
 import bgmUrl from '../../assets/bgm/DonRevBGM1.m4a?url';
 
 export const BOSS_ENTRY_SECONDS = 7;
@@ -21,13 +24,13 @@ export const ARENA_PILLAR_SUPPLIES = [
 ] as const;
 
 export function preloadAssets() {
-  preloadAudio(bgmUrl);
-  return preloadBossModels();
+  return Promise.all([preloadMusic(bgmUrl), preloadBossModels()]);
 }
 
-/** Loading bay below passage 12, with a stair entrance and a stationary aerial boss. */
-export function createScene({ entryState, defeated = false, checkpoint = false, onDefeated, onDescend, onRespawn, loadBoy = loadBoyModel, loadDrone, loadBoss, renderer, healthPackCollected: initialHealthPackCollected = false, onHealthPackCollected }: {
+/** Bay 13 arena, reached through the surveillance service elevator. */
+export function createScene({ entryState, fromServiceLift = false, defeated = false, checkpoint = false, onDefeated, onDescend, onRespawn, loadBoy = loadBoyModel, loadDrone, loadBoss, renderer, healthPackCollected: initialHealthPackCollected = false, onHealthPackCollected }: {
   entryState?: PlayerTransitionState;
+  fromServiceLift?: boolean;
   defeated?: boolean;
   checkpoint?: boolean;
   onDefeated?: () => void;
@@ -79,7 +82,17 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
   box([0.6, 14, 48], [-20, 7, 0], wall); box([0.6, 14, 48], [20, 7, 0], wall);
   box([40, 14, 0.6], [0, 7, 24], wall); box([40, 0.5, 48], [0, 14, 0], dark);
   box([40, 3, 0.5], [0, 1.5, -24], wall);
-  const door = createSlidingPortal(scene, physics, { x: 0, y: 3, z: -24, yaw: 0 }, 40, 11, '12 / TRANSFER PASSAGE');
+  const door = createSlidingPortal(scene, physics, { x: 0, y: 3, z: -24, yaw: 0 }, 40, 11, 'SERVICE ELEVATOR / BAY 13');
+  if (fromServiceLift) {
+    box([4.4, 0.2, 3.6], [0, 2.9, -25.8], steel);
+    box([4.4, 0.16, 3.6], [0, 6.2, -25.8], dark);
+    box([4.4, 3.2, 0.18], [0, 4.6, -27.6], wall);
+    for (const x of [-2.2, 2.2]) {
+      box([0.18, 3.2, 3.6], [x, 4.6, -25.8], wall);
+      box([0.04, 0.1, 2.2], [x * 0.96, 5.6, -25.8], cyan, false);
+    }
+    const light = new THREE.PointLight(0x93dbef, 12, 7); light.position.set(0, 5.9, -25.8); scene.add(light);
+  }
   box([5, 3, 3], [0, 1.5, -22.5], steel);
   const stairs = physics.addStaircase({ width: 5, run: 9, rise: 3, position: { x: 0, y: 0, z: -12 }, yaw: Math.PI, stepCount: 18, material: steel });
   stairs.group.name = 'ArenaEntryStairs'; scene.add(stairs.group);
@@ -145,13 +158,14 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
     healthPackGroup.visible = false;
   }
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 150);
-  const audioManager = new AudioManager({ camera, getFile: (path: string) => path === 'bgm1' ? { content: bgmUrl } : null });
-  audioManager.setBgm({ path: 'bgm1', loop: true, volume: 0.5, autoplay: true });
   const player = createPlayer({ camera, physicsWorld, spawnPosition: { x: 0, y: 3.3, z: -22.8 } }); player.enable();
-  if (entryState) player.restoreTransition(entryState, door.frame); else player.setRotation(Math.PI);
+  if (fromServiceLift) teleportPlayer(player, { x: 0, y: 3 + player.radius, z: -25.2 }, Math.PI, entryState);
+  else if (entryState) player.restoreTransition(entryState, door.frame);
+  else player.setRotation(Math.PI);
   if (checkpoint) player.setPosition(0, 0.3, defeated ? -6.2 : -10.2);
   door.openImmediately();
   let deathClock = 0;
+  let bossVictory = false;
   let disposed = false, cleared = defeated, cinematic: 'entry' | 'versus' | 'awakening' | 'reveal' | 'lift' | null = defeated || checkpoint ? null : 'entry', cinematicTime = 0;
   let versus: ReturnType<typeof createHangarVersus> | null = null;
   let arenaSupplyTime = 0, supplyNoticeTime = 0;
@@ -209,6 +223,21 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
   const hud = document.getElementById('boss-hud'), fill = document.getElementById('boss-health-fill');
   const label = document.getElementById('boss-health-label');
   const subtitles = document.getElementById('boss-subtitles');
+  const skipButton = document.createElement('button');
+  skipButton.type = 'button'; skipButton.className = 'scene-dialogue-skip hidden';
+  document.body.appendChild(skipButton);
+  function finishVictoryDialogue() {
+    if (disposed || cinematic !== 'reveal' || cleared) return;
+    cloud.visible = false;
+    if (boy) { boy.visible = true; boy.position.x = boyOrigin.x + 6.7; }
+    consoleRoot.position.y = 0;
+    cinematic = null; cleared = true; door.setLocked(false); consoleBody.collisionResponse = true;
+    release(); subtitles?.classList.add('hidden'); skipButton.classList.add('hidden');
+    if (!healthPackCollected) healthPackGroup.visible = true;
+    onDefeated?.();
+  }
+  const skipHold = createHoldToSkip({ button: skipButton, onSkip: finishVictoryDialogue,
+    isAvailable: () => !disposed && cinematic === 'reveal' && cinematicTime >= 3.5 });
   const status = document.getElementById('loading-bay-status');
   status?.classList.add('hidden');
   const cloudMaterial = new THREE.MeshBasicMaterial({ color: 0x05070b, transparent: true, opacity: 1, depthWrite: false });
@@ -224,6 +253,7 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
   }
   if (cinematic) freeze();
   const boss = createLoadingBayBoss(scene, physicsWorld, player, () => {
+    bossVictory = true;
     cinematic = 'reveal'; cinematicTime = 0; freeze(); cloud.visible = true;
     revealOrigin.set(boss.root.position.x, 0, boss.root.position.z); cloud.position.copy(revealOrigin);
     if (boy) { boy.visible = true; boy.position.copy(boyOrigin).add(revealOrigin); }
@@ -465,7 +495,7 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
     if (cinematic === 'versus') return true;
     if (cinematic === 'entry') {
       const p = player.body.position;
-      camera.position.set(p.x + 2.1, p.y + 2.1, Math.max(-23.4, p.z - 3));
+      camera.position.set(p.x + 2.1, p.y + 2.1, Math.max(fromServiceLift ? -26.8 : -23.4, p.z - 3));
       camera.lookAt(0, cinematicTime < 5.5 ? p.y + 0.8 : 5.8, cinematicTime < 5.5 ? p.z + 2.5 : 0);
     } else if (cinematic === 'lift') {
       camera.position.set(2.6, platform.position.y + 3, 0.5); camera.lookAt(player.body.position.x, player.body.position.y + 0.8, player.body.position.z);
@@ -528,10 +558,7 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
         if (boyError && cinematicTime < 3.5) subtitles.textContent = 'The prisoner is free. (Character model could not be loaded.)';
       }
       if (cinematicTime >= 21) {
-        cloud.visible = false; cinematic = null; cleared = true; door.setLocked(false); consoleBody.collisionResponse = true; release(); subtitles?.classList.add('hidden'); onDefeated?.();
-        if (!healthPackCollected) {
-          healthPackGroup.visible = true;
-        }
+        finishVictoryDialogue();
       }
     }
   }
@@ -549,6 +576,7 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
   });
   updateHud(); applyCinematicCamera();
   return { roomId: 'scene13', scene, camera, physics, physicsWorld, player, door, boss, pillars, ready: assetsReady, cutsceneManager: null,
+    getSceneId: () => 'scene13', getMapLayout: () => BAY_THIRTEEN_MAP,
     elevator: { platform, body: liftBody, console: consoleRoot, consoleBody },
     getLiftStatus: () => ({ ready: cleared && !cinematic, canInteract: nearConsole(), descending: cinematic === 'lift', transferred: liftTransferred }),
     setBackTrigger: door.setTrigger, getDamageTargets: () => cleared || droneCutscene ? [] : boss.getDamageTargets(), setGogglesActive: boss.setGogglesActive,
@@ -557,6 +585,7 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
     getArenaSupplies: () => arenaSupplies.map(supply => ({
       id: supply.id, kind: supply.kind, collected: supply.collected, position: supply.pickup.root.position.clone(),
     })),
+    hasBossVictory: () => bossVictory,
     isCinematic: () => cinematic !== null || droneCutscene !== null,
     getCinematicDelta: () => cinematicDelta,
     getCinematicState: () => cinematic || droneCutscene ? { ...player.getState(), isMoving: cinematic === 'entry' && cinematicTime < 5.8, isOnGround: true, jumping: false, climbing: false, velocityY: 0 } : null,
@@ -592,6 +621,8 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
     updatePhysics(dt: number, thirdPerson = false) {
       if (disposed) return;
       dt = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, PHYSICS.maxFrameTime));
+      skipButton.classList.toggle('hidden', cinematic !== 'reveal' || cinematicTime < 3.5);
+      skipHold.update(dt); if (disposed) return;
       if (deathClock > 0) { deathClock = Math.max(0, deathClock - dt); if (!deathClock) onRespawn?.(); return; }
       if (returnClock > 0) {
         returnClock = Math.max(0, returnClock - dt);
@@ -619,7 +650,6 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
       physics.step(cinematicDelta, player, thirdPerson);
       boss.updateVisuals(cinematicDelta);
       if (boy?.visible) boyMixer?.update(cinematicDelta);
-      audioManager.update();
       for (const piece of rubble) {
         if (piece.life <= 0) continue;
         piece.life -= cinematicDelta; piece.velocity.y -= cinematicDelta * 9.82; piece.mesh.position.addScaledVector(piece.velocity, cinematicDelta);
@@ -673,12 +703,12 @@ export function createScene({ entryState, defeated = false, checkpoint = false, 
     },
     dispose() {
       if (disposed) return; disposed = true;
+      skipHold.dispose(); skipButton.remove();
       window.removeEventListener('keydown', onKey); prompt?.classList.add('hidden');
       hud?.classList.add('hidden'); subtitles?.classList.add('hidden');
       versus?.dispose(); versus = null;
       boss.dispose(); boyMixer?.stopAllAction(); if (boy) boyMixer?.uncacheRoot(boy);
       player.dispose(); physics.dispose(); disposeRoom(scene); rubbleGeometry.dispose();
-      audioManager.dispose();
     },
   };
 }

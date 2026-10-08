@@ -6,11 +6,11 @@ export type FinalePhase = 'loading' | 'error' | FinaleStart | 'enemyTransform' |
 export interface FinaleCheckpoint { stage: FinaleStart; }
 export interface FinaleCue { phase: FinalePhase; id: string; at: number; }
 export const FINALE_DURATION = Object.freeze({
-  reveal: 27, enemyTransform: 19.2, heroTransform: 17, versus: 4.6, rupture: 16, defeat: 6, victory: 18, credits: 48,
+  reveal: 27, enemyTransform: 19.2, heroTransform: 17, versus: 4.6, rupture: 19.2, defeat: 6, victory: 18, credits: 28,
 });
 export const FINALE_CUES: readonly FinaleCue[] = [
   { phase: 'reveal', id: 'lights', at: 2 }, { phase: 'reveal', id: 'pose', at: 21.2 },
-  { phase: 'reveal', id: 'quintet-title', at: 23 },
+  { phase: 'reveal', id: 'sudoers-title', at: 23 },
   { phase: 'enemyTransform', id: 'roof-blast', at: 0.25 }, { phase: 'enemyTransform', id: 'prime-shield', at: 0.6 },
   { phase: 'enemyTransform', id: 'fireworks', at: 0.4 }, { phase: 'enemyTransform', id: 'enemy-frame', at: 3.2 },
   { phase: 'enemyTransform', id: 'five-cores', at: 17 }, { phase: 'enemyTransform', id: 'enemy-lock', at: 17.6 },
@@ -27,7 +27,7 @@ export const FINALE_CUES: readonly FinaleCue[] = [
   { phase: 'rupture', id: 'planet-burst', at: PLANET_RUPTURE.burst },
   { phase: 'rupture', id: 'orbit-lock', at: PLANET_RUPTURE.orbit },
   { phase: 'defeat', id: 'execution', at: 1.8 }, { phase: 'defeat', id: 'signal-flatline', at: 4.2 },
-  { phase: 'victory', id: 'reactor-cut', at: 0.3 }, { phase: 'victory', id: 'quintet-burst', at: 3.2 },
+  { phase: 'victory', id: 'reactor-cut', at: 0.3 }, { phase: 'victory', id: 'sudoers-burst', at: 3.2 },
   { phase: 'victory', id: 'donus-restored', at: 9.2 }, { phase: 'victory', id: 'the-end', at: 14 },
 ];
 
@@ -65,6 +65,9 @@ export function createFinaleDirector(start: FinaleStart = 'reveal') {
     assetsFailed(reason: string) { error = reason; change('error'); },
     pause(value: boolean) { paused = value; clearInput(); },
     holdSkip(value: boolean) { if (!paused) skipDown = value; },
+    skipIntro() {
+      if (!paused && assetsReady && (phase === 'reveal' || phase === 'enemyTransform' || phase === 'heroTransform')) change('versus');
+    },
     update(dt: number, combatScale = 1) {
       if (!Number.isFinite(dt) || dt < 0 || !Number.isFinite(combatScale) || combatScale < 0) {
         throw new RangeError('Finale timing requires finite, nonnegative values');
@@ -79,15 +82,15 @@ export function createFinaleDirector(start: FinaleStart = 'reveal') {
         const state = duel.getState();
         if (state.phase === 'rupture') change('rupture');
         else if (state.phase === 'finisher') change('finisher');
-        else if (state.phase === 'lost') fail('The Quintet breached the cockpit. Brondon was killed.');
+        else if (state.phase === 'lost') fail('Sudoers 5 breached the cockpit. Brondon was killed.');
       } else if (phase === 'finisher') {
         qte.update(dt); qteEvents.push(...qte.drainEvents());
         const result = qte.getState();
         if (result.result === 'won') { duel.finish(true); change('victory'); }
         else if (result.result === 'lost') {
           duel.finish(false);
-          fail(result.failure === 'wrong-input' ? 'The wrong move exposed the cockpit. The students killed Brondon.'
-            : 'The final counter was too late. The students killed Brondon.');
+          fail(result.failure === 'wrong-input' ? 'Three missed commands exposed the cockpit. Sudoers 5 killed Brondon.'
+            : 'Three missed timings broke the final link. Sudoers 5 killed Brondon.');
         }
       } else tickCinematic(dt);
     },

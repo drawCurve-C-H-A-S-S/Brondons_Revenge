@@ -9,6 +9,7 @@ export interface InspectionTarget {
   height: number;
   title: string;
   pointer: 'arrow' | 'hand';
+  instructions?: string;
   onAction: (action: SurfaceAction) => void;
 }
 interface InspectionState {
@@ -53,7 +54,7 @@ export function createInspectionView(scene: THREE.Scene, camera: THREE.Perspecti
     instructions.textContent = state.target.pointer === 'hand' && !hand
       ? handError ? 'Unable to load hand. R to retry / E or Esc to step back.' : 'Preparing the Interact hand pose...'
       : state.target.pointer === 'hand' ? 'Click digits or type the code / Enter: OK / Backspace: erase'
-        : 'Click save us to read / Enter: open file';
+        : state.target.instructions ?? 'Click save us to read / Enter: open file';
   }
   function applyCamera() {
     if (!state) return;

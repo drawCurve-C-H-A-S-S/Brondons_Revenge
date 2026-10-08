@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { createEarthTextures, createEarthGroup, updateEarthGroup } from '../earthTexture.js';
 
 /** The same single-seat shuttle is used in the hangar and in playable space flight. */
 export function createEscapeShip() {
@@ -228,23 +229,28 @@ export function createEscapePod() {
 }
 
 export function addPlanetBackdrop(scene: THREE.Scene, position: THREE.Vector3, radius: number, starRadius: number) {
-  const data = new Uint8Array(512 * 256 * 4);
-  for (let y = 0; y < 256; y++) for (let x = 0; x < 512; x++) {
-    const lat = (y / 255 - 0.5) * Math.PI, lon = x / 512 * Math.PI * 2;
-    const terrain = Math.sin(lon * 3 + Math.cos(lat * 7)) + Math.cos(lon * 5 - lat * 4) * 0.5 + Math.sin(lon * 13 + lat * 9) * 0.22;
-    const snow = Math.abs(lat) > 1.25, land = terrain > 0.25;
-    const color = snow ? [210, 226, 229] : land ? (terrain > 1 ? [114, 115, 74] : [59, 106, 76]) : [18, 60 + terrain * 5, 107 + terrain * 8];
-    const i = (y * 512 + x) * 4; data.set([color[0], color[1], color[2], 255], i);
+  const earthGroup = createEarthGroup(scene, position, radius, createEarthTextures());
+  earthGroup.name = 'NearestPlanet';
+  function makeStars(count: number, pointSize: number, brightness: number) {
+    const positions = new Float32Array(count * 3);
+    for (let i = 0; i < positions.length; i += 3) {
+      const angle = Math.random() * Math.PI * 2, v = Math.random() * 2 - 1;
+      const r = starRadius * (0.75 + Math.random() * 0.25), sinV = Math.sqrt(1 - v * v);
+      positions[i] = Math.cos(angle) * sinV * r;
+      positions[i + 1] = v * r;
+      positions[i + 2] = Math.sin(angle) * sinV * r;
+    }
+    const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const material = new THREE.PointsMaterial({
+      color: new THREE.Color(brightness, brightness * 0.97, 1), size: starRadius * pointSize, sizeAttenuation: true,
+    });
+    const stars = new THREE.Points(geometry, material); stars.name = 'Starfield'; scene.add(stars);
   }
-  const texture = new THREE.DataTexture(data, 512, 256); texture.colorSpace = THREE.SRGBColorSpace; texture.needsUpdate = true;
-  const planet = new THREE.Mesh(new THREE.SphereGeometry(radius, 64, 48), new THREE.MeshStandardMaterial({ map: texture, roughness: 0.93 })); planet.name = 'NearestPlanet'; planet.position.copy(position); scene.add(planet);
-  const atmosphere = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.025, 64, 48), new THREE.MeshBasicMaterial({ color: 0x59acdd, transparent: true, opacity: 0.13, side: THREE.BackSide, depthWrite: false })); planet.add(atmosphere);
-  const stars = new Float32Array(2400 * 3);
-  for (let i = 0; i < stars.length; i += 3) {
-    const angle = Math.random() * Math.PI * 2, v = Math.random() * 2 - 1, r = starRadius * (0.7 + Math.random() * 0.3);
-    stars[i] = Math.cos(angle) * Math.sqrt(1 - v * v) * r; stars[i + 1] = v * r; stars[i + 2] = Math.sin(angle) * Math.sqrt(1 - v * v) * r;
-  }
-  const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(stars, 3));
-  const starfield = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0xd7e8ff, size: starRadius * 0.0006, sizeAttenuation: true })); starfield.name = 'Starfield'; scene.add(starfield);
-  return planet;
+  makeStars(3000, 0.00045, 0.82);
+  makeStars(600, 0.00090, 1.0);
+  return earthGroup;
+}
+
+export function animatePlanetBackdrop(group: THREE.Group, dt: number): void {
+  updateEarthGroup(group, dt);
 }

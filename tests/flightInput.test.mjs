@@ -230,6 +230,8 @@ test('VS renders the real shuttle, carrier and six interceptors without changing
 
 test('a top-down click released before the update still fires exactly once', t => {
   const data = fixture(t, 'topdownScrambler'); step(data, 4.9);
+  assert.equal(data.getMusicTrack(), 'level-2');
+  assert.equal(data.hasBossVictory(), false);
   assert.equal(data.getFlightStatus().scramblerStage, 'fight');
   assert.equal(data.scene.getObjectByName('OpeningInterceptorShotTarget'), undefined);
   const before = data.getFlightStatus().shotsFired;
@@ -237,6 +239,30 @@ test('a top-down click released before the update still fires exactly once', t =
   assert.equal(data.getFlightStatus().shotsFired, before + 1);
   step(data, 0.15);
   assert.equal(data.getFlightStatus().shotsFired, before + 1, 'Released input must not become held autofire');
+});
+
+test('destroying the red scrambler switches music immediately and keeps the boss cue through the reactor approach', t => {
+  const data = fixture(t, 'topdownScrambler'); step(data, 4.9);
+  const red = data.scene.getObjectByName('TopdownRedScrambler');
+  const intersect = THREE.Raycaster.prototype.intersectObjects;
+  t.mock.method(THREE.Raycaster.prototype, 'intersectObjects', function (objects, ...args) {
+    if (objects.includes(red) && red.visible) return [{ object: red, point: red.getWorldPosition(new THREE.Vector3()), distance: 1 }];
+    return intersect.call(this, objects, ...args);
+  });
+  assert.equal(data.getMusicTrack(), 'level-2');
+  mouse('mousedown');
+  for (let frame = 0; frame < 60 * 12 && data.getFlightStatus().scramblerHp > 0; frame++) data.updatePhysics(1 / 60);
+  mouse('mouseup');
+  assert.equal(data.getFlightStatus().scramblerHp, 0);
+  assert.equal(data.getMusicTrack(), 'level-2-boss');
+  assert.equal(data.hasBossVictory(), false, 'The scrambler is a phase, not the capital-ship victory');
+  window.dispatchEvent(new Event('blur'));
+  assert.equal(data.isMusicPaused(), true);
+  data.setMenuPaused(false); assert.equal(data.isMusicPaused(), false);
+  assert.equal(data.getMusicTrack(), 'level-2-boss');
+  for (let frame = 0; frame < 60 * 8 && data.getFlightStatus().phase === 'topdownScrambler'; frame++) data.updatePhysics(1 / 60);
+  assert.equal(data.getFlightStatus().phase, 'bossCore');
+  assert.equal(data.getMusicTrack(), 'level-2-boss');
 });
 
 test('a second short click waits for cooldown without getting lost or bypassing fire rate', t => {

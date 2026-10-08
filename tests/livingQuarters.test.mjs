@@ -96,10 +96,12 @@ function aimDoor(data, cabin, inside = false) {
   const position = layout.cabinDoorPoint(cabin); position.x += cabin.side * (inside ? 0.95 : -0.95);
   aim(data, position, layout.cabinDoorPoint(cabin).setY(1.3));
 }
-function leaveBrondon(data) {
-  aimDoor(data, layout.CABIN_BY_ID.get('brondon'), true); key('KeyE'); step(data, 3.3);
+function leaveCabin(data, cabin) {
+  aimDoor(data, cabin, true); key('KeyE'); step(data, 1);
+  event('keydown', 'KeyW'); step(data, 1.1); event('keyup', 'KeyW');
   assert.equal(data.getLocation(), 'hallway');
 }
+function leaveBrondon(data) { leaveCabin(data, layout.CABIN_BY_ID.get('brondon')); }
 
 test('eight cabins have four doors per side, three named lecturers, five locked students and distinct posters', () => {
   assert.equal(layout.CABINS.length, 8);
@@ -332,9 +334,10 @@ test('failed cabin loads are reported, can be retried or cancelled, and never ad
   assert.equal(data.getLocation(), 'brendan'); assert.equal(data.player.isEnabled(), true);
 });
 
-test('pistol, LED teleporter, chest state and visits persist; the other lecturers have empty usable chests', async t => {
-  const elements = browser(t), progress = layout.createQuartersProgress(); let pistols = 0, teleporters = 0;
-  const data = await quarters(t, { progress, onPistolCollected: () => pistols++, onTeleporterCollected: () => teleporters++ });
+test('pistol, LED teleporter, purple crystal and goggles persist across cabin visits', async t => {
+  const elements = browser(t), progress = layout.createQuartersProgress(); let pistols = 0, teleporters = 0, crystals = 0, goggles = 0;
+  const data = await quarters(t, { progress, onPistolCollected: () => pistols++, onTeleporterCollected: () => teleporters++,
+    onCrystalCollected: () => crystals++, onGogglesCollected: () => goggles++ });
   const cabin = layout.CABIN_BY_ID.get('brondon');
   aim(data, layout.cabinPoint(cabin, 0.5, 0.3, 0.65), layout.cabinPoint(cabin, 1.7, 0.6, 0.65));
   key('KeyE'); assert.equal(data.isCinematic(), true); step(data, 4.6);
@@ -343,14 +346,17 @@ test('pistol, LED teleporter, chest state and visits persist; the other lecturer
   const teleporter = data.scene.getObjectByName('PersonalTeleportDevice');
   aim(data, layout.cabinPoint(cabin, -1.12, 0.3, 1.1), teleporter.getWorldPosition(new THREE.Vector3()));
   key('KeyE'); step(data, 5.2); assert.equal(progress.teleporterCollected, true); assert.equal(teleporters, 1);
-  assert.equal(teleporter.visible, false); assert.match(layout.quartersObjective(progress), /other lecturers.*0\/2/);
+  assert.equal(teleporter.visible, false); assert.match(layout.quartersObjective(progress), /purple teleport crystal.*Brendan/);
   leaveBrondon(data);
   for (const id of ['branden', 'brendan']) {
-    const other = layout.CABIN_BY_ID.get(id); aimDoor(data, other); key('KeyE'); await data.preloadCabin(id); step(data, 3.3);
+    const other = layout.CABIN_BY_ID.get(id); aimDoor(data, other); key('KeyE'); await data.preloadCabin(id); step(data, 1);
+    event('keydown', 'KeyW'); step(data, 1.1); event('keyup', 'KeyW');
     aim(data, layout.cabinPoint(other, 0.5, 0.3, 0.65), layout.cabinPoint(other, 1.7, 0.6, 0.65));
-    key('KeyE'); step(data, 2.5); assert.ok(progress.openedChests.has(id)); assert.equal(pistols, 1); assert.equal(teleporters, 1);
-    aimDoor(data, other, true); key('KeyE'); step(data, 3.3);
+    key('KeyE'); step(data, 4.6); assert.ok(progress.openedChests.has(id)); assert.equal(pistols, 1); assert.equal(teleporters, 1);
+    leaveCabin(data, other);
   }
+  assert.equal(progress.crystalCollected, true); assert.equal(progress.gogglesCollected, true);
+  assert.equal(crystals, 1); assert.equal(goggles, 1); assert.equal(layout.quartersEquipmentReady(progress), true);
   assert.match(layout.quartersObjective(progress), /Read save us.*Branden/);
   const forward = data.scene.getObjectByName('QuartersForwardBulkhead');
   aim(data, new THREE.Vector3(0, 0.3, 14.5), forward.position.clone().setY(1.3)); key('KeyE');
@@ -362,6 +368,7 @@ test('pistol, LED teleporter, chest state and visits persist; the other lecturer
   assert.equal(revisit.scene.getObjectByName('PersonalTeleportDevice').visible, false);
   assert.equal(revisit.scene.getObjectByName('RecoveredPistol').visible, false);
   assert.ok(revisit.scene.getObjectByName('CrewFootlocker').getObjectByName('ChestLid').parent.rotation.x > 1.3);
+  revisit.dispose();
 });
 
 test('pistol input and programmatic equipping respect recovery, while legacy contexts keep their original behavior', async t => {

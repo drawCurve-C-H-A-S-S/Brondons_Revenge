@@ -116,6 +116,13 @@ export function createBreakables(scene: THREE.Scene, world: CANNON.World) {
     debris.update(dt);
   }
 
+  function restoreBroken(ids: ReadonlySet<string>) {
+    for (const item of objects) if (ids.has(item.id) && !item.broken) {
+      item.broken = true; item.root.removeFromParent();
+      if (item.body.world === world) world.removeBody(item.body);
+    }
+  }
+
   function dispose() {
     if (disposed) return;
     disposed = true;
@@ -137,5 +144,5 @@ export function createBreakables(scene: THREE.Scene, world: CANNON.World) {
   }
 
   return { add, objects, getDamageTargets: () => objects.filter(item => !item.broken),
-    remaining: () => objects.filter(item => !item.broken).length, setHighlighted, update, dispose };
+    remaining: () => objects.filter(item => !item.broken).length, restoreBroken, setHighlighted, update, dispose };
 }

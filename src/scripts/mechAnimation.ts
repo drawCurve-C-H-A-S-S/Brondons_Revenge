@@ -1,7 +1,11 @@
 import * as THREE from 'three';
 import type { MechMove } from './mechDuel.js';
+import {
+  HERO_ULTIMATE, MELEE_STRIKES, RIFLE_SEQUENCE, PLANET_RUPTURE,
+  isMeleeStrike, cinematicProgress, sampleRifleSequence,
+} from './finaleChoreography.js';
 
-export type MechPoseName = MechMove | 'transform' | 'clash' | 'victory' | 'evade' | 'boost' | 'reactor' | 'bomb';
+export type MechPoseName = MechMove | 'transform' | 'clash' | 'victory' | 'dance' | 'evade' | 'boost' | 'reactor' | 'bomb' | 'skyCharge' | 'afterCut';
 const SLOTS = ['hips', 'spine', 'spineUpper', 'head', 'leftShoulder', 'rightShoulder', 'leftArm', 'rightArm',
   'leftElbow', 'rightElbow', 'leftHand', 'rightHand', 'leftLeg', 'rightLeg', 'leftKnee', 'rightKnee', 'leftFoot', 'rightFoot'] as const;
 export type MechSlot = typeof SLOTS[number];
@@ -82,21 +86,24 @@ function mechPose(move: MechPoseName, p: number, secondSlash = false): RigPose {
     pose.leftKnee = [0.18 + left * 0.72, 0, 0]; pose.rightKnee = [0.18 + right * 0.72, 0, 0];
     pose.leftFoot = [-0.12 - left * 0.35, 0, 0]; pose.rightFoot = [-0.12 - right * 0.35, 0, 0];
     pose.leftArm = [-0.3 - stride * 0.23, -0.12, -1.28]; pose.rightArm = [-0.46 + stride * 0.16, 0.24, 1.2];
-  } else if (move === 'slash' || move === 'cleave' || move === 'overdrive') {
-    const heavy = move !== 'slash', direction = secondSlash ? -1 : 1;
-    const wind = smooth(p, 0.02, heavy ? 0.36 : 0.27);
-    const strike = smooth(p, heavy ? 0.39 : 0.29, move === 'overdrive' ? 0.75 : heavy ? 0.64 : 0.52);
-    const recovery = 1 - smooth(p, move === 'overdrive' ? 0.83 : 0.72, 1);
-    const twist = (wind * -0.7 + strike * 1.3) * recovery * direction;
-    pose.hips = [0, twist * 0.28, 0]; pose.spine = [(heavy ? -0.22 * wind + 0.5 * strike : 0.08) * recovery, twist, 0];
-    pose.spineUpper = [heavy ? -0.18 * wind * recovery : 0, twist * 0.22, 0];
-    pose.rightArm = [-wind * 0.15, (0.24 + wind * 0.2 + strike * 0.9) * direction,
-      1.2 + (-wind * (heavy ? 1.95 : 1.0) + strike * 1.1) * recovery];
-    pose.rightElbow = [0, -0.12 - wind * 0.25 * recovery, 0.55 - wind * 0.35 * recovery + strike * 0.18 * recovery];
-    pose.leftArm = [-0.1, -0.12 - twist * 0.3, -1.28 + wind * 0.35 * recovery];
-    pose.leftElbow = [0, 0.15, -0.3 - wind * 0.4 * recovery];
-    pose.leftLeg = [-0.13 - strike * 0.3 * recovery, 0, 0.16]; pose.rightKnee = [0.15 + wind * 0.32 * recovery, 0, 0];
-    pose.head = [0.02 + strike * 0.1 * recovery, -twist * 0.25, 0];
+  } else if (isMeleeStrike(move) || move === 'overdrive') {
+    const heavy = move === 'cleave' || move === 'slash' || move === 'overdrive';
+    const reversed = move === 'reap' || secondSlash;
+    const timing = isMeleeStrike(move) ? MELEE_STRIKES[move] : MELEE_STRIKES.cleave;
+    const time = p * (move === 'overdrive' ? HERO_ULTIMATE.duration : timing.duration);
+    const wind = cinematicProgress(time, 0, move === 'overdrive' ? HERO_ULTIMATE.cameraEnd : timing.start);
+    const strike = cinematicProgress(time, move === 'overdrive' ? HERO_ULTIMATE.cameraEnd : timing.start,
+      move === 'overdrive' ? HERO_ULTIMATE.release : timing.end);
+    const recovery = 1 - smooth(p, 0.78, 1);
+    const twist = (wind * -0.56 + strike * 1.12) * recovery * (reversed ? -1 : 1);
+    pose.spine = [move === 'thrust' ? (wind * -0.08 + strike * 0.3) * recovery
+      : heavy ? (-0.16 * wind + 0.34 * strike) * recovery : 0.1, heavy ? twist * 0.3 : twist, 0];
+    pose.spineUpper = [heavy ? -wind * 0.12 * recovery : 0, twist * 0.2, 0];
+    pose.rightArm = [-wind * 0.2, 0.24 + twist * 0.6, 1.2 - wind * (heavy ? 1.7 : 0.5) * recovery];
+    pose.rightElbow = [0, -0.12 - wind * 0.2, 0.55 - wind * 0.25 + strike * 0.15];
+    pose.leftArm = [-0.1, -0.12 - twist * 0.2, -1.28 + wind * (heavy ? 0.95 : 0.3) * recovery];
+    pose.leftElbow = [0, 0.15, -0.3 - wind * (heavy ? 0.7 : 0.25) * recovery];
+    pose.head = [0.02 + strike * 0.08 * recovery, -twist * 0.2, 0];
   } else if (move === 'guard' || move === 'clash') {
     const strain = move === 'clash' ? Math.sin(p * 37) * 0.035 : 0;
     pose.spine = [0.17, -0.28 + strain, 0];
@@ -104,15 +111,23 @@ function mechPose(move: MechPoseName, p: number, secondSlash = false): RigPose {
     pose.leftElbow = [0, -0.15, -1.1]; pose.rightElbow = [0, 0.2, 0.8]; pose.head = [-0.1, 0.2, 0];
     pose.leftLeg = [-0.38, 0, 0.2]; pose.leftKnee = [0.62, 0, 0]; pose.rightKnee = [0.42, 0, 0];
   } else if (move === 'missiles') {
-    const recoil = Math.max(0, Math.sin(Math.max(0, p - 0.25) * 70)) * 0.09 * (1 - smooth(p, 0.72, 1));
-    const brace = smooth(p, 0.02, 0.23) * (1 - smooth(p, 0.86, 1));
-    pose.spine = [0.14 * brace - recoil, -0.13 * brace, 0];
+    const time = p * RIFLE_SEQUENCE.swordReady, sequence = sampleRifleSequence(time);
+    const brace = sequence.shoulderToAim * (1 - sequence.returning);
+    const recoil = sequence.firing ? Math.max(0, Math.sin((time - RIFLE_SEQUENCE.fire) * Math.PI * 2 / 0.14)) * 0.045 : 0;
+    pose.spine = [0.1 * brace - recoil, -0.18 * brace, 0];
     pose.leftArm = [0, -0.12 - brace * 1.08, -1.28 + brace * 0.95 + recoil];
     pose.rightArm = [0, 0.24 + brace * 0.76, 1.2 - brace * 0.8];
     pose.leftElbow = [0, 0, -0.3 - brace * 0.12];
     pose.rightElbow = [0, 0.15, 0.55 + brace * 0.45];
     pose.leftKnee = [0.2 + brace * 0.23, 0, 0]; pose.rightKnee = [0.15 + brace * 0.23, 0, 0];
     pose.head = [-0.08 * brace, 0.05, 0];
+  } else if (move === 'verdict') {
+    const aim = smooth(p, 0, 0.38), release = smooth(p, 0.65, 0.76);
+    pose.spine = [-0.1 * aim + release * 0.08, -0.3 * aim, 0];
+    pose.rightArm = [0, 0.5, 1.2 - aim * 0.8]; pose.rightElbow = [0, -0.25, 0.55 - aim * 0.45];
+    pose.leftArm = [-0.15, -0.6 * aim, -1.28 + aim * 0.5];
+    pose.leftElbow = [0, -0.1, -0.3 - aim * 0.75];
+    pose.head = [-0.12, 0.22, 0];
   } else if (move === 'dash') {
     const weight = Math.sin(p * Math.PI);
     pose.spine = [0.45 * weight, -0.12, 0];
@@ -144,19 +159,31 @@ function mechPose(move: MechPoseName, p: number, secondSlash = false): RigPose {
     pose.leftArm = [0.1, -0.2, -1.3]; pose.rightArm = [0, 0.7, 0.9];
     pose.leftLeg = [-0.35, 0, 0.1]; pose.rightLeg = [0.18, 0, -0.1];
     pose.leftKnee = [0.65, 0, 0]; pose.rightKnee = [0.4, 0, 0];
-  } else if (move === 'reactor') {
+  } else if (move === 'reactor' || move === 'skyCharge') {
     const charge = smooth(p, 0, 0.6);
     pose.spine = [-0.16 * charge, -0.2, 0]; pose.head = [-0.12, 0.2, 0];
     pose.rightArm = [0, 0.75, 1.2 - charge * 1.8];
     pose.rightElbow = [0, -0.2, 0.7 - charge * 0.6];
-    pose.leftArm = [0, -0.9, -0.5]; pose.leftElbow = [0, 0, -0.9];
+    pose.leftArm = [0, -0.6, -1.28 + charge * 1.7]; pose.leftElbow = [0, 0, -0.4 - charge * 0.4];
     pose.leftKnee = [0.35, 0, 0]; pose.rightKnee = [0.25, 0, 0];
   } else if (move === 'bomb') {
-    const raise = smooth(p, 0, 0.45), release = smooth(p, 0.55, 0.75);
-    pose.spine = [-0.18 * raise, 0.2, -0.05];
-    pose.leftArm = [0, -0.7, -1.28 + raise * (1.9 - release * 0.7)];
-    pose.leftElbow = [0, 0, -0.3 - raise * 0.35];
-    pose.head = [-0.18 * raise, -0.2, 0];
+    const time = p * (PLANET_RUPTURE.escape + 0.5);
+    const raise = cinematicProgress(time, PLANET_RUPTURE.raise, PLANET_RUPTURE.release - 0.35);
+    const slam = cinematicProgress(time, PLANET_RUPTURE.slam, PLANET_RUPTURE.escape);
+    pose.spine = [-0.2 * raise + slam * 0.5, 0.1 * (1 - slam), 0];
+    pose.leftArm = [-slam * 0.7, -0.4, -1.28 + raise * 2.25 - slam * 1.1];
+    pose.rightArm = [-slam * 0.7, 0.4, 1.2 - raise * 2.2 + slam * 1.1];
+    pose.leftElbow = [0, 0, -0.25 - raise * 0.22 + slam * 0.16];
+    pose.rightElbow = [0, 0, 0.25 + raise * 0.22 - slam * 0.16];
+    pose.head = [-0.28 * raise + slam * 0.35, 0, 0];
+  } else if (move === 'afterCut') {
+    pose.spine = [0.13, -0.26, 0]; pose.head = [-0.04, 0.2, 0];
+    pose.rightArm = [0.1, 0.6, 1.22]; pose.rightElbow = [0, -0.18, 0.2];
+    pose.leftArm = [0, -0.1, -1.35];
+  } else if (move === 'dance') {
+    const sway = Math.sin(p * Math.PI * 2);
+    pose.spine = [0.05, sway * 0.2, sway * 0.08]; pose.head = [-0.04, -sway * 0.15, 0];
+    pose.leftArm = [-0.25, -0.12, -1.05 + sway * 0.4]; pose.rightArm = [-0.25, 0.24, 1.05 + sway * 0.4];
   } else if (move === 'transform' || move === 'victory') {
     const charge = smooth(p, 0, 0.35), lock = smooth(p, 0.65, 1);
     pose.spine = [-0.17 * charge + 0.2 * lock, -0.1 + lock * 0.3, 0];
@@ -169,7 +196,9 @@ function mechPose(move: MechPoseName, p: number, secondSlash = false): RigPose {
 
 export function createMechAnimator(model: THREE.Object3D, aliases: MechBoneMap = {}) {
   const sampler = rigSampler(model, aliases), mixer = new THREE.AnimationMixer(model);
-  const moves: MechPoseName[] = ['idle', 'walk', 'slash', 'cleave', 'missiles', 'guard', 'dash', 'stagger', 'overdrive', 'defeat', 'transform', 'clash', 'victory', 'evade', 'boost', 'reactor', 'bomb'];
+  const moves: MechPoseName[] = ['idle', 'walk', 'slash', 'sideSlash', 'cleave', 'thrust', 'reap', 'verdict',
+    'missiles', 'guard', 'dash', 'stagger', 'overdrive', 'defeat', 'transform', 'clash', 'victory',
+    'evade', 'boost', 'reactor', 'bomb', 'skyCharge', 'afterCut', 'dance'];
   const clips = new Map<string, THREE.AnimationClip>();
   for (const move of moves) {
     clips.set(move, bakeClip(sampler, `Mech_${move}`, move === 'idle' ? 4 : move === 'walk' ? 1.1 : 1, p => mechPose(move, p), true));
@@ -188,13 +217,34 @@ export function createMechAnimator(model: THREE.Object3D, aliases: MechBoneMap =
   }
   return {
     slots: sampler.slots, animations: [...clips.values()],
+    perform(move: MechPoseName, time: number, weight: number) {
+      const breath = Math.sin(time * 2.4), effort = move === 'clash' || move === 'guard'
+        || move === 'reactor' || move === 'skyCharge' || move === 'verdict';
+      const strain = effort ? Math.sin(time * 23) * Math.sin(time * 7.1) * 0.012 : 0;
+      const offsets: RigPose = {
+        spine: [breath * 0.017 + strain, Math.sin(time * 1.3) * 0.012, strain * 0.45],
+        spineUpper: [-breath * 0.009, strain * 0.7, 0],
+        head: [-breath * 0.009, Math.sin(time * 0.85) * 0.024, -strain],
+        leftShoulder: [breath * 0.008, 0, strain],
+        rightShoulder: [breath * 0.008, 0, -strain],
+      };
+      for (const entry of sampler.entries) {
+        const angles = offsets[entry.slot];
+        if (!angles) continue;
+        for (let axis = 0; axis < 3; axis++) {
+          worldDelta.setFromAxisAngle(entry.axes[axis], angles[axis] * weight);
+          entry.bone.quaternion.premultiply(worldDelta);
+        }
+      }
+      model.updateMatrixWorld(true);
+    },
     pose(move: MechPoseName, time: number, duration = 1, airborne = false, combo = 0) {
       const stableAirPose = airborne && (move === 'walk' || move === 'dash') ? 'idle' : move;
       const key = stableAirPose === 'slash' && combo % 2 === 1 ? 'slash-reverse' : stableAirPose;
       const clip = clips.get(key)!;
       if (key !== current) { mixer.stopAllAction(); current = key; action = mixer.clipAction(clip).reset().play(); }
       if (!action) return;
-      action.time = stableAirPose === 'idle' || stableAirPose === 'walk' ? Math.max(0, time) % clip.duration
+      action.time = stableAirPose === 'idle' || stableAirPose === 'walk' || stableAirPose === 'dance' ? Math.max(0, time) % clip.duration
         : clamp(time / Math.max(0.01, duration), 0, 1) * clip.duration;
       action.paused = true; mixer.update(0);
       model.updateMatrixWorld(true);
@@ -209,7 +259,13 @@ export function createMechAnimator(model: THREE.Object3D, aliases: MechBoneMap =
       direction.copy(target).sub(a);
       const distance = clamp(direction.length(), Math.abs(upperLength - lowerLength) + 0.001, upperLength + lowerLength - 0.001);
       direction.normalize(); goal.copy(a).addScaledVector(direction, distance);
-      pole.copy(polePoint).sub(a).addScaledVector(direction, -pole.copy(polePoint).sub(a).dot(direction)).normalize();
+      pole.copy(polePoint).sub(a);
+      pole.addScaledVector(direction, -pole.dot(direction));
+      if (pole.lengthSq() < 1e-8) {
+        pole.set(Math.abs(direction.y) < 0.9 ? 0 : 1, Math.abs(direction.y) < 0.9 ? 1 : 0, 0);
+        pole.addScaledVector(direction, -pole.dot(direction));
+      }
+      pole.normalize();
       const along = (upperLength * upperLength - lowerLength * lowerLength + distance * distance) / (2 * distance);
       elbow.copy(a).addScaledVector(direction, along).addScaledVector(pole, Math.sqrt(Math.max(0, upperLength * upperLength - along * along)));
       rotateSegment(arm, b.clone().sub(a), elbow.clone().sub(a));
@@ -230,7 +286,7 @@ export function createStudentPoseClip(model: THREE.Object3D, index: number) {
     { spine: [-0.15, 0.25, 0.12], leftArm: [-0.7, 0, 0.3], rightArm: [-1.55, 0, -0.3], leftElbow: [-1.15, 0, 0], head: [-0.18, -0.2, 0] },
     { spine: [0.06, -0.35, 0.12], leftArm: [-1.3, -0.6, 0.65], leftElbow: [-1.65, 0, 0], rightArm: [-1.35, 0.2, -0.15], rightElbow: [-0.25, 0, 0] },
   ];
-  return bakeClip(sampler, `Quintet_Signature_${index + 1}`, 3.6, p => {
+  return bakeClip(sampler, `Sudoers5_Signature_${index + 1}`, 3.6, p => {
     const pose: RigPose = {
       spine: [0, 0, 0], head: [0, 0, 0], leftArm: [-0.05, 0, -1.4], rightArm: [-0.05, 0, 1.4],
       leftElbow: [-0.15, 0, 0], rightElbow: [-0.15, 0, 0], leftLeg: [0, 0, 0.08], rightLeg: [0, 0, -0.08],
@@ -252,7 +308,7 @@ export function createStudentPoseClip(model: THREE.Object3D, index: number) {
 }
 
 export function createStudentBoardingClip(model: THREE.Object3D) {
-  return bakeClip(rigSampler(model), 'Quintet_CoreAscension', 2.3, p => {
+  return bakeClip(rigSampler(model), 'Sudoers5_CoreAscension', 2.3, p => {
     const rise = smooth(p, 0.05, 0.55), merge = smooth(p, 0.65, 0.95);
     return {
       spine: [-0.08 * rise + 0.18 * merge, 0, 0], head: [-0.1 * rise + merge * 0.16, 0, 0],

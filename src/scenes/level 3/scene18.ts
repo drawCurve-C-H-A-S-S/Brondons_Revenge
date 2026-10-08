@@ -13,8 +13,6 @@ import { loadSharkModel, loadToolModel } from '../../core/loader.js';
 import type { CinematicPose, loadCharacter } from '../../scripts/characterManager.js';
 import { traceShot, type DamageTarget, type DamageWeapon } from '../../scripts/pistol.js';
 import { PARRY_DAMAGE, type ParryableBolt } from '../../scripts/lightsaber.js';
-import { AudioManager } from '../../helpers/audio/AudioManager.js';
-import jungleBgmUrl from '../../assets/bgm/DonRevJungleLoop.m4a?url';
 
 type Phase = 'entry' | 'traversal' | 'scrambler' | 'warp' | 'boss' | 'cleared' | 'sharkAttack' | 'exit' | 'death' | 'done';
 type RiverShark = { root: THREE.Group; mixer: THREE.AnimationMixer; baseY: number; baseZ: number; side: number; phase: number };
@@ -44,8 +42,6 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   const { scene } = site, course = site.platformCourse!;
   site.setImpact(30); site.ship.setCanopyOpen(1); site.pod.getObjectByName('PodHatch')!.rotation.z = -1.5;
   const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.05, 260);
-  const audioManager = new AudioManager({ camera, getFile: (path: string) => path === 'jungle-loop' ? { content: jungleBgmUrl } : null });
-  audioManager.setBgm({ path: 'jungle-loop', loop: true, volume: 0.5, autoplay: true });
   const checkpoint = PLATFORM_COURSE.checkpoints[saved.checkpoint];
   const spawn = new THREE.Vector3(courseX(checkpoint.u), checkpoint.top + PHYSICS.playerRadius, DEPTH);
   const player = createPlayer({ camera, physicsWorld, spawnPosition: spawn });
@@ -57,6 +53,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   player.body.collisionFilterMask &= ~2;
   player.body.type = CANNON.Body.KINEMATIC; player.body.updateMassProperties();
   let phase: Phase = 'entry', phaseTime = 0, elapsed = 0, lastDelta = 0, disposed = false, paused = false, transferred = false;
+  let bossVictory = false;
   let firing = false, shotRequested = false, touchFiring = false, fireCooldown = 0, pendingShot = false, invulnerability = 0, damageFlash = 0;
   let equipped: DamageWeapon = 'pistol', normalSpace = false, aimMoved = false, laserLife = 0;
   const aimNdc = new THREE.Vector2(0.25, 0), aimPoint = new THREE.Vector3(), aimRay = new THREE.Raycaster();
@@ -309,6 +306,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
     if (player.getHealth() <= 0) die('HIT BY FACILITY DEFENSES');
   }
   function defeatBoss() {
+    bossVictory = true;
     phase = 'cleared'; phaseTime = 0; clearShots(); bossShield.visible = false;
     for (const actor of actors) if (!actor.boss) { actor.body.velocity.set(0, 0, 0); actor.charge = -1; }
   }
@@ -634,6 +632,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   cameraView(); updateHud();
   return {
     roomId: 'scene18', scene, camera, physics, physicsWorld, player, course, ready: Promise.all([site.ready, robotReady, bossReady, gunReady, sharkReady]), cutsceneManager: null,
+    hasBossVictory: () => bossVictory,
     ownsWeaponInput: true, clearInput, isCinematic: () => phase !== 'boss' && phase !== 'cleared', getDamageFlash: () => damageFlash,
     controlsReady: () => live() && !blocked(),
     hasAimReticle: () => !reticle.classList.contains('hidden'),
@@ -780,7 +779,6 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
       }
       if (sharkTemplate) releaseAsset(sharkTemplate);
       scene.onBeforeRender = () => {}; player.dispose(); physics.dispose(); site.dispose();
-      audioManager.dispose();
       friendlyMaterial.dispose(); hostileMaterial.dispose();
     },
   };

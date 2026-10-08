@@ -5,34 +5,34 @@ import { disposeComicEffects, updateComicEffects } from './helpers/scene/comicEf
 import { createSceneMinimap } from './core/renderer.js';
 import { createShipMap, createShipMapProgress, SHIP_MAP_LAYOUT, type ShipMapLayout } from './core/shipMap.js';
 import { createQuartersProgress } from './scenes/living quarters/layout.js';
+import { createStageTwoProgress, isSurveillancePoint, type CameraRoomId } from './scenes/level 1 stage 2/stageTwoLayout.js';
 import { createScene as createScene1 } from './scenes/scene1.js';
 import { createHoldToSkip } from './helpers/animation/holdToSkip.js';
-import { createCargoPuzzleState } from './scripts/cargoPuzzle.js';
-import { createHandle } from './helpers/scene/cargoVisuals.js';
-import type { PassageDestination } from './scenes/level 1/scene12.js';
+import { createCinematicLoadingScreen } from './helpers/scene/cinematicLoading.js';
 import type { LaunchState } from './scenes/level 1/scene14.js';
 import type { FlightExitState } from './scenes/level 2/scene15.js';
 import type { RescueArrival } from './helpers/scene/rescueSite.js';
 import type { FinaleCheckpoint } from './scripts/finaleDirector.js';
 import type { loadCharacter } from './scripts/characterManager.js';
-import { HOLOGRAM_TRANSFER_DURATION, TELEPORT_TRANSFER_DURATION, hologramTransitionAt } from './scripts/characterManager.js';
+import { TELEPORT_TRANSFER_DURATION, hologramTransitionAt } from './scripts/characterManager.js';
 import type { Player, PlayerTransitionState } from './scripts/player.js';
 import { PLAYER_MAX_HEALTH } from './scripts/player.js';
-import { NPCEnemyManager } from './scripts/npc-enemy-robots.js';
 import { PistolController } from './scripts/pistol.js';
 import { CrowbarController } from './scripts/crowbar.js';
 import { GogglesController } from './scripts/goggles.js';
 import { GogglesPostProcess } from './scripts/gogglesPostProcess.js';
 import { LightsaberController } from './scripts/lightsaber.js';
 import { AdaptiveHintManager } from './scripts/adaptiveHints.js';
-import { createCctvSystem } from './scripts/cctv.js';
+import { createCctvSystem, type CctvFeedSource } from './scripts/cctv.js';
 import { TeleportationDeviceController, teleportPlayer } from './scripts/teleportationDevice.js';
 import { createWeaponWheel, type WeaponId, type WeaponWheelEntry } from './scripts/weaponWheel.js';
 import type { createFirstPersonHands } from './scripts/firstPersonHands.js';
 import { initTouchControls, setTouchFlightMode, resetTouchInput, registerWeaponEquip } from './scripts/touchControls.js';
 import { PixelArtPass } from './core/PixelArtPass.js';
 import { RetroConsolePass } from './core/RetroConsolePass.js';
-import { getAudioSettings, preloadAudio, setAudioVolume, setAudioMenuPaused } from './helpers/audio/AudioManager.js';
+import { getAudioSettings, setAudioVolume, setAudioMenuPaused } from './helpers/audio/AudioManager.js';
+import { preloadMusic } from './helpers/audio/bufferedMusic.js';
+import { createGameMusic, MUSIC_URLS } from './helpers/audio/gameMusic.js';
 import { preloadToolModel, yieldToMainThread } from './core/loader.js';
 import shipMusicUrl from './assets/bgm/DonRevBGM1.m4a';
 import flightMusicUrl from './assets/bgm/DonRevLevel2.m4a';
@@ -42,17 +42,10 @@ const sceneImports = {
   0: () => import('./scenes/prologue/prologue_scene_1.js'),
   0.5: () => import('./scenes/living quarters/scene.js'),
   1.1: () => import('./scenes/level 1 stage 1/storageRoom.js'),
-  2: () => import('./scenes/level 1/scene2.js'),
-  3: () => import('./scenes/level 1/scene3.js'),
-  4: () => import('./scenes/level 1/scene4.js'),
+  1.2: () => import('./scenes/level 1 stage 2/scene.js'),
+  1.3: () => import('./scenes/level 1 stage 2/equipmentRoom.js'),
   5: () => import('./scenes/level 1/scene5.js'),
   6: () => import('./scenes/level 1/scene6.js'),
-  7: () => import('./scenes/level 1/scene7.js'),
-  8: () => import('./scenes/level 1/scene8.js'),
-  9: () => import('./scenes/level 1/scene9.js'),
-  10: () => import('./scenes/level 1/scene10.js'),
-  11: () => import('./scenes/level 1/scene11.js'),
-  12: () => import('./scenes/level 1/scene12.js'),
   13: () => import('./scenes/level 1/scene13.js'),
   14: () => import('./scenes/level 1/scene14.js'),
   15: () => import('./scenes/level 2/scene15.js'),
@@ -98,14 +91,15 @@ function background(task: () => Promise<unknown> | void) {
 function warmScene(id: SceneModuleId) {
   void background(async () => {
     if (id === 0.5) await (await sceneModule(0.5)).preloadAssets();
+    else if (id === 1.1) await (await sceneModule(1.1)).preloadAssets();
+    else if (id === 1.2) await (await sceneModule(1.2)).preloadAssets();
     else if (id === 13) await (await sceneModule(13)).preloadAssets();
     else await sceneModule(id);
   });
 }
 
 const upcomingScenes: Partial<Record<SceneModuleId, readonly SceneModuleId[]>> = {
-  0: [0.5], 2: [3], 3: [4, 5, 6], 4: [7], 7: [8], 8: [9, 10, 11],
-  9: [12], 10: [12], 11: [12, 13], 12: [13], 13: [14],
+  0: [0.5], 0.5: [1.1], 1.1: [1.2], 1.2: [13], 13: [14],
   14: [15], 15: [16], 16: [17], 17: [18], 18: [19], 19: [21],
 };
 
@@ -118,14 +112,20 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 document.body.appendChild(renderer.domElement);
-const cctv = createCctvSystem(renderer);
+const cctv = createCctvSystem(renderer, [
+  { id: 'scene5', label: '05 / CARGO HOLD', load: () => cameraFeed('scene5') },
+  { id: 'scene6', label: '06 / TARGET RANGE', load: () => cameraFeed('scene6') },
+  { id: 'stage2-armory', label: 'ARCHIVE / CHEST', load: () => cameraFeed('stage2-armory') },
+]);
 const gogglesPostProcess = new GogglesPostProcess(renderer);
 const pixelArtPass = new PixelArtPass();
 const retroConsolePass = new RetroConsolePass();
 const minimap = createSceneMinimap(renderer, document.getElementById('minimap')!);
 
-// --- Audio Manager stub ---
+// --- Audio ---
 const audioManager = null;
+const music = createGameMusic();
+const cinematicLoading = createCinematicLoadingScreen();
 
 // --- Scene Management ---
 let currentSceneData: any = null;
@@ -135,15 +135,39 @@ let activeCamera: THREE.PerspectiveCamera | null = null;
 let updatePhysics: ((dt: number, thirdPerson?: boolean) => void) | null = null;
 let cutsceneManager: any = null;
 let lastSplinePoint: THREE.Vector3 | null = null;
-let creditsTimer: number | null = null;
 let activeSceneId = 'scene1';
 let quickMenuOpen = false;
 let weaponWheelOpen = false;
 let teleportLoading = false;
 let teleportArrivalTime = -1;
 let stealthHintsEnabled = true;
+let stage1LoadingShown = false;
+let checkpointNoticeTime = 0;
 let nextSceneActionId = 0;
 const pendingSceneActions = new Map<number, { remaining: number; run: () => void }>();
+
+function beginCinematicLoading(destination: 'stage1' | 'boss' | 'finale') {
+  weaponWheel.close();
+  if (quickMenuOpen) setPauseMenu(null, false);
+  clearSceneInput();
+  if (document.pointerLockElement) document.exitPointerLock();
+  return cinematicLoading.begin(destination);
+}
+
+// The main loop neither updates nor renders behind the loading screen, so run the first frames of
+// the new scene here; texture uploads, shadow programs and setup states stay hidden.
+async function warmBehindLoading(request: number, frames = 3) {
+  for (let frame = 0; frame < frames; frame++) {
+    if (request !== sceneRequestVersion || !activeScene || !activeCamera) return false;
+    updatePhysics?.(1 / 60, isThirdPerson);
+    updatePlayerView(1 / 60);
+    const scene = currentSceneData?.getRenderScene?.() ?? activeScene;
+    updateComicEffects(scene, activeCamera, 1 / 60, renderer);
+    renderGameplayFrame(scene, activeCamera);
+    await new Promise(resolve => requestAnimationFrame(resolve));
+  }
+  return request === sceneRequestVersion;
+}
 
 function renderGameScene(scene: THREE.Scene, camera: THREE.Camera) {
   if (currentSceneData?.renderSceneWithEffects) {
@@ -154,7 +178,7 @@ function renderGameScene(scene: THREE.Scene, camera: THREE.Camera) {
   goggles.update();
   gogglesPostProcess.render(scene, camera, () => {
     renderSceneEffects(scene, camera);
-    if (!deathPresentation && !currentSceneData?.isCinematic?.() && !currentSceneData?.ownsWeaponInput && cargoPuzzle.handle !== 'carried') {
+    if (!deathPresentation && !currentSceneData?.isCinematic?.() && !currentSceneData?.ownsWeaponInput) {
       crowbar.renderFirstPerson(renderer);
     }
   });
@@ -186,37 +210,21 @@ function advanceSceneActions(dt: number) {
 }
 let scene1SkipVisible = false;
 let scene1SkipHold: ReturnType<typeof createHoldToSkip> | null = null;
-let cargoPuzzle = createCargoPuzzleState();
 let quartersProgress = createQuartersProgress();
+let stageTwoProgress = createStageTwoProgress();
 const shipMapProgress = createShipMapProgress();
 let mappedSceneData: unknown = null;
-const heldSwitchHandle = createHandle();
 let bayBossDefeated = false;
-let traversalState: PlayerTransitionState | undefined;
 
 // --- Global Character (persists across scenes) ---
 let globalCharacter: Awaited<ReturnType<typeof loadCharacter>> = null;
 let currentPlayer: Player | null = null;
 
-// --- NPC Enemy Manager (persists across scenes) ---
-const npcManager = new NPCEnemyManager();
-
-// --- Crowbar pickup (scene4 chest, persists once collected) ---
+// --- Session inventory ---
 let hasCrowbar = false;
 let hasPistol = false;
-let cargoDoorUnlocked = false;
-const clearedLadderCrates = new Set<string>();
-let shieldCollectedScene7 = false;
 let healthPackCollectedScene13 = false;
 let hintManager: AdaptiveHintManager | null = null;
-let cctvTeleportTime = -1;
-let cctvTeleportTarget: (() => void) | null = null;
-let cctvLookedAtScreen: number | null = null;
-const cctvCenterRaycaster = new THREE.Raycaster();
-const cctvPrompt = document.getElementById('interact-prompt');
-let cctvPromptVisible = false;
-const cargoAccess = () => ({ hasCrowbar, cargoDoorUnlocked, onCargoDoorOpened: () => { cargoDoorUnlocked = true; } });
-const ladderAccess = () => ({ clearedCrates: clearedLadderCrates, onCrateBroken: (id: string) => { clearedLadderCrates.add(id); }, shieldCollected: shieldCollectedScene7, onShieldCollected: () => { shieldCollectedScene7 = true; } });
 let crowbarController: CrowbarController | null = null;
 let hasLightsaber = false;
 let lightsaberController: LightsaberController | null = null;
@@ -242,8 +250,8 @@ function isGameplayThirdPerson() {
 
 const pistol = new PistolController(() => ({
   scene: activeScene, camera: activeCamera, world: currentSceneData?.physicsWorld ?? null,
-  player: cargoPuzzle.handle === 'carried' || currentSceneData?.ownsWeaponInput ? null : currentPlayer, character: globalCharacter?.model ?? null,
-  thirdPerson: isGameplayThirdPerson(), targets: [...npcManager.getDamageTargets(), ...(currentSceneData?.getDamageTargets?.() ?? [])],
+  player: currentSceneData?.ownsWeaponInput || currentSceneData?.isCinematic?.() || deathPresentation ? null : currentPlayer, character: globalCharacter?.model ?? null,
+  thirdPerson: isGameplayThirdPerson(), targets: currentSceneData?.getDamageTargets?.() ?? [],
   hasPistol,
   weaponAnimation: currentSceneData?.ownsWeaponInput ? undefined : globalCharacter?.weapon,
   holsterOther: () => { crowbarController?.holster(); lightsaberController?.holster(); },
@@ -254,11 +262,11 @@ const crowbar = new CrowbarController(() => ({
   scene: activeScene,
   camera: activeCamera,
   world: currentSceneData?.physicsWorld ?? null,
-  player: cargoPuzzle.handle === 'carried' || currentSceneData?.ownsWeaponInput ? null : currentPlayer,
+  player: currentSceneData?.ownsWeaponInput || currentSceneData?.isCinematic?.() || deathPresentation ? null : currentPlayer,
   character: globalCharacter?.model ?? null,
   thirdPerson: isGameplayThirdPerson(),
   hasCrowbar,
-  targets: [...npcManager.getDamageTargets(), ...(currentSceneData?.getDamageTargets?.() ?? [])],
+  targets: currentSceneData?.getDamageTargets?.() ?? [],
   setCharacterEquipped: (equipped: boolean) => globalCharacter?.setCrowbarEquipped(equipped),
   doorTarget: currentSceneData?.forwardDoorTarget ?? null,
   openDoor: () => { currentSceneData?.hitForwardDoor?.(); currentSceneData?.hitCargoDoor?.(); },
@@ -273,12 +281,12 @@ const lightsaber = new LightsaberController(() => ({
   scene: activeScene,
   camera: activeCamera,
   world: currentSceneData?.physicsWorld ?? null,
-  player: cargoPuzzle.handle === 'carried' || currentSceneData?.ownsWeaponInput || currentSceneData?.isCinematic?.() || deathPresentation ? null : currentPlayer,
+  player: currentSceneData?.ownsWeaponInput || currentSceneData?.isCinematic?.() || deathPresentation ? null : currentPlayer,
   character: globalCharacter?.model ?? null,
   thirdPerson: isGameplayThirdPerson(),
   hasLightsaber,
   attackClips: globalCharacter?.lightsaberAttacks,
-  targets: [...npcManager.getDamageTargets(), ...(currentSceneData?.getDamageTargets?.() ?? [])],
+  targets: currentSceneData?.getDamageTargets?.() ?? [],
   setCharacterEquipped: equipped => globalCharacter?.setLightsaberEquipped(equipped),
   openDoor: () => { currentSceneData?.hitForwardDoor?.(); currentSceneData?.hitCargoDoor?.(); },
   holsterOther: () => { crowbar.holster(); pistol.holster(); },
@@ -294,6 +302,7 @@ const goggles = new GogglesController(() => ({
 // --- Teleportation Device ---
 let teleportDeviceMessageTimeout: number | null = null;
 function showTeleportDeviceMessage(message: string) {
+  if (currentSceneData?.showTeleportMessage) { currentSceneData.showTeleportMessage(message); return; }
   const prompt = document.getElementById('interact-prompt');
   if (!prompt) return;
   prompt.textContent = message;
@@ -305,17 +314,18 @@ function showTeleportDeviceMessage(message: string) {
   }, 3000);
 }
 
-const teleportSceneLoaders: Record<string, () => Promise<unknown>> = {
-  scene2: () => loadScene2(true), scene3: () => loadScene3(), scene4: () => loadScene4(),
-  scene5: () => loadScene5(), scene6: () => loadScene6(), scene7: () => loadScene7(),
-  scene8: () => loadScene8(), scene9: () => loadScene9(), scene10: () => loadExtensionRoom(10),
-  scene11: () => loadExtensionRoom(11), scene12: () => loadPassage12(),
-};
+function surveillanceMarkerPlaced() {
+  const marker = teleportDevice.getState();
+  return stageTwoProgress.guardDown && marker.placed && marker.placementScene === 'stage2-infiltration'
+    && !!marker.placementPosition && isSurveillancePoint(marker.placementPosition);
+}
+
+function isCameraVisit(id: string) { return id === 'scene5' || id === 'scene6' || id === 'stage2-armory'; }
 
 function equipmentInputBlocked() {
-  return document.hidden || quickMenuOpen || weaponWheelOpen || teleportLoading || cctvTeleportTime >= 0
+  return document.hidden || quickMenuOpen || weaponWheelOpen || teleportLoading
     || !!deathPresentation || !currentPlayer?.isEnabled() || currentPlayer.getHealth() <= 0
-    || cargoPuzzle.handle === 'carried' || !!document.getElementById('fade-overlay')?.classList.contains('active')
+    || !!document.getElementById('fade-overlay')?.classList.contains('active')
     || (currentSceneData?.ownsWeaponInput ? !currentSceneData?.canSelectWeapon?.() : !!currentSceneData?.isCinematic?.());
 }
 
@@ -330,22 +340,32 @@ const teleportDevice = new TeleportationDeviceController(() => ({
   getPlayerRotation: () => currentPlayer?.getState().yaw ?? 0,
   onTeleport: (sceneId, position, rotation) => { void teleportToAnchor(sceneId, position, rotation); },
   showMessage: showTeleportDeviceMessage,
+  placementMessage: (sceneId, position) => sceneId === 'stage2-infiltration' && isSurveillancePoint(position)
+    ? 'Prime: Marker set. E on a screen to travel, T to return.'
+    : isCameraVisit(sceneId) || sceneId === 'stage2-infiltration'
+      ? 'Prime: Set the marker inside the camera room.'
+      : 'Purple marker placed. Press T to return; hold Tab to choose weapons.',
+  returnError: state => (isCameraVisit(activeSceneId) || activeSceneId === 'stage2-infiltration')
+    && !(state.placementScene === 'stage2-infiltration' && state.placementPosition && isSurveillancePoint(state.placementPosition))
+    ? 'Prime: Your marker must be in the camera room. R restarts.'
+    : null,
 }));
 
 async function teleportToAnchor(sceneId: string, position: { x: number; y: number; z: number }, rotation: number) {
   if (!currentPlayer || teleportLoading) return;
   const state = currentPlayer.captureTransition({ x: 0, y: 0, z: 0 });
   if (sceneId !== activeSceneId) {
-    const load = teleportSceneLoaders[sceneId];
-    if (!load) { showTeleportDeviceMessage('Cannot return to that scripted area. Place the device in an exploration room.'); return; }
-    // Start loading immediately; never delay the handoff behind a dissolve or a fade.
+    if (sceneId !== 'stage2-infiltration' || !surveillanceMarkerPlaced()) {
+      showTeleportDeviceMessage('That marker has no return link. Place your home marker in surveillance.');
+      return;
+    }
     teleportLoading = true;
     clearSceneInput();
-    traversalState = undefined;
     const request = sceneRequestVersion + 1;
     try {
-      await load();
-      if (request !== sceneRequestVersion || activeSceneId !== sceneId) return;
+      const loaded = await loadStageTwo(state);
+      if (request !== sceneRequestVersion) return;
+      if (!loaded || activeSceneId !== sceneId) throw new Error('The surveillance return link did not activate');
     } catch (error) {
       console.error('Teleport failed:', error);
       showTeleportDeviceMessage('Teleport failed. Your anchor is saved; try again.');
@@ -431,33 +451,6 @@ async function initializeApp() {
   window.addEventListener('mousemove', recordHintActivity);
   window.addEventListener('touchstart', recordHintActivity);
 
-  // CCTV screen E-to-teleport
-  window.addEventListener('keydown', event => {
-    if (event.code !== 'KeyE' || event.repeat) return;
-    if (activeSceneId !== 'scene7' || !currentPlayer?.isEnabled() || !activeCamera) return;
-    if (quickMenuOpen || !!currentSceneData?.isCinematic?.()) return;
-    if (cctvTeleportTime >= 0 || cctvLookedAtScreen === null) return;
-    const roomIds = cctv.roomIds;
-    const roomId = roomIds[cctvLookedAtScreen];
-    if (roomId === 'cafeteria') return; // Already in cafeteria
-    const sceneMap: Record<string, () => void> = {
-      'medical-bay': () => loadScene2(false, true),
-      'hallway': () => loadScene3(undefined, true),
-      'computer-room': () => loadScene4(undefined, 'back', true),
-    };
-    const teleport = sceneMap[roomId];
-    if (!teleport) return;
-    // Start hologram teleportation
-    cctvTeleportTime = 0;
-    cctvTeleportTarget = teleport;
-    currentPlayer.disable();
-    currentPlayer.clearInput();
-    cctvPrompt?.classList.add('hidden');
-    cctvPromptVisible = false;
-    cctv.highlightScreen(null);
-    cctvLookedAtScreen = null;
-  });
-
   await yieldToMainThread();
   const { loadCharacter } = await import('./scripts/characterManager.js');
   console.log('Loading character model...');
@@ -472,11 +465,17 @@ async function initializeApp() {
   } else {
     console.warn('Failed to load character, continuing without character');
   }
-  if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('living-quarters')) await loadLivingQuarters();
-  else if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('stage1-stealth')) await loadStage1Storage();
+  const preview = new URLSearchParams(window.location.search);
+  if (import.meta.env.DEV && preview.has('living-quarters')) await loadLivingQuarters();
+  else if (import.meta.env.DEV && (preview.has('stage1-stealth') || preview.has('stage2-infiltration'))) {
+    hasPistol = true; quartersProgress.pistolCollected = true;
+    goggles.collect(false); teleportDevice.collect(false);
+    if (preview.has('stage2-infiltration')) await loadStageTwo();
+    else await loadStage1Storage();
+  }
   warmScene(0);
   warmScene(0.5);
-  void background(() => preloadAudio(shipMusicUrl));
+  void background(() => preloadMusic(shipMusicUrl));
   void background(() => preloadToolModel('Enemy_EyeDrone'));
   void background(() => preloadToolModel('Enemy_Trilobite'));
 }
@@ -496,14 +495,14 @@ const lessons: Record<string, Omit<ControlCard, 'key' | 'scene'>> = {
   lightsaber: { title: 'Lightsaber acquired', lines: ['Hold Tab — select lightsaber; select Unarmed to holster', 'Left click — slash'], touch: ['SABER — equip / holster', 'SLASH — attack'] },
   teleport: { title: 'Teleportation device', lines: ['Q — place purple anchor', 'T — teleport instantly to your anchor'], touch: ['Keyboard Q — place anchor; T — teleport'] },
   goggles: { title: 'Scanner goggles acquired', lines: ['N — wear / remove goggles'], touch: ['GOGGLES — wear / remove'] },
-  vent: { title: 'Vent traversal', lines: ['W / S — crawl forward / backward', 'A / D — turn at junctions', 'E — use a ladder · Space — drop while descending'], touch: ['Left stick — crawl and turn at junctions', 'USE — take a ladder · JUMP — drop while descending'] },
+  vent: { title: 'Vent maze', lines: ['WASD / arrows — move on the fullscreen map', 'Go right across the top, then down the right edge', 'Wait for green sensors · Blue pads save your position', 'E — climb the storeroom ladder · Hold Space — climb quickly'], touch: ['Left stick — move on the fullscreen map', 'Follow the dotted route to CAMERA ROOM', 'Green sensors are safe · Blue pads are checkpoints', 'USE — mount ladder · Hold JUMP — climb quickly'] },
   cargo: { title: 'Handling cargo', lines: ['E — grab / release a nearby box', 'WASD — move while holding it'], touch: ['USE — grab / release a nearby box', 'Left stick — move the box'] },
   flight: { title: 'Flight controls', lines: ['WASD — dodge · Mouse — aim', 'Hold left click — fire · Space — evade', 'V or the view button — cockpit / chase camera · M — pause'], touch: ['Left stick — dodge · Right drag — aim', 'Hold FIRE — shoot · EVADE — dodge', 'VIEW — cockpit / chase camera · MENU — pause']},
   flightSide: { title: 'Sidescroll flight', lines: ['WASD / arrows — move · Hold left click — fire straight', 'W / S + Space — dodge up / down'], touch: ['Left stick — move · Hold FIRE — fire straight', 'Stick up / down + EVADE — vertical dodge'] },
   flightTop: { title: 'Top-down flight', lines: ['WASD / arrows — move · Hold left click — fire upward', 'A / D + Space — evade left / right'], touch: ['Left stick — move · Hold FIRE — fire upward', 'Stick left / right + EVADE — lateral dodge'] },
   jungle: { title: 'Back on the ground', lines: ['WASD — walk · Shift — sprint · Space — jump', 'C while moving forward — slide tackle; otherwise crouch', 'Hold Tab — select weapon · Left click — attack', 'V or the view button — change view'], touch: ['Left stick — walk · Right drag — look', 'RUN / JUMP — sprint and jump', 'CROUCH while moving forward — slide tackle', 'PISTOL / CROW — select weapon · SHOOT / SWING — attack', 'VIEW — change view'] },
   platformer: { title: 'Platforming controls', lines: ['A / D or arrows — move · Space — jump', 'Shift — sprint · C — crouch', 'Mouse — aim · Hold Tab — select weapon', 'Hold left click — attack'], touch: ['Left stick — move · JUMP — jump', 'RUN — sprint · CROUCH — crouch', 'Right drag — aim · PISTOL / CROW — select weapon', 'Hold FIRE — attack'] },
-  finale: { title: 'Final boss controls', lines: ['A / D — move · J — sword · F — rifle salvo', 'Hold R — shield / parry · Space — boost · E — overdrive', 'W / S — rise or dive in space · Hold Enter — skip to the VS intro'], touch: ['LEFT / RIGHT — move · UP / DOWN — fly in space', 'SWORD — attack · SHIELD — hold to block / parry · BOOST — dash', 'RIFLE — draw and fire a salvo · OVERDRIVE — special attack'] },
+  finale: { title: 'Final boss controls', lines: ['A / D — move · J — down / side / heavy sword chain · F — two-handed rifle salvo', 'Hold R — shield / parry · Space — dodge boost · E — Last Light blade wave (18-second recharge)', 'After a special close-up, the camera returns before release: dodge or guard', 'W / S — rise or dive in space · Hold Enter — skip to the VS intro', 'Final QTE: time taps, mash D, hold E; 1–3 stars per prompt, three misses cause death'], touch: ['LEFT / RIGHT — move · UP / DOWN — fly in space', 'SWORD — chain cuts · SHIELD — hold to block / parry · BOOST — dodge', 'RIFLE — sheath, draw and fire · ULTIMATE — Last Light (18-second recharge)', 'QTE: tap, mash or hold the displayed letter; three misses break the link'] },
 };
 function introduceControls(key: string, scene?: string) {
   if (seenControls.has(key) || controlQueue.some(card => card.key === key) || shownControl?.key === key) return;
@@ -514,17 +513,20 @@ function dismissControls() {
 }
 function enterHudScene(id: string) {
   document.body.dataset.scene = id;
+  hintManager?.setEnabled(id !== 'scene21');
+  if (id === 'scene21') hintManager?.recordActivity();
+  checkpointNoticeTime = ['scene13', 'scene14', 'scene15', 'scene16'].includes(id) ? 2.5 : 0;
+  document.getElementById('scene-checkpoint')!.classList.toggle('hidden', checkpointNoticeTime === 0);
   dismissControls();
   document.getElementById('look-reticle')?.classList.add('hidden');
   controlQueue = controlQueue.filter(card => !card.scene);
   minimap.reset();
-  const key = id === 'living-quarters' ? 'quarters' : id === 'scene2' ? 'basics' : id === 'scene8' ? 'vent'
-    : id === 'scene10' || id === 'scene11' ? 'cargo' : id === 'scene15' ? 'flight'
-    : id === 'scene21' ? 'finale' : null;
+  const key = id === 'living-quarters' ? 'quarters' : id === 'stage2-infiltration' ? 'basics' : id === 'scene15' ? 'flight'
+    : null;
   if (key) introduceControls(key, id);
 }
 function updateControlCard(dt: number) {
-  const ready = activeSceneId !== 'scene1' && !quickMenuOpen && !deathPresentation
+  const ready = activeSceneId !== 'scene1' && activeSceneId !== 'scene21' && !quickMenuOpen && !deathPresentation
     && (currentSceneData?.controlsReady?.() ?? (!!currentPlayer?.isEnabled() && !currentSceneData?.isCinematic?.()))
     && document.getElementById('fade-overlay')?.classList.contains('hidden');
   const flightScene = currentSceneData?.getSceneId?.();
@@ -557,6 +559,16 @@ function renderMinimap() {
   minimap.render(currentSceneData?.getRenderScene?.() ?? activeScene,
     state?.position ?? currentPlayer.body.position, state?.yaw ?? currentPlayer.getState().yaw,
     state?.object ?? globalCharacter?.model ?? null, { ...currentSceneData?.minimap, ...state });
+}
+
+function renderGameplayFrame(scene: THREE.Scene, camera: THREE.PerspectiveCamera) {
+  if (currentSceneData?.isMazeActive?.()) {
+    renderMinimap();
+    minimap.renderGameInset(scene, camera);
+  } else {
+    renderGameScene(scene, camera);
+    renderMinimap();
+  }
 }
 
 // --- View toggle ---
@@ -604,11 +616,15 @@ function toggleView() {
 async function loadPrologue1() {
   const module = await prepareScene(0);
   if (!module) return;
+  stage1LoadingShown = false;
   hideScene1Skip();
   retireTraversalRoom();
   currentSceneData?.dispose?.();
   if (currentSceneData === scene1Data) scene1Data = null;
-  quartersProgress = createQuartersProgress(); hasPistol = false; pistol.holster();
+  quartersProgress = createQuartersProgress(); stageTwoProgress = createStageTwoProgress();
+  hasPistol = hasCrowbar = hasLightsaber = bayBossDefeated = healthPackCollectedScene13 = false;
+  pistol.holster(); crowbar.holster(); lightsaber.holster(); goggles.reset(); teleportDevice.reset();
+  cctv.clearSources();
   shipMapProgress.reset(); shipMap?.dispose(); shipMap = null; shipMapLayout = undefined; mappedSceneData = null;
   activeSceneId = 'prologue1'; currentPlayer = null;
   enterHudScene('prologue1');
@@ -627,6 +643,7 @@ async function loadPrologue1() {
       return loadLivingQuarters();
     },
   });
+  music.enterScene('prologue1', currentSceneData);
   activeScene = currentSceneData.scene;
   activeCamera = currentSceneData.camera;
   currentPlayer = currentSceneData.player;
@@ -640,14 +657,13 @@ interface PreparedOpeningScene {
   camera: THREE.PerspectiveCamera;
   player: Player;
   ready: Promise<unknown>;
-  activate(): void;
   dispose(): void;
 }
 
-async function prepareOpeningScene(data: PreparedOpeningScene, source: unknown, request: number) {
+async function prepareOpeningScene(data: PreparedOpeningScene, source: unknown, request: number, presentation?: Promise<void>) {
   data.player.disable();
   try {
-    await data.ready;
+    await Promise.all([data.ready, presentation]);
     await renderer.compileAsync(data.scene, data.camera);
   } catch (error) {
     data.dispose();
@@ -667,12 +683,16 @@ async function loadLivingQuarters(fromPassage = false, entryState?: PlayerTransi
     progress: quartersProgress, fromPassage, entryState, deferActivation: true,
     warmRoom: async (scene, camera) => { await renderer.compileAsync(scene, camera); },
     onPistolCollected: () => { hasPistol = true; introduceControls('pistol'); },
+    onCrystalCollected: () => { teleportDevice.collect(); introduceControls('teleport'); },
+    onGogglesCollected: () => { goggles.collect(); introduceControls('goggles'); },
     preparePassage: async () => { await (await sceneModule(1.1)).preloadAssets(); },
     onExitToPassage: state => loadStage1Storage(true, state),
   });
   if (!await prepareOpeningScene(sceneData, source, request)) return false;
   retireTraversalRoom(); currentSceneData?.dispose?.();
   hasPistol = quartersProgress.pistolCollected;
+  if (quartersProgress.crystalCollected) teleportDevice.collect(false);
+  if (quartersProgress.gogglesCollected) goggles.collect(false);
   enterManagedScene('living-quarters', sceneData);
   currentSceneData = sceneData; activeScene = sceneData.scene; activeCamera = sceneData.camera;
   currentPlayer = sceneData.player; updatePhysics = sceneData.updatePhysics; cutsceneManager = null; isThirdPerson = true;
@@ -688,39 +708,56 @@ async function loadLivingQuarters(fromPassage = false, entryState?: PlayerTransi
 }
 
 async function loadStage1Storage(fromQuarters = false, entryState?: PlayerTransitionState) {
+  const loading = stage1LoadingShown ? null : beginCinematicLoading('stage1');
+  const expectedRequest = sceneRequestVersion + 1;
   const module = await prepareScene(1.1);
-  if (!module) return false;
-  hideScene1Skip();
-  const source = currentSceneData, request = sceneRequestVersion;
-  const sceneData = module.createScene({ hintsEnabled: stealthHintsEnabled, openingEntry: !fromQuarters, fromQuarters, entryState,
-    deferActivation: true,
-    onReturnToQuarters: state => loadLivingQuarters(true, state), onComplete: async () => {
-      if (activeSceneId !== 'stage1-storage') return false;
-      await loadScene2(true, true);
-      return document.body.dataset.scene === 'scene2';
-    } });
-  if (!await prepareOpeningScene(sceneData, source, request)) return false;
-  retireTraversalRoom();
-  currentSceneData?.dispose?.();
-  enterManagedScene('stage1-storage', sceneData);
-  currentSceneData = sceneData;
-  activeScene = sceneData.scene;
-  activeCamera = sceneData.camera;
-  currentPlayer = sceneData.player;
-  updatePhysics = sceneData.updatePhysics;
-  cutsceneManager = null;
-  isThirdPerson = true;
-  sceneData.activate();
-  shipMapProgress.reveal(sceneData.getMapLayout());
-  if (globalCharacter) {
-    activeScene.add(globalCharacter.model);
-    globalCharacter.setHologramTransition(sceneData.getHologramTransition());
-    globalCharacter.setFacing(currentPlayer.getState().yaw);
+  if (!module) {
+    if (expectedRequest !== sceneRequestVersion) loading?.finish();
+    else loading?.fail('Stage One could not be loaded. Please try again.', () => { void loadStage1Storage(fromQuarters, entryState); });
+    return false;
   }
-  if (orbitControls) { orbitControls.object = activeCamera; orbitControls.enabled = false; }
-  updatePlayerView(0);
-  warmScene(2);
-  return true;
+  try {
+    hideScene1Skip();
+    const source = currentSceneData, request = sceneRequestVersion;
+    const sceneData = module.createScene({ hintsEnabled: stealthHintsEnabled, openingEntry: !fromQuarters, fromQuarters, entryState,
+      deferActivation: true,
+      onReturnToQuarters: state => loadLivingQuarters(true, state), onComplete: async presentation => {
+        if (activeSceneId !== 'stage1-storage') return false;
+        return loadStageTwo(currentPlayer?.captureTransition({ x: 0, y: 0, z: 0 }), presentation);
+      } });
+    if (!await prepareOpeningScene(sceneData, source, request, loading?.presented)) {
+      loading?.finish();
+      return false;
+    }
+    retireTraversalRoom();
+    currentSceneData?.dispose?.();
+    enterManagedScene('stage1-storage', sceneData);
+    currentSceneData = sceneData;
+    activeScene = sceneData.scene;
+    activeCamera = sceneData.camera;
+    currentPlayer = sceneData.player;
+    updatePhysics = sceneData.updatePhysics;
+    cutsceneManager = null;
+    isThirdPerson = true;
+    sceneData.activate();
+    shipMapProgress.reveal(sceneData.getMapLayout());
+    if (globalCharacter) {
+      activeScene.add(globalCharacter.model);
+      globalCharacter.setHologramTransition(sceneData.getHologramTransition());
+      globalCharacter.setFacing(currentPlayer.getState().yaw);
+    }
+    if (orbitControls) { orbitControls.object = activeCamera; orbitControls.enabled = false; }
+    updatePlayerView(0);
+    stage1LoadingShown = true;
+    loading?.finish();
+    warmScene(1.2);
+    return true;
+  } catch (error) {
+    console.error('Stage One preparation failed:', error);
+    if (loading) loading.fail('Stage One could not be prepared. Please try again.', () => { void loadStage1Storage(fromQuarters, entryState); });
+    else document.getElementById('scene-menu-error')!.textContent = 'Stage One could not be prepared. Please try again.';
+    return false;
+  }
 }
 
 // --- Load Scene 1 ---
@@ -732,6 +769,7 @@ async function loadScene1() {
   const quitButton = document.getElementById('quit-btn') as HTMLButtonElement;
   quitButton.classList.remove('no-choice', 'hidden'); quitButton.disabled = false;
   currentSceneData = createScene1({ audioManager });
+  music.enterScene('scene1', currentSceneData);
   scene1Data = currentSceneData;
   activeScene = currentSceneData.scene;
   activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -763,7 +801,7 @@ async function loadScene1() {
         scene1SkipVisible = false;
         scene1SkipHold?.dispose(); scene1SkipHold = null;
         skipBtn.classList.add('hidden');
-        showCredits();
+        showMenuButtons();
       }
     };
 
@@ -781,7 +819,6 @@ async function loadScene1() {
         orbitControls!.target.set(0, 15, 0);
         orbitControls!.enabled = true;
       }
-      if (creditsTimer) { pendingSceneActions.delete(creditsTimer); creditsTimer = null; }
       const creditsOverlay = document.getElementById('credits-overlay')!;
       creditsOverlay.classList.add('hidden');
       showMenuButtons();
@@ -790,17 +827,7 @@ async function loadScene1() {
   }
 }
 
-// --- Credits and menu ---
-function showCredits() {
-  const creditsOverlay = document.getElementById('credits-overlay')!;
-  creditsOverlay.classList.remove('hidden');
-  creditsTimer = scheduleSceneAction(() => {
-    creditsTimer = null;
-    creditsOverlay.classList.add('hidden');
-    showMenuButtons();
-  }, 12000);
-}
-
+// --- Opening menu ---
 let menuButtonsShown = false;
 
 function showMenuButtons() {
@@ -854,224 +881,6 @@ function transitionToScene2() {
   };
 }
 
-async function loadScene2(skipWake = false, openingEntry = false) {
-  const module = await prepareScene(2);
-  if (!module) return;
-  console.log('Loading scene 2...');
-
-  globalCharacter?.model.removeFromParent();
-  if (currentSceneData === scene1Data || activeSceneId === 'prologue1') currentSceneData?.dispose?.();
-  retireTraversalRoom();
-  const sceneData = module.createScene({ audioManager, skipWake, openingEntry });
-  enterManagedScene('scene2', sceneData);
-  currentSceneData = sceneData;
-  activeScene = currentSceneData.scene;
-  activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-  updatePhysics = currentSceneData.updatePhysics;
-  cutsceneManager = currentSceneData.cutsceneManager;
-  currentPlayer = currentSceneData.player;
-
-  if (globalCharacter && activeScene) {
-    if (globalCharacter.model.parent !== activeScene) {
-      globalCharacter.model.parent?.remove(globalCharacter.model);
-      activeScene.add(globalCharacter.model);
-    }
-  }
-
-  orbitControls!.object = activeCamera!;
-  orbitControls!.enabled = false;
-
-  globalCharacter?.setFacing(currentPlayer!.getState().yaw);
-  updatePlayerView(0);
-  globalCharacter?.setHologramTransition(currentSceneData.getHologramTransition?.() ?? null);
-
-  if (currentSceneData.setDoorTrigger) {
-    currentSceneData.setDoorTrigger((state: PlayerTransitionState) => { transitionToScene3(state); });
-  }
-  renderer.render(activeScene!, activeCamera!);
-}
-
-async function loadScene3(entryState?: PlayerTransitionState, teleportArrival = false) {
-  const module = await prepareScene(3);
-  if (!module) return;
-  console.log('Loading scene 3...');
-
-  const sceneData = module.createScene({ audioManager, entryState, teleportArrival, ...cargoAccess() });
-  enterManagedScene('scene3', sceneData);
-  currentSceneData = sceneData;
-  activeScene = currentSceneData.scene;
-  activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-  updatePhysics = currentSceneData.updatePhysics;
-  cutsceneManager = currentSceneData.cutsceneManager;
-  currentPlayer = currentSceneData.player;
-
-  if (globalCharacter && activeScene) {
-    if (globalCharacter.model.parent !== activeScene) {
-      globalCharacter.model.parent?.remove(globalCharacter.model);
-      activeScene.add(globalCharacter.model);
-    }
-  }
-
-  orbitControls!.object = activeCamera!;
-  orbitControls!.enabled = false;
-  globalCharacter?.setFacing(currentPlayer!.getState().yaw);
-  updatePlayerView(0);
-
-  if (currentSceneData.setBackTrigger) {
-    currentSceneData.setBackTrigger((state: PlayerTransitionState) => { transitionBackToScene2(state); });
-  }
-  if (currentSceneData.setForwardTrigger) {
-    currentSceneData.setForwardTrigger(() => { transitionToScene4(); });
-  }
-  if (currentSceneData.setLeftTrigger) {
-    currentSceneData.setLeftTrigger((state: PlayerTransitionState) => { transitionToScene5(state); });
-  }
-  if (currentSceneData.setRightTrigger) {
-    currentSceneData.setRightTrigger((state: PlayerTransitionState) => { transitionToScene6(state); });
-  }
-  renderer.render(activeScene!, activeCamera!);
-  console.log('Scene 3 loaded - passageway');
-}
-
-async function transitionToScene3(entryState: PlayerTransitionState) {
-  console.log('Transitioning to scene 3');
-  try { await loadScene3(entryState); } catch (e) { console.error('Error loading scene 3:', e); }
-}
-
-async function transitionBackToScene2(entryState: PlayerTransitionState) {
-  console.log('Returning to scene 2 (skip wake)');
-  try {
-    const module = await prepareScene(2);
-    if (!module) return;
-    const sceneData = module.createScene({ audioManager, skipWake: true, entryState });
-    enterManagedScene('scene2', sceneData);
-    currentSceneData = sceneData;
-    activeScene = currentSceneData.scene;
-    activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    updatePhysics = currentSceneData.updatePhysics;
-    cutsceneManager = currentSceneData.cutsceneManager;
-    currentPlayer = currentSceneData.player;
-  
-    if (globalCharacter && activeScene) {
-      if (globalCharacter.model.parent !== activeScene) {
-        globalCharacter.model.parent?.remove(globalCharacter.model);
-        activeScene.add(globalCharacter.model);
-      }
-    }
-
-    orbitControls!.object = activeCamera!;
-    orbitControls!.enabled = false;
-    globalCharacter?.setFacing(currentPlayer!.getState().yaw);
-    updatePlayerView(0);
-
-    if (currentSceneData.setDoorTrigger) {
-      currentSceneData.setDoorTrigger((state: PlayerTransitionState) => { transitionToScene3(state); });
-    }
-    renderer.render(activeScene!, activeCamera!);
-    console.log('Scene 2 loaded - player at door');
-  } catch (e) {
-    console.error('Error in transitionBackToScene2:', e);
-  }
-}
-
-async function loadScene4(entryState?: PlayerTransitionState, entryDoor: 'back' | 'front' = 'back', teleportArrival = false) {
-  const module = await prepareScene(4);
-  if (!module) return;
-  void prepareFirstPersonHands();
-  console.log('Loading scene 4...');
-
-  const sceneData = module.createScene({
-    audioManager, entryState, entryDoor, cafeteriaUnlocked: hasCrowbar, chestOpened: hasCrowbar, teleportArrival,
-    teleportDeviceCollected: teleportDevice.isCollected(),
-    onChestCollected: () => {
-      hasCrowbar = true;
-      crowbar.equip();
-      introduceControls('crowbar');
-    },
-    onTeleportDeviceCollected: () => {
-      teleportDevice.collect();
-      introduceControls('teleport');
-    },
-  });
-  enterManagedScene('scene4', sceneData);
-  currentSceneData = sceneData;
-  activeScene = currentSceneData.scene;
-  activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-  updatePhysics = currentSceneData.updatePhysics;
-  cutsceneManager = currentSceneData.cutsceneManager;
-  currentPlayer = currentSceneData.player;
-
-  if (globalCharacter && activeScene) {
-    if (globalCharacter.model.parent !== activeScene) {
-      globalCharacter.model.parent?.remove(globalCharacter.model);
-      activeScene.add(globalCharacter.model);
-    }
-  }
-
-  orbitControls!.object = activeCamera!;
-  orbitControls!.enabled = false;
-  globalCharacter?.setFacing(currentPlayer!.getState().yaw);
-  updatePlayerView(0);
-
-  if (currentSceneData.setBackTrigger) {
-    currentSceneData.setBackTrigger((state: PlayerTransitionState) => { transitionBackToScene3(state); });
-  }
-  if (currentSceneData.setForwardTrigger) {
-    currentSceneData.setForwardTrigger((state: PlayerTransitionState) => { transitionToScene7(state); });
-  }
-  renderer.render(activeScene!, activeCamera!);
-  console.log('Scene 4 loaded - computer room');
-}
-
-async function transitionToScene4() {
-  console.log('Transitioning to scene 4');
-  // Capture player state for transition - scene3's forward door is at -Z (z = -10)
-  // Use yaw: 0 so the player's position is preserved correctly through the transition
-  if (currentPlayer) {
-    const state = currentPlayer.captureDoorTransition({ x: 0, y: 0, z: -10, yaw: 0 });
-    try { await loadScene4(state); } catch (e) { console.error('Error loading scene 4:', e); }
-  }
-}
-
-async function loadScene7(entryState?: PlayerTransitionState) {
-  const module = await prepareScene(7);
-  if (!module) return;
-  console.log('Loading scene 7 - cafeteria...');
-  document.getElementById('skip-btn')?.classList.add('hidden');
-  const sceneData = module.createScene({ entryState, ...ladderAccess() });
-  enterManagedScene('scene7', sceneData);
-  currentSceneData = sceneData;
-  activeScene = sceneData.scene;
-  activeCamera = sceneData.camera;
-  updatePhysics = sceneData.updatePhysics;
-  cutsceneManager = sceneData.cutsceneManager;
-  currentPlayer = sceneData.player;
-  if (globalCharacter && activeScene) {
-    if (globalCharacter.model.parent !== activeScene) {
-      globalCharacter.model.parent?.remove(globalCharacter.model);
-      activeScene.add(globalCharacter.model);
-    }
-  }
-  orbitControls!.object = activeCamera;
-  orbitControls!.enabled = false;
-  globalCharacter?.setFacing(currentPlayer.getState().yaw);
-  updatePlayerView(0);
-  if (currentSceneData.setBackTrigger) {
-    currentSceneData.setBackTrigger((state: PlayerTransitionState) => { transitionBackToScene4(state); });
-  }
-  currentSceneData.setLadderTrigger?.(() => { fadeTraversal(loadScene8); });
-  renderer.render(activeScene, activeCamera);
-  console.log('Scene 7 loaded - cafeteria');
-}
-
-async function transitionToScene7(entryState: PlayerTransitionState) {
-  try { await loadScene7(entryState); } catch (error) { console.error('Error loading scene 7:', error); }
-}
-
-async function transitionBackToScene4(entryState: PlayerTransitionState) {
-  try { await loadScene4(entryState, 'front'); } catch (error) { console.error('Error returning to scene 4:', error); }
-}
-
 function hideScene1Skip() {
   scene1SkipVisible = false;
   scene1SkipHold?.dispose(); scene1SkipHold = null;
@@ -1082,118 +891,40 @@ function hideScene1Skip() {
 
 function enterManagedScene(id: string, sceneData: any) {
   weaponWheel.close();
+  cctv.detach();
   teleportDevice.detachMarker();
   teleportArrivalTime = -1;
   if (activeScene) disposeComicEffects(activeScene);
   // Legacy combat scenes started with the pistol; only the new opening requires recovery.
   if (id === 'stage1-storage' && !sceneData.requiresRecoveredPistol || (id.startsWith('scene') && Number(id.slice(5)) >= 2)) hasPistol = true;
   lightsaber.detach();
-  heldSwitchHandle.removeFromParent();
   globalCharacter?.model.removeFromParent();
-  npcManager.enterScene(id, sceneData);
   activeSceneId = id;
+  music.enterScene(id, sceneData);
   enterHudScene(id);
   const damage = document.getElementById('player-damage');
   if (damage) damage.style.opacity = '0';
-  const sceneId = Number(id.slice(5)) as SceneModuleId;
+  const sceneId = (id === 'living-quarters' ? 0.5 : id === 'stage1-storage' ? 1.1
+    : id === 'stage2-infiltration' ? 1.2 : id === 'stage2-armory' ? 1.3 : Number(id.slice(5))) as SceneModuleId;
   for (const next of upcomingScenes[sceneId] ?? []) warmScene(next);
-  if (sceneId === 2) warmScene(13);
-  if (sceneId === 3) void background(() => prepareFirstPersonHands());
-  if (sceneId === 14) void background(() => preloadAudio(flightMusicUrl));
+  if (sceneId === 14) void background(() => preloadMusic(flightMusicUrl));
   if (sceneId === 15) {
-    void background(() => preloadAudio(jungleMusicUrl));
+    void background(() => preloadMusic(jungleMusicUrl));
   }
 }
 
 function retireTraversalRoom() {
   weaponWheel.close();
+  cctv.detach();
   teleportDevice.detachMarker();
   if (activeScene) disposeComicEffects(activeScene);
   // The persistent character is not scene-owned geometry.
+  pistol.holster(); crowbar.holster(); lightsaber.holster();
+  pistol.update(0); crowbar.update(0); lightsaber.update(0);
   lightsaber.detach();
-  heldSwitchHandle.removeFromParent();
   globalCharacter?.model.removeFromParent();
-  npcManager.leaveScene();
-}
-
-function fadeTraversal(complete: () => void | Promise<void>) {
-  traversalState = currentPlayer?.captureTransition({ x: 0, y: 0, z: 0 });
-  hideScene1Skip();
-  const fade = document.getElementById('fade-overlay');
-  if (!fade) { retireTraversalRoom(); complete(); return; }
-  fade.classList.remove('hidden');
-  fade.classList.add('black');
-  void fade.clientWidth;
-  fade.classList.add('active');
-  scheduleSceneAction(async () => {
-    retireTraversalRoom();
-    await complete();
-    scheduleSceneAction(() => {
-      fade.classList.remove('active');
-      scheduleSceneAction(() => { fade.classList.remove('black'); fade.classList.add('hidden'); }, 300);
-    }, 120);
-  }, 300);
-}
-
-async function loadScene8(entry: 'galley' | 'deck' = 'galley') {
-  const module = await prepareScene(8);
-  if (!module) return;
-  hideScene1Skip();
-  const sceneData = module.createScene({ entry, entryState: traversalState, puzzle: cargoPuzzle });
-    enterManagedScene('scene8', sceneData);
-  currentSceneData = sceneData; activeScene = sceneData.scene; activeCamera = sceneData.camera;
-  updatePhysics = sceneData.updatePhysics; cutsceneManager = null; currentPlayer = sceneData.player;
-  if (globalCharacter && globalCharacter.model.parent !== activeScene) {
-    globalCharacter.model.parent?.remove(globalCharacter.model); activeScene.add(globalCharacter.model);
-  }
-  orbitControls!.object = activeCamera; orbitControls!.enabled = false;
-  globalCharacter?.setFacing(currentPlayer.getState().yaw); updatePlayerView(0);
-  sceneData.setReturnToSeven(drop => fadeTraversal(() => loadScene7FromVent(drop)));
-  sceneData.setDescendToNine(drop => fadeTraversal(() => loadScene9(traversalState, false, drop)));
-  sceneData.setDropToTen(state => fadeTraversal(() => loadExtensionRoom(10, state)));
-  sceneData.setDropToEleven(state => fadeTraversal(() => loadExtensionRoom(11, state)));
-  renderer.render(activeScene, activeCamera);
-}
-
-async function loadScene7FromVent(drop = false) {
-  const module = await prepareScene(7);
-  if (!module) return;
-  hideScene1Skip();
-  const sceneData = module.createScene(ladderAccess());
-  enterManagedScene('scene7', sceneData);
-  const position = { x: 4.6, y: drop ? 4.15 : 0.3, z: drop ? -3.18 : -2.95 };
-  if (traversalState) sceneData.player.restoreTransition({ ...traversalState, position, velocity: { x: 0, y: 0, z: 0 }, yaw: Math.PI, pitch: 0, heldKeys: [], blockedKeys: [], crouching: false, sprinting: false, intentionalJump: false, jumpQueued: false }, { x: 0, y: 0, z: 0, yaw: -Math.PI });
-  sceneData.player.setPosition(position.x, position.y, position.z);
-  if (drop) sceneData.player.body.velocity.y = -5;
-  sceneData.player.setRotation(Math.PI, 0);
-  currentSceneData = sceneData; activeScene = sceneData.scene; activeCamera = sceneData.camera;
-  updatePhysics = sceneData.updatePhysics; cutsceneManager = null; currentPlayer = sceneData.player;
-  if (globalCharacter && globalCharacter.model.parent !== activeScene) {
-    globalCharacter.model.parent?.remove(globalCharacter.model); activeScene.add(globalCharacter.model);
-  }
-  orbitControls!.object = activeCamera; orbitControls!.enabled = false;
-  globalCharacter?.setFacing(currentPlayer.getState().yaw); updatePlayerView(0);
-  sceneData.setBackTrigger((state: PlayerTransitionState) => transitionBackToScene4(state));
-  sceneData.setLadderTrigger(() => fadeTraversal(loadScene8));
-  renderer.render(activeScene, activeCamera);
-}
-
-async function loadScene9(entryState?: PlayerTransitionState, fromPassage = false, dropFromLadder = false) {
-  const module = await prepareScene(9);
-  if (!module) return;
-  hideScene1Skip();
-  const sceneData = module.createScene({ entryState, fromPassage, dropFromLadder, puzzle: cargoPuzzle });
-    enterManagedScene('scene9', sceneData);
-  currentSceneData = sceneData; activeScene = sceneData.scene; activeCamera = sceneData.camera;
-  updatePhysics = sceneData.updatePhysics; cutsceneManager = null; currentPlayer = sceneData.player;
-  if (globalCharacter && globalCharacter.model.parent !== activeScene) {
-    globalCharacter.model.parent?.remove(globalCharacter.model); activeScene.add(globalCharacter.model);
-  }
-  orbitControls!.object = activeCamera; orbitControls!.enabled = false;
-  globalCharacter?.setFacing(currentPlayer.getState().yaw); updatePlayerView(0);
-  sceneData.setReturnToEight(() => fadeTraversal(() => loadScene8('deck')));
-  sceneData.setPassageTrigger(state => loadPassage12(state, 9));
-  renderer.render(activeScene, activeCamera);
+  currentSceneData?.dispose?.();
+  if (currentSceneData === scene1Data) scene1Data = null;
 }
 
 function activateExtension(sceneData: any, id: string) {
@@ -1201,27 +932,124 @@ function activateExtension(sceneData: any, id: string) {
   currentSceneData = sceneData; activeScene = sceneData.scene; activeCamera = sceneData.camera;
   updatePhysics = sceneData.updatePhysics; cutsceneManager = null; currentPlayer = sceneData.player;
   if (globalCharacter) activeScene!.add(globalCharacter.model);
-  orbitControls!.object = activeCamera!; orbitControls!.enabled = false;
+  if (orbitControls) { orbitControls.object = activeCamera!; orbitControls.enabled = false; }
   globalCharacter?.setFacing(currentPlayer!.getState().yaw); updatePlayerView(0);
 }
 
-async function loadExtensionRoom(id: 10 | 11 | 13, entryState?: PlayerTransitionState, fromPassage = false, checkpoint = false) {
-  const module = await prepareScene(id);
-  if (!module) return;
-  const request = sceneRequestVersion;
-  const options = { entryState, fromPassage, puzzle: cargoPuzzle };
+async function loadStageTwo(entryState?: PlayerTransitionState, presentation?: Promise<void>) {
+  const module = await prepareScene(1.2);
+  if (!module) return false;
+  const source = currentSceneData, request = sceneRequestVersion;
   const sceneData = module.createScene({
-      ...options, defeated: bayBossDefeated, checkpoint, renderer,
-      onDefeated: () => { bayBossDefeated = true; }, onDescend: loadHangar14,
-      onRespawn: () => loadExtensionRoom(13, undefined, false, true),
+    progress: stageTwoProgress, entryState, deferActivation: true,
+    getCameraTarget: () => activeCamera ? cctv.getTarget(activeCamera) : null,
+    hasReturnMarker: surveillanceMarkerPlaced,
+    getEquippedWeapon: equippedWeapon,
+    holsterWeapons: () => { pistol.holster(); crowbar.holster(); lightsaber.holster(); },
+    onCrowbarCollected: () => { hasCrowbar = true; introduceControls('crowbar'); },
+    onRetryFeed: id => cctv.retryFeed(id),
+    onCameraTeleport: (id, state) => loadCameraVisit(id, state),
+    prepareBay13: async () => { await (await sceneModule(13)).preloadAssets(); },
+    onExitToBay13: state => loadBay13(state, true),
+  });
+  if (!await prepareOpeningScene(sceneData, source, request, presentation)) return false;
+  hideScene1Skip(); retireTraversalRoom(); isThirdPerson = true;
+  activateExtension(sceneData, 'stage2-infiltration');
+  sceneData.activate();
+  if (stageTwoProgress.crowbarCollected) hasCrowbar = true;
+  if (stageTwoProgress.lightsaberCollected) hasLightsaber = true;
+  shipMapProgress.reveal(sceneData.getMapLayout());
+  updatePlayerView(0);
+  return true;
+}
+
+async function cameraFeed(id: CameraRoomId): Promise<CctvFeedSource> {
+  const sceneData = id === 'scene5'
+    ? (await sceneModule(5)).createScene({ remoteVisit: true, preview: true, loot: stageTwoProgress.remoteRooms.scene5 })
+    : id === 'scene6'
+      ? (await sceneModule(6)).createScene({ remoteVisit: true, preview: true, loot: stageTwoProgress.remoteRooms.scene6 })
+      : (await sceneModule(1.3)).createScene({ progress: stageTwoProgress, preview: true });
+  try {
+    await sceneData.ready;
+    await renderer.compileAsync(sceneData.scene, sceneData.camera);
+  } catch (error) { sceneData.dispose(); throw error; }
+  return { scene: sceneData.scene, update: dt => {
+    if ('syncProgress' in sceneData) sceneData.syncProgress();
+    sceneData.updatePhysics(dt);
+  },
+    dispose: () => sceneData.dispose() };
+}
+
+async function restartSurveillance() {
+  const state = currentPlayer?.captureTransition({ x: 0, y: 0, z: 0 });
+  stageTwoProgress.checkpoint = 'surveillance';
+  if (state && (state.health ?? PLAYER_MAX_HEALTH) <= 0) state.health = PLAYER_MAX_HEALTH;
+  const loaded = await loadStageTwo(state);
+  if (loaded) showTeleportDeviceMessage('Prime: Checkpoint restored. Q to set a marker.');
+  return loaded;
+}
+
+async function loadCameraVisit(id: CameraRoomId, entryState?: PlayerTransitionState, developerVisit = false) {
+  if (!developerVisit && !surveillanceMarkerPlaced()) {
+    showTeleportDeviceMessage('Prime: Set a marker with Q first.');
+    return false;
+  }
+  const source = currentSceneData;
+  let sceneData;
+  if (id === 'scene5') {
+    const module = await prepareScene(5);
+    if (!module || source !== currentSceneData) return false;
+    sceneData = module.createScene({ remoteVisit: true, deferActivation: true, entryState,
+      loot: stageTwoProgress.remoteRooms.scene5, hasReturnMarker: surveillanceMarkerPlaced, onRestart: restartSurveillance });
+  } else if (id === 'scene6') {
+    const module = await prepareScene(6);
+    if (!module || source !== currentSceneData) return false;
+    sceneData = module.createScene({ remoteVisit: true, deferActivation: true, entryState,
+      loot: stageTwoProgress.remoteRooms.scene6, hasReturnMarker: surveillanceMarkerPlaced, onRestart: restartSurveillance });
+  } else {
+    const module = await prepareScene(1.3);
+    if (!module || source !== currentSceneData) return false;
+    sceneData = module.createScene({ progress: stageTwoProgress, deferActivation: true, entryState,
+      hasReturnMarker: surveillanceMarkerPlaced, onRestart: restartSurveillance,
+      onLightsaberCollected: () => { hasLightsaber = true; introduceControls('lightsaber'); } });
+  }
+  const request = sceneRequestVersion;
+  if (!await prepareOpeningScene(sceneData, source, request)) return false;
+  retireTraversalRoom();
+  activateExtension(sceneData, id);
+  sceneData.activate();
+  shipMapProgress.reveal(sceneData.getMapLayout());
+  teleportArrivalTime = 0;
+  globalCharacter?.setHologramTransition(hologramTransitionAt(0, true, TELEPORT_TRANSFER_DURATION));
+  updatePlayerView(0);
+  return true;
+}
+
+async function loadBay13(entryState?: PlayerTransitionState, fromServiceLift = false, checkpoint = false) {
+  // The service-lift ride ends on black; the boss stage loads behind its own chapter screen.
+  const loading = fromServiceLift ? beginCinematicLoading('boss') : null;
+  try {
+    const module = await prepareScene(13);
+    if (!module) { loading?.finish(); return false; }
+    const source = currentSceneData, request = sceneRequestVersion;
+    const sceneData = module.createScene({ entryState, fromServiceLift, checkpoint, defeated: bayBossDefeated, renderer,
       healthPackCollected: healthPackCollectedScene13,
       onHealthPackCollected: () => { healthPackCollectedScene13 = true; },
-    });
-  if ('ready' in sceneData) await sceneData.ready;
-  if (request !== sceneRequestVersion) { sceneData.dispose(); return; }
-  retireTraversalRoom();
-  activateExtension(sceneData, `scene${id}`);
-  sceneData.setBackTrigger(state => loadPassage12(state, id));
+      onDefeated: () => { bayBossDefeated = true; },
+      onRespawn: () => { void loadBay13(undefined, false, true).catch(error => console.error('Bay 13 checkpoint restart failed:', error)); },
+      onDescend: state => { void loadHangar14(state); } });
+    const enabled = sceneData.player.isEnabled();
+    if (!await prepareOpeningScene(sceneData, source, request, loading?.presented)) { loading?.finish(); return false; }
+    hideScene1Skip(); retireTraversalRoom();
+    activateExtension(sceneData, 'scene13');
+    if (enabled) sceneData.player.enable();
+    if (loading) await warmBehindLoading(request);
+    loading?.finish();
+    return true;
+  } catch (error) {
+    loading?.finish();
+    throw error;
+  }
 }
 
 async function loadHangar14(entryState?: PlayerTransitionState) {
@@ -1233,7 +1061,7 @@ async function loadHangar14(entryState?: PlayerTransitionState) {
     entryState,
     onFailure: () => {
       // A fresh living player, with session inventory and the boss defeat preserved.
-      loadExtensionRoom(13, undefined, false, true);
+      void loadBay13(undefined, false, true).catch(error => console.error('Hangar checkpoint restart failed:', error));
     },
     onLaunch: loadFlight15,
   });
@@ -1295,240 +1123,47 @@ async function loadGround19(entryState?: RescueArrival) {
 }
 
 async function loadScene21(entryState?: RescueArrival, checkpoint?: FinaleCheckpoint) {
+  const loading = checkpoint ? null : beginCinematicLoading('finale');
+  // Decode the finale tracks behind the loading screen so the reveal starts on its music, not seconds later.
+  const musicReady = loading ? Promise.race([
+    Promise.all([preloadMusic(MUSIC_URLS.loading), preloadMusic(MUSIC_URLS.ship)]).then(() => undefined),
+    new Promise<void>(resolve => { window.setTimeout(resolve, 8000); }),
+  ]).catch(error => console.warn('[Audio] Finale music preparation failed:', error)) : undefined;
+  const expectedRequest = sceneRequestVersion + 1;
   const module = await prepareScene(21);
-  if (!module) return;
-  hideScene1Skip(); retireTraversalRoom(); setTouchFlightMode(false);
-  activateExtension(module.createScene({
-    entryState, checkpoint, renderer,
-    onFinished: () => { showMenuButtons(); },
-    onRetry: next => { void loadScene21(entryState, next); },
-  }), 'scene21');
-}
-
-async function loadPassage12(entryState?: PlayerTransitionState, from: PassageDestination = 10) {
-  const module = await prepareScene(12);
-  if (!module) return;
-  retireTraversalRoom();
-  const sceneData = module.createScene({ entryState, from, puzzle: cargoPuzzle, hasLightsaber,
-    onLightsaberCollected: () => { hasLightsaber = true; lightsaber.equip(); introduceControls('lightsaber'); },
-  });
-  activateExtension(sceneData, 'scene12');
-  for (const id of [9, 10, 11, 13] as const) sceneData.setDoorTrigger(id, state => {
-    if (id === 9) { retireTraversalRoom(); loadScene9(state, true); }
-    else loadExtensionRoom(id, state, true);
-  });
-}
-
-async function transitionBackToScene3(entryState: PlayerTransitionState) {
-  console.log('Returning to scene 3 from scene 4');
+  if (!module) {
+    if (expectedRequest !== sceneRequestVersion) loading?.finish();
+    else loading?.fail('The final chapter could not be loaded. Please try again.', () => { void loadScene21(entryState, checkpoint); });
+    return;
+  }
+  const request = sceneRequestVersion;
+  let sceneData: ReturnType<typeof module.createScene> | undefined;
   try {
-    const module = await prepareScene(3);
-    if (!module) return;
-    const sceneData = module.createScene({ audioManager, entryState, entryDoor: 'back', ...cargoAccess() });
-    enterManagedScene('scene3', sceneData);
-    currentSceneData = sceneData;
-    activeScene = currentSceneData.scene;
-    activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    updatePhysics = currentSceneData.updatePhysics;
-    cutsceneManager = currentSceneData.cutsceneManager;
-    currentPlayer = currentSceneData.player;
-  
-    if (globalCharacter && activeScene) {
-      if (globalCharacter.model.parent !== activeScene) {
-        globalCharacter.model.parent?.remove(globalCharacter.model);
-        activeScene.add(globalCharacter.model);
-      }
+    sceneData = module.createScene({
+      entryState, checkpoint, renderer,
+      onFinished: () => { showMenuButtons(); },
+      onRetry: next => { void loadScene21(entryState, next); },
+    });
+    if (loading) {
+      sceneData.setMenuPaused(true);
+      await Promise.all([sceneData.ready, loading.presented, musicReady]);
+      await renderer.compileAsync(sceneData.scene, sceneData.camera);
+      if (request !== sceneRequestVersion) { sceneData.dispose(); loading.finish(); return; }
     }
-
-    orbitControls!.object = activeCamera!;
-    orbitControls!.enabled = false;
-    globalCharacter?.setFacing(currentPlayer!.getState().yaw);
-    updatePlayerView(0);
-
-    if (currentSceneData.setBackTrigger) {
-      currentSceneData.setBackTrigger((state: PlayerTransitionState) => { transitionBackToScene2(state); });
+    hideScene1Skip(); retireTraversalRoom(); setTouchFlightMode(false);
+    activateExtension(sceneData, 'scene21');
+    if (loading) {
+      // Lift the loading screen on Brondon's walk to the five, after the setup frames have rendered.
+      sceneData.setMenuPaused(false);
+      if (!await warmBehindLoading(request, 4)) { loading.finish(); return; }
     }
-    if (currentSceneData.setForwardTrigger) {
-      currentSceneData.setForwardTrigger(() => { transitionToScene4(); });
-    }
-    if (currentSceneData.setLeftTrigger) {
-      currentSceneData.setLeftTrigger((state: PlayerTransitionState) => { transitionToScene5(state); });
-    }
-    if (currentSceneData.setRightTrigger) {
-      currentSceneData.setRightTrigger((state: PlayerTransitionState) => { transitionToScene6(state); });
-    }
-    renderer.render(activeScene!, activeCamera!);
-    console.log('Scene 3 loaded - return from scene 4');
-  } catch (e) {
-    console.error('Error in transitionBackToScene3:', e);
-  }
-}
-
-async function loadScene5(entryState?: PlayerTransitionState) {
-  const module = await prepareScene(5);
-  if (!module) return;
-  console.log('Loading scene 5...');
-  hideScene1Skip();
-
-  const sceneData = module.createScene({ audioManager, entryState });
-  enterManagedScene('scene5', sceneData);
-  currentSceneData = sceneData;
-  activeScene = currentSceneData.scene;
-  activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-  updatePhysics = currentSceneData.updatePhysics;
-  cutsceneManager = currentSceneData.cutsceneManager;
-  currentPlayer = currentSceneData.player;
-
-  if (globalCharacter && activeScene) {
-    if (globalCharacter.model.parent !== activeScene) {
-      globalCharacter.model.parent?.remove(globalCharacter.model);
-      activeScene.add(globalCharacter.model);
-    }
-  }
-
-  orbitControls!.object = activeCamera!;
-  orbitControls!.enabled = false;
-  globalCharacter?.setFacing(currentPlayer!.getState().yaw);
-  updatePlayerView(0);
-
-  if (currentSceneData.setBackTrigger) {
-    currentSceneData.setBackTrigger((state: PlayerTransitionState) => { transitionBackToScene3FromLeft(state); });
-  }
-  renderer.render(activeScene!, activeCamera!);
-  console.log('Scene 5 loaded - cargo hold');
-}
-
-async function transitionToScene5(entryState: PlayerTransitionState) {
-  console.log('Transitioning to scene 5');
-  try { await loadScene5(entryState); } catch (e) { console.error('Error loading scene 5:', e); }
-}
-
-async function transitionBackToScene3FromLeft(entryState: PlayerTransitionState) {
-  console.log('Returning to scene 3 from scene 5');
-  try {
-    const module = await prepareScene(3);
-    if (!module) return;
-    const sceneData = module.createScene({ audioManager, entryState, entryDoor: 'left', ...cargoAccess() });
-    enterManagedScene('scene3', sceneData);
-    currentSceneData = sceneData;
-    activeScene = currentSceneData.scene;
-    activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    updatePhysics = currentSceneData.updatePhysics;
-    cutsceneManager = currentSceneData.cutsceneManager;
-    currentPlayer = currentSceneData.player;
-
-    if (globalCharacter && activeScene) {
-      if (globalCharacter.model.parent !== activeScene) {
-        globalCharacter.model.parent?.remove(globalCharacter.model);
-        activeScene.add(globalCharacter.model);
-      }
-    }
-
-    orbitControls!.object = activeCamera!;
-    orbitControls!.enabled = false;
-    globalCharacter?.setFacing(currentPlayer!.getState().yaw);
-    updatePlayerView(0);
-
-    if (currentSceneData.setBackTrigger) {
-      currentSceneData.setBackTrigger((state: PlayerTransitionState) => { transitionBackToScene2(state); });
-    }
-    if (currentSceneData.setForwardTrigger) {
-      currentSceneData.setForwardTrigger(() => { transitionToScene4(); });
-    }
-    if (currentSceneData.setLeftTrigger) {
-      currentSceneData.setLeftTrigger((state: PlayerTransitionState) => { transitionToScene5(state); });
-    }
-    if (currentSceneData.setRightTrigger) {
-      currentSceneData.setRightTrigger((state: PlayerTransitionState) => { transitionToScene6(state); });
-    }
-    renderer.render(activeScene!, activeCamera!);
-    console.log('Scene 3 loaded - return from scene 5');
-  } catch (e) {
-    console.error('Error in transitionBackToScene3FromLeft:', e);
-  }
-}
-
-async function loadScene6(entryState?: PlayerTransitionState) {
-  const module = await prepareScene(6);
-  if (!module) return;
-  console.log('Loading scene 6...');
-
-  const sceneData = module.createScene({ audioManager, entryState, gogglesCollected: goggles.isCollected(),
-    onGogglesCollected: () => { goggles.collect(); introduceControls('goggles'); } });
-  enterManagedScene('scene6', sceneData);
-  currentSceneData = sceneData;
-  activeScene = currentSceneData.scene;
-  activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-  updatePhysics = currentSceneData.updatePhysics;
-  cutsceneManager = currentSceneData.cutsceneManager;
-  currentPlayer = currentSceneData.player;
-
-  if (globalCharacter && activeScene) {
-    if (globalCharacter.model.parent !== activeScene) {
-      globalCharacter.model.parent?.remove(globalCharacter.model);
-      activeScene.add(globalCharacter.model);
-    }
-  }
-
-  orbitControls!.object = activeCamera!;
-  orbitControls!.enabled = false;
-  globalCharacter?.setFacing(currentPlayer!.getState().yaw);
-  updatePlayerView(0);
-
-  if (currentSceneData.setBackTrigger) {
-    currentSceneData.setBackTrigger((state: PlayerTransitionState) => { transitionBackToScene3FromRight(state); });
-  }
-  renderer.render(activeScene!, activeCamera!);
-  console.log('Scene 6 loaded - engine room');
-}
-
-async function transitionToScene6(entryState: PlayerTransitionState) {
-  console.log('Transitioning to scene 6');
-  try { await loadScene6(entryState); } catch (e) { console.error('Error loading scene 6:', e); }
-}
-
-async function transitionBackToScene3FromRight(entryState: PlayerTransitionState) {
-  console.log('Returning to scene 3 from scene 6');
-  try {
-    const module = await prepareScene(3);
-    if (!module) return;
-    const sceneData = module.createScene({ audioManager, entryState, entryDoor: 'right', ...cargoAccess() });
-    enterManagedScene('scene3', sceneData);
-    currentSceneData = sceneData;
-    activeScene = currentSceneData.scene;
-    activeCamera = currentSceneData.camera || new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    updatePhysics = currentSceneData.updatePhysics;
-    cutsceneManager = currentSceneData.cutsceneManager;
-    currentPlayer = currentSceneData.player;
-
-    if (globalCharacter && activeScene) {
-      if (globalCharacter.model.parent !== activeScene) {
-        globalCharacter.model.parent?.remove(globalCharacter.model);
-        activeScene.add(globalCharacter.model);
-      }
-    }
-
-    orbitControls!.object = activeCamera!;
-    orbitControls!.enabled = false;
-    globalCharacter?.setFacing(currentPlayer!.getState().yaw);
-    updatePlayerView(0);
-
-    if (currentSceneData.setBackTrigger) {
-      currentSceneData.setBackTrigger((state: PlayerTransitionState) => { transitionBackToScene2(state); });
-    }
-    if (currentSceneData.setForwardTrigger) {
-      currentSceneData.setForwardTrigger(() => { transitionToScene4(); });
-    }
-    if (currentSceneData.setLeftTrigger) {
-      currentSceneData.setLeftTrigger((state: PlayerTransitionState) => { transitionToScene5(state); });
-    }
-    if (currentSceneData.setRightTrigger) {
-      currentSceneData.setRightTrigger((state: PlayerTransitionState) => { transitionToScene6(state); });
-    }
-    renderer.render(activeScene!, activeCamera!);
-    console.log('Scene 3 loaded - return from scene 6');
-  } catch (e) {
-    console.error('Error in transitionBackToScene3FromRight:', e);
+    sceneData.setMenuPaused(quickMenuOpen);
+    loading?.finish();
+  } catch (error) {
+    sceneData?.dispose();
+    console.error('Final chapter preparation failed:', error);
+    if (loading) loading.fail('The final chapter could not be prepared. Please try again.', () => { void loadScene21(entryState, checkpoint); });
+    else document.getElementById('scene-menu-error')!.textContent = 'The final chapter could not be prepared. Please try again.';
   }
 }
 
@@ -1607,12 +1242,12 @@ const SCENE_CHOICES = [
   [0, 'Prologue — awakening'],
   [0.5, 'Living quarters - crew cabins'],
   [1.1, 'Level 1 stage 1 - Deck One Hangar'],
-  [1, 'Space prologue'], [2, 'Medical bay'], [3, 'Passageway'], [4, 'Computer room'],
-  [5, 'Cargo hold'], [6, 'Target range'], [7, 'Cafeteria'], [8, 'Vent junction'],
-  [9, 'Zero-gravity loading bay'], [10, 'Durable cargo puzzle'], [11, 'Mixed cargo puzzle'],
-  [12, 'Transfer passage'], [13, 'Bay Warden boss'], [14, 'Hangar escape'],
+  [1.2, 'Level 1 stage 2 - Surveillance route'],
+  [1.3, 'Stage 2 - Sealed equipment archive'],
+  [1, 'Space prologue'], [5, 'Stage 2 camera - Cargo hold'], [6, 'Stage 2 camera - Target range'],
+  [13, 'Bay 13 - Bay Warden boss'], [14, 'Hangar escape'],
   [15, 'Space combat'], [15.5, 'Sidescroll Scrambler'], [15.75, 'Top-down Red Scrambler'], [16, 'Crash landing'],
-  [17, 'Jungle approach'], [18, 'Facility defenses'], [19, 'Facility summit'], [21, 'Final boss / The Quintet'],
+  [17, 'Jungle approach'], [18, 'Facility defenses'], [19, 'Facility summit'], [21, 'Final boss / Sudoers 5'],
 ] as const;
 const quickMenu = document.getElementById('scene-quick-menu') as HTMLDialogElement;
 const pauseMenu = document.getElementById('pause-menu') as HTMLDialogElement;
@@ -1627,10 +1262,15 @@ let resumePointerTarget: HTMLElement | null = null;
 
 function chartCurrentMapSection() {
   const layout: ShipMapLayout | undefined = currentSceneData?.getMapLayout?.();
-  if (layout) shipMapProgress.reveal(layout);
-  else {
-    const id = Number((currentSceneData?.getSceneId?.() ?? activeSceneId).replace('scene', ''));
-    if (SHIP_MAP_LAYOUT.rooms.some(room => room.id === id)) shipMapProgress.reveal(SHIP_MAP_LAYOUT);
+  try {
+    if (layout) shipMapProgress.reveal(layout);
+    else {
+      const id = Number((currentSceneData?.getSceneId?.() ?? activeSceneId).replace('scene', ''));
+      if (SHIP_MAP_LAYOUT.rooms.some(room => room.id === id)) shipMapProgress.reveal(SHIP_MAP_LAYOUT);
+    }
+  } catch (error) {
+    // A room charted by an earlier blueprint section is already on the map.
+    if (!(error instanceof Error && error.message.startsWith('Duplicate charted room'))) throw error;
   }
 }
 
@@ -1693,6 +1333,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
   clearSceneInput();
   document.body.classList.toggle('quick-menu-open', quickMenuOpen);
   if (quickMenuOpen) setAudioMenuPaused(true);
+  music.setMenuOpen(quickMenuOpen);
   currentSceneData?.setMenuPaused?.(quickMenuOpen);
   if (!quickMenuOpen) setAudioMenuPaused(false);
 
@@ -1762,9 +1403,9 @@ async function jumpToScene(id: number) {
   if (menuScreen !== 'scenes' || !developerUnlocked || !SCENE_CHOICES.some(([scene]) => scene === id)) return;
   weaponWheel.close();
   teleportDevice.detachMarker();
-  cctvTeleportTime = teleportArrivalTime = -1; cctvTeleportTarget = null;
+  teleportArrivalTime = -1;
   globalCharacter?.setHologramTransition(null);
-  pendingSceneActions.clear(); creditsTimer = null;
+  pendingSceneActions.clear();
   setTouchFlightMode(false);
   clearSceneInput();
   // Detach persistent gear before the outgoing scene disposes its meshes.
@@ -1774,15 +1415,21 @@ async function jumpToScene(id: number) {
   if (currentSceneData === scene1Data) { currentSceneData?.dispose?.(); scene1Data = null; }
   retireTraversalRoom();
   currentSceneData = null; currentPlayer = null; activeScene = null; activeCamera = null;
-  updatePhysics = null; cutsceneManager = null; traversalState = undefined; lastSplinePoint = null;
+  music.enterScene(null);
+  updatePhysics = null; cutsceneManager = null; lastSplinePoint = null;
   hideScene1Skip();
   for (const overlay of ['credits-overlay', 'menu-buttons', 'crowbar-overlay', 'boss-hud', 'boss-subtitles', 'escape-qte', 'loading-bay-status', 'space-cinematic-caption']) document.getElementById(overlay)?.classList.add('hidden');
   const fade = document.getElementById('fade-overlay'); fade?.classList.remove('active', 'black'); fade?.classList.add('hidden');
   // Developer spawn grants the tools but equips nothing; the player selects them per scene.
-  hasPistol = true; hasCrowbar = true; hasLightsaber = true; shieldCollectedScene7 = true; goggles.collect(false);
+  hasPistol = true; hasCrowbar = true; hasLightsaber = true; goggles.collect(false);
   teleportDevice.collect(false);
   quartersProgress.pistolCollected = true;
-  if (id >= 8 && id <= 12) cargoPuzzle = createCargoPuzzleState(id);
+  if (id === 1.2) {
+    stageTwoProgress = createStageTwoProgress(); cctv.clearSources();
+    hasCrowbar = hasLightsaber = false; bayBossDefeated = false; healthPackCollectedScene13 = false;
+  } else if (id === 1.3 || id === 5 || id === 6) {
+    stageTwoProgress.checkpoint = 'surveillance'; stageTwoProgress.guardDown = true;
+  }
   if (id === 13) bayBossDefeated = false;
   const request = sceneRequestVersion + 1;
   try {
@@ -1790,17 +1437,12 @@ async function jumpToScene(id: number) {
       case 0: await loadPrologue1(); break;
       case 0.5: await loadLivingQuarters(); break;
       case 1.1: await loadStage1Storage(); break;
+      case 1.2: if (!await loadStageTwo()) throw new Error('Stage Two did not activate'); break;
+      case 1.3: if (!await loadCameraVisit('stage2-armory', undefined, true)) throw new Error('The archive did not activate'); break;
       case 1: await loadScene1(); break;
-      case 2: await loadScene2(true); break;
-      case 3: await loadScene3(); break;
-      case 4: await loadScene4(); break;
-      case 5: await loadScene5(); break;
-      case 6: await loadScene6(); break;
-      case 7: await loadScene7(); break;
-      case 8: await loadScene8(); break;
-      case 9: await loadScene9(); break;
-      case 10: case 11: case 13: await loadExtensionRoom(id); break;
-      case 12: await loadPassage12(); break;
+      case 5: if (!await loadCameraVisit('scene5', undefined, true)) throw new Error('The cargo camera room did not activate'); break;
+      case 6: if (!await loadCameraVisit('scene6', undefined, true)) throw new Error('The range camera room did not activate'); break;
+      case 13: if (!await loadBay13()) throw new Error('Bay 13 did not activate'); break;
       case 14: await loadHangar14(); break;
       case 15: await loadFlight15(); break;
       case 15.5: await loadFlight15(undefined, 'scrambler'); break;
@@ -1941,25 +1583,41 @@ const playerDamageEl = document.getElementById('player-damage');
 let deathPresentation: { player: Player; elapsed: number; managed: boolean;
   position: THREE.Vector3; rotation: THREE.Quaternion; fov: number } | null = null;
 
-/** Reloads scene 2, whose wake-up sequence always spawns the player at the capsule. */
-function respawnAtCapsule() {
-  console.log('Player died - respawning at capsule');
-  try { loadScene2(); } catch (e) { console.error('Error respawning player:', e); }
+async function respawnAtCheckpoint() {
+  try {
+    const loaded = isCameraVisit(activeSceneId) || activeSceneId === 'stage2-infiltration'
+      ? await restartSurveillance() : await loadLivingQuarters(true);
+    if (!loaded) throw new Error('The player checkpoint could not be restored');
+  } catch (error) {
+    console.error('Player checkpoint restart failed:', error);
+    showTeleportDeviceMessage('The checkpoint could not be loaded. Use the developer scene menu to retry.');
+  }
 }
 
 function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
+  cinematicLoading.update(delta);
+  music.setPaused(quickMenuOpen || weaponWheelOpen || teleportLoading || document.hidden
+    || !!currentSceneData?.isMusicPaused?.());
   if (mappedSceneData !== currentSceneData) { mappedSceneData = currentSceneData; chartCurrentMapSection(); }
+  if (cinematicLoading.active) {
+    controlCard.classList.add('hidden');
+    music.update(Math.min(delta, 0.1));
+    return;
+  }
   scene1SkipHold?.update(delta);
   if (quickMenuOpen || weaponWheelOpen || teleportLoading || document.hidden) {
     controlCard.classList.add('hidden');
     if (shipMap?.visible) { shipMap.render(); return; }
-    if (activeScene && activeCamera) renderGameScene(currentSceneData?.getRenderScene?.() ?? activeScene, activeCamera);
-    renderMinimap();
+    if (activeScene && activeCamera) renderGameplayFrame(currentSceneData?.getRenderScene?.() ?? activeScene, activeCamera);
     return;
   }
   advanceSceneActions(Math.min(delta, 0.1));
+  if (checkpointNoticeTime > 0) {
+    checkpointNoticeTime = Math.max(0, checkpointNoticeTime - Math.min(delta, 0.1));
+    if (checkpointNoticeTime === 0) document.getElementById('scene-checkpoint')!.classList.add('hidden');
+  }
   if (!scene1SkipVisible) document.getElementById('skip-btn')?.classList.add('hidden');
 
   // Health bar + death/respawn
@@ -1980,7 +1638,7 @@ function animate() {
     if (shieldFillEl) shieldFillEl.style.width = `${shieldPct * 100}%`;
     if (shieldLabelEl) shieldLabelEl.textContent = `${Math.max(0, Math.ceil(shield))} / ${maxShield}`;
     shieldBarEl?.setAttribute('aria-valuenow', String(Math.max(0, Math.ceil(shield))));
-    if (currentPlayer.isEnabled() && health <= 0 && !deathPresentation) {
+    if (currentPlayer.isEnabled() && health <= 0 && !deathPresentation && !currentSceneData?.handlesPlayerDeath) {
       const managed = !!currentSceneData?.onPlayerDeath?.();
       deathPresentation = { player: currentPlayer, elapsed: 0, managed, position: activeCamera!.position.clone(),
         rotation: activeCamera!.quaternion.clone(), fov: activeCamera!.fov };
@@ -1988,20 +1646,15 @@ function animate() {
     }
     if (deathPresentation) {
       deathPresentation.elapsed += Math.min(delta, 0.1);
-      if (!deathPresentation.managed && deathPresentation.elapsed >= 2.5) { deathPresentation = null; respawnAtCapsule(); }
+      if (!deathPresentation.managed && deathPresentation.elapsed >= 2.5) { deathPresentation = null; void respawnAtCheckpoint(); }
     }
   }
   if (healthBarEl) healthBarEl.style.display = activeSceneId === 'scene1' || activeSceneId === 'prologue1' || activeSceneId === 'scene21' ? 'none' : '';
   if (shieldBarEl) shieldBarEl.style.display = activeSceneId === 'scene1' || activeSceneId === 'prologue1' || activeSceneId === 'scene21' ? 'none' : '';
 
-  // Record pursuit before stepping the active world; retired worlds step separately.
-  npcManager.update(delta);
-
-  // Let scene4's chest know once the enemy is defeated, so it can be interacted with.
-  currentSceneData?.setEnemyDefeated?.(npcManager.getStatus().state === 'DISAPPEARED');
-
   // Physics
   if (updatePhysics) updatePhysics(delta, isThirdPerson);
+  music.update(Math.min(delta, 0.1));
   if (playerDamageEl) playerDamageEl.style.opacity = String(currentSceneData?.getDamageFlash?.() ?? currentPlayer?.getDamageFlash() ?? 0);
 
   // Cutscenes
@@ -2018,7 +1671,7 @@ function animate() {
     && (currentPlayer.isEnabled() || !!currentSceneData?.controlsReady?.());
   const aimingReticle = aiming || !!currentSceneData?.hasAimReticle?.();
   document.getElementById('look-reticle')?.classList.toggle('hidden',
-    !onFoot || inCutscene || cctvTeleportTime >= 0 || aimingReticle);
+    !onFoot || inCutscene || aimingReticle);
 
   const sceneOwnsControls = !!deathPresentation || !!currentSceneData?.isCinematic?.();
   updateViewButton();
@@ -2031,57 +1684,13 @@ function animate() {
       hasLightsaber,
       hasPistol,
       hasGoggles: goggles.isCollected(),
-      shieldCollected: shieldCollectedScene7,
+      shieldCollected: stageTwoProgress.remoteRooms.scene6.rewardCollected,
       healthPackCollected: healthPackCollectedScene13,
       bossDefeated: bayBossDefeated,
-      ladderCratesCleared: clearedLadderCrates.size > 0,
-      cargoDoorUnlocked,
+      ladderCratesCleared: stageTwoProgress.crateBroken,
+      cargoDoorUnlocked: stageTwoProgress.elevatorUnlocked,
       playerPosition: { x: currentPlayer.body.position.x, y: currentPlayer.body.position.y, z: currentPlayer.body.position.z },
     });
-  }
-
-  // CCTV look-at detection (per-frame raycast from camera center)
-  if (activeSceneId === 'scene7' && currentPlayer?.isEnabled() && activeCamera && !quickMenuOpen && !currentSceneData?.isCinematic?.() && cctvTeleportTime < 0) {
-    cctvCenterRaycaster.setFromCamera(new THREE.Vector2(0, 0), activeCamera);
-    const screenIndex = cctv.getLookedAtScreen(cctvCenterRaycaster, activeCamera);
-    if (screenIndex !== null) {
-      const roomIds = cctv.roomIds;
-      const roomId = roomIds[screenIndex];
-      const canTeleport = roomId !== 'cafeteria';
-      cctv.highlightScreen(canTeleport ? screenIndex : null);
-      cctvLookedAtScreen = canTeleport ? screenIndex : null;
-      const visible = canTeleport;
-      if (cctvPrompt && visible !== cctvPromptVisible) {
-        cctvPromptVisible = visible;
-        cctvPrompt.textContent = `Press E to teleport to ${roomId.replace('-', ' ')}`;
-        cctvPrompt.classList.toggle('hidden', !visible);
-      }
-    } else {
-      cctv.highlightScreen(null);
-      cctvLookedAtScreen = null;
-      if (cctvPrompt && cctvPromptVisible) {
-        cctvPromptVisible = false;
-        cctvPrompt.classList.add('hidden');
-      }
-    }
-  } else if (cctvPrompt && cctvPromptVisible) {
-    cctvPromptVisible = false;
-    cctvPrompt.classList.add('hidden');
-    cctv.highlightScreen(null);
-    cctvLookedAtScreen = null;
-  }
-
-  // CCTV hologram teleportation
-  if (cctvTeleportTime >= 0) {
-    cctvTeleportTime += delta;
-    const transition = hologramTransitionAt(cctvTeleportTime);
-    globalCharacter?.setHologramTransition(transition);
-    if (cctvTeleportTime >= HOLOGRAM_TRANSFER_DURATION && cctvTeleportTarget) {
-      const target = cctvTeleportTarget;
-      cctvTeleportTime = -1;
-      cctvTeleportTarget = null;
-      target();
-    }
   }
 
   // Character animations + view
@@ -2093,28 +1702,14 @@ function animate() {
     teleportArrivalTime += Math.min(delta, 0.1);
     if (teleportArrivalTime >= TELEPORT_TRANSFER_DURATION) teleportArrivalTime = -1;
   }
-  if (cctvTeleportTime < 0) {
-    globalCharacter?.setHologramTransition(teleportArrivalTime >= 0
-      ? hologramTransitionAt(teleportArrivalTime, true, TELEPORT_TRANSFER_DURATION)
-      : currentSceneData?.getHologramTransition?.() ?? null);
-  }
+  globalCharacter?.setHologramTransition(teleportArrivalTime >= 0
+    ? hologramTransitionAt(teleportArrivalTime, true, TELEPORT_TRANSFER_DURATION)
+    : currentSceneData?.getHologramTransition?.() ?? null);
 
   if (!sceneOwnsControls && !currentSceneData?.ownsWeaponInput) { pistol.update(delta); crowbar.update(delta); }
   if (!sceneOwnsControls && !currentSceneData?.ownsWeaponInput) lightsaber.update(delta);
   else lightsaber.detach();
-  heldSwitchHandle.visible = cargoPuzzle.handle === 'carried' && !sceneOwnsControls && !!currentPlayer?.isEnabled();
-  if (heldSwitchHandle.visible && currentPlayer && activeScene && activeCamera) {
-    activeScene.add(heldSwitchHandle);
-    const yaw = currentPlayer.getState().yaw, p = currentPlayer.body.position;
-    if (isGameplayThirdPerson()) {
-      heldSwitchHandle.position.set(p.x + Math.cos(yaw) * 0.35 - Math.sin(yaw) * 0.45, p.y + 0.7, p.z - Math.sin(yaw) * 0.35 - Math.cos(yaw) * 0.45);
-      heldSwitchHandle.rotation.set(0.4, yaw, 0);
-    } else {
-      heldSwitchHandle.position.set(0.3, -0.45, -0.7).applyQuaternion(activeCamera.quaternion).add(activeCamera.position);
-      heldSwitchHandle.quaternion.copy(activeCamera.quaternion);
-    }
-  } else heldSwitchHandle.removeFromParent();
-  cctv.update(delta, currentSceneData?.roomId, activeScene, npcManager.getStatus().scene);
+  cctv.update(delta, activeScene, currentSceneData?.getCctvEnabled?.() ?? false);
 
   // Controls
   if (orbitControls && orbitControls.enabled) orbitControls.update();
@@ -2123,8 +1718,7 @@ function animate() {
   if (activeScene && activeCamera) {
     const scene = currentSceneData?.getRenderScene?.() ?? activeScene;
     updateComicEffects(scene, activeCamera, delta, renderer);
-    renderGameScene(scene, activeCamera);
-    renderMinimap();
+    renderGameplayFrame(scene, activeCamera);
   }
 }
 

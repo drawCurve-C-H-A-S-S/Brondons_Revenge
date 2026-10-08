@@ -6,6 +6,7 @@ interface WeaponWheelOptions {
   isBlocked: () => boolean;
   setPaused: (paused: boolean) => void;
   onSelect: (id: WeaponId) => void;
+  getTapAction?: () => (() => void) | null;
 }
 const TAU = Math.PI * 2;
 const RADIUS = 112;
@@ -49,6 +50,12 @@ export function createWeaponWheel(options: WeaponWheelOptions) {
   let entries: WeaponWheelEntry[] = [];
   let positions: { x: number; y: number }[] = [];
   let sourceEntries: Element[] = [];
+  let holdTimer: ReturnType<typeof setTimeout> | null = null, tapAction: (() => void) | null = null;
+
+  function cancelHold() {
+    if (holdTimer !== null) clearTimeout(holdTimer);
+    holdTimer = null; tapAction = null;
+  }
 
   function select(index: number) {
     selected = index;
@@ -80,6 +87,7 @@ export function createWeaponWheel(options: WeaponWheelOptions) {
     return true;
   }
   function close(confirm = false) {
+    cancelHold();
     if (!open) return;
     const choice = confirm ? entries[selected] : undefined;
     open = false; root.classList.add('hidden'); root.setAttribute('aria-hidden', 'true');
@@ -115,9 +123,19 @@ export function createWeaponWheel(options: WeaponWheelOptions) {
     }
     if (event.code !== 'Tab' || event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
     if (event.target instanceof HTMLElement && event.target.closest('button, dialog, input, textarea, select, [contenteditable="true"]')) return;
-    if (openWheel()) consume(event);
+    if (options.isBlocked()) return;
+    tapAction = options.getTapAction?.() ?? null;
+    if (tapAction) {
+      consume(event);
+      holdTimer = setTimeout(() => { holdTimer = null; tapAction = null; openWheel(); }, 230);
+    } else if (openWheel()) consume(event);
   }, capture);
   window.addEventListener('keyup', event => {
+    if (event.code === 'Tab' && holdTimer !== null) {
+      const action = tapAction; cancelHold(); consume(event);
+      if (!options.isBlocked()) action?.();
+      return;
+    }
     if (!open) return;
     consume(event);
     if (event.code === 'Tab') close(true);

@@ -4,15 +4,14 @@ import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
 import { disposeRoom } from '../../helpers/scene/shipRoom.js';
 import { clearComicEffects, emitComicEffect } from '../../helpers/scene/comicEffects.js';
 import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
-import { createEscapeShip, createEscapePod, addPlanetBackdrop } from '../../scripts/items/createEscapeShip.js';
+import { createEscapeShip, createEscapePod, addPlanetBackdrop, animatePlanetBackdrop } from '../../scripts/items/createEscapeShip.js';
 import { consumeFlightAim, consumeFlightFirePress, isTouchFire, resetTouchInput } from '../../scripts/touchControls.js';
 import type { LaunchState } from '../level 1/scene14.js';
 import { createSidescrollPhase, SCRAMBLER_HEALTH } from './scene15-5.js';
 import { createTopdownPhase, TOPDOWN_SCRAMBLER_HEALTH } from './scene15-75.js';
 import { predictsCollision } from '../../helpers/scene/flightCollision.js';
 import { createFlightVersus, FLIGHT_VERSUS_DURATION } from '../../helpers/scene/flightVersus.js';
-import { AudioManager, getAudioSettings, subscribeAudioSettings } from '../../helpers/audio/AudioManager.js';
-import level2BgmUrl from '../../assets/bgm/DonRevLevel2.m4a?url';
+import { getAudioSettings, subscribeAudioSettings } from '../../helpers/audio/AudioManager.js';
 import shieldPowerupUrl from '../../assets/power ups/Shield_powerup.png?url';
 import { createFlightShield } from '../../scripts/flightShield.js';
 import fireVertexShader from '../../shaders/fireExplosion.vert.glsl?raw';
@@ -205,6 +204,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   const carrierSurfaces = new Map<THREE.Material, { opacity: number; transparent: boolean; depthWrite: boolean }>();
   let clock = 0, phaseClock = 0, railZ = launch?.shipPosition.z ?? 0, spawned = 0, totalKilled = 0, spawnCd = 0;
   let deathClock = 0;
+  let redScramblerCleared = false;
   let playerHp = PLAYER_MAX_HP, invulnerability = 0, damageFlash = 0, hitFlash = 0, fireCd = 0;
   let paused = false, disposed = false, transferred = false, firing = false, cockpitView = false;
   let queuedShot = false, shotsFired = 0;
@@ -214,8 +214,6 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   const bossArrivalStart = new THREE.Vector3(), bossArrivalRotation = new THREE.Quaternion();
   const neutralBossRotation = new THREE.Quaternion();
   const neutralShipRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI, 0));
-  const audioManager = new AudioManager({ camera, getFile: (path: string) => path === 'level-2' ? { content: level2BgmUrl } : null });
-  let musicPaused = true;
   let sidescroll: ReturnType<typeof createSidescrollPhase> | null = null;
   let topdown: ReturnType<typeof createTopdownPhase> | null = null;
   let rocketCooldown = 3.2;
@@ -324,14 +322,8 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   function showCrosshair() {
     if (crosshair) { crosshair.style.left = `${(aim.x + 1) * 50}%`; crosshair.style.top = `${(1 - aim.y) * 50}%`; }
   }
-  function syncMusic() {
-    const shouldPause = disposed || transferred || paused || inputBlocked();
-    if (musicPaused === shouldPause) return;
-    musicPaused = shouldPause;
-    if (shouldPause) audioManager.pauseBgm(); else audioManager.playBgm();
-  }
   function setPaused(value: boolean) {
-    paused = value; clearInput(); syncMusic();
+    paused = value; clearInput();
     versus?.setPaused(value);
     document.body.classList.toggle('space-paused', value);
     if (value) releasePointerLock();
@@ -581,7 +573,6 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     phase = 'topdownScrambler'; phaseClock = 0;
     boss.core.mesh.visible = boss.core.ring.visible = boss.shield.visible = false;
     boss.bow.visible = true;
-    // Keep the existing AudioManager and Level 2 loop alive through both camera transitions.
     topdown = createTopdownPhase({ scene, camera, ship: ship.root, boss: boss.root, rail: railZ,
       launchBays: boss.launchBays, createInterceptor: () => createFighterMesh().root, shootLaser: launchBolt, burst, explode,
       dropShield: position => shields.drop(position, FLIGHT_RULES.cruise) });
@@ -640,6 +631,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     if (phase === 'topdownScrambler' && topdown?.active) {
       if (topdown.hit(hit.object, point, SHOT_DAMAGE)) hitFlash = 0.12;
       if (!topdown.active) {
+        redScramblerCleared = true;
         clearBolts(); clearInput(); announce('RED SCRAMBLER DESTROYED / RESTORING REACTOR APPROACH', 3.2);
       }
       return;
@@ -775,6 +767,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     }
   }
   function restartScene() {
+    redScramblerCleared = false;
     clearComicEffects(scene);
     shields.reset();
     clearExplosions();
@@ -1012,13 +1005,14 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     if (phase === 'victory' && pod) {
       pod.position.addScaledVector(planetPosition.clone().sub(pod.position).normalize(), dt * 320);
       if (phaseClock >= 2.8 && !transferred) {
-        transferred = true; syncMusic();
+        transferred = true;
         onTransition({ shipPosition: ship.root.position.clone(), shipQuaternion: ship.root.quaternion.clone(), podPosition: pod.position.clone(), podQuaternion: pod.quaternion.clone(), planetPosition: planetPosition.clone(), cameraPosition: camera.position.clone(), cameraQuaternion: camera.quaternion.clone(), cameraFov: camera.fov, hullHealth: playerHp, pilotState: player.captureTransition({ x: 0, y: 0, z: 0 }) });
         return;
       }
     }
     updateEffects(dt);
     player.setPosition(ship.root.position.x, ship.root.position.y + 2, ship.root.position.z);
+    if (planet.visible) animatePlanetBackdrop(planet, dt);
   }
 
   function beginVersus() {
@@ -1038,8 +1032,6 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     announce('AUTO THRUST ENGAGED / INTERCEPTORS INBOUND', 3);
   }
 
-  audioManager.setBgm({ path: 'level-2', loop: true, volume: 0.45, autoplay: false });
-  syncMusic();
   createCarrier();
   if (startAt === 'scrambler') { spawned = totalKilled = TOTAL_FIGHTERS; spawnBoss(); }
   if (!launch) ship.root.rotation.y = Math.PI;
@@ -1049,6 +1041,9 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   showCrosshair(); updateHud();
   return {
     roomId: 'scene15', scene, camera, physicsWorld, player, ship, planet, cutsceneManager: null,
+    getMusicTrack: (): 'level-2' | 'level-2-boss' => redScramblerCleared ? 'level-2-boss' : 'level-2',
+    hasBossVictory: () => phase === 'victory',
+    isMusicPaused: () => paused,
     isCinematic: () => true, hideCharacter: () => true,
     toggleView, canToggleView, isThirdPersonView: () => !cockpitView,
     controlsReady: () => !paused && !inputBlocked() && combatLive(),
@@ -1062,14 +1057,13 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     },
     getCinematicState: () => player.getState(), applyCinematicCamera: cameraView,
     renderCinematicOverlay(renderer: THREE.WebGLRenderer) { if (phase === 'versus') versus?.render(renderer); },
-    clearInput, setMenuPaused(value: boolean) { if (!value && paused) setPaused(false); syncMusic(); },
+    clearInput, setMenuPaused(value: boolean) { if (!value && paused) setPaused(false); },
     getFlightStatus: () => ({ speed: cruiseSpeed(), cockpitView, paused, phase, introTime: phase === 'opening' || phase === 'versus' ? phaseClock : null, playerHp, totalKilled, spawned, shotsFired,
       shields: shields.status,
       scramblerHp: topdown?.health ?? sidescroll?.health ?? 0, scramblerStage: topdown?.stage ?? sidescroll?.stage ?? null,
       bossHp: boss ? [...boss.generators, boss.core].reduce((sum, t) => sum + t.health, 0) : 0 }),
     updatePhysics(dt: number) {
       if (disposed || transferred) return;
-      syncMusic();
       if (paused || inputBlocked()) return;
       let remaining = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, 0.1));
       // Bounded substeps preserve dodge and projectile behavior across render rates.
@@ -1081,7 +1075,6 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       versus?.dispose(); versus = null;
       carrierSurfaces.clear();
       stopAudioSettings(); sfxOutput?.disconnect();
-      audioManager.dispose();
       shields.dispose();
       clearExplosions(); explosionGeometry.dispose();
       sidescroll?.dispose(); sidescroll = null; topdown?.dispose(); topdown = null;

@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { disposeRoom } from './shipRoom.js';
 import { createArmorTextures, createEnergyMaterial } from './finaleMaterials.js';
-import { QUINTET } from './finaleActors.js';
-import { PLANET_RUPTURE, activeStudent } from '../../scripts/finaleChoreography.js';
+import { SUDOERS_5 } from './finaleActors.js';
+import { PLANET_RUPTURE, activeStudent, samplePlanetBreaker } from '../../scripts/finaleChoreography.js';
+import { createEarthTextures, createEarthGroup } from '../../scripts/earthTexture.js';
 
 export const PLANET_RADIUS = 340;
 export const SPACE_ALTITUDE = 95;
@@ -18,40 +19,16 @@ const smooth = THREE.MathUtils.smootherstep;
 const clamp = THREE.MathUtils.clamp;
 function random(seed: number) { const value = Math.sin(seed * 127.1 + 311.7) * 43758.5453; return value - Math.floor(value); }
 
-function planetMap() {
-  const width = 256, height = 128, bytes = new Uint8Array(width * height * 4);
-  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-    const longitude = x / width * Math.PI * 2, latitude = y / height * Math.PI;
-    const px = Math.sin(latitude) * Math.cos(longitude), py = Math.cos(latitude), pz = Math.sin(latitude) * Math.sin(longitude);
-    let elevation = 0;
-    for (let octave = 0; octave < 5; octave++) {
-      const frequency = 2.3 * 2 ** octave;
-      elevation += Math.sin(px * frequency + Math.sin(pz * frequency * 0.7)) * Math.cos(py * frequency + pz) / 2 ** octave;
-    }
-    const land = elevation > 0.2, coast = Math.abs(elevation - 0.2) < 0.13, ice = Math.abs(py) > 0.93;
-    const color = ice ? [197, 217, 219] : coast ? [105, 130, 83] : land
-      ? [40 + elevation * 18, 78 + elevation * 21, 54 + elevation * 12] : [13, 39 + elevation * 4, 72 + elevation * 8];
-    const i = (y * width + x) * 4;
-    bytes.set([...color.map(value => Math.round(value)), 255], i);
-  }
-  const texture = new THREE.DataTexture(bytes, width, height, THREE.RGBAFormat);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.magFilter = THREE.LinearFilter;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.generateMipmaps = true;
-  texture.needsUpdate = true;
-  return texture;
-}
-
 export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facilityRoof?: THREE.Mesh } = {}) {
   const root = new THREE.Group();
   root.name = 'RescueSiteSummitAndOrbit';
   scene.add(root);
   const roofFog = scene.fog;
+  roofFog?.color.set(0x273138);
   const roofBackground = scene.background instanceof THREE.Color ? scene.background : new THREE.Color(0x698475);
   scene.background = roofBackground;
   const spaceBackground = new THREE.Color(0x030711);
+  const nightBackground = new THREE.Color(0x091121);
   const rooftopDestructionColor = new THREE.Color(0x2c3444);
   const armorTextures = createArmorTextures();
   const metal = new THREE.MeshStandardMaterial({
@@ -104,8 +81,8 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
     }
   }
 
-  const studentLights = QUINTET.map((student, i) => {
-    const spot = new THREE.SpotLight(student.color, 0, 18, 0.13, 0.5, 1);
+  const studentLights = SUDOERS_5.map((student, i) => {
+    const spot = new THREE.SpotLight(0xb8bec7, 0, 18, 0.16, 0.68, 1);
     spot.name = `${student.name}_CeilingSpotlight`;
     spot.position.set((i - 2) * 2.45, FINALE_ROOFTOP.y - 0.65, FINALE_ROOFTOP.z - 3.5);
     spot.target.position.set((i - 2) * 2.45, FINALE_DECK_Y + 0.7, FINALE_ROOFTOP.z - 3.5);
@@ -113,19 +90,19 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
     fixture.position.copy(spot.position).add(new THREE.Vector3(0, 0.15, 0));
     upperWalls.add(fixture);
     const lens = new THREE.Mesh(new THREE.CircleGeometry(0.18, 16),
-      new THREE.MeshBasicMaterial({ color: student.color, toneMapped: false }));
+      new THREE.MeshBasicMaterial({ color: 0xb8bec7, toneMapped: false }));
     lens.rotation.x = -Math.PI / 2; lens.position.copy(spot.position).add(new THREE.Vector3(0, 0.03, 0));
     upperWalls.add(lens);
     root.add(spot, spot.target);
     return spot;
   });
-  const beams = QUINTET.map((student, i) => {
+  const beams = SUDOERS_5.map((_student, i) => {
     const material = new THREE.ShaderMaterial({
-      uniforms: { uColor: { value: new THREE.Color(student.color) }, uTime: { value: 0 }, uPower: { value: 0 } },
+      uniforms: { uColor: { value: new THREE.Color(0xa8b1bd) }, uTime: { value: 0 }, uPower: { value: 0 } },
       vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
       fragmentShader: `uniform vec3 uColor; uniform float uTime; uniform float uPower; varying vec2 vUv;
-        void main() { float pulse = 0.7 + 0.3 * sin(uTime * 7.0 + vUv.y * 19.0);
-          gl_FragColor = vec4(uColor * 1.8, (1.0 - vUv.y) * uPower * pulse * 0.2); }`,
+        void main() { float pulse = 0.95 + 0.05 * sin(uTime * 0.8 + vUv.y * 7.0);
+          gl_FragColor = vec4(uColor, (1.0 - vUv.y) * uPower * pulse * 0.055); }`,
       transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
     });
     const height = FINALE_ROOFTOP.y - 0.7 - FINALE_DECK_Y;
@@ -137,23 +114,23 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
   });
 
   const sky = new THREE.Mesh(new THREE.SphereGeometry(1900, 32, 16), new THREE.ShaderMaterial({
-    uniforms: { uFade: { value: 1 } },
+    uniforms: { uFade: { value: 1 }, uNight: { value: 0 } },
     vertexShader: `varying vec3 vDirection; void main() { vDirection = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-    fragmentShader: `uniform float uFade; varying vec3 vDirection; void main() {
+    fragmentShader: `uniform float uFade; uniform float uNight; varying vec3 vDirection; void main() {
       float elevation = normalize(vDirection).y;
-      vec3 color = mix(vec3(0.54, 0.39, 0.28), vec3(0.08, 0.18, 0.24), smoothstep(-0.15, 0.88, elevation));
+      float gradient = smoothstep(-0.15, 0.88, elevation);
+      vec3 dusk = mix(vec3(0.16, 0.14, 0.13), vec3(0.055, 0.08, 0.11), gradient);
+      vec3 night = mix(vec3(0.055, 0.075, 0.115), vec3(0.009, 0.018, 0.042), gradient);
+      vec3 color = mix(dusk, night, uNight);
       gl_FragColor = vec4(color, uFade); }`,
     side: THREE.BackSide, transparent: true, depthWrite: false,
   }));
   sky.renderOrder = -100;
   root.add(sky);
 
-  const planetRoot = new THREE.Group();
-  planetRoot.name = 'Eden';
-  planetRoot.position.copy(PLANET_CENTER);
-  root.add(planetRoot);
-  const planetTexture = planetMap();
-  const planetMaterial = new THREE.MeshStandardMaterial({ map: planetTexture, roughness: 0.95, metalness: 0.05 });
+  const planetRoot = createEarthGroup(root, PLANET_CENTER, PLANET_RADIUS, createEarthTextures());
+  planetRoot.name = 'Earth';
+  const planet = planetRoot.surface, planetMaterial = planet.material;
   const planetUniforms = { uRupture: { value: 0 }, uTime: { value: 0 } };
   planetMaterial.onBeforeCompile = shader => {
     Object.assign(shader.uniforms, planetUniforms);
@@ -165,10 +142,7 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
       float crack = smoothstep(0.455, 0.49, max(grid.x, grid.y));
       totalEmissiveRadiance += vec3(1.0, 0.17, 0.025) * crack * uRupture * (2.0 + sin(uTime * 8.0) * 0.25);`);
   };
-  planetMaterial.customProgramCacheKey = () => 'finale-eden-fracture-v2';
-  const planet = new THREE.Mesh(new THREE.SphereGeometry(PLANET_RADIUS, 64, 40), planetMaterial);
-  planetRoot.add(planet);
-
+  planetMaterial.customProgramCacheKey = () => 'finale-earth-fracture-v3';
   const fireMaterial = new THREE.ShaderMaterial({
     uniforms: { uTime: { value: 0 }, uRupture: { value: 0 } },
     vertexShader: `varying vec2 vUv; varying vec3 vNormal; varying vec3 vView;
@@ -192,17 +166,6 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
   const fire = new THREE.Mesh(new THREE.SphereGeometry(PLANET_RADIUS * 0.94, 56, 36), fireMaterial);
   fire.visible = false;
   planetRoot.add(fire);
-  const atmosphereMaterial = new THREE.ShaderMaterial({
-    uniforms: { color: { value: new THREE.Color(0x79bcff) }, opacity: { value: 0.7 } },
-    vertexShader: `varying vec3 vNormal; varying vec3 vView; void main() {
-      vec4 p = modelViewMatrix * vec4(position, 1.0); vView = -p.xyz; vNormal = normalize(normalMatrix * normal); gl_Position = projectionMatrix * p; }`,
-    fragmentShader: `varying vec3 vNormal; varying vec3 vView; uniform vec3 color; uniform float opacity;
-      void main() { float rim = pow(1.0 - abs(dot(normalize(vNormal), normalize(vView))), 3.0);
-        gl_FragColor = vec4(color * 1.5, rim * opacity); }`,
-    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide, toneMapped: false,
-  });
-  const atmosphere = new THREE.Mesh(new THREE.SphereGeometry(PLANET_RADIUS * 1.025, 48, 28), atmosphereMaterial);
-  planetRoot.add(atmosphere);
   const shockwaves = Array.from({ length: 3 }, (_, index) => {
     const material = new THREE.MeshBasicMaterial({
       color: index === 1 ? 0xfff2c1 : 0xff7132, transparent: true, opacity: 0,
@@ -270,14 +233,14 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
   rockMap.needsUpdate = true;
   const debrisMaterial = new THREE.MeshStandardMaterial({ color: 0xb1a698, map: rockMap, metalness: 0.02, roughness: 0.98, flatShading: true });
   const debris = new THREE.InstancedMesh(debrisGeometry, debrisMaterial, 72);
-  debris.name = 'EdenRockDebris';
+  debris.name = 'EarthRockDebris';
   debris.visible = false;
   root.add(debris);
   const dummy = new THREE.Object3D();
 
-  const bomb = new THREE.Group(); bomb.name = 'QuintetPlanetBreaker'; bomb.visible = false;
+  const bomb = new THREE.Group(); bomb.name = 'Sudoers5PlanetBreaker'; bomb.visible = false;
   const bombCore = new THREE.Mesh(new THREE.IcosahedronGeometry(2.8, 2), black);
-  const bombEnergy = createEnergyMaterial(0xff6736);
+  const bombEnergy = createEnergyMaterial(0xc74738);
   bomb.add(bombCore);
   for (let i = 0; i < 3; i++) {
     const band = new THREE.Mesh(new THREE.TorusGeometry(2.82, 0.12, 8, 40), bombEnergy);
@@ -286,6 +249,9 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
   root.add(bomb);
   const bombTrail = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.55, 1, 12, 1, true), createEnergyMaterial(0xff8c39));
   bombTrail.visible = false; root.add(bombTrail);
+  const meteorStreaks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.035, 0.035, 1, 4),
+    new THREE.MeshBasicMaterial({ color: 0xe3d9d0, transparent: true, opacity: 0.5, depthWrite: false, toneMapped: false }), 12);
+  meteorStreaks.visible = false; meteorStreaks.frustumCulled = false; root.add(meteorStreaks);
   let releasePosition: THREE.Vector3 | null = null;
   const impactPosition = PLANET_CENTER.clone().add(new THREE.Vector3(0, PLANET_RADIUS, 0));
   const bombDirection = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
@@ -299,33 +265,50 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
       beam.position.copy(spot.position).lerp(position, 0.5);
       beam.quaternion.setFromUnitVectors(up, direction.normalize());
     },
-    updateBomb(phaseTime: number, hand: THREE.Vector3) {
-      bomb.visible = phaseTime >= PLANET_RUPTURE.raise && phaseTime < PLANET_RUPTURE.impact;
-      bombTrail.visible = false;
+    updateBomb(phaseTime: number, hands: THREE.Vector3) {
+      bomb.visible = phaseTime >= PLANET_RUPTURE.materialize && phaseTime < PLANET_RUPTURE.impact;
+      bombTrail.visible = meteorStreaks.visible = false;
       if (phaseTime < 0) { releasePosition = null; return; }
       if (phaseTime < PLANET_RUPTURE.release) {
-        bomb.position.copy(hand).add(new THREE.Vector3(0, 1.7, 0));
+        bomb.position.copy(hands).add(new THREE.Vector3(0, 3.8, 0));
       } else {
         if (!releasePosition) {
-          releasePosition = hand.clone().add(new THREE.Vector3(0, 1.7, 0));
+          releasePosition = hands.clone().add(new THREE.Vector3(0, 3.8, 0));
           impactPosition.copy(releasePosition).sub(PLANET_CENTER).normalize().multiplyScalar(PLANET_RADIUS).add(PLANET_CENTER);
         }
-        const drop = clamp((phaseTime - PLANET_RUPTURE.release) / (PLANET_RUPTURE.impact - PLANET_RUPTURE.release), 0, 1);
-        bomb.position.lerpVectors(releasePosition, impactPosition, drop * drop);
-        bombDirection.copy(releasePosition).sub(bomb.position);
-        bombTrail.visible = bomb.visible && drop > 0.08;
-        bombTrail.position.copy(releasePosition).lerp(bomb.position, 0.5);
-        bombTrail.scale.y = Math.max(0.001, bombDirection.length());
-        if (bombDirection.lengthSq() > 0) bombTrail.quaternion.setFromUnitVectors(up, bombDirection.normalize());
+        const origin: [number, number, number] = [releasePosition.x, releasePosition.y, releasePosition.z];
+        const impact: [number, number, number] = [impactPosition.x, impactPosition.y, impactPosition.z];
+        bomb.position.fromArray(samplePlanetBreaker(phaseTime, origin, impact));
+        const previous = new THREE.Vector3().fromArray(samplePlanetBreaker(phaseTime - 0.07, origin, impact));
+        bombDirection.copy(bomb.position).sub(previous);
+        const length = Math.min(100, bombDirection.length() * 8);
+        bombTrail.visible = bomb.visible && length > 0.1;
+        bombDirection.normalize();
+        bombTrail.position.copy(bomb.position).addScaledVector(bombDirection, -length * 0.5);
+        bombTrail.scale.set(2.2, Math.max(0.001, length), 2.2);
+        if (bombDirection.lengthSq() > 0) bombTrail.quaternion.setFromUnitVectors(up, bombDirection);
         bombTrail.material.uniforms.uTime.value = phaseTime;
+        meteorStreaks.visible = bomb.visible && phaseTime > PLANET_RUPTURE.slam + 0.2;
+        if (meteorStreaks.visible) {
+          for (let i = 0; i < meteorStreaks.count; i++) {
+            const angle = i * 2.399, radius = 8 + random(i) * 15;
+            dummy.position.copy(bomb.position).add(new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius))
+              .addScaledVector(bombDirection, -10 - random(i + 1) * 50);
+            dummy.quaternion.setFromUnitVectors(up, bombDirection);
+            dummy.scale.set(1, 14 + random(i + 2) * 40, 1); dummy.updateMatrix();
+            meteorStreaks.setMatrixAt(i, dummy.matrix);
+          }
+          meteorStreaks.instanceMatrix.needsUpdate = true;
+        }
       }
       bomb.rotation.set(phaseTime * 0.5, phaseTime * 1.1, phaseTime * 0.28);
       bombEnergy.uniforms.uTime.value = phaseTime;
-      bomb.scale.setScalar(0.8 + smooth(phaseTime, PLANET_RUPTURE.raise, PLANET_RUPTURE.release) * 0.3);
+      bomb.scale.setScalar(smooth(phaseTime, PLANET_RUPTURE.materialize, PLANET_RUPTURE.release - 0.3)
+        * (1.1 + smooth(phaseTime, PLANET_RUPTURE.release, PLANET_RUPTURE.apex) * 2.8));
     },
     getBombPosition: () => bomb.position.clone(),
     getPlanetImpact: () => impactPosition.clone(),
-    update(time: number, rupture: number, space: boolean, reveal = 0, roofBlast = -1, ruptureTime = -1) {
+    update(time: number, rupture: number, space: boolean, reveal = 0, roofBlast = -1, ruptureTime = -1, night = 0) {
       const planetView = ruptureTime >= PLANET_RUPTURE.wide;
       floor.visible = !space && !planetView;
       upperWalls.visible = roofBlast < 0.25 && !space && !planetView;
@@ -344,22 +327,29 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
       if (space || planetView) {
         roofBackground.copy(spaceBackground);
       } else {
-        roofBackground.set(0x698475).lerp(rooftopDestructionColor, smooth(rupture, 0, 1));
+        roofBackground.set(0x263138).lerp(nightBackground, night).lerp(rooftopDestructionColor, smooth(rupture, 0, 1));
       }
+      roofFog?.color.copy(roofBackground);
       sky.material.uniforms.uFade.value = 1 - smooth(rupture, 0.15, 0.65);
+      sky.material.uniforms.uNight.value = night;
       studentLights.forEach((spot, i) => {
         const selected = activeStudent(reveal, 'reveal') === i;
         spot.intensity = (1 - smooth(roofBlast, 0.15, 0.5))
-          * smooth(reveal, 2.15 + i * 0.18, 4 + i * 0.18) * (selected ? 112 : 52);
+          * smooth(reveal, 2.15 + i * 0.18, 4 + i * 0.18) * (selected ? 58 : 28);
         beams[i].visible = spot.intensity > 0.1;
         beams[i].material.uniforms.uTime.value = time;
-        beams[i].material.uniforms.uPower.value = spot.intensity / 112;
+        beams[i].material.uniforms.uPower.value = spot.intensity / 58;
       });
-      starsMaterial.opacity = space ? 0.95 : smooth(ruptureTime, PLANET_RUPTURE.escape, PLANET_RUPTURE.wide + 1);
+      starsMaterial.opacity = space ? 0.95 : Math.max(night * 0.48, smooth(ruptureTime, PLANET_RUPTURE.escape, PLANET_RUPTURE.wide + 1));
       planetUniforms.uRupture.value = rupture;
       planetUniforms.uTime.value = time;
       planet.visible = rupture < 0.36;
-      fire.visible = rupture >= 0.04;
+      planetRoot.clouds.visible = planetRoot.haze.visible = planetRoot.atmosphere.visible = planet.visible;
+      planetRoot.clouds.rotation.y = time * 0.004;
+      planetRoot.clouds.material.opacity = 0.95 * (1 - rupture);
+      planetRoot.haze.material.opacity = 0.09 * (1 - rupture);
+      planetRoot.atmosphere.material.uniforms.uOpacity.value = 1 - rupture;
+      fire.visible = !space && rupture >= 0.04;
       fireMaterial.uniforms.uRupture.value = smooth(rupture, 0.04, 0.18);
       fireMaterial.uniforms.uTime.value = time;
       fire.scale.setScalar(1 + smooth(rupture, 0.4, 0.8) * 0.16);
@@ -368,7 +358,6 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
         fragment.mesh.position.copy(fragment.direction).multiplyScalar(smooth(rupture, 0.08, 1) * (280 + random(i) * 240));
         fragment.mesh.rotation.set(rupture * Math.sin(i) * 0.35, rupture * Math.cos(i) * 0.35, rupture * Math.sin(i * 3) * 0.35);
       });
-      atmosphereMaterial.uniforms.opacity.value = (1 - rupture) * 0.7;
       const blastAge = ruptureTime - PLANET_RUPTURE.burst;
       shockwaves.forEach((mesh, i) => {
         const age = blastAge - i * 0.18;

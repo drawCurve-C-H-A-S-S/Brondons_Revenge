@@ -77,6 +77,13 @@ export class MeleeSwing {
     }
     this.prime(segment);
     const ignoredRoots = character ? [...ignored, character] : ignored;
+    const occluders: THREE.Mesh[] = [];
+    scene.traverseVisible(object => {
+      if (!(object instanceof THREE.Mesh) || object.name === 'BreakableDebris'
+        || ignoredRoots.some(root => belongsTo(object, root))) return;
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      if (materials.some(material => material.visible && (!material.transparent || material.opacity >= 0.5))) occluders.push(object);
+    });
     const blocked = (point: THREE.Vector3, root?: THREE.Object3D, body?: CANNON.Body) => {
       const offset = point.clone().sub(origin), distance = offset.length();
       if (distance > this.reach || distance < 0.001) return distance > this.reach;
@@ -93,13 +100,8 @@ export class MeleeSwing {
         while (owner.parent && owner.parent !== scene) owner = owner.parent;
       }
       const ray = new THREE.Raycaster(origin, offset.normalize(), 0, Math.max(0, distance - 0.02));
-      return ray.intersectObjects(scene.children, true).some(hit => {
-        if (!(hit.object instanceof THREE.Mesh) || !visible(hit.object) || hit.object.name === 'BreakableDebris'
-          || (root && belongsTo(hit.object, root)) || (owner && belongsTo(hit.object, owner))
-          || ignoredRoots.some(candidate => belongsTo(hit.object, candidate))) return false;
-        const materials = Array.isArray(hit.object.material) ? hit.object.material : [hit.object.material];
-        return materials.some(material => material.visible && (!material.transparent || material.opacity >= 0.5));
-      });
+      return ray.intersectObjects(occluders, false).some(hit =>
+        !(root && belongsTo(hit.object, root)) && !(owner && belongsTo(hit.object, owner)));
     };
     const contact = (bounds: THREE.Box3, root?: THREE.Object3D, body?: CANNON.Body) => {
       if (bounds.isEmpty()) return null;

@@ -33,6 +33,18 @@ export function drawDesktopBackground(context: CanvasRenderingContext2D) {
 }
 
 export function createRescueDesktop(progress: QuartersProgress): InteractiveDisplay {
+  return createFileDesktop({
+    title: 'save us', owner: 'BRANDEN / LOCAL BOT',
+    lines: ['Brondon,', 'The ship patrol network is compromised.',
+      'My local bot kept a maintenance code.', '', `Forward bulkhead access: ${FORWARD_BULKHEAD_CODE}`,
+      '', 'Get to Deck One. Stay out of their sight.', 'Bring everyone home.', '- Branden'],
+    onRead: () => { progress.rescueMessageRead = true; },
+  });
+}
+
+export function createFileDesktop({ title, owner, lines, onRead }: {
+  title: string; owner: string; lines: readonly string[]; onRead?: () => void;
+}): InteractiveDisplay {
   const { canvas, context, texture } = canvasDisplay(800, 450), cursor = new THREE.Vector2(88, 106);
   texture.name = 'CrewDesktop-branden';
   let focused = false, fileOpen = false;
@@ -49,20 +61,17 @@ export function createRescueDesktop(progress: QuartersProgress): InteractiveDisp
     context.fillStyle = '#3f7394'; context.fillRect(94, 58, 17, 17);
     context.font = 'bold 14px monospace'; context.fillText('TXT', 75, 98);
     context.textAlign = 'center'; context.font = '22px sans-serif'; context.fillStyle = '#e5f4ff';
-    context.fillText('save us', 88, 147);
+    context.fillText(title, 88, 147);
     if (fileOpen) {
       context.fillStyle = '#061425'; context.fillRect(164, 37, 592, 350);
       context.fillStyle = '#16354f'; context.fillRect(158, 31, 592, 350);
       context.strokeStyle = '#8dc5e5'; context.strokeRect(158, 31, 592, 350);
       context.fillStyle = '#2c668d'; context.fillRect(159, 32, 590, 37);
       context.textAlign = 'left'; context.fillStyle = '#edf7ff'; context.font = 'bold 22px sans-serif';
-      context.fillText('save us', 179, 58);
+      context.fillText(title, 179, 58);
       context.fillStyle = focused && within(710, 36, 32, 29) ? '#c35862' : '#1a4260';
       context.fillRect(710, 36, 32, 29); context.fillStyle = '#ffffff'; context.fillText('x', 720, 58);
       context.font = '18px monospace';
-      const lines = ['Brondon,', 'The ship patrol network is compromised.',
-        'My local bot kept a maintenance code.', '', `Forward bulkhead access: ${FORWARD_BULKHEAD_CODE}`,
-        '', 'Get to Deck One. Stay out of their sight.', 'Bring everyone home.', '- Branden'];
       lines.forEach((line, index) => {
         context.fillStyle = index === 4 ? '#9de7b8' : '#d5eafa';
         context.fillText(line, 179, 102 + index * 28);
@@ -70,7 +79,7 @@ export function createRescueDesktop(progress: QuartersProgress): InteractiveDisp
     }
     context.fillStyle = '#082038'; context.fillRect(0, 408, 800, 42);
     context.textAlign = 'left'; context.fillStyle = '#b4d6ed'; context.font = '18px monospace';
-    context.fillText('BRANDEN / LOCAL BOT', 20, 435);
+    context.fillText(owner, 20, 435);
     context.textAlign = 'right'; context.fillText('OFFLINE', 779, 435);
     if (focused) {
       context.save(); context.translate(cursor.x, cursor.y);
@@ -82,7 +91,7 @@ export function createRescueDesktop(progress: QuartersProgress): InteractiveDisp
     texture.needsUpdate = true;
   }
   function openFile(): SurfaceAction {
-    fileOpen = true; progress.rescueMessageRead = true; draw(); return 'read-file';
+    fileOpen = true; onRead?.(); draw(); return 'read-file';
   }
   draw();
   return {
@@ -100,6 +109,14 @@ export function createRescueDesktop(progress: QuartersProgress): InteractiveDisp
 }
 
 export function createBulkheadKeypad(progress: QuartersProgress): InteractiveDisplay {
+  return createKeypad({ code: FORWARD_BULKHEAD_CODE, title: 'FORWARD BULKHEAD',
+    isUnlocked: () => progress.bulkheadUnlocked, onUnlock: () => { progress.bulkheadUnlocked = true; } });
+}
+
+export function createKeypad({ code, title, isUnlocked, onUnlock, validate }: {
+  code: string; title: string; isUnlocked: () => boolean; onUnlock: () => void; validate?: () => string | null;
+}): InteractiveDisplay {
+  if (!/^\d{4}$/.test(code)) throw new Error('Ship keypads require a four-digit code');
   const { canvas, context, texture } = canvasDisplay(360, 560), cursor = new THREE.Vector2(180, 285);
   texture.name = 'ForwardBulkheadKeypad';
   const buttons = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'CLR', '0', 'OK'].map((label, index) => ({
@@ -114,13 +131,13 @@ export function createBulkheadKeypad(progress: QuartersProgress): InteractiveDis
     context.fillStyle = '#0e1b29'; context.fillRect(0, 0, 360, 560);
     context.strokeStyle = '#526a7b'; context.lineWidth = 3; context.strokeRect(9, 9, 342, 542);
     context.textAlign = 'center'; context.textBaseline = 'alphabetic';
-    context.fillStyle = '#a8d6ef'; context.font = 'bold 21px monospace'; context.fillText('FORWARD BULKHEAD', 180, 38);
+    context.fillStyle = '#a8d6ef'; context.font = 'bold 21px monospace'; context.fillText(title, 180, 38);
     context.fillStyle = '#07121c'; context.fillRect(27, 54, 306, 75);
-    context.fillStyle = progress.bulkheadUnlocked ? '#96edbc' : message ? '#ff9494' : '#c5eaff';
+    context.fillStyle = isUnlocked() ? '#96edbc' : message ? '#ff9494' : '#c5eaff';
     context.font = 'bold 33px monospace';
-    context.fillText(progress.bulkheadUnlocked ? 'UNLOCKED' : entry.padEnd(FORWARD_BULKHEAD_CODE.length, '_').split('').join(' '), 180, 87);
+    context.fillText(isUnlocked() ? 'UNLOCKED' : entry.padEnd(code.length, '_').split('').join(' '), 180, 87);
     context.font = '15px monospace';
-    context.fillText(progress.bulkheadUnlocked ? 'ACCESS GRANTED' : message || 'ENTER CODE / PRESS OK', 180, 115);
+    context.fillText(isUnlocked() ? 'ACCESS GRANTED' : message || 'ENTER CODE / PRESS OK', 180, 115);
     for (const button of buttons) {
       const down = pressTime > 0 && pressed === button.label, y = button.y + (down ? 4 : 0);
       context.fillStyle = '#050b12'; context.fillRect(button.x, button.y + 5, button.width, button.height);
@@ -135,19 +152,23 @@ export function createBulkheadKeypad(progress: QuartersProgress): InteractiveDis
   }
   function press(label: string): SurfaceAction | null {
     pressed = label === 'BACK' ? 'CLR' : label; pressTime = 0.18;
-    if (progress.bulkheadUnlocked) { draw(); return null; }
+    if (isUnlocked()) { draw(); return null; }
     message = ''; messageTime = 0;
     let action: SurfaceAction | null = null;
     if (label === 'CLR') entry = '';
     else if (label === 'BACK') entry = entry.slice(0, -1);
     else if (label === 'OK') {
-      if (entry === FORWARD_BULKHEAD_CODE) { progress.bulkheadUnlocked = true; action = 'unlock'; }
+      if (entry === code) {
+        const error = validate?.();
+        if (error) { message = error; messageTime = 3; }
+        else { onUnlock(); action = 'unlock'; }
+      }
       else {
-        message = entry.length === FORWARD_BULKHEAD_CODE.length ? 'CODE NOT RECOGNISED' : 'FOUR DIGITS REQUIRED';
-        if (entry.length === FORWARD_BULKHEAD_CODE.length) entry = '';
+        message = entry.length === code.length ? 'CODE NOT RECOGNISED' : 'FOUR DIGITS REQUIRED';
+        if (entry.length === code.length) entry = '';
         messageTime = 2.4;
       }
-    } else if (entry.length < FORWARD_BULKHEAD_CODE.length) entry += label;
+    } else if (entry.length < code.length) entry += label;
     draw(); return action;
   }
   draw();

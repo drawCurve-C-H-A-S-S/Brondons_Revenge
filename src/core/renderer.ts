@@ -27,6 +27,7 @@ interface MinimapEnemy {
   yaw?: number;
   alerted?: boolean;
   range?: number;
+  kind?: 'patrol' | 'sensor';
 }
 export interface MinimapSettings {
   bounds?: { minX: number; maxX: number; minZ: number; maxZ: number };
@@ -38,6 +39,10 @@ export interface MinimapSettings {
   deckLabel?: string;
   deck?: 'upper' | 'lower';
   enemies?: readonly MinimapEnemy[];
+  expanded?: boolean;
+  route?: readonly { x: number; z: number }[];
+  goal?: { x: number; z: number; label: string };
+  safePads?: readonly { x: number; z: number }[];
   prepare?: (focus: MapPosition, radius: number) => (() => void);
 }
 
@@ -77,14 +82,14 @@ export function createSceneMinimap(renderer: THREE.WebGLRenderer, element: HTMLE
     `);
   };
   const compositeMaterial = new THREE.ShaderMaterial({
-    uniforms: { map: { value: target.texture } },
+    uniforms: { map: { value: target.texture }, expanded: { value: false } },
     vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
-    fragmentShader: `uniform sampler2D map; varying vec2 vUv;
+    fragmentShader: `uniform sampler2D map; uniform bool expanded; varying vec2 vUv;
       void main() {
         float radius = length(vUv - 0.5);
-        if (radius > 0.5) discard;
+        if (!expanded && radius > 0.5) discard;
         vec3 color = texture2D(map, vUv).rgb;
-        color *= 1.0 - smoothstep(0.30, 0.5, radius) * 0.32;
+        if (!expanded) color *= 1.0 - smoothstep(0.30, 0.5, radius) * 0.32;
         gl_FragColor = vec4(color, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -92,10 +97,24 @@ export function createSceneMinimap(renderer: THREE.WebGLRenderer, element: HTMLE
     depthTest: false, depthWrite: false, toneMapped: false,
   });
   const quad = new FullScreenQuad(compositeMaterial);
+  const gameTarget = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: true });
+  gameTarget.texture.name = 'VentGameplayInset';
+  const gameMaterial = new THREE.MeshBasicMaterial({ map: gameTarget.texture, depthTest: false, depthWrite: false, toneMapped: false });
+  const gameQuad = new FullScreenQuad(gameMaterial);
+  const gameInset = document.createElement('aside'); gameInset.className = 'minimap-game-inset hidden';
+  const gameView = document.createElement('div'); gameView.className = 'minimap-game-view';
+  gameInset.append(gameView); document.body.append(gameInset);
   const arrow = document.getElementById('minimap-player')!;
   const deck = document.getElementById('minimap-deck')!;
   const stairMarkers = [document.getElementById('minimap-stair-left')!, document.getElementById('minimap-stair-right')!];
   const enemyMarkers = new Map<string, HTMLElement>();
+  const padMarkers: HTMLElement[] = [];
+  const routeGuide = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  routeGuide.classList.add('minimap-route-guide', 'hidden'); routeGuide.setAttribute('viewBox', '0 0 100 100');
+  routeGuide.setAttribute('preserveAspectRatio', 'none'); routeGuide.setAttribute('aria-hidden', 'true');
+  const routePath = document.createElementNS('http://www.w3.org/2000/svg', 'path'); routeGuide.append(routePath);
+  const goalMarker = document.createElement('span'); goalMarker.className = 'minimap-goal hidden';
+  goalMarker.setAttribute('aria-hidden', 'true'); element.append(routeGuide, goalMarker);
   const box = new THREE.Box3(), layout = new THREE.Box3(), size = new THREE.Vector3();
   const projected = new THREE.Vector3();
   const viewport = new THREE.Vector4(), scissor = new THREE.Vector4(), clearColor = new THREE.Color();
@@ -105,17 +124,20 @@ export function createSceneMinimap(renderer: THREE.WebGLRenderer, element: HTMLE
   const instanceVersions = new WeakMap<THREE.InstancedMesh, number>();
   let previousScene: THREE.Scene | null = null, lastRender = -Infinity, upperDeck = false;
   let fitted = false, centerX = 0, centerZ = 0, radius = 20;
+  let previousFit = '', expanded = false;
   let rect = element.getBoundingClientRect();
-  const resize = () => { rect = element.getBoundingClientRect(); };
+  const resize = () => { rect = element.getBoundingClientRect(); lastRender = -Infinity; };
   const observer = new ResizeObserver(resize); observer.observe(element);
   window.addEventListener('resize', resize);
 
-  function hide() { element.classList.add('hidden'); }
+  function hide() { element.classList.add('hidden'); gameInset.classList.add('hidden'); }
   function reset() {
     hide(); previousScene = null; fitted = false; lastRender = -Infinity; upperDeck = false;
+    previousFit = ''; routeGuide.classList.add('hidden'); goalMarker.classList.add('hidden');
     hidden.length = 0; callbacks.length = 0;
     for (const marker of enemyMarkers.values()) marker.remove();
     enemyMarkers.clear();
+    padMarkers.splice(0).forEach(marker => marker.remove());
   }
   function meshBounds(mesh: THREE.Mesh) {
     if (mesh instanceof THREE.InstancedMesh) {
@@ -145,10 +167,23 @@ export function createSceneMinimap(renderer: THREE.WebGLRenderer, element: HTMLE
     } else upperDeck = false;
     const floor = upperDeck ? settings.upperFloor! : settings.floor ?? (settings.radius ? feet : Math.min(0, feet));
     floorUniform.value = floor;
+    if (expanded !== !!settings.expanded) {
+      expanded = !!settings.expanded; element.classList.toggle('minimap-expanded', expanded); resize();
+    }
+    compositeMaterial.uniforms.expanded.value = expanded;
+    gameInset.classList.toggle('hidden', !expanded);
+    const b = settings.bounds;
+    const fit = [expanded, settings.radius ?? '', Math.round(floor * 10) / 10,
+      b?.minX ?? '', b?.maxX ?? '', b?.minZ ?? '', b?.maxZ ?? ''].join(',');
+    if (fit !== previousFit) { previousFit = fit; fitted = false; lastRender = -Infinity; }
+    const scale = expanded ? Math.min(renderer.getPixelRatio(), 1536 / Math.max(1, rect.width, rect.height)) : 1;
+    const width = expanded ? Math.max(256, Math.round(rect.width * scale)) : 256;
+    const height = expanded ? Math.max(256, Math.round(rect.height * scale)) : 256;
+    if (target.width !== width || target.height !== height) { target.setSize(width, height); lastRender = -Infinity; }
     deck.textContent = settings.deckLabel ?? (settings.upperFloor === undefined ? '' : `DECK ${upperDeck ? '02' : '01'}`);
     element.dataset.deck = settings.deck ?? (upperDeck ? 'upper' : 'lower');
     const now = performance.now();
-    if (now - lastRender >= 100 || wasUpper !== upperDeck) {
+    if (now - lastRender >= (expanded ? 1000 / 30 : 100) || wasUpper !== upperDeck) {
       lastRender = now;
       const oldTarget = renderer.getRenderTarget();
       const oldCubeFace = renderer.getActiveCubeFace(), oldMip = renderer.getActiveMipmapLevel();
@@ -198,11 +233,16 @@ export function createSceneMinimap(renderer: THREE.WebGLRenderer, element: HTMLE
           } else { centerX = position.x; centerZ = position.z; radius = 24; }
           fitted = true;
         }
-        if (settings.radius || radius >= 55 || Math.hypot(position.x - centerX, position.z - centerZ) > radius * 0.82) {
+        if (!expanded && (settings.radius || radius >= 55 || Math.hypot(position.x - centerX, position.z - centerZ) > radius * 0.82)) {
           centerX = position.x; centerZ = position.z;
         }
         const range = settings.radius ?? radius;
-        camera.left = camera.bottom = -range; camera.right = camera.top = range;
+        if (expanded && settings.bounds) {
+          const aspect = Math.max(0.1, rect.width / Math.max(1, rect.height)), bounds = settings.bounds;
+          const halfHeight = Math.max((bounds.maxZ - bounds.minZ) / 2, (bounds.maxX - bounds.minX) / (2 * aspect)) * 1.13;
+          camera.left = -halfHeight * aspect; camera.right = halfHeight * aspect;
+          camera.bottom = -halfHeight; camera.top = halfHeight;
+        } else { camera.left = camera.bottom = -range; camera.right = camera.top = range; }
         camera.position.set(centerX, position.y + 9000, centerZ);
         camera.lookAt(centerX, position.y, centerZ); camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
         scene.overrideMaterial = material; scene.background = null; scene.fog = null;
@@ -221,6 +261,24 @@ export function createSceneMinimap(renderer: THREE.WebGLRenderer, element: HTMLE
     }
     placeMarker(arrow, position.x, position.z);
     arrow.style.transform = `translate(-50%, -50%) rotate(${-yaw}rad)`;
+    goalMarker.classList.toggle('hidden', !settings.goal);
+    if (settings.goal) {
+      goalMarker.textContent = settings.goal.label; placeMarker(goalMarker, settings.goal.x, settings.goal.z);
+    }
+    const pads = settings.safePads ?? [];
+    while (padMarkers.length > pads.length) padMarkers.pop()!.remove();
+    pads.forEach((pad, index) => {
+      if (!padMarkers[index]) {
+        const marker = document.createElement('span'); marker.className = 'minimap-safe-pad';
+        marker.setAttribute('aria-hidden', 'true'); marker.title = 'Safe checkpoint pad'; element.append(marker); padMarkers.push(marker);
+      }
+      placeMarker(padMarkers[index], pad.x, pad.z);
+    });
+    routeGuide.classList.toggle('hidden', !settings.route?.length);
+    if (settings.route?.length) routePath.setAttribute('d', settings.route.map((point, index) => {
+      projected.set(point.x, floor, point.z).project(camera);
+      return `${index ? 'L' : 'M'} ${(projected.x + 1) * 50} ${(1 - projected.y) * 50}`;
+    }).join(' '));
     stairMarkers.forEach((marker, index) => {
       const stair = settings.stairs?.[index]; marker.classList.toggle('hidden', !stair);
       if (stair) placeMarker(marker, stair.x, stair.z);
@@ -242,8 +300,10 @@ export function createSceneMinimap(renderer: THREE.WebGLRenderer, element: HTMLE
       marker.style.transform = `translate(-50%, -50%) rotate(${-(enemy.yaw ?? 0)}rad)`;
       marker.style.setProperty('--enemy-vision-size', `${(enemy.range ?? 0) / (settings.radius ?? radius) * rect.width / 2}px`);
       marker.dataset.alerted = String(!!enemy.alerted);
+      marker.dataset.kind = enemy.kind ?? 'patrol';
     }
-    element.setAttribute('aria-label', enemies.length ? `Top-down map with ${enemies.length} enemy patrol${enemies.length === 1 ? '' : 's'}` : 'Top-down map of the current scene');
+    element.setAttribute('aria-label', expanded ? `Vent maze. Follow the dotted route to ${settings.goal?.label ?? 'the exit'}. Red sensors are active; green sensors are safe.`
+      : enemies.length ? `Top-down map with ${enemies.length} enemy patrol${enemies.length === 1 ? '' : 's'}` : 'Top-down map of the current scene');
     const oldTarget = renderer.getRenderTarget();
     const oldCubeFace = renderer.getActiveCubeFace(), oldMip = renderer.getActiveMipmapLevel();
     renderer.getViewport(viewport); renderer.getScissor(scissor);
@@ -258,8 +318,33 @@ export function createSceneMinimap(renderer: THREE.WebGLRenderer, element: HTMLE
       renderer.setViewport(viewport); renderer.setScissor(scissor); renderer.setScissorTest(oldScissor);
     }
   }
-  return { render, reset, hide, dispose() {
+  function renderGameInset(scene: THREE.Scene, gameCamera: THREE.PerspectiveCamera) {
+    if (!expanded || element.classList.contains('hidden')) return;
+    const inset = gameView.getBoundingClientRect(), scale = renderer.getPixelRatio();
+    const width = Math.max(1, Math.round(inset.width * scale)), height = Math.max(1, Math.round(inset.height * scale));
+    if (gameTarget.width !== width || gameTarget.height !== height) gameTarget.setSize(width, height);
+    const oldTarget = renderer.getRenderTarget(), oldCubeFace = renderer.getActiveCubeFace(), oldMip = renderer.getActiveMipmapLevel();
+    renderer.getViewport(viewport); renderer.getScissor(scissor);
+    const oldScissor = renderer.getScissorTest(), oldAutoClear = renderer.autoClear;
+    const aspect = gameCamera.aspect;
+    try {
+      gameCamera.aspect = inset.width / Math.max(1, inset.height); gameCamera.updateProjectionMatrix();
+      renderer.autoClear = true; renderer.setRenderTarget(gameTarget); renderer.setScissorTest(false);
+      renderer.clear(); renderer.render(scene, gameCamera);
+      renderer.setRenderTarget(null); renderer.autoClear = false;
+      renderer.setViewport(inset.left, window.innerHeight - inset.bottom, inset.width, inset.height);
+      renderer.setScissor(inset.left, window.innerHeight - inset.bottom, inset.width, inset.height);
+      renderer.setScissorTest(true); gameQuad.render(renderer);
+    } finally {
+      gameCamera.aspect = aspect; gameCamera.updateProjectionMatrix();
+      renderer.autoClear = oldAutoClear; renderer.setRenderTarget(oldTarget, oldCubeFace, oldMip);
+      renderer.setViewport(viewport); renderer.setScissor(scissor); renderer.setScissorTest(oldScissor);
+    }
+  }
+  return { render, renderGameInset, reset, hide, dispose() {
     observer.disconnect(); window.removeEventListener('resize', resize);
-    target.dispose(); material.dispose(); compositeMaterial.dispose(); quad.dispose(); reset();
+    target.dispose(); material.dispose(); compositeMaterial.dispose(); quad.dispose();
+    gameTarget.dispose(); gameMaterial.dispose(); gameQuad.dispose(); gameInset.remove();
+    reset(); routeGuide.remove(); goalMarker.remove();
   } };
 }

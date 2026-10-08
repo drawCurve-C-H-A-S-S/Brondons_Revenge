@@ -181,7 +181,9 @@ test('Q places only after collection; purple markers work outside scene 4 withou
   const marker = f.scene().getObjectByName('TeleportAnchor'); assert.ok(marker);
   assert.ok(Math.abs(marker.position.y - 3.06) < 1e-6, 'Marker follows the saved floor, not global y=0');
   assert.equal(marker.getObjectsByProperty('isLight', true).length, 0);
-  assert.ok(marker.children.every(mesh => mesh.material.isMeshBasicMaterial));
+  const materials = [];
+  marker.traverse(node => { if (node.isMesh) materials.push(node.material); });
+  assert.ok(materials.every(material => material.isMeshBasicMaterial || material.emissive?.getHex() > 0));
   const ring = marker.children[0]; assert.equal(ring.rotation.x, -Math.PI / 2);
   const snapshot = f.device.getState(); snapshot.placementPosition.x = 999;
   assert.equal(f.device.getState().placementPosition.x, 2, 'Saved coordinates cannot be mutated by a caller');
@@ -238,7 +240,7 @@ test('production integration freezes the loop, grants developer gear, and retain
   const loop = main.slice(main.indexOf('function animate()'));
   assert.match(loop, /if \(quickMenuOpen \|\| weaponWheelOpen \|\| teleportLoading \|\| document.hidden\)/);
   assert.ok(loop.indexOf('return;') < loop.indexOf('advanceSceneActions('));
-  assert.ok(loop.indexOf('return;') < loop.indexOf('npcManager.update('));
+  assert.doesNotMatch(main, /npcManager|cctv\.roomIds|cctvTeleportTime/);
   assert.ok(loop.indexOf('return;') < loop.indexOf('updatePhysics(delta'));
   assert.match(main, /teleportDevice\.collect\(false\)/);
   assert.match(main, /getEntries: weaponEntries/);
@@ -250,6 +252,35 @@ test('production integration freezes the loop, grants developer gear, and retain
   assert.doesNotMatch(main, /scene13[-.]5/);
   await assert.rejects(access(new URL('../src/scenes/level 1/scene13-5.ts', import.meta.url)), { code: 'ENOENT' });
   assert.match(main, /13: \(\) => import\('\.\/scenes\/level 1\/scene13\.js'\)/);
+  assert.match(main, /1\.2: \(\) => import\('\.\/scenes\/level 1 stage 2\/scene\.js'\)/);
+  assert.match(main, /\[1\.2, 'Level 1 stage 2 - Surveillance route'\]/);
+  assert.match(main, /onExitToBay13: state => loadBay13\(state, true\)/);
+  for (const id of [2, 3, 4, 7, 8, 9, 10, 11, 12]) {
+    assert.doesNotMatch(main, new RegExp(`import\\(['"]\\./scenes/level 1/scene${id}\\.js['"]\\)`));
+    assert.doesNotMatch(main, new RegExp(`\\bloadScene${id}\\b`));
+  }
+});
+
+test('Stage Two has an easy connected vent route, moving sensors with safe windows, and room-bound return markers', async () => {
+  const layout = await server.ssrLoadModule('/scenes/level 1 stage 2/stageTwoLayout.ts');
+  for (let column = 1; column <= 7; column++) assert.notEqual(layout.VENT_MAZE[1][column], '#');
+  for (let row = 1; row <= 5; row++) assert.notEqual(layout.VENT_MAZE[row][7], '#');
+  assert.equal(layout.VENT_MAZE[5][7], 'E');
+  assert.deepEqual(layout.ventPoint(7, 5).toArray(), [20, 4, -1.5]);
+  assert.equal(layout.VENT_SENSORS.length, 2);
+  assert.equal(layout.VENT_SAFE_CELLS.length, 3);
+  for (let index = 0; index < layout.VENT_SENSORS.length; index++) {
+    const samples = Array.from({ length: 80 }, (_, frame) => layout.ventSensorState(index, frame / 10));
+    assert.equal(samples.filter(sample => !sample.active).length, 35, 'Each sensor allows a 3.5-second safe crossing');
+    assert.ok(samples[0].position.distanceTo(samples[10].position) > 0.1, 'Sensors move, not just change colour');
+  }
+  assert.equal(layout.isSurveillancePoint({ x: 20, y: 0.3, z: -4.8 }), true);
+  for (const point of [{ x: 6, y: 0.3, z: -8 }, { x: 20, y: 4.3, z: -1.5 }, { x: 23, y: 0.3, z: -12.2 }]) {
+    assert.equal(layout.isSurveillancePoint(point), false, 'Only a marker on the surveillance floor is a safe home link');
+  }
+  const first = layout.createStageTwoProgress(), second = layout.createStageTwoProgress();
+  first.remoteRooms.scene5.cleared.add('crate');
+  assert.equal(second.remoteRooms.scene5.cleared.size, 0, 'A fresh run never inherits old camera loot');
 });
 
 test('gem collection preserves the shader light layout and no weapon consumes T/K/L', async () => {

@@ -10,13 +10,22 @@ import { createPlayer, type PlayerTransitionState } from '../../scripts/player.j
 import { createScenePhysics, PHYSICS, hasNearbyActor } from '../../helpers/physics/scenePhysics.js';
 import { createBreakables } from '../../scripts/breakables.js';
 import { createRewardChest } from '../../scripts/rewardChest.js';
+import { disposeRoom } from '../../helpers/scene/shipRoom.js';
+import { createCameraVisitUI } from '../../helpers/scene/cameraVisit.js';
+import { SHIP_INTERIOR_PALETTE } from '../../helpers/scene/shipInterior.js';
+import { teleportPlayer } from '../../scripts/teleportationDevice.js';
+import { cameraVisitMap, type CameraRoomProgress } from '../level 1 stage 2/stageTwoLayout.js';
 
-export function createScene({ audioManager, entryState, gogglesCollected = false, onGogglesCollected }: {
+export function createScene({ audioManager, entryState, gogglesCollected = false, onGogglesCollected,
+  remoteVisit = false, preview = false, deferActivation = false, loot, hasReturnMarker, onRestart }: {
   audioManager?: unknown; entryState?: PlayerTransitionState;
   gogglesCollected?: boolean; onGogglesCollected?: () => void;
+  remoteVisit?: boolean; preview?: boolean; deferActivation?: boolean; loot?: CameraRoomProgress;
+  hasReturnMarker?: () => boolean; onRestart?: () => Promise<boolean>;
 } = {}) {
+  if (remoteVisit && !preview && (!hasReturnMarker || !onRestart)) throw new Error('Camera visits require a return-marker check and checkpoint restart');
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x100a0a);
+  scene.background = new THREE.Color(remoteVisit ? SHIP_INTERIOR_PALETTE.background : 0x100a0a);
 
   // --- Room dimensions ---
   const roomWidth = 10;
@@ -49,16 +58,16 @@ export function createScene({ audioManager, entryState, gogglesCollected = false
 
   // --- Materials ---
   const floorMat = new THREE.MeshStandardMaterial({
-    map: tileTexture.clone(), color: 0x776666, roughness: 0.7, metalness: 0.15,
+    map: tileTexture.clone(), color: remoteVisit ? 0x536375 : 0x776666, roughness: 0.7, metalness: 0.15,
     emissive: 0x140a0a, emissiveIntensity: 0.35,
   });
   floorMat.map!.repeat.set(5, 5);
   const wallMat = new THREE.MeshStandardMaterial({
-    map: tileTexture.clone(), color: 0x6f5f5f, roughness: 0.75, metalness: 0.1,
+    map: tileTexture.clone(), color: remoteVisit ? 0x536375 : 0x6f5f5f, roughness: 0.75, metalness: 0.1,
     emissive: 0x140a0a, emissiveIntensity: 0.3,
   });
   wallMat.map!.repeat.set(5, 2);
-  const ceilingMat = new THREE.MeshStandardMaterial({ color: 0x453a3a, roughness: 0.8, metalness: 0.1 });
+  const ceilingMat = new THREE.MeshStandardMaterial({ color: remoteVisit ? 0x182431 : 0x453a3a, roughness: 0.8, metalness: 0.1 });
   const doorFrameMat = new THREE.MeshStandardMaterial({ color: 0x555566, metalness: 0.5, roughness: 0.4 });
   function makeComicMaterial(color: number) {
     return new THREE.ShaderMaterial({
@@ -171,13 +180,14 @@ export function createScene({ audioManager, entryState, gogglesCollected = false
   sLight.position.set(0, doorH + 0.2, -roomDepth / 2 - 0.02);
   scene.add(sLight);
   const doorBack: DoorState = { panelL, panelR, seam, sLightMat, open: 0, targetOpen: 0, z: doorZ };
+  if (remoteVisit) physics.addBox({ x: doorW, y: doorH, z: 0.2 }, { x: 0, y: doorH / 2, z: doorZ });
 
   // --- Lighting ---
   const ambLight = new THREE.AmbientLight(0x664444, 3.5);
   scene.add(ambLight);
   const lightPositions = [{ x: -2.5, z: -2 }, { x: 2.5, z: -2 }, { x: -2.5, z: 2 }, { x: 2.5, z: 2 }];
   for (const lp of lightPositions) {
-    const light = new THREE.PointLight(0xcc9977, 6, 14);
+    const light = new THREE.PointLight(remoteVisit ? SHIP_INTERIOR_PALETTE.light : 0xcc9977, 6, 14);
     light.position.set(lp.x, roomHeight - 0.4, lp.z);
     scene.add(light);
   }
@@ -203,9 +213,12 @@ export function createScene({ audioManager, entryState, gogglesCollected = false
 
   const breakables = createBreakables(scene, physicsWorld);
   for (const side of [-1, 1]) {
-    for (const z of [-0.5, 3.4]) breakables.add(`WallTarget${side}_${z}`, 'pistol', new THREE.Vector3(side * 4.7, 1.8, z), new THREE.Vector3(0.18, 0.85, 0.85));
-    breakables.add(`EndTarget${side}`, 'pistol', new THREE.Vector3(side * 1.7, 2.1, 4.7), new THREE.Vector3(0.85, 0.85, 0.18));
+    for (const z of [-0.5, 3.4]) breakables.add(`WallTarget${side}_${z}`, 'pistol', new THREE.Vector3(side * 4.7, 1.8, z),
+      new THREE.Vector3(0.18, 0.85, 0.85), id => { loot?.cleared.add(id); });
+    breakables.add(`EndTarget${side}`, 'pistol', new THREE.Vector3(side * 1.7, 2.1, 4.7),
+      new THREE.Vector3(0.85, 0.85, 0.18), id => { loot?.cleared.add(id); });
   }
+  if (loot) breakables.restoreBroken(loot.cleared);
 
   // --- Camera ---
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
@@ -215,8 +228,11 @@ export function createScene({ audioManager, entryState, gogglesCollected = false
   const spawnY = PHYSICS.playerRadius;
   const player = createPlayer({ camera, physicsWorld, spawnPosition: { x: 0, y: spawnY, z: spawnZ } });
   player.setRotation(0, 0);
-  player.enable();
-  if (entryState) {
+  let active = !preview && !deferActivation;
+  if (active) player.enable();
+  if (remoteVisit) {
+    teleportPlayer(player, { x: 0, y: spawnY, z: spawnZ }, Math.PI, entryState);
+  } else if (entryState) {
     player.restoreTransition(entryState, { x: 0, y: 0, z: -roomDepth / 2 });
     doorBack.open = doorBack.targetOpen = 1;
     doorBack.panelL.position.x = -doorPanelW / 2 - doorSlideDistance;
@@ -224,9 +240,19 @@ export function createScene({ audioManager, entryState, gogglesCollected = false
     doorBack.seam.visible = false;
   }
 
-  const chest = gogglesCollected ? null : createRewardChest({ scene, world: physicsWorld, player,
-    position: new THREE.Vector3(0, 0, 3.7), reward: 'goggles', unlocked: () => breakables.remaining() === 0,
-    removeOnCollect: true, onCollect: () => { onGogglesCollected?.(); return true; } });
+  const chest = !remoteVisit && gogglesCollected ? null : createRewardChest({ scene, world: physicsWorld, player,
+    position: new THREE.Vector3(0, 0, 3.7), reward: remoteVisit ? 'shield' : 'goggles', style: 'crew',
+    initialCollected: loot?.rewardCollected, canInteract: () => active, unlocked: () => breakables.remaining() === 0,
+    lockedPrompt: 'Destroy every wall target with the pistol',
+    removeOnCollect: !remoteVisit, onCollect: () => {
+      if (!remoteVisit) { onGogglesCollected?.(); return true; }
+      const collected = player.addShield(25); if (collected && loot) loot.rewardCollected = true; return collected;
+    } });
+  if (preview) player.disable();
+  const visitUI = remoteVisit && !preview && hasReturnMarker && onRestart
+    ? createCameraVisitUI({ title: '06 / Target range', player, hasReturnMarker, onRestart }) : null;
+  visitUI?.setVisible(active);
+  let disposed = false;
 
   // --- Door trigger callback ---
   let onBackTrigger: ((state: PlayerTransitionState) => void) | null = null;
@@ -234,16 +260,17 @@ export function createScene({ audioManager, entryState, gogglesCollected = false
   function setBackTrigger(callback: (state: PlayerTransitionState) => void) { onBackTrigger = callback; }
 
   function updatePhysics(dt: number, thirdPerson: boolean = false) {
+    if (disposed) return;
     dt = Number.isFinite(dt) ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime)) : 0;
     physics.step(dt, player, thirdPerson);
-    breakables.update(dt); chest?.update(dt);
+    breakables.update(dt); chest?.update(dt); visitUI?.update();
 
     const px = player.body.position.x;
     const pz = player.body.position.z;
     const inDoorX = px > -doorW / 2 - 1 && px < doorW / 2 + 1;
 
     const dist = Math.sqrt(px * px + (pz - doorBack.z) * (pz - doorBack.z));
-    const near = (dist < doorSensorRange && inDoorX) || hasNearbyActor(physicsWorld, 0, doorBack.z, doorSensorRange);
+    const near = !remoteVisit && ((dist < doorSensorRange && inDoorX) || hasNearbyActor(physicsWorld, 0, doorBack.z, doorSensorRange));
     doorBack.targetOpen = near ? 1 : 0;
     if (near) { sLightMat.color.setHex(0x00ff44); sLightMat.emissive.setHex(0x00ff44); }
     else { sLightMat.color.setHex(0xff0000); sLightMat.emissive.setHex(0xff0000); }
@@ -262,11 +289,15 @@ export function createScene({ audioManager, entryState, gogglesCollected = false
   }
 
   return {
-    scene, camera, physicsWorld, updatePhysics,
+    scene, camera, physicsWorld, updatePhysics, ready: chest?.ready ?? Promise.resolve(),
     cutsceneManager: null,
     player,
+    roomId: 'camera-range', getSceneId: () => 'scene6', getMapLayout: () => cameraVisitMap(6),
+    minimap: { bounds: { minX: -5, maxX: 5, minZ: -5, maxZ: 5 }, floor: 0 },
+    activate() { active = true; visitUI?.setVisible(true); player.clearInput(); player.enable(); },
+    syncProgress() { if (loot) { breakables.restoreBroken(loot.cleared); if (loot.rewardCollected) chest?.setCollected(); } },
     setBackTrigger, breakables, chest, getDamageTargets: breakables.getDamageTargets,
     setGogglesActive: breakables.setHighlighted,
-    dispose: () => { chest?.dispose(); breakables.dispose(); player.dispose(); physics.dispose(); },
+    dispose: () => { if (disposed) return; disposed = true; visitUI?.dispose(); chest?.dispose(); breakables.dispose(); player.dispose(); physics.dispose(); disposeRoom(scene); },
   };
 }

@@ -26,6 +26,13 @@ test('stage owns cinematics, checkpoint retry, impact distractions, and contextu
   assert.match(storage, /director\.formFiringSquad\(player\.body\.position\);[\s\S]*startCinematic\('alarm'/);
 });
 
+test('stealth keeps short interaction effects but no longer synthesizes a continuous siren', () => {
+  const setup = storage.slice(storage.indexOf('function ensureAudio()'), storage.indexOf('function ping('));
+  assert.doesNotMatch(setup, /createOscillator|createGain/);
+  assert.doesNotMatch(storage, /alarmAudio|440 \+ Math\.sin\(alarmAge/);
+  assert.match(storage, /function ping[\s\S]*createOscillator/);
+});
+
 test('peek actions are centered away from the health and shield bars', async () => {
   const css = await readFile(new URL('../src/styles/main.css', import.meta.url), 'utf8');
   assert.match(css, /#stealth-peek-actions \{ top: 50%; bottom: auto; transform: translate\(-50%, -50%\)/);
@@ -302,6 +309,7 @@ test('playable stage connects closet, automatic entry, alarm retry, container ro
   try {
     const THREE = await import('three');
     const { createScene } = await server.ssrLoadModule('/scenes/level 1 stage 1/storageRoom.ts');
+    const { HANGAR_LAYOUT } = await server.ssrLoadModule('/scenes/level 1 stage 1/stealthHangar.ts');
     const modelLoader = async () => {
       const scene = new THREE.Group(); scene.add(new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshStandardMaterial()));
       return { scene, animations: [] };
@@ -349,12 +357,34 @@ test('playable stage connects closet, automatic entry, alarm retry, container ro
         assert.equal(data.getStageState().hintsEnabled, true);
       } finally { data?.dispose(); restore(); }
     });
+    await context.test('the second-row music line works with hints disabled, latches on backtracking, and resets on retry', async () => {
+      const restore = stageBrowser(); let data;
+      try {
+        data = createScene({ modelLoader, restoreCheckpoint: true, hintsEnabled: false }); await data.ready;
+        const rows = [...new Set(HANGAR_LAYOUT.containers.map(cargo => cargo.x))];
+        assert.equal(HANGAR_LAYOUT.musicTriggerX, rows[1], 'The line belongs at the second cargo-row center');
+        assert.equal(data.getMusicTrack(), 'stealth-1');
+        data.player.setPosition(HANGAR_LAYOUT.musicTriggerX + 1, 20, 32); data.updatePhysics(0);
+        assert.equal(data.getMusicTrack(), 'stealth-1', 'Outside the hangar must not trigger the cue');
+        data.player.setPosition(HANGAR_LAYOUT.musicTriggerX - 0.01, 12.3, 30); data.updatePhysics(0);
+        assert.equal(data.getMusicTrack(), 'stealth-1');
+        data.player.setPosition(HANGAR_LAYOUT.musicTriggerX, 12.3, 30); data.updatePhysics(0);
+        assert.equal(data.getMusicTrack(), 'stealth-2', 'Crossing the line starts the second track');
+        data.player.setPosition(HANGAR_LAYOUT.checkpoint.x, 12.3, HANGAR_LAYOUT.checkpoint.z); data.updatePhysics(0);
+        assert.equal(data.getMusicTrack(), 'stealth-2', 'Backtracking must not restore the first track');
+        data.stealth.forceAlarm(data.stealth.actors[0].id);
+        assert.equal(data.getMusicTrack(), 'stealth-alert', 'Being spotted overrides either stealth track immediately');
+        holdEnter(data); stageKey('KeyR');
+        assert.equal(data.getMusicTrack(), 'stealth-1', 'A fresh checkpoint attempt starts in the first half');
+      } finally { data?.dispose(); restore(); }
+    });
     await context.test('the corridor drone kills directly without alerting the hangar and retries from storage', async () => {
       const restore = stageBrowser(); let data;
       try {
         data = createScene({ modelLoader }); await data.ready;
         data.player.setPosition(7, 12.3, -2.5); advanceStage(data, 1.2);
         assert.equal(data.getStageState().phase, 'caught');
+        assert.equal(data.getMusicTrack(), 'stealth-alert');
         assert.equal(data.player.getHealth(), 0); assert.equal(data.player.isEnabled(), false);
         assert.equal(data.getCinematicPose().clip, 'Death01');
         assert.equal(data.getStageState().alarm, false); assert.equal(data.stealth.alarmed, false);
@@ -369,6 +399,7 @@ test('playable stage connects closet, automatic entry, alarm retry, container ro
         holdEnter(data);
         assert.ok(data.getCinematicPose().time >= 2.5, 'Holding Enter finishes the short corridor death pose');
         stageKey('KeyR');
+        assert.equal(data.getMusicTrack(), 'stealth-1');
         assert.equal(data.player.getHealth(), 100); assert.equal(data.player.isEnabled(), true);
         assert.equal(data.getStageState().phase, 'closet'); assert.equal(data.getStageState().checkpoint, false);
         assert.equal(data.isCinematic(), false); assert.equal(retry.classList.contains('hidden'), true);

@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { addPlanetBackdrop, createEscapePod, createEscapeShip } from '../../scripts/items/createEscapeShip.js';
+import { addPlanetBackdrop, createEscapePod, createEscapeShip, animatePlanetBackdrop } from '../../scripts/items/createEscapeShip.js';
 import { createPlayer } from '../../scripts/player.js';
 import type { CinematicPose } from '../../scripts/characterManager.js';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
 import { disposeRoom } from '../../helpers/scene/shipRoom.js';
+import { createHoldToSkip } from '../../helpers/animation/holdToSkip.js';
 import type { FlightExitState } from './scene15.js';
 import { createRescueSite, RESCUE_SITE, JUNGLE_ENTRY_YAW, type RescueArrival } from '../../helpers/scene/rescueSite.js';
 
@@ -103,6 +104,19 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
   });
   let clock = 0, disposed = false, finished = false, paused = false, animationDelta = 0;
   const duration = 11 + 34 / 1.3;
+  const skipButton = document.createElement('button');
+  skipButton.type = 'button'; skipButton.className = 'scene-dialogue-skip hidden';
+  document.body.appendChild(skipButton);
+  function finishArrival() {
+    if (disposed || finished) return;
+    clock = duration; updateVisuals(0); finished = true;
+    caption?.classList.add('hidden'); skipButton.classList.add('hidden'); document.body.classList.remove('space-cinematic');
+    onFinished({ pilotState: player.captureTransition({ x: 0, y: 0, z: 0 }), hullHealth: entryState?.hullHealth,
+      cameraPosition: camera.position.clone(), cameraQuaternion: camera.quaternion.clone(), cameraFov: camera.fov });
+  }
+  const skipHold = createHoldToSkip({ button: skipButton, onSkip: finishArrival,
+    isAvailable: () => !disposed && !finished && site.isReady() && (clock - 11) * 1.3 >= 17,
+    isPaused: () => paused });
   function groundCamera() {
     const t = (clock - 11) * 1.3; camera.up.set(0, 1, 0);
     if (t < 4) {
@@ -280,6 +294,7 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
   updateVisuals(0);
   return {
     roomId: 'scene16', scene, camera, physicsWorld, player, planet, pod, shuttle, cutsceneManager: null,
+    getMusicTrack: (): 'level-2' | 'level-2-boss' => entryState ? 'level-2-boss' : 'level-2',
     isCinematic: () => true, hideCharacter: () => (clock - 11) * 1.3 < 11,
     isThirdPersonView: () => true,
     getMinimapState: () => {
@@ -305,14 +320,16 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
       dt = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, 0.1)); clock += dt; animationDelta = dt;
       if (!site.isReady() && clock > 21) clock = 21;
       updateVisuals(dt);
+      skipButton.classList.toggle('hidden', !site.isReady() || (clock - 11) * 1.3 < 17);
+      skipHold.update(dt); if (disposed || finished) return;
       if (clock >= duration) {
-        finished = true; caption?.classList.add('hidden'); document.body.classList.remove('space-cinematic');
-        onFinished({ pilotState: player.captureTransition({ x: 0, y: 0, z: 0 }), hullHealth: entryState?.hullHealth,
-          cameraPosition: camera.position.clone(), cameraQuaternion: camera.quaternion.clone(), cameraFov: camera.fov });
+        finishArrival();
       }
+      if (!disposed && !finished) animatePlanetBackdrop(planet, dt);
     },
     dispose() {
       if (disposed) return; disposed = true;
+      skipHold.dispose(); skipButton.remove();
       window.removeEventListener('blur', onBlur); window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onVisibility);
       caption?.classList.add('hidden'); document.body.classList.remove('space-cinematic');
       site.scene.removeFromParent(); site.dispose(); player.dispose(); physics.dispose(); disposeRoom(scene);

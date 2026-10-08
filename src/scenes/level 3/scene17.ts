@@ -12,8 +12,6 @@ import type { CinematicPose } from '../../scripts/characterManager.js';
 import { PARRY_DAMAGE, type ParryableBolt } from '../../scripts/lightsaber.js';
 import { createRiverAmbushers } from '../../scripts/riverAmbusher.js';
 import { createJungleScrambler, createJungleScramblerPulse, PLATFORM_COURSE } from '../../helpers/scene/junglePlatformCourse.js';
-import { AudioManager } from '../../helpers/audio/AudioManager.js';
-import jungleBgmUrl from '../../assets/bgm/DonRevJungleLoop.m4a?url';
 
 /** Shared jungle encounters, with distinct bridge and downstream/facility checkpoints. */
 export function createScene({ entryState, onRespawn, onPlatformer, onFinished, section = 'approach', loadModel = loadToolModel, loadDinosaur = loadDinoModel }: {
@@ -29,8 +27,6 @@ export function createScene({ entryState, onRespawn, onPlatformer, onFinished, s
     activatedRelays: entryState?.platformProgress?.activatedRelays ?? (returning ? ['relay1', 'relay2', 'relay3'] : []),
   }), { scene, door, ship, pod, boy } = site;
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 650);
-  const audioManager = new AudioManager({ camera, getFile: (path: string) => path === 'jungle-loop' ? { content: jungleBgmUrl } : null });
-  audioManager.setBgm({ path: 'jungle-loop', loop: true, volume: 0.5, autoplay: true });
   const player = createPlayer({ camera, physicsWorld, spawnPosition: spawn });
   if (entryState?.pilotState) player.restoreTransition({
     ...entryState.pilotState, position: spawn, velocity: { x: 0, y: 0, z: 0 },
@@ -751,7 +747,6 @@ export function createScene({ entryState, onRespawn, onPlatformer, onFinished, s
       }
       for (const template of templates) template.traverse(node => { if (node instanceof THREE.SkinnedMesh) node.skeleton.dispose(); });
       player.dispose(); physics.dispose(); site.dispose();
-      audioManager.dispose();
       spawnGeometry.dispose(); spawnMaterial.dispose();
     },
   };

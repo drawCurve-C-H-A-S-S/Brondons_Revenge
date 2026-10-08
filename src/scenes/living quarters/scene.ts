@@ -5,7 +5,8 @@ import { createHoldToSkip } from '../../helpers/animation/holdToSkip.js';
 import { createPlayer, type PlayerState, type PlayerTransitionState } from '../../scripts/player.js';
 import { HOLOGRAM_TRANSFER_DURATION, hologramTransitionAt } from '../../scripts/characterManager.js';
 import { CABINS, CABIN_BY_ID, QUARTERS, LIVING_QUARTERS_MAP, cabinPoint, cabinDoorPoint,
-  createQuartersProgress, cabinRoomName, FORWARD_BULKHEAD_CODE, type CabinId, type QuartersLocation, type QuartersProgress } from './layout.js';
+  createQuartersProgress, cabinRoomName, FORWARD_BULKHEAD_CODE, quartersEquipmentReady,
+  type CabinId, type QuartersLocation, type QuartersProgress } from './layout.js';
 import { createCabinFurnishings, disposeQuartersObject, type CabinFurnishings, type CabinModelLoader } from './furnishings.js';
 import { createQuartersHull } from './hull.js';
 import { createInspectionView, type InspectionTarget } from './inspectionView.js';
@@ -20,6 +21,8 @@ interface QuartersOptions {
   warmRoom?: (scene: THREE.Scene, camera: THREE.PerspectiveCamera) => Promise<void>;
   onPistolCollected?: () => void;
   onTeleporterCollected?: () => void;
+  onCrystalCollected?: () => void;
+  onGogglesCollected?: () => void;
   preparePassage?: () => Promise<void>;
   onExitToPassage?: (state: PlayerTransitionState) => Promise<boolean>;
 }
@@ -30,7 +33,7 @@ interface Interaction {
   point: THREE.Vector3;
 }
 interface Cinematic {
-  kind: 'arrival' | 'pistol' | 'empty-chest' | 'teleporter';
+  kind: 'arrival' | 'pistol' | 'crystal' | 'goggles' | 'empty-chest' | 'teleporter';
   time: number;
   duration: number;
   ready: boolean;
@@ -43,7 +46,8 @@ export async function preloadAssets() {
 }
 
 export function createScene({ progress = createQuartersProgress(), skipArrival = false, fromPassage = false, entryState, deferActivation = false,
-  loadCabinModel, warmRoom, onPistolCollected, onTeleporterCollected, preparePassage, onExitToPassage }: QuartersOptions = {}) {
+  loadCabinModel, warmRoom, onPistolCollected, onTeleporterCollected, onCrystalCollected, onGogglesCollected,
+  preparePassage, onExitToPassage }: QuartersOptions = {}) {
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x0a121d); scene.fog = new THREE.Fog(0x0a121d, 22, 48);
   scene.add(new THREE.AmbientLight(0x7895ae, 1.4), new THREE.HemisphereLight(0xbbd7ed, 0x273342, 1.8));
   const camera = new THREE.PerspectiveCamera(58, window.innerWidth / Math.max(1, window.innerHeight), 0.05, 90);
@@ -193,11 +197,16 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
   }
   function startBulkhead() {
     if (!progress.bulkheadUnlocked) { showNotice('Prime: This bulkhead needs a code. Use the number panel beside it.'); return; }
+    if (!quartersEquipmentReady(progress)) {
+      showNotice("Prime: Take your pistol and device, the purple crystal from Brendan's chest, and the goggles from Branden's chest before leaving.", 8);
+      return;
+    }
     forwardRequested = !forwardRequested; player.requestAction('Interact');
     if (forwardRequested) prepareBulkhead();
   }
   function transferToPassage() {
     if (passageTransferring) return;
+    if (!quartersEquipmentReady(progress)) { startBulkhead(); return; }
     passageFailed = false; passageTransferring = true; player.clearInput(); player.setInputLocked(true);
     loading.textContent = 'Opening Deck One passage...'; loading.classList.remove('hidden');
     void Promise.resolve().then(() => {
@@ -308,8 +317,10 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
           title: 'Forward bulkhead keypad', pointer: 'hand', onAction: action => {
             if (action !== 'unlock') return;
             hull.forwardDoor.setLocked(false);
-            forwardRequested = true; prepareBulkhead();
-            caption('That worked. The bulkhead is open. Beyond it, surveillance is live. Stay out of their sight.');
+            forwardRequested = quartersEquipmentReady(progress);
+            if (forwardRequested) prepareBulkhead();
+            caption(forwardRequested ? 'That worked. The bulkhead is open. Beyond it, surveillance is live. Stay out of their sight.'
+              : "The code worked. First collect the purple crystal from Brendan and the goggles from Branden, then open the bulkhead.");
             inspectionCaptionTime = 7;
           } });
         break;
@@ -330,11 +341,13 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
         break;
       }
       case 'chest':
-        if (progress.openedChests.has(candidate.cabin!) && (candidate.cabin !== 'brondon' || progress.pistolCollected)) {
+        if (progress.openedChests.has(candidate.cabin!) && (candidate.cabin === 'brondon' ? progress.pistolCollected
+          : candidate.cabin === 'brendan' ? progress.crystalCollected : candidate.cabin === 'branden' ? progress.gogglesCollected : true)) {
           showNotice(`${cabin!.occupant}'s chest is empty.`); break;
         }
         progress.openedChests.add(candidate.cabin!);
-        startCinematic(candidate.cabin === 'brondon' ? 'pistol' : 'empty-chest', candidate.cabin!, candidate.cabin === 'brondon' ? 4.4 : 2.3);
+        startCinematic(candidate.cabin === 'brondon' ? 'pistol' : candidate.cabin === 'brendan' ? 'crystal'
+          : candidate.cabin === 'branden' ? 'goggles' : 'empty-chest', candidate.cabin!, 4.4);
         break;
       case 'teleporter': startCinematic('teleporter', 'brondon', 5); break;
     }
@@ -386,9 +399,19 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
         progress.pistolCollected = true; onPistolCollected?.(); updateStatus();
       }
     } else if (shot.kind === 'teleporter') {
-      caption('Your personal teleporter. Donus is blocking its destination link. Keep it; we will need it when we find a route out.');
+      caption("Your personal teleporter needs a power crystal. Brendan kept a purple one in his chest. Find it before we leave.");
       if (shot.time >= 3.4 && !progress.teleporterCollected) {
         progress.teleporterCollected = true; onTeleporterCollected?.(); updateStatus();
+      }
+    } else if (shot.kind === 'crystal') {
+      caption('The purple crystal powers your teleporter. Keep it ready; the surveillance cameras can provide destination links.');
+      if (shot.time >= 3.1 && !progress.crystalCollected) {
+        progress.crystalCollected = true; onCrystalCollected?.(); updateStatus();
+      }
+    } else if (shot.kind === 'goggles') {
+      caption("Branden's scanner goggles. Press N to reveal hidden maintenance markings and secret controls.");
+      if (shot.time >= 3.1 && !progress.gogglesCollected) {
+        progress.gogglesCollected = true; onGogglesCollected?.(); updateStatus();
       }
     } else caption(`${CABIN_BY_ID.get(shot.cabin)!.occupant}'s chest is empty. We can search the rest of the quarters.`);
     if (shot.time >= shot.duration) finishCinematic();
@@ -447,7 +470,7 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
     }
     hull.forwardDoor.setLocked(!progress.bulkheadUnlocked);
     const p = player.body.position;
-    hull.forwardDoor.update(frame, progress.bulkheadUnlocked && (forwardRequested && passagePrepared
+    hull.forwardDoor.update(frame, progress.bulkheadUnlocked && quartersEquipmentReady(progress) && (forwardRequested && passagePrepared
       || hull.forwardDoor.open > 0 && Math.abs(p.z - 16) < player.radius + 0.16 && Math.abs(p.x) < QUARTERS.doorWidth / 2 + player.radius));
     showInteriors(cinematic?.cabin);
     if (!inspection.active) hull.keypad.update(frame);

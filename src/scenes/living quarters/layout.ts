@@ -62,6 +62,8 @@ export interface QuartersProgress {
   arrivalSeen: boolean;
   pistolCollected: boolean;
   teleporterCollected: boolean;
+  crystalCollected: boolean;
+  gogglesCollected: boolean;
   rescueMessageRead: boolean;
   bulkheadUnlocked: boolean;
   visited: Set<CabinId>;
@@ -69,11 +71,17 @@ export interface QuartersProgress {
 }
 export function createQuartersProgress(): QuartersProgress {
   return { arrivalSeen: false, pistolCollected: false, teleporterCollected: false,
+    crystalCollected: false, gogglesCollected: false,
     rescueMessageRead: false, bulkheadUnlocked: false,
     visited: new Set(), openedChests: new Set() };
 }
+export function quartersEquipmentReady(progress: QuartersProgress) {
+  return progress.pistolCollected && progress.teleporterCollected && progress.crystalCollected && progress.gogglesCollected;
+}
 export function quartersObjective(progress: QuartersProgress) {
   if (!progress.pistolCollected || !progress.teleporterCollected) return 'Recover your pistol and teleportation device';
+  if (!progress.crystalCollected) return "Recover the purple teleport crystal from Brendan's chest";
+  if (!progress.gogglesCollected) return "Recover scanner goggles from Branden's chest";
   const checked = (['branden', 'brendan'] as const).filter(id => progress.visited.has(id)).length;
   if (checked < 2) return `Check the other lecturers' rooms (${checked}/2)`;
   if (!progress.rescueMessageRead) return "Read save us on Branden's computer";

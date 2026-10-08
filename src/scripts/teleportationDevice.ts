@@ -1,6 +1,18 @@
 import * as THREE from 'three';
 import type { Player, PlayerTransitionState } from './player.js';
 
+export function createTeleportCrystal() {
+  const root = new THREE.Group(); root.name = 'PurpleTeleportCrystal';
+  const material = new THREE.MeshStandardMaterial({ color: 0xbd77ff, emissive: 0x8d38e5,
+    emissiveIntensity: 1.2, metalness: 0.25, roughness: 0.2 });
+  const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.18), material);
+  crystal.scale.y = 1.45; root.add(crystal);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.014, 6, 24),
+    new THREE.MeshBasicMaterial({ color: 0xd9a3ff, toneMapped: false }));
+  ring.rotation.x = Math.PI / 2; root.add(ring);
+  return root;
+}
+
 /** Exact world-space arrival, preserving health/shield but never stale movement. */
 export function teleportPlayer(player: Player, position: { x: number; y: number; z: number }, yaw: number,
   state = player.captureTransition({ x: 0, y: 0, z: 0 })) {
@@ -33,6 +45,9 @@ export interface TeleportationDeviceContext {
   getPlayerRotation: () => number;
   onTeleport: (sceneId: string, position: { x: number; y: number; z: number }, rotation: number) => void;
   showMessage: (message: string) => void;
+  canPlace?: (sceneId: string, position: { x: number; y: number; z: number }) => string | null;
+  placementMessage?: (sceneId: string, position: { x: number; y: number; z: number }) => string;
+  returnError?: (state: TeleportationDeviceState) => string | null;
 }
 
 export class TeleportationDeviceController {
@@ -69,7 +84,12 @@ export class TeleportationDeviceController {
   collect(announce = true) {
     if (this.state.collected) return;
     this.state.collected = true;
-    if (announce) this.showMessage('Teleportation Device acquired! Q: place / T: teleport.');
+    if (announce) this.showMessage('Teleport crystal linked! Q: place marker / T: return / Hold Tab: weapons.');
+  }
+
+  reset() {
+    this.detachMarker();
+    this.state = { collected: false, placed: false, placementScene: null, placementPosition: null, placementRotation: null };
   }
 
   private onKeyDown = (event: KeyboardEvent) => {
@@ -104,6 +124,8 @@ export class TeleportationDeviceController {
 
     const position = ctx.getPlayerPosition();
     const rotation = ctx.getPlayerRotation();
+    const rejected = ctx.canPlace?.(ctx.currentSceneId, position);
+    if (rejected) { ctx.showMessage(rejected); return; }
 
     this.state.placed = true;
     this.state.placementScene = ctx.currentSceneId;
@@ -111,10 +133,11 @@ export class TeleportationDeviceController {
     this.state.placementRotation = rotation;
     this.markerRadius = ctx.getPlayerRadius();
     this.update(0);
-    ctx.showMessage('Device placed. Press T to teleport back.');
+    ctx.showMessage(ctx.placementMessage?.(ctx.currentSceneId, position)
+      ?? 'Marker placed. Press T to return; hold Tab to choose weapons.');
   }
 
-  private teleportToDevice() {
+  teleportToDevice() {
     const ctx = this.context();
 
     if (ctx.isBossFight()) {
@@ -132,6 +155,9 @@ export class TeleportationDeviceController {
       return;
     }
 
+    const error = ctx.returnError?.(this.getState());
+    if (error) { ctx.showMessage(error); return; }
+
     ctx.onTeleport(
       this.state.placementScene,
       this.state.placementPosition,
@@ -144,12 +170,11 @@ export class TeleportationDeviceController {
 
   private createMarker() {
     const root = new THREE.Group(); root.name = 'TeleportAnchor';
-    // Unlit geometry gives a purple glow without changing the room's light count.
+    // Self-lit geometry keeps the purple glow without changing the room's light count.
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.27, 0.4, 32),
       new THREE.MeshBasicMaterial({ color: 0xbd77ff, side: THREE.DoubleSide, toneMapped: false }));
     ring.rotation.x = -Math.PI / 2;
-    const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.18),
-      new THREE.MeshBasicMaterial({ color: 0xbd77ff, wireframe: true, toneMapped: false }));
+    const gem = createTeleportCrystal();
     gem.name = 'TeleportAnchorGem'; gem.position.y = 0.32;
     root.add(ring, gem);
     this.placedMarker = root;

@@ -1,29 +1,46 @@
-import { FINALE_START_X, RIFLE_SEQUENCE } from './finaleChoreography.js';
+import {
+  FINALE_START_X, RIFLE_SEQUENCE, HERO_ULTIMATE, ENEMY_VERDICT, ENEMY_ATTACK_LEAPS, MELEE_STRIKES,
+  isMeleeStrike, sampleMeleeBlade, finisherBeatDuration, finisherActionTime, MECH_DODGE, sampleDodgeArc,
+  sampleEnemyAttackLeap,
+  type CinematicPoint, type MeleeStrike,
+} from './finaleChoreography.js';
 
-export type MechMove = 'idle' | 'walk' | 'slash' | 'cleave' | 'missiles' | 'guard' | 'dash' | 'stagger' | 'overdrive' | 'defeat';
+export type MechMove = 'idle' | 'walk' | 'slash' | 'sideSlash' | 'cleave' | 'thrust' | 'reap' | 'verdict'
+  | 'missiles' | 'guard' | 'dash' | 'stagger' | 'overdrive' | 'defeat';
 export type DuelPhase = 'ground' | 'rupture' | 'space' | 'finisher' | 'lost' | 'won';
 export type MechSide = 'hero' | 'enemy';
 export type MechAction = 'slash' | 'missiles' | 'dash' | 'overdrive';
 export interface DuelInput { move: number; lift: number; guard: boolean; }
+export interface DuelDash { from: number; to: number; crossing: boolean; evading: boolean; }
 export interface Fighter {
   x: number; y: number; vx: number; vy: number; health: number; energy: number; shield: number;
   shieldCooldown: number; shieldLock: number;
   move: MechMove; time: number; duration: number; hit: boolean; invulnerable: number;
   guardTime: number; facing: number; combo: number; volley: number;
+  ultimateCooldown: number; aimX: number; aimY: number; aimLocked: boolean;
+  dash: DuelDash | null;
 }
+export type DuelProjectileKind = 'round' | 'bladeWave' | 'verdictBeam';
 export interface DuelMissile {
   id: number; owner: MechSide; x: number; y: number; vx: number; vy: number; life: number; age: number;
+  kind: DuelProjectileKind; damage: number;
 }
+export interface BladeDamageTrace { from: CinematicPoint; to: CinematicPoint; }
+export interface BladeSegment { base: CinematicPoint; tip: CinematicPoint; }
+export type DuelBladePaths = Record<MeleeStrike, readonly BladeSegment[]>;
 export interface DuelEvent {
   kind: 'hit' | 'parry' | 'guard' | 'guardBreak' | 'launch' | 'cut' | 'dash' | 'swing' | 'special' | 'rupture' | 'finish' | 'lost' | 'tell';
   x: number; y: number; owner: MechSide; move: MechMove; attack: MechMove | null; damage: number;
+  trace: BladeDamageTrace | null;
 }
 export const DUEL = Object.freeze({
   health: 1800, heroHealth: 1000, half: 900, range: 18, arena: 32, speed: 9,
   separation: 7, slashDamage: 58, cleaveDamage: 96, missileDamage: 22,
   parryWindow: 0.24, parryCost: 12, shieldMax: 100, shieldDrain: 24, shieldRegen: 34,
-  shieldRegenDelay: 0.8, shieldBreak: 2.2, spaceShield: 55,
-  overdriveDamage: 245, specialSeconds: 2.8, step: 1 / 120, repair: 240,
+  shieldRegenDelay: 0.8, shieldBreak: 2.2, shieldHitScale: 0.5, shieldRadius: 10.5, spaceShield: 55,
+  overdriveDamage: 245, verdictDamage: 64, specialSeconds: HERO_ULTIMATE.duration,
+  ultimateCooldown: HERO_ULTIMATE.cooldown, counterWindow: 0.55, step: 1 / 120, repair: 240,
+  enemyReaction: 0.2, enemyDefenseCooldown: 2.6, enemyGuardDuration: 1.15, enemyRushCooldown: 2.5,
 });
 const clamp = (n: number, a: number, b: number) => Math.max(a, Math.min(b, n));
 const neutralInput = (): DuelInput => ({ move: 0, lift: 0, guard: false });
@@ -32,6 +49,7 @@ const fighter = (x: number, health: number, facing: number, shield = 0): Fighter
   x, y: 0, vx: 0, vy: 0, health, energy: 100, shield, shieldCooldown: 0, shieldLock: 0,
   move: 'idle', time: 0, duration: 0,
   hit: false, invulnerable: 0, guardTime: 10, facing, combo: 0, volley: 0,
+  ultimateCooldown: 0, aimX: 0, aimY: 0, aimLocked: false, dash: null,
 });
 
 function frameTime(dt: number) {
@@ -40,27 +58,136 @@ function frameTime(dt: number) {
 }
 
 // Swept, scaled-circle contact prevents fast missiles tunnelling through either mech.
-function missileContact(ax: number, ay: number, bx: number, by: number, target: Fighter, radius = 1) {
-  const x = (ax - target.x) / (3.2 * radius), y = (ay - target.y - 7.5) / (5.8 * radius);
-  const dx = (bx - ax) / (3.2 * radius), dy = (by - ay) / (5.8 * radius);
+function missileContact(ax: number, ay: number, bx: number, by: number, target: Fighter, radius = 1, shield = false) {
+  const rx = shield ? DUEL.shieldRadius : 3.2 * radius, ry = shield ? DUEL.shieldRadius : 5.8 * radius;
+  const x = (ax - target.x) / rx, y = (ay - target.y - 7.5) / ry;
+  const dx = (bx - ax) / rx, dy = (by - ay) / ry;
   const length = dx * dx + dy * dy;
   const t = length > 0 ? clamp(-(x * dx + y * dy) / length, 0, 1) : 0;
   return (x + dx * t) ** 2 + (y + dy * t) ** 2 <= 1;
 }
 
+function bladePoint(point: CinematicPoint, fighter: Fighter): CinematicPoint {
+  return [fighter.x + point[2] * fighter.facing, fighter.y + point[1], point[0] * fighter.facing];
+}
+
+function sampledBlade(move: MeleeStrike, time: number, paths?: DuelBladePaths): BladeSegment {
+  if (!paths) return sampleMeleeBlade(move, time);
+  const frames = paths[move], frame = clamp(time / MELEE_STRIKES[move].duration, 0, 1) * (frames.length - 1);
+  const a = frames[Math.floor(frame)], b = frames[Math.min(Math.floor(frame) + 1, frames.length - 1)];
+  const alpha = frame % 1;
+  const mix = (from: CinematicPoint, to: CinematicPoint): CinematicPoint =>
+    [from[0] + (to[0] - from[0]) * alpha, from[1] + (to[1] - from[1]) * alpha, from[2] + (to[2] - from[2]) * alpha];
+  return { base: mix(a.base, b.base), tip: mix(a.tip, b.tip) };
+}
+
+function bladeContact(move: MeleeStrike, before: number, after: number, attacker: Fighter, target: Fighter, paths?: DuelBladePaths, shield = false) {
+  const strike = MELEE_STRIKES[move];
+  if (after < strike.start || before > strike.end) return false;
+  const start = Math.max(before, strike.start), end = Math.min(after, strike.end);
+  for (let sample = 0; sample <= 3; sample++) {
+    const blade = sampledBlade(move, start + (end - start) * sample / 3, paths);
+    const a = bladePoint(blade.base, attacker), b = bladePoint(blade.tip, attacker);
+    const rx = shield ? DUEL.shieldRadius : 3.2, ry = shield ? DUEL.shieldRadius : 6.2;
+    const rz = shield ? DUEL.shieldRadius : 3.4, cy = shield ? 7.5 : 8.6;
+    const origin = [(a[0] - target.x) / rx, (a[1] - target.y - cy) / ry, a[2] / rz];
+    const delta = [(b[0] - a[0]) / rx, (b[1] - a[1]) / ry, (b[2] - a[2]) / rz];
+    const length = delta.reduce((sum, value) => sum + value * value, 0);
+    const t = clamp(-origin.reduce((sum, value, axis) => sum + value * delta[axis], 0) / Math.max(length, 1e-8), 0, 1);
+    if (origin.reduce((sum, value, axis) => sum + (value + delta[axis] * t) ** 2, 0) <= 1) return true;
+  }
+  return false;
+}
+
+export function sampleBladeDamageTrace(move: MeleeStrike, attacker: Fighter, target: Fighter, paths?: DuelBladePaths): BladeDamageTrace {
+  const strike = MELEE_STRIKES[move], points: CinematicPoint[] = [];
+  const plane = Math.abs(target.x - attacker.x) - 2.2;
+  for (let sample = 0; sample <= 32; sample++) {
+    const blade = sampledBlade(move, strike.start + (strike.end - strike.start) * sample / 32, paths);
+    const distance = (plane - blade.base[2]) / (blade.tip[2] - blade.base[2]);
+    if (distance < 0 || distance > 1 || !Number.isFinite(distance)) continue;
+    const local: CinematicPoint = [
+      blade.base[0] + (blade.tip[0] - blade.base[0]) * distance,
+      blade.base[1] + (blade.tip[1] - blade.base[1]) * distance,
+      plane,
+    ];
+    const point = bladePoint(local, attacker);
+    if (Math.abs(point[2]) <= 3.8 && point[1] >= target.y + 3 && point[1] <= target.y + 15) points.push(point);
+  }
+  if (points.length >= 2 && move !== 'thrust') return { from: points[0], to: points[points.length - 1] };
+  const impact: CinematicPoint = [target.x - attacker.facing * 2.2, target.y + 10, -attacker.facing];
+  return { from: [impact[0], impact[1] - 0.5, impact[2]], to: [impact[0], impact[1] + 0.5, impact[2]] };
+}
+
 export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground') {
   const hero = fighter(-FINALE_START_X, DUEL.heroHealth, 1, DUEL.shieldMax);
-  const enemy = fighter(FINALE_START_X, start === 'ground' ? DUEL.health : start === 'space' ? DUEL.half : 0, -1);
+  const enemy = fighter(FINALE_START_X, start === 'ground' ? DUEL.health : start === 'space' ? DUEL.half : 0, -1, DUEL.shieldMax);
   let phase: DuelPhase = start, time = 0, sync = 0, combo = 0, comboClock = 0;
   let aiClock = 2.1, aiPattern = 0, missileId = 0, hitStop = 0, guardWasDown = false, parryArmed = false;
+  let defenseClock = 0.12, defensePattern = 0, threatTime = 0, rushClock = 0.65;
+  let enemyLeap: { fromX: number; fromY: number; toX: number; toY: number } | null = null;
   let input = neutralInput(), bufferedSlash = 0, feedback = '';
   const missiles: DuelMissile[] = [], events: DuelEvent[] = [];
+  const bladePaths: Partial<Record<MechSide, DuelBladePaths>> = {};
   const live = () => phase === 'ground' || phase === 'space';
-  function emit(kind: DuelEvent['kind'], f: Fighter, owner: MechSide, damage = 0, attack: MechMove | null = null) {
-    events.push({ kind, x: f.x, y: f.y + 8, owner, move: f.move, attack, damage });
+  function emit(kind: DuelEvent['kind'], f: Fighter, owner: MechSide, damage = 0, attack: MechMove | null = null, trace: BladeDamageTrace | null = null) {
+    events.push({ kind, x: f.x, y: f.y + 8, owner, move: f.move, attack, damage, trace });
   }
   function move(f: Fighter, name: MechMove, duration: number) {
-    f.move = name; f.time = 0; f.duration = duration; f.hit = false; f.volley = 0;
+    f.move = name; f.time = 0; f.duration = duration; f.hit = false; f.volley = 0; f.aimLocked = false;
+    if (f === enemy) {
+      enemyLeap = null;
+      if (name === 'thrust' || name === 'verdict') {
+        const leap = ENEMY_ATTACK_LEAPS[name];
+        const distance = name === 'verdict' ? -leap.distance
+          : Math.min(leap.distance, Math.max(0, Math.abs(hero.x - f.x) - DUEL.separation - 1));
+        enemyLeap = { fromX: f.x, fromY: f.y, toX: clamp(f.x + f.facing * distance, -DUEL.arena, DUEL.arena),
+          toY: phase === 'space' ? name === 'thrust' ? hero.y : f.y : 0 };
+        f.vx = f.vy = 0;
+      }
+    }
+  }
+  function tickEnemyLeap(dt: number) {
+    if (!enemyLeap || (enemy.move !== 'thrust' && enemy.move !== 'verdict')) return false;
+    const sample = sampleEnemyAttackLeap(enemy.move, enemy.time + dt);
+    enemy.x = enemyLeap.fromX + (enemyLeap.toX - enemyLeap.fromX) * sample.progress;
+    enemy.y = enemyLeap.fromY + (enemyLeap.toY - enemyLeap.fromY) * sample.progress + sample.lift;
+    enemy.vx = enemy.vy = 0;
+    if (enemy.time + dt >= ENEMY_ATTACK_LEAPS[enemy.move].land) {
+      enemy.y = enemyLeap.toY;
+      enemyLeap = null;
+    }
+    return true;
+  }
+  function special() {
+    const f = hero.move === 'overdrive' || hero.move === 'missiles' ? hero
+      : enemy.move === 'verdict' ? enemy : null;
+    if (!f) return null;
+    const cameraEnd = f.move === 'missiles' ? RIFLE_SEQUENCE.cameraEnd
+      : f.move === 'verdict' ? ENEMY_VERDICT.cameraEnd : HERO_ULTIMATE.cameraEnd;
+    const release = f.move === 'missiles' ? RIFLE_SEQUENCE.fire
+      : f.move === 'verdict' ? ENEMY_VERDICT.release : HERO_ULTIMATE.release;
+    return { owner: f === hero ? 'hero' as const : 'enemy' as const, kind: f.move, time: f.time,
+      duration: f.duration, cinematic: f.time < cameraEnd, counterRemaining: Math.max(0, release - f.time) };
+  }
+  const guarding = (f = hero) => live() && (f === hero ? input.guard : f.move === 'guard') && f.shield > 0 && f.shieldLock <= 0
+    && f.move !== 'stagger' && f.move !== 'defeat' && f.move !== 'dash' && !special()?.cinematic;
+  function breakShield(f = hero) {
+    f.shield = 0; f.shieldLock = f.shieldCooldown = DUEL.shieldBreak;
+    if (f === hero) parryArmed = false;
+    else defenseClock = DUEL.shieldBreak;
+    move(f, 'stagger', 0.7); emit('guardBreak', f, f === hero ? 'enemy' : 'hero', 0, 'guard');
+  }
+  function startDash(f: Fighter, direction: number, evading: boolean, crossing = false) {
+    const target = f === hero ? enemy : hero;
+    const landing = target.x + direction * MECH_DODGE.clearance;
+    crossing = crossing && Math.abs(landing) <= DUEL.arena;
+    const end = crossing ? landing : clamp(f.x + direction * MECH_DODGE.distance, -DUEL.arena, DUEL.arena);
+    move(f, 'dash', crossing ? MECH_DODGE.crossDuration : MECH_DODGE.duration);
+    f.dash = { from: f.x, to: end, crossing, evading };
+    f.vx = (end - f.x) / f.duration;
+    f.invulnerable = evading ? f.duration : 0;
+    emit('dash', f, f === hero ? 'hero' : 'enemy', 0, 'dash');
   }
   function checkOutcome() {
     if (!live()) return;
@@ -73,67 +200,82 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
     }
     if (!live()) { missiles.length = 0; bufferedSlash = 0; input = neutralInput(); }
   }
-  function hurt(target: Fighter, damage: number, owner: MechSide, blockable = true, attack?: MechMove): 'hit' | 'guard' | 'parry' | 'evade' {
-    if (!live() || target.invulnerable > 0) return 'evade';
+  function hurt(target: Fighter, damage: number, owner: MechSide, blockable = true, attack?: MechMove, trace: BladeDamageTrace | null = null): 'hit' | 'guard' | 'parry' | 'evade' {
+    if (!live()) return 'evade';
     const attacker = owner === 'hero' ? hero : enemy;
     const attackMove = attack ?? attacker.move;
-    if (blockable && target === hero && target.move === 'guard' && target.shield > 0 && target.shieldLock <= 0) {
+    if (blockable && guarding(target)) {
       target.shieldCooldown = DUEL.shieldRegenDelay;
-      if (parryArmed && target.guardTime <= DUEL.parryWindow && target.shield >= DUEL.parryCost) {
-        target.shield -= DUEL.parryCost;
+      const perfect = target === hero && parryArmed && target.guardTime <= DUEL.parryWindow && target.shield >= DUEL.parryCost;
+      const cost = perfect ? DUEL.parryCost : damage * DUEL.shieldHitScale;
+      target.shield = Math.max(0, target.shield - cost);
+      if (isMeleeStrike(attackMove)) {
+        move(attacker, 'stagger', perfect ? 1.3 : 0.6);
+        attacker.vx = -attacker.facing * (perfect ? 13 : 8);
+      }
+      const impact = { ...target, x: target.x + Math.sign(attacker.x - target.x) * 8.5 };
+      if (perfect) {
         parryArmed = false; sync = clamp(sync + 28, 0, 100);
-        move(attacker, 'stagger', 1.3); hitStop = 0.1; emit('parry', target, owner, 0, attackMove);
-        return 'parry';
+        hitStop = 0.1; emit('parry', impact, owner, 0, attackMove);
+      } else {
+        emit('guard', impact, owner, damage, attackMove);
+        hitStop = Math.max(hitStop, 0.055);
       }
-      const absorbed = Math.min(target.shield, damage);
-      target.shield -= absorbed; damage -= absorbed;
-      if (damage <= 0) {
-        emit('guard', target, owner, absorbed, attackMove);
-        hitStop = Math.max(hitStop, 0.035);
-        return 'guard';
-      }
-      target.shield = 0;
-      target.shieldLock = target.shieldCooldown = DUEL.shieldBreak;
-      parryArmed = false;
-      move(target, 'stagger', 1.1);
-      emit('guardBreak', target, owner, damage, attackMove);
-    } else move(target, 'stagger', 0.46);
+      if (target.shield <= 1e-7) breakShield(target);
+      return perfect ? 'parry' : 'guard';
+    }
+    if (target.invulnerable > 0) return 'evade';
+    move(target, 'stagger', 0.46);
     target.health = Math.max(0, target.health - damage); target.invulnerable = 0.18;
+    target.dash = null;
+    if (target === enemy) defenseClock = Math.max(defenseClock, 0.7);
     sync = clamp(sync + (owner === 'hero' ? 12 : 4), 0, 100);
-    emit('hit', target, owner, damage, attackMove); hitStop = Math.max(hitStop, 0.065); checkOutcome();
+    emit('hit', target, owner, damage, attackMove, trace); hitStop = Math.max(hitStop, 0.065); checkOutcome();
     return target.move === 'guard' ? 'guard' : 'hit';
   }
-  function launch(f: Fighter, owner: MechSide) {
+  function launch(f: Fighter, owner: MechSide, kind: DuelProjectileKind = 'round') {
     const target = owner === 'hero' ? enemy : hero, slot = f.volley++;
-    const x = f.x + f.facing * 3.5, y = f.y + 10.5 + (slot % 2) * 0.65;
-    const dx = target.x - x, dy = target.y + 7.5 - y, length = Math.hypot(dx, dy) || 1;
-    missiles.push({ id: missileId++, owner, x, y, vx: dx / length * 25, vy: dy / length * 25 + 5 - slot,
-      life: 4.5, age: 0 });
-    emit('launch', f, owner, 0, 'missiles');
+    const x = f.x + f.facing * (kind === 'round' ? 4.8 : kind === 'bladeWave' ? 4.2 : 13.2);
+    const y = f.y + (kind === 'bladeWave' ? 8.6 : 10.5);
+    const aimX = (f.aimLocked ? f.aimX : target.x) - x;
+    const dx = kind === 'bladeWave' ? f.facing * Math.max(1, aimX * f.facing) : aimX;
+    const dy = (f.aimLocked ? f.aimY : target.y + 8.6) - y;
+    const length = Math.hypot(dx, dy) || 1, speed = kind === 'round' ? 55 : kind === 'bladeWave' ? 43 : 48;
+    const damage = kind === 'round' ? DUEL.missileDamage : kind === 'bladeWave' ? DUEL.overdriveDamage : DUEL.verdictDamage;
+    missiles.push({ id: missileId++, owner, x, y, vx: dx / length * speed, vy: dy / length * speed,
+      life: 4, age: 0, kind, damage });
+    emit('launch', f, owner, 0, kind === 'round' ? 'missiles' : kind === 'bladeWave' ? 'overdrive' : 'verdict');
   }
   function act(action: MechAction) {
     feedback = '';
     if (!live()) return false;
+    if (special()?.cinematic && special()?.owner === 'enemy') {
+      return false;
+    }
     if (busy(hero)) {
-      if (action === 'slash' && (hero.move === 'slash' || hero.move === 'cleave') && hero.time >= hero.duration * 0.55) {
-        bufferedSlash = 0.35; return true;
+      if (action === 'slash' && isMeleeStrike(hero.move) && hero.time >= hero.duration * 0.5) {
+        bufferedSlash = 0.75; return true;
       }
-      feedback = 'WAIT FOR THE RECOVERY'; return false;
+      return false;
     }
     if (action === 'slash') {
       combo = comboClock > 0 ? (combo + 1) % 3 : 0; comboClock = 1.8;
-      hero.combo = combo; move(hero, combo === 2 ? 'cleave' : 'slash', combo === 2 ? 1.22 : combo === 1 ? 0.82 : 0.92);
+      const attack = combo === 2 ? 'cleave' : combo === 1 ? 'sideSlash' : 'slash';
+      hero.combo = combo; move(hero, attack, MELEE_STRIKES[attack].duration);
       emit('swing', hero, 'hero', 0, hero.move);
     } else if (action === 'dash') {
       if (hero.energy < 22) { feedback = 'BOOST NEEDS 22 ENERGY'; return false; }
-      hero.energy -= 22; hero.vx = (input.move || -hero.facing) * 29;
-      hero.invulnerable = 0.38; move(hero, 'dash', 0.42); emit('dash', hero, 'hero', 0, 'dash');
+      hero.energy -= 22;
+      const direction = input.move ? Math.sign(input.move) : -hero.facing;
+      const crossing = direction === Math.sign(enemy.x - hero.x) && Math.abs(enemy.x - hero.x) <= MECH_DODGE.crossRange
+        && Math.abs(enemy.y - hero.y) < 7;
+      startDash(hero, direction, true, crossing);
     } else if (action === 'missiles') {
       if (hero.energy < 38) { feedback = 'SALVO NEEDS 38 ENERGY'; return false; }
       hero.energy -= 38; move(hero, 'missiles', RIFLE_SEQUENCE.swordReady + 0.1);
     } else {
-      if (sync < 100) { feedback = 'BUILD 100 SYNC WITH HITS AND PERFECT GUARDS'; return false; }
-      sync = 0; hero.invulnerable = DUEL.specialSeconds;
+      if (hero.ultimateCooldown > 0) { feedback = `ULTIMATE RECHARGING / ${Math.ceil(hero.ultimateCooldown)}s`; return false; }
+      hero.ultimateCooldown = DUEL.ultimateCooldown; sync = 0;
       move(hero, 'overdrive', DUEL.specialSeconds); emit('special', hero, 'hero', 0, 'overdrive');
     }
     return true;
@@ -141,60 +283,112 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
   function tickAttack(f: Fighter, target: Fighter, owner: MechSide, dt: number) {
     f.invulnerable = Math.max(0, f.invulnerable - dt);
     if (!busy(f)) return;
+    const before = f.time;
     f.time += dt;
+    const cameraEnd = f.move === 'missiles' ? RIFLE_SEQUENCE.cameraEnd
+      : f.move === 'overdrive' ? HERO_ULTIMATE.cameraEnd : f.move === 'verdict' ? ENEMY_VERDICT.cameraEnd : Infinity;
+    if (!f.aimLocked && f.time >= cameraEnd) { f.aimLocked = true; f.aimX = target.x; f.aimY = target.y + 8.6; }
     if (f.move === 'missiles') {
       while (f.volley < 5 && f.time >= RIFLE_SEQUENCE.fire + f.volley * 0.14 && live()) launch(f, owner);
     }
-    const impact = f.move === 'overdrive' ? 2.0 : f.move === 'cleave' ? (owner === 'hero' ? 0.73 : 1.06)
-      : owner === 'hero' ? (f.combo === 1 ? 0.36 : 0.44) : 0.72;
-    if (!f.hit && f.time >= impact && (f.move === 'slash' || f.move === 'cleave' || f.move === 'overdrive')) {
+    if (!f.hit && (f.move === 'overdrive' || f.move === 'verdict')
+      && f.time >= (f.move === 'overdrive' ? HERO_ULTIMATE.release : ENEMY_VERDICT.release)) {
       f.hit = true;
-      if (f.move === 'overdrive' || (Math.abs(f.x - target.x) <= DUEL.range && Math.abs(f.y - target.y) <= 6.5)) {
-        const damage = f.move === 'overdrive' ? DUEL.overdriveDamage
-          : f.move === 'cleave' ? DUEL.cleaveDamage : DUEL.slashDamage;
-        hurt(target, damage * (owner === 'enemy' ? 1.18 : 1), owner, f.move !== 'overdrive', f.move);
-      }
+      launch(f, owner, f.move === 'overdrive' ? 'bladeWave' : 'verdictBeam');
+    } else if (!f.hit && isMeleeStrike(f.move) && bladeContact(f.move, before, f.time, f, target, bladePaths[owner], guarding(target))) {
+      f.hit = true;
+      const damage = f.move === 'cleave' || f.move === 'reap' ? DUEL.cleaveDamage : f.move === 'thrust' ? 72 : DUEL.slashDamage;
+      hurt(target, damage, owner, true, f.move, sampleBladeDamageTrace(f.move, f, target, bladePaths[owner]));
     }
     if (f.time >= f.duration && f.move !== 'defeat') {
+      if (f.dash) { f.dash = null; f.vx = 0; f.facing = Math.sign(target.x - f.x) || f.facing; }
       move(f, 'idle', 0);
       if (f === hero && bufferedSlash > 0 && live()) { bufferedSlash = 0; act('slash'); }
     }
   }
   function tickAI(dt: number) {
     aiClock -= dt;
+    defenseClock = Math.max(0, defenseClock - dt); rushClock = Math.max(0, rushClock - dt);
+    const distance = Math.abs(enemy.x - hero.x), direction = Math.sign(hero.x - enemy.x) || enemy.facing;
+    const closeStrike = isMeleeStrike(hero.move) && hero.time >= 0.06 && hero.time < MELEE_STRIKES[hero.move].end
+      && distance < 21 && Math.abs(hero.y - enemy.y) < 8;
+    const incoming = missiles.some(m => m.owner === 'hero' && m.damage > 0
+      && (enemy.x - m.x) * m.vx > 0 && Math.abs(enemy.x - m.x) / Math.max(1, Math.abs(m.vx)) < 0.5
+      && Math.abs(m.y - enemy.y - 8.6) < 8);
+    const rifleTell = hero.move === 'missiles' && hero.time >= RIFLE_SEQUENCE.cameraEnd - 0.08
+      && hero.time < RIFLE_SEQUENCE.lastShot;
+    threatTime = closeStrike || incoming || rifleTell ? threatTime + dt : 0;
     if (busy(enemy)) return;
-    const distance = enemy.x - hero.x;
-    const closing = distance > 14;
-    enemy.vx += clamp((closing ? -5.8 : 0) - enemy.vx, -24 * dt, 24 * dt);
-    enemy.move = closing ? 'walk' : 'idle'; enemy.time += dt;
-    if (phase === 'space') enemy.vy += clamp((hero.y + Math.sin(time * 0.8) * 4 - enemy.y) * 1.5 - enemy.vy, -18 * dt, 18 * dt);
+    enemy.facing = direction;
+    if (enemy.move === 'guard') {
+      enemy.time += dt; enemy.vx *= Math.exp(-dt * 22); enemy.vy *= Math.exp(-dt * 14);
+      if (enemy.time < enemy.duration) return;
+      move(enemy, 'idle', 0); aiClock = Math.min(aiClock, 0.25);
+    }
+    if (defenseClock <= 0 && (threatTime >= DUEL.enemyReaction || rifleTell)) {
+      const shield = enemy.shield >= 28 && enemy.shieldLock <= 0 && (rifleTell || defensePattern++ % 2 === 1
+        || Math.abs(enemy.x - direction * MECH_DODGE.distance) > DUEL.arena);
+      if (shield) { move(enemy, 'guard', DUEL.enemyGuardDuration); enemy.guardTime = 0; }
+      else if (enemy.energy >= 22) {
+        enemy.energy -= 22; startDash(enemy, -direction, true);
+      }
+      if (enemy.move === 'guard' || enemy.move === 'dash') {
+        defenseClock = DUEL.enemyDefenseCooldown; threatTime = 0; aiClock = 0.35; return;
+      }
+    }
+    if (distance > 22 && rushClock <= 0 && Math.abs(hero.y - enemy.y) < 8) {
+      startDash(enemy, direction, false); rushClock = DUEL.enemyRushCooldown; aiClock = 0.15; return;
+    }
+    const closing = distance > 13;
+    const speed = closing ? direction * (distance > 20 ? 11.5 : 8.5) : distance < 9 ? -direction * 3 : 0;
+    enemy.vx += clamp(speed - enemy.vx, -38 * dt, 38 * dt);
+    enemy.move = Math.abs(speed) > 0 ? 'walk' : 'idle'; enemy.time += dt;
+    if (phase === 'space') enemy.vy += clamp((hero.y - enemy.y) * 2.4 - enemy.vy, -26 * dt, 26 * dt);
     if (aiClock > 0) return;
-    const pattern = aiPattern++ % (phase === 'space' ? 6 : 4);
-    const attack: MechMove = pattern === 1 || pattern === 4 ? 'missiles' : pattern === 2 ? 'cleave'
-      : pattern === 5 ? 'overdrive' : 'slash';
-    move(enemy, attack, attack === 'overdrive' ? 2.8 : attack === 'cleave' ? 1.65 : attack === 'missiles' ? RIFLE_SEQUENCE.swordReady + 0.1 : 1.2);
-    enemy.vx = 0; aiClock = phase === 'space' ? 2.15 : 2.75;
+    const pattern = aiPattern++ % 5;
+    if (distance > 20 || Math.abs(hero.y - enemy.y) > 9) {
+      if (pattern !== 3) { aiPattern--; return; }
+    }
+    const attack = pattern === 3 ? 'verdict' : pattern === 1 || pattern === 4 ? 'reap' : 'thrust';
+    move(enemy, attack, attack === 'verdict' ? ENEMY_VERDICT.duration : MELEE_STRIKES[attack].duration);
+    enemy.vx = 0;
+    aiClock = enemy.duration + (phase === 'space' ? 0.32 : 0.48);
     emit('tell', enemy, 'enemy', 0, attack);
-    if (attack === 'overdrive') emit('special', enemy, 'enemy', 0, attack);
+    if (attack === 'verdict') emit('special', enemy, 'enemy', 0, attack);
   }
   function tickMissiles(dt: number) {
     for (let i = missiles.length - 1; i >= 0 && live(); i--) {
       const m = missiles[i], target = m.owner === 'hero' ? enemy : hero;
-      const ax = m.x, ay = m.y, dx = target.x - m.x, dy = target.y + 7.5 - m.y, length = Math.hypot(dx, dy) || 1;
-      m.vx += clamp(dx / length * 27 - m.vx, -16 * dt, 16 * dt);
-      m.vy += clamp(dy / length * 27 - m.vy, -18 * dt, 18 * dt);
+      const ax = m.x, ay = m.y;
       m.x += m.vx * dt; m.y += m.vy * dt; m.life -= dt; m.age += dt;
-      const cutting = (target.move === 'slash' || target.move === 'cleave')
-        && target.time / target.duration > 0.28 && target.time / target.duration < 0.7;
-      if (cutting && missileContact(ax, ay, m.x, m.y, target, 1.85)) {
+      if (m.damage <= 0) {
+        if (m.life <= 0) missiles.splice(i, 1);
+        continue;
+      }
+      const cutting = isMeleeStrike(target.move) && sampleMeleeBlade(target.move, target.time).active;
+      const attack = m.kind === 'round' ? 'missiles' : m.kind === 'bladeWave' ? 'overdrive' : 'verdict';
+      if (m.kind === 'round' && cutting && !guarding(target) && missileContact(ax, ay, m.x, m.y, target, 1.45)) {
         emit('cut', { ...target, x: m.x, y: m.y - 8 }, m.owner === 'hero' ? 'enemy' : 'hero', 0, 'missiles');
         if (target === hero) sync = clamp(sync + 7, 0, 100);
         m.life = 0;
-      } else if (missileContact(ax, ay, m.x, m.y, target)) {
-        const outcome = hurt(target, DUEL.missileDamage, m.owner, true, 'missiles');
+      } else if (missileContact(ax, ay, m.x, m.y, target, m.kind === 'bladeWave' ? 1.2 : 1, guarding(target))) {
+        const trace: BladeDamageTrace | null = m.kind === 'bladeWave' ? {
+          from: [target.x, target.y + 4, -2.7], to: [target.x, target.y + 13.5, 2.7],
+        } : null;
+        const outcome = hurt(target, m.damage, m.owner, true, attack, trace);
         if (!live()) break;
-        if (outcome === 'parry') {
-          m.owner = 'hero'; m.vx = Math.abs(m.vx) + 8; m.vy *= -0.5; m.life = 3;
+        if (outcome === 'parry' || outcome === 'guard') {
+          m.owner = target === hero ? 'hero' : 'enemy';
+          if (outcome === 'parry') {
+            const attacker = target === hero ? enemy : hero;
+            const dx = attacker.x - m.x, dy = attacker.y + 8.6 - m.y, length = Math.hypot(dx, dy) || 1;
+            const speed = Math.hypot(m.vx, m.vy) + 12;
+            m.vx = dx / length * speed; m.vy = dy / length * speed; m.life = 3;
+          } else {
+            m.vx *= -0.7; m.vy = Math.max(30, Math.abs(m.vy) + 24); m.life = 0.7;
+          }
+        } else if (m.kind === 'bladeWave') {
+          m.damage = 0; m.life = 0.24;
         } else m.life = 0;
       }
       if (m.life <= 0) missiles.splice(i, 1);
@@ -203,29 +397,38 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
   function step(dt: number) {
     if (!live()) return;
     time += dt;
+    const cinematic = special();
+    hero.ultimateCooldown = Math.max(0, hero.ultimateCooldown - dt);
+    if (cinematic?.cinematic) {
+      const actor = cinematic.owner === 'hero' ? hero : enemy;
+      const target = actor === hero ? enemy : hero;
+      hero.vx = hero.vy = enemy.vy = 0;
+      if (actor.move === 'verdict') tickEnemyLeap(dt);
+      tickAttack(actor, target, cinematic.owner, dt);
+      return;
+    }
     if (input.guard && !guardWasDown) { parryArmed = true; hero.guardTime = 0; }
     if (!input.guard) parryArmed = false;
     guardWasDown = input.guard;
     if (hitStop > 0) { hitStop = Math.max(0, hitStop - dt); return; }
     comboClock = Math.max(0, comboClock - dt); bufferedSlash = Math.max(0, bufferedSlash - dt);
-    hero.shieldLock = Math.max(0, hero.shieldLock - dt);
-    hero.shieldCooldown = Math.max(0, hero.shieldCooldown - dt);
     hero.energy = clamp(hero.energy + dt * (input.guard ? 1.5 : 12), 0, 100);
-    if (!input.guard && hero.shieldLock <= 0 && hero.shieldCooldown <= 0) {
-      hero.shield = clamp(hero.shield + dt * DUEL.shieldRegen, 0, DUEL.shieldMax);
+    enemy.energy = clamp(enemy.energy + dt * 10, 0, 100);
+    for (const f of [hero, enemy]) {
+      f.shieldLock = Math.max(0, f.shieldLock - dt); f.shieldCooldown = Math.max(0, f.shieldCooldown - dt);
+      if (guarding(f)) {
+        f.guardTime += dt; f.shieldCooldown = DUEL.shieldRegenDelay;
+        f.shield = Math.max(0, f.shield - dt * DUEL.shieldDrain);
+        if (f.shield <= 1e-7) breakShield(f);
+      } else if ((f !== hero || !input.guard) && f.shieldLock <= 0 && f.shieldCooldown <= 0) {
+        f.shield = clamp(f.shield + dt * DUEL.shieldRegen, 0, DUEL.shieldMax);
+      }
     }
     if (!busy(hero)) {
-      if (input.guard && hero.shield > 0 && hero.shieldLock <= 0) {
-        hero.move = 'guard'; hero.guardTime += dt;
+      hero.facing = Math.sign(enemy.x - hero.x) || hero.facing;
+      if (guarding()) {
+        hero.move = 'guard';
         hero.vx += clamp(-hero.vx, -45 * dt, 45 * dt); hero.vy += clamp(-hero.vy, -35 * dt, 35 * dt);
-        hero.shieldCooldown = DUEL.shieldRegenDelay;
-        hero.shield = Math.max(0, hero.shield - dt * DUEL.shieldDrain);
-        if (hero.shield <= 0) {
-          hero.shieldLock = hero.shieldCooldown = DUEL.shieldBreak;
-          parryArmed = false;
-          move(hero, 'stagger', 1.1);
-          emit('guardBreak', hero, 'enemy', 0, 'guard');
-        }
       } else {
         hero.move = input.move || (phase === 'space' && input.lift) ? 'walk' : 'idle'; hero.time += dt;
         hero.vx += clamp(input.move * DUEL.speed - hero.vx, -38 * dt, 38 * dt);
@@ -235,15 +438,34 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
       hero.vx *= Math.exp(-dt * 16); hero.vy *= Math.exp(-dt * 12);
     }
     tickAI(dt);
-    if (busy(enemy)) { enemy.vx *= Math.exp(-dt * 14); enemy.vy *= Math.exp(-dt * 10); }
-    hero.x += hero.vx * dt; enemy.x += enemy.vx * dt;
+    if (busy(enemy) && enemy.move !== 'dash') {
+      const thrusting = enemy.move === 'thrust' && enemy.time > 0.25 && enemy.time < MELEE_STRIKES.thrust.end;
+      enemy.vx = thrusting ? enemy.facing * 13 : enemy.vx * Math.exp(-dt * 14);
+      enemy.vy *= Math.exp(-dt * 10);
+    }
+    const enemyLeaping = tickEnemyLeap(dt);
+    for (const f of [hero, enemy]) {
+      if (f === enemy && enemyLeaping) continue;
+      if (f.move === 'dash' && f.dash) {
+        const progress = sampleDodgeArc(f.time + dt, f.duration, f.dash.crossing).progress;
+        f.x = f.dash.from + (f.dash.to - f.dash.from) * progress;
+      } else f.x += f.vx * dt;
+    }
     hero.y = phase === 'space' ? clamp(hero.y + hero.vy * dt, -10, 15) : 0;
-    enemy.y = phase === 'space' ? clamp(enemy.y + enemy.vy * dt, -10, 15) : 0;
-    hero.x = clamp(hero.x, -DUEL.arena, DUEL.arena - DUEL.separation);
-    enemy.x = clamp(enemy.x, -DUEL.arena + DUEL.separation, DUEL.arena);
-    if (enemy.x - hero.x < DUEL.separation) {
+    if (!enemyLeaping) {
+      if (phase === 'space') enemy.y = clamp(enemy.y + enemy.vy * dt, -10, 15);
+      else {
+        enemy.vy -= 48 * dt;
+        enemy.y = Math.max(0, enemy.y + enemy.vy * dt);
+        if (enemy.y === 0) enemy.vy = 0;
+      }
+    }
+    hero.x = clamp(hero.x, -DUEL.arena, DUEL.arena);
+    enemy.x = clamp(enemy.x, -DUEL.arena, DUEL.arena);
+    if (Math.abs(enemy.x - hero.x) < DUEL.separation && !hero.dash?.crossing && !enemy.dash?.crossing) {
       const center = clamp((hero.x + enemy.x) / 2, -DUEL.arena + DUEL.separation / 2, DUEL.arena - DUEL.separation / 2);
-      hero.x = center - DUEL.separation / 2; enemy.x = center + DUEL.separation / 2; hero.vx = enemy.vx = 0;
+      const order = Math.sign(enemy.x - hero.x) || hero.facing;
+      hero.x = center - order * DUEL.separation / 2; enemy.x = center + order * DUEL.separation / 2; hero.vx = enemy.vx = 0;
     }
     tickAttack(hero, enemy, 'hero', dt);
     if (live()) tickAttack(enemy, hero, 'enemy', dt);
@@ -252,6 +474,15 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
   }
   return {
     hero, enemy, missiles, act,
+    setBladePaths(side: MechSide, paths: DuelBladePaths) {
+      for (const move of Object.keys(MELEE_STRIKES) as MeleeStrike[]) {
+        const frames = paths[move];
+        if (!frames || frames.length < 2 || frames.some(frame => [...frame.base, ...frame.tip].some(value => !Number.isFinite(value)))) {
+          throw new Error(`Invalid ${side} rig blade path for ${move}`);
+        }
+      }
+      bladePaths[side] = paths;
+    },
     setInput(value: DuelInput) {
       if (!Number.isFinite(value.move) || !Number.isFinite(value.lift)) throw new RangeError('Mech input axes must be finite');
       input = { move: clamp(value.move, -1, 1), lift: clamp(value.lift, -1, 1), guard: value.guard };
@@ -265,7 +496,10 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
       if (phase !== 'rupture') return false;
       phase = 'space'; hero.x = -FINALE_START_X; enemy.x = FINALE_START_X; hero.y = enemy.y = 0;
       hero.vx = hero.vy = enemy.vx = enemy.vy = 0; hero.energy = 100;
+      hero.facing = 1; enemy.facing = -1; hero.dash = enemy.dash = null;
       hero.shield = Math.max(hero.shield, DUEL.spaceShield); hero.shieldLock = hero.shieldCooldown = 0;
+      enemy.shield = DUEL.shieldMax; enemy.shieldLock = enemy.shieldCooldown = 0;
+      defenseClock = 1.6; threatTime = 0; rushClock = 0.65;
       hero.health = Math.min(DUEL.heroHealth, hero.health + DUEL.repair);
       hero.invulnerable = enemy.invulnerable = hitStop = 0;
       move(hero, 'idle', 0); move(enemy, 'idle', 0); aiClock = 2.1; input = neutralInput(); return true;
@@ -278,9 +512,9 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
     },
     drainEvents() { return events.splice(0); },
     getState: () => ({ phase, time, sync, hitStop, feedback, combo: hero.combo,
-      shield: hero.shield, shieldLock: hero.shieldLock, shieldCooldown: hero.shieldCooldown,
-      specialOwner: hero.move === 'overdrive' ? 'hero' as const : enemy.move === 'overdrive' ? 'enemy' as const : null,
-      specialTime: hero.move === 'overdrive' ? hero.time : enemy.move === 'overdrive' ? enemy.time : 0,
+      shield: hero.shield, shieldLock: hero.shieldLock, shieldCooldown: hero.shieldCooldown, guarding: guarding(),
+      enemyShield: enemy.shield, enemyShieldLock: enemy.shieldLock, enemyGuarding: guarding(enemy),
+      ultimateCooldown: hero.ultimateCooldown, special: special(),
       enemyTell: enemy.move, enemyWindup: enemy.duration ? enemy.time / enemy.duration : 0 }),
   };
 }
@@ -291,55 +525,71 @@ export interface FinisherBeat {
   shot: 'evade' | 'missileCut' | 'countershot' | 'boost' | 'clash' | 'armCut' | 'ascend' | 'reactor' | 'finalCut';
 }
 export const FINISHER_BEATS: readonly FinisherBeat[] = Object.freeze([
-  { id: 'evade', key: 'KeyA', label: 'DODGE THE EXECUTION SHOT', mode: 'tap', lead: 0.8, window: 1.8, hold: 0, presses: 1, resolve: 1.6, shot: 'evade' },
-  { id: 'missile-cut', key: 'KeyJ', label: 'CUT THROUGH THE MISSILE WALL', mode: 'tap', lead: 0.5, window: 1.75, hold: 0, presses: 1, resolve: 1.45, shot: 'missileCut' },
-  { id: 'countershot', key: 'KeyF', label: 'RETURN FIRE / OPEN THEIR GUARD', mode: 'tap', lead: 0.65, window: 1.75, hold: 0, presses: 1, resolve: 1.55, shot: 'countershot' },
-  { id: 'boost', key: 'Space', label: 'BOOST THROUGH THE SHATTERED WORLD', mode: 'hold', lead: 0.55, window: 2.5, hold: 0.8, presses: 1, resolve: 1.55, shot: 'boost' },
-  { id: 'clash', key: 'KeyD', label: 'BREAK THE BLADE LOCK', mode: 'mash', lead: 0.5, window: 2.8, hold: 0, presses: 6, resolve: 1.5, shot: 'clash' },
-  { id: 'arm-cut', key: 'KeyJ', label: 'SEVER THE WEAPON ARM', mode: 'tap', lead: 0.45, window: 1.65, hold: 0, presses: 1, resolve: 1.55, shot: 'armCut' },
-  { id: 'ascend', key: 'KeyW', label: 'RISE ABOVE THE REACTOR BLAST', mode: 'tap', lead: 0.5, window: 1.65, hold: 0, presses: 1, resolve: 1.4, shot: 'ascend' },
-  { id: 'reactor', key: 'KeyE', label: 'PRIME / SYNCHRONIZE THE LAST LIGHT', mode: 'hold', lead: 0.65, window: 2.8, hold: 1.15, presses: 1, resolve: 1.7, shot: 'reactor' },
-  { id: 'final-cut', key: 'KeyJ', label: 'FINISH IT / ONE LAST CUT', mode: 'tap', lead: 0.6, window: 1.6, hold: 0, presses: 1, resolve: 2.3, shot: 'finalCut' },
+  { id: 'evade', key: 'KeyA', label: 'EVADE THE EXECUTION SHOT', mode: 'tap', lead: 0.65, window: 1.65, hold: 0, presses: 1, resolve: 1.3, shot: 'evade' },
+  { id: 'missile-cut', key: 'KeyJ', label: 'CUT THROUGH THE BARRAGE', mode: 'tap', lead: 0.5, window: 1.5, hold: 0, presses: 1, resolve: 1.45, shot: 'missileCut' },
+  { id: 'countershot', key: 'KeyF', label: 'DRAW / RETURN FIRE', mode: 'tap', lead: 0.55, window: 1.4, hold: 0, presses: 1, resolve: 2.35, shot: 'countershot' },
+  { id: 'boost', key: 'Space', label: 'CLOSE THE DISTANCE', mode: 'tap', lead: 0.5, window: 1.3, hold: 0, presses: 1, resolve: 1.5, shot: 'boost' },
+  { id: 'clash', key: 'KeyD', label: 'BREAK THE BLADE LOCK', mode: 'mash', lead: 0.65, window: 1.5, hold: 0, presses: 6, resolve: 1.65, shot: 'clash' },
+  { id: 'arm-cut', key: 'KeyJ', label: 'BREAK THEIR SWORD ARM', mode: 'tap', lead: 0.45, window: 1.5, hold: 0, presses: 1, resolve: 1.6, shot: 'armCut' },
+  { id: 'ascend', key: 'KeyW', label: 'RISE ABOVE THE COUNTER', mode: 'tap', lead: 0.5, window: 1.45, hold: 0, presses: 1, resolve: 1.6, shot: 'ascend' },
+  { id: 'reactor', key: 'KeyE', label: 'CHARGE THE SKYWARD BLADE', mode: 'hold', lead: 0.65, window: 1.6, hold: 1.15, presses: 1, resolve: 2.6, shot: 'reactor' },
+  { id: 'final-cut', key: 'KeyJ', label: 'LAST LIGHT / RELEASE', mode: 'tap', lead: 0.45, window: 1.65, hold: 0, presses: 1, resolve: 5.25, shot: 'finalCut' },
 ]);
-export interface QteEvent { kind: 'armed' | 'success' | 'beat' | 'lost' | 'won'; index: number; }
+export interface QteEvent { kind: 'armed' | 'success' | 'miss' | 'beat' | 'lost' | 'won'; index: number; stars: number; }
 const QTE_KEYS = new Set(['KeyA', 'KeyD', 'KeyW', 'KeyS', 'KeyC', 'KeyJ', 'KeyF', 'KeyE', 'Space', 'ShiftLeft', 'ShiftRight']);
 
 export function createFinaleQte() {
-  let index = 0, clock = 0, hold = 0, presses = 0, resolveTime = -1, armed = false;
+  let index = 0, clock = 0, hold = 0, presses = 0, armed = false, judged = false;
+  let misses = 0, stars = 0, totalStars = 0, elapsed = 0;
   let result: 'active' | 'won' | 'lost' = 'active', failure: 'timeout' | 'wrong-input' | null = null;
   const held = new Set<string>(), events: QteEvent[] = [];
   function lose(reason: NonNullable<typeof failure>) {
-    result = 'lost'; failure = reason; held.clear(); events.push({ kind: 'lost', index });
+    result = 'lost'; failure = reason; held.clear(); events.push({ kind: 'lost', index, stars: 0 });
   }
-  function success() { resolveTime = 0; events.push({ kind: 'success', index }); }
+  function miss(reason: NonNullable<typeof failure>) {
+    judged = true; stars = 0; misses++;
+    events.push({ kind: 'miss', index, stars: 0 });
+    if (misses >= 3) lose(reason);
+  }
+  function success() {
+    judged = true;
+    const beat = FINISHER_BEATS[index];
+    if (beat.mode === 'tap') {
+      const error = Math.abs(clock - finisherActionTime(beat));
+      stars = error <= 0.12 ? 3 : error <= 0.3 ? 2 : 1;
+    } else if (beat.mode === 'hold') {
+      const delay = Math.max(0, clock - beat.lead - beat.hold);
+      stars = delay <= 0.16 ? 3 : delay <= 0.3 ? 2 : 1;
+    } else {
+      const completion = (clock - beat.lead) / beat.window;
+      stars = completion <= 0.65 ? 3 : completion <= 0.85 ? 2 : 1;
+    }
+    totalStars += stars; events.push({ kind: 'success', index, stars });
+  }
   function step(dt: number) {
     if (result !== 'active') return;
     const beat = FINISHER_BEATS[index];
-    if (resolveTime >= 0) {
-      resolveTime += dt;
-      if (resolveTime + 1e-8 >= beat.resolve) {
-        index++; clock = hold = presses = 0; resolveTime = -1; armed = false;
-        if (index === FINISHER_BEATS.length) { result = 'won'; events.push({ kind: 'won', index: index - 1 }); }
-        else events.push({ kind: 'beat', index });
-      }
-      return;
-    }
-    clock += dt;
-    if (!armed && clock + 1e-8 >= beat.lead) { armed = true; events.push({ kind: 'armed', index }); }
-    if (!armed) return;
-    if (beat.mode === 'hold') {
+    clock += dt; elapsed += dt;
+    if (!armed && clock + 1e-8 >= beat.lead) { armed = true; events.push({ kind: 'armed', index, stars: 0 }); }
+    if (armed && !judged && beat.mode === 'hold') {
       hold = held.has(beat.key) ? hold + dt : 0;
-      if (hold + 1e-8 >= beat.hold) { success(); return; }
+      if (hold + 1e-8 >= beat.hold) success();
     }
-    if (clock + 1e-8 >= beat.lead + beat.window) lose('timeout');
+    if (!judged && clock + 1e-8 >= beat.lead + beat.window) miss('timeout');
+    if (result !== 'active') return;
+    if (clock + 1e-8 >= finisherBeatDuration(beat)) {
+      index++; clock = hold = presses = stars = 0; judged = armed = false; held.clear();
+      if (index === FINISHER_BEATS.length) { result = 'won'; events.push({ kind: 'won', index: index - 1, stars: totalStars }); }
+      else events.push({ kind: 'beat', index, stars: 0 });
+    }
   }
   return {
     press(code: string, repeat = false) {
-      if (!QTE_KEYS.has(code) || result !== 'active' || resolveTime >= 0 || repeat || held.has(code)) return false;
+      if (!QTE_KEYS.has(code) || result !== 'active' || judged || repeat || held.has(code)) return false;
       held.add(code);
       if (!armed) return false;
       const beat = FINISHER_BEATS[index];
-      if (code !== beat.key) { lose('wrong-input'); return false; }
+      if (code !== beat.key) { miss('wrong-input'); return false; }
       if (beat.mode === 'tap') success();
       else if (beat.mode === 'mash') { presses++; if (presses >= beat.presses) success(); }
       return true;
@@ -353,9 +603,14 @@ export function createFinaleQte() {
     drainEvents() { return events.splice(0); },
     getState() {
       const beat = FINISHER_BEATS[Math.min(index, FINISHER_BEATS.length - 1)];
-      return { index, clock, hold, presses, resolveTime, armed, result, failure, beat,
+      return { index, clock, elapsed, hold, presses, armed, judged, result, failure, beat, misses, stars, totalStars,
+        judgement: !judged ? 'pending' as const : stars > 0 ? 'success' as const : 'miss' as const,
+        ringScale: clamp(1 + (finisherActionTime(beat) - clock) / beat.window * 1.6, 0.65, 2.6),
+        inputProgress: judged && stars > 0 ? 1 : beat.mode === 'hold' ? clamp(hold / beat.hold, 0, 1)
+          : beat.mode === 'mash' ? clamp(presses / beat.presses, 0, 1) : judged && stars > 0 ? 1 : 0,
         remaining: clamp(1 - Math.max(0, clock - beat.lead) / beat.window, 0, 1),
-        progress: beat.mode === 'hold' ? clamp(hold / beat.hold, 0, 1) : beat.mode === 'mash' ? presses / beat.presses : resolveTime >= 0 ? 1 : 0 };
+        progress: clamp(clock / finisherBeatDuration(beat), 0, 1) };
     },
   };
 }
+export type FinaleQteState = ReturnType<ReturnType<typeof createFinaleQte>['getState']>;

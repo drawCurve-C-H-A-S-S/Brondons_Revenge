@@ -49,7 +49,7 @@ export async function preloadAssets() {
 
 export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint = false, openingEntry = false, fromQuarters = false,
   entryState, onReturnToQuarters, deferActivation = false, modelLoader = loadToolModel }: {
-  onComplete?: () => Promise<boolean>; hintsEnabled?: boolean; restoreCheckpoint?: boolean; openingEntry?: boolean; fromQuarters?: boolean;
+  onComplete?: (presentation?: Promise<void>) => Promise<boolean>; hintsEnabled?: boolean; restoreCheckpoint?: boolean; openingEntry?: boolean; fromQuarters?: boolean;
   entryState?: PlayerTransitionState; onReturnToQuarters?: (state: PlayerTransitionState) => Promise<boolean>;
   deferActivation?: boolean; modelLoader?: typeof loadToolModel;
 } = {}) {
@@ -182,7 +182,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   const status = document.createElement('section');
   status.id = 'stealth-status';
   status.setAttribute('aria-label', 'Stealth status');
-  status.innerHTML = '<span class="stealth-deck">UPPER DECK / STORAGE</span><strong class="stealth-state">UNSEEN</strong><div class="stealth-suspicion" role="progressbar" aria-label="Drone suspicion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></div>';
+  status.innerHTML = '<strong class="stealth-state">UNSEEN</strong><div class="stealth-suspicion" role="progressbar" aria-label="Drone suspicion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></div>';
   const stateLabel = status.querySelector('strong')!;
   const suspicionTrack = status.querySelector<HTMLElement>('.stealth-suspicion')!;
   const suspicionFill = suspicionTrack.querySelector<HTMLElement>('span')!;
@@ -219,7 +219,10 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   const skip = document.createElement('button'); skip.id = 'stealth-cinematic-skip'; skip.className = 'hidden';
   skip.type = 'button'; document.body.appendChild(skip);
   const bars = document.createElement('div'); bars.id = 'stealth-letterbox'; bars.setAttribute('aria-hidden', 'true'); document.body.appendChild(bars);
-  const uiNodes = [status, actions, retryButton, hint, checkpointNotice, skip, bars];
+  const transferFade = document.createElement('div'); transferFade.id = 'stealth-transfer-fade'; transferFade.setAttribute('aria-hidden', 'true');
+  transferFade.style.cssText = 'position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;z-index:1801';
+  document.body.appendChild(transferFade);
+  const uiNodes = [status, actions, retryButton, hint, checkpointNotice, skip, bars, transferFade];
   if (!active) uiNodes.forEach(node => { node.style.visibility = 'hidden'; });
 
   const hangar = createStealthHangar(scene, physics, deckY);
@@ -233,6 +236,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   let caught = false;
   let lastDelta = 0;
   let checkpoint = restoreCheckpoint, introSeen = restoreCheckpoint, entranceRequested = false, complete = false;
+  let secondHalfReached = false;
   let quartersRequested = false, passageCaptionTime = fromQuarters ? 8 : 0;
   type Destination = 'quarters' | 'stage-two';
   let doorwayTransfer: { destination: Destination; error: boolean } | null = null;
@@ -249,8 +253,12 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     time: number; actor?: StealthActor; start: THREE.Vector3; startYaw: number; cameraStart: THREE.Vector3;
     facing?: THREE.Vector3; approachActors?: StealthActor[]; entryWalk?: { start: THREE.Vector3; time: number } };
   let cinematic: Cinematic | null = null;
+  // Airlock walkthrough: Brondon walks in while Stage Two prepares behind the fade.
+  let escape: { from: THREE.Vector3; via: THREE.Vector3; to: THREE.Vector3; cameraPosition: THREE.Vector3;
+    cameraRotation: THREE.Quaternion; fov: number; yaw: number; present: () => void; shown: boolean } | null = null;
+  const escapePoint = new THREE.Vector3(), escapeHeading = new THREE.Vector3();
   let climbing: { ladder: typeof hangar.ladders[number]; down: boolean; time: number; start: THREE.Vector3; duration: number } | null = null;
-  let alarmAudio: { context: AudioContext; oscillator: OscillatorNode; gain: GainNode } | null = null;
+  let audioContext: AudioContext | null = null;
   const peekStartPosition = new THREE.Vector3();
   const peekStartRotation = new THREE.Quaternion();
   const peekTargetPosition = new THREE.Vector3(0.69, deckY + 1.55, -0.16);
@@ -281,19 +289,16 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   const map: ShipMapLayout = { ...DECK_ONE_MAP, initialRoom: fromQuarters ? 29 : 30 };
 
   function ensureAudio() {
-    if (!alarmAudio && typeof window.AudioContext === 'function') {
+    if (!audioContext && typeof window.AudioContext === 'function') {
       try {
-        const context = new AudioContext(), oscillator = context.createOscillator(), gain = context.createGain();
-        oscillator.type = 'triangle'; oscillator.frequency.value = 440; gain.gain.value = 0;
-        oscillator.connect(gain); gain.connect(context.destination); oscillator.start();
-        alarmAudio = { context, oscillator, gain };
-      } catch { return; }
+        audioContext = new AudioContext();
+      } catch (error) { console.warn('[Stealth] Audio could not be initialized:', error); return; }
     }
-    void alarmAudio?.context.resume().catch(() => {});
+    void audioContext?.resume().catch(error => console.warn('[Stealth] Audio could not be resumed:', error));
   }
   function ping(frequency: number, duration = 0.18) {
-    if (!alarmAudio || menuPaused) return;
-    const { context } = alarmAudio, oscillator = context.createOscillator(), gain = context.createGain();
+    if (!audioContext || menuPaused) return;
+    const context = audioContext, oscillator = context.createOscillator(), gain = context.createGain();
     oscillator.type = 'triangle'; oscillator.frequency.value = frequency;
     gain.gain.setValueAtTime(getAudioSettings().sfx * 0.055, context.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + duration);
@@ -303,7 +308,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   function hideHint() { hintTime = 0; hint.classList.add('hidden'); }
   function showHint(id: string, text: string) {
     if (!hintsOn || usedHints.has(id) || hintCooldown > 0 || peeking || cinematic || caught) return;
-    usedHints.add(id); hintText.textContent = text; hintTime = 5.2; hintCooldown = 19;
+    usedHints.add(id); hintText.textContent = text; hintTime = 4.5; hintCooldown = 30;
     hint.classList.remove('hidden');
   }
   function lock(locked: boolean) {
@@ -339,7 +344,49 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     director.formFiringSquad(player.body.position);
     document.body.classList.add('storage-alert');
     startCinematic('alarm', actor); ensureAudio();
-    if (subtitle) { subtitle.textContent = 'Prime: The whole hangar is responding. They have sealed the exits.'; subtitle.classList.remove('hidden'); }
+    if (subtitle) { subtitle.textContent = 'Prime: They have sealed the exits.'; subtitle.classList.remove('hidden'); }
+  }
+  function escapeWalking() {
+    return cinematic?.kind === 'escape' && cinematic.time > 0.35 && cinematic.time < 3.9;
+  }
+  function beginEscape() {
+    if (escape || complete || cinematic || doorwayTransfer || !onComplete) return;
+    const from = new THREE.Vector3().copy(player.body.position);
+    let present = () => {};
+    const presented = new Promise<void>(resolve => { present = resolve; });
+    const request = { from, via: new THREE.Vector3(Math.min(from.x, 85.3), from.y, 20), to: new THREE.Vector3(88.05, from.y, 20),
+      cameraPosition: camera.position.clone(), cameraRotation: camera.quaternion.clone(), fov: camera.fov,
+      yaw: player.getState().yaw, present, shown: false };
+    subtitle?.classList.add('hidden');
+    startCinematic('escape'); escape = request; complete = true;
+    void onComplete(presented).then(entered => { if (!entered) escapeFailed(request); }, error => escapeFailed(request, error));
+  }
+  function escapeFailed(request: NonNullable<typeof escape>, error?: unknown) {
+    if (disposed || escape !== request) return;
+    if (error) console.error('[StealthPassage] Unable to enter stage-two:', error);
+    escape = null; cinematic = null; complete = false; transferFade.style.opacity = '0';
+    player.setPosition(85, deckY + player.radius, 20); player.setRotation(-Math.PI / 2, 0);
+    camera.fov = 75; camera.updateProjectionMatrix();
+    if (active) document.body.classList.remove('stealth-cinematic');
+    lock(false);
+    if (subtitle) { subtitle.textContent = 'Unable to load the next area. Press E to try again.'; subtitle.classList.remove('hidden'); }
+  }
+  function updateEscape(time: number, frame: number) {
+    if (!escape) return;
+    const { from, via, to } = escape, u = THREE.MathUtils.smoothstep(time, 0.35, 3.9), inverse = 1 - u;
+    escapePoint.set(0, 0, 0).addScaledVector(from, inverse * inverse).addScaledVector(via, 2 * u * inverse).addScaledVector(to, u * u);
+    player.setPosition(escapePoint.x, deckY + player.radius, escapePoint.z);
+    const along = Math.max(u, 0.04);
+    escapeHeading.subVectors(via, from).multiplyScalar(1 - along).addScaledVector(new THREE.Vector3().subVectors(to, via), along);
+    if (escapeHeading.lengthSq() < 1e-5) escapeHeading.subVectors(to, escapePoint);
+    if (escapeHeading.lengthSq() > 1e-5) {
+      const target = Math.atan2(-escapeHeading.x, -escapeHeading.z);
+      const turn = Math.atan2(Math.sin(target - escape.yaw), Math.cos(target - escape.yaw));
+      escape.yaw += turn * (1 - Math.exp(-9 * frame));
+    }
+    player.setRotation(escape.yaw, 0);
+    transferFade.style.opacity = THREE.MathUtils.smoothstep(time, 4.1, 4.7).toFixed(3);
+    if (time >= 4.7 && !escape.shown) { escape.shown = true; escape.present(); }
   }
   function activatePanel(id: string) {
     const panel = hangar.panels.find(candidate => candidate.id === id);
@@ -467,6 +514,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     endPeek(false);
     elapsed = suspicion = doorAngle = alarmAge = volleyCount = corridorPatrolTime = 0; corridorEngaged = !fromQuarters;
     caught = complete = false; cinematic = climbing = null; doorwayTransfer = null; blockedTransfer = null;
+    secondHalfReached = false;
     quartersRequested = false; passageCaptionTime = 0;
     corridorDeathAt = -1;
     corridorDeathFinished = false;
@@ -483,7 +531,6 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     for (const panel of hangar.panels) { panel.indicator.color.setHex(0x92d1b5); panel.indicator.emissive.setHex(0x5aa883); }
     hangar.entrance.update(1, checkpoint); hangar.exit.update(1, false);
     quartersDoor.update(1, player, false);
-    if (alarmAudio) alarmAudio.gain.gain.value = 0;
     camera.fov = 75; camera.updateProjectionMatrix();
     syncDoor();
     lock(false);
@@ -513,9 +560,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
       const panel = hangar.panels.find(item => item.position.distanceTo(new THREE.Vector3().copy(player.body.position)) < 2.2);
       if (panel) { activatePanel(panel.id); return; }
       if (alarmAge === 0 && Math.abs(player.body.position.y - deckY - player.radius) < 0.8
-        && Math.hypot(player.body.position.x - 86, player.body.position.z - 20) < 2.5) {
-        hangar.exit.update(1, true); startCinematic('escape');
-      }
+        && Math.hypot(player.body.position.x - 86, player.body.position.z - 20) < 2.5) beginEscape();
     }
   }
 
@@ -601,9 +646,16 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
       actorDirection.copy(cinematic.facing!);
       cinematicPosition.copy(cinematic.actor.root.position).addScaledVector(actorDirection, -2.5).add(new THREE.Vector3(1.2, 1.9, 0.6));
       cinematicFocus.copy(cinematic.actor.root.position).add(new THREE.Vector3(0, 0.8, 0));
-    } else if (cinematic.kind === 'escape') {
-      cinematicPosition.set(83.4, deckY + 2.2, 17.7);
-      cinematicFocus.set(position.x, deckY + 1.3, position.z);
+    } else if (cinematic.kind === 'escape' && escape) {
+      // Ease out of the shoulder camera, then hold at the threshold as Brondon walks into the airlock.
+      const settle = THREE.MathUtils.smootherstep(time, 0, 1.2), drift = THREE.MathUtils.smoothstep(time, 0.35, 2.8);
+      cinematicPosition.set(Math.min(position.x - 2.3, 84.55), deckY + 1.8, THREE.MathUtils.lerp(escape.from.z + 0.65, 20.45, drift));
+      cinematicFocus.set(position.x + 1.4, deckY + 1.3, THREE.MathUtils.lerp(position.z, 20, 0.5));
+      shotCamera.position.copy(cinematicPosition); shotCamera.lookAt(cinematicFocus);
+      camera.position.lerpVectors(escape.cameraPosition, cinematicPosition, settle);
+      camera.quaternion.slerpQuaternions(escape.cameraRotation, shotCamera.quaternion, settle);
+      camera.fov = THREE.MathUtils.lerp(escape.fov, 62, settle); camera.updateProjectionMatrix();
+      return;
     } else {
       if (alarmAge < ALARM_SEQUENCE.surround) {
         const orbit = (alarmAge - ALARM_SEQUENCE.approaches) * 0.65 + player.getState().yaw;
@@ -664,16 +716,16 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     if (!hintsOn || cinematic || peeking || alarmAge > 0 || caught || hintCooldown > 0) return;
     const position = player.body.position;
     if (!checkpoint) {
-      if (fromQuarters && !corridorEngaged) showHint('quarters-approach', 'Storage is at the midpoint. Open its door from the passage with E. When the eye approaches, hide inside and let it pass.');
-      else if (position.z > 0) showHint('closet', 'Wait for the camera to pass. The latch lets you look without stepping into its path.');
-      else showHint('passage', 'The drone watches the direction it travels. Stay behind it until you reach the far door.');
-    } else if (player.body.position.y > deckY + 2.8) showHint('roof', 'The catwalks are exposed, and the middle span is missing. Drop behind cargo and use another ladder when the eyes sweep your route.');
-    else if (director.suspicion > 0.25) showHint('suspicion', 'They are checking that movement. Break the line of sight behind cargo; do not sprint.');
-    else if (position.x > 70) showHint('exit', 'The airlock is on the far wall, beyond the docked shuttle. Wait for its guard to turn away.');
-    else if (director.distractions === 0 && position.x > 32) showHint('distraction', 'A shot into metal away from you will pull them toward the impact. Move before they finish checking it.');
-    else if (hangar.ladders.some(ladder => Math.hypot(position.x - ladder.x, position.z - ladder.z) < 8)) showHint('ladder', 'That ladder reaches the container roof. You can watch the aisles from above, but keep an eye on the camera drones.');
-    else if (hangar.panels.some(panel => Math.hypot(position.x - panel.position.x, position.z - panel.position.z) < 9)) showHint('relay', 'A maintenance relay can report a false fault. Their patrols will leave their routes to check it.');
-    else showHint('entry', 'The containers block their eyes. There is more than one way across; check your map before leaving cover.');
+      if (fromQuarters && !corridorEngaged) showHint('quarters-approach', 'Storage is halfway. Hide inside when the eye comes.');
+      else if (position.z > 0) showHint('closet', 'Let the camera pass.');
+      else showHint('passage', 'Stay behind the drone.');
+    } else if (player.body.position.y > deckY + 2.8) showHint('roof', 'Catwalks are exposed. Drop behind cargo if they sweep.');
+    else if (director.suspicion > 0.25) showHint('suspicion', 'Break line of sight. Don\'t sprint.');
+    else if (position.x > 70) showHint('exit', 'Airlock is past the shuttle.');
+    else if (director.distractions === 0 && position.x > 32) showHint('distraction', 'Shoot metal away from you to pull them off.');
+    else if (hangar.ladders.some(ladder => Math.hypot(position.x - ladder.x, position.z - ladder.z) < 8)) showHint('ladder', 'Ladders reach the container roofs.');
+    else if (hangar.panels.some(panel => Math.hypot(position.x - panel.position.x, position.z - panel.position.z) < 9)) showHint('relay', 'Relays fake a fault. Patrols check it.');
+    else showHint('entry', 'Stay behind the containers.');
   }
 
   function updatePhysics(dt: number, thirdPerson = false) {
@@ -708,13 +760,15 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
       }
     }
     const position = player.body.position;
+    if (!secondHalfReached && position.x >= HANGAR_LAYOUT.musicTriggerX && position.x <= HANGAR_LAYOUT.bounds.maxX
+      && position.z >= HANGAR_LAYOUT.bounds.minZ && position.z <= HANGAR_LAYOUT.bounds.maxZ) secondHalfReached = true;
     if (!corridorEngaged && !checkpoint && position.x >= QUARTERS_PASSAGE_ENTRY.midpointX) {
       corridorEngaged = true; hintCooldown = 0;
-      showHint('corridor-midpoint', 'The eye is moving. Get into storage, close the door and wait for it to pass. Then slip out behind it.');
+      showHint('corridor-midpoint', 'The eye is moving. Hide in storage.');
     }
     const nearEntrance = Math.hypot(position.x - 14, position.z + 2.5) < 3;
     hangar.entrance.update(frame, alarmAge === 0 && (entranceRequested || (checkpoint && nearEntrance)));
-    hangar.exit.update(frame, alarmAge === 0 && cinematic?.kind === 'escape');
+    hangar.exit.update(frame, alarmAge === 0 && cinematic?.kind === 'escape' && cinematic.time < 3.9);
     if (cinematic?.kind === 'reveal' && cinematic.entryWalk && hangar.entrance.open > 0.9) {
       const walk = cinematic.entryWalk; walk.time = Math.min(1.6, walk.time + frame);
       const progress = THREE.MathUtils.smoothstep(walk.time, 0, 1.6);
@@ -736,7 +790,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     if (passageCaptionTime > 0 && !cinematic && !peeking && !doorwayTransfer) {
       passageCaptionTime = Math.max(0, passageCaptionTime - frame);
       if (subtitle) {
-        subtitle.textContent = 'Prime: Surveillance is live. The eye starts moving at halfway. Hide in storage as it passes, then sneak behind it.';
+        subtitle.textContent = 'Prime: Hide in storage when the eye passes.';
         subtitle.classList.toggle('hidden', passageCaptionTime === 0);
       }
     }
@@ -767,10 +821,6 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     }
     if (alarmAge > 0) {
       alarmAge += frame;
-      if (alarmAudio) {
-        alarmAudio.oscillator.frequency.setTargetAtTime(440 + Math.sin(alarmAge * 7) * 130, alarmAudio.context.currentTime, 0.03);
-        alarmAudio.gain.gain.setTargetAtTime(menuPaused ? 0 : getAudioSettings().sfx * (caught ? 0.015 : 0.065), alarmAudio.context.currentTime, 0.05);
-      }
       if (alarmAge >= ALARM_SEQUENCE.approaches && !caught && cinematic?.kind !== 'capture') {
         director.formFiringSquad(player.body.position); startCinematic('capture');
       }
@@ -795,8 +845,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
         }
         if (cinematic.time >= 1.25) endCinematic();
       } else if (cinematic.kind === 'escape') {
-        player.setPosition(86 + THREE.MathUtils.smoothstep(cinematic.time, 0.4, 2.4) * 1.5, deckY + player.radius, 20);
-        if (cinematic.time >= 2.8) endCinematic();
+        updateEscape(cinematic.time, frame);
       } else if (cinematic.kind === 'capture' && alarmAge >= ALARM_SEQUENCE.retry && !caught) {
         finishCapture();
       }
@@ -808,8 +857,6 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     status.dataset.state = caught || alarmAge > 0 ? 'caught' : suspicion > 0 ? 'suspicious' : safe ? 'safe' : 'unseen';
     stateLabel.textContent = caught ? corridorDeathAt >= 0 ? 'ELIMINATED' : 'OVERRUN'
       : alarmAge > 0 ? 'LOCKDOWN' : safe ? 'HIDDEN' : suspicion > 0 ? 'SUSPICIOUS' : 'UNSEEN';
-    status.querySelector<HTMLElement>('.stealth-deck')!.textContent = checkpoint ? 'DECK ONE / HANGAR'
-      : fromQuarters && !inStorage() ? 'DECK ONE / PATROL PASSAGE' : 'DECK ONE / STORAGE';
     suspicionFill.style.width = `${suspicion * 100}%`;
     suspicionTrack.setAttribute('aria-valuenow', String(Math.round(suspicion * 100)));
     droneLensMaterial.color.setHex(suspicion > 0 ? 0xff4659 : 0xffb64b);
@@ -824,7 +871,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
         const panel = hangar.panels.find(item => Math.hypot(position.x - item.position.x, position.z - item.position.z) < 1.8);
         if (panel) text = (panelCooldowns.get(panel.id) ?? 0) > 0 ? 'Relay cooling down' : 'E: trigger fault';
         else if (Math.abs(position.y - deckY - player.radius) < 0.8
-          && Math.hypot(position.x - 86, position.z - 20) < 2.5) text = 'E: enter stage 2';
+          && Math.hypot(position.x - 86, position.z - 20) < 2.5) text = 'E: airlock';
       }
       prompt.textContent = text; prompt.classList.toggle('hidden', !text || peeking || caught || !!cinematic || !!climbing || !!doorwayTransfer || alarmAge > 0);
     }
@@ -839,6 +886,8 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
 
   return {
     roomId: 'stage1-storage', scene, camera, physicsWorld: physics.world, player, ready, updatePhysics,
+    getMusicTrack: (): 'stealth-1' | 'stealth-2' | 'stealth-alert' => caught || alarmAge > 0
+      ? 'stealth-alert' : secondHalfReached ? 'stealth-2' : 'stealth-1',
     activate() {
       if (disposed) throw new Error('Cannot activate a disposed stealth passage');
       active = true; uiNodes.forEach(node => { node.style.visibility = ''; });
@@ -855,7 +904,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     isCinematic: () => arrivalTime < HOLOGRAM_TRANSFER_DURATION || peeking || !!cinematic || corridorDeathAt >= 0,
     hideCharacter: () => peeking,
     getCinematicState: () => arrivalTime < HOLOGRAM_TRANSFER_DURATION || peeking || cinematic || corridorDeathAt >= 0 ? { ...player.getState(),
-      isMoving: !!cinematic?.entryWalk && cinematic.entryWalk.time > 0 && cinematic.entryWalk.time < 1.6,
+      isMoving: !!cinematic?.entryWalk && cinematic.entryWalk.time > 0 && cinematic.entryWalk.time < 1.6 || escapeWalking(),
       isOnGround: true, sprinting: false } : null,
     getCinematicDelta: () => lastDelta,
     getHologramTransition: () => arrivalTime < HOLOGRAM_TRANSFER_DURATION ? hologramTransitionAt(arrivalTime, true) : null,
@@ -863,6 +912,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     getCinematicPose: () => corridorDeathAt >= 0 ? { clip: 'Death01', time: corridorDeathFinished ? 2.5 : elapsed - corridorDeathAt }
       : climbing ? { clip: 'Ladder_Climb_Loop', time: climbing.time }
       : cinematic?.entryWalk && cinematic.entryWalk.time > 0 && cinematic.entryWalk.time < 1.6 ? { clip: 'Walk_Loop', time: cinematic.entryWalk.time }
+      : escapeWalking() ? { clip: 'Walk_Loop', time: cinematic!.time - 0.35 }
       : cinematic?.kind === 'takedown' ? { clip: 'Interact', time: Math.min(0.9, cinematic.time),
       handTargets: { right: cinematic.actor!.root.position.clone().add(new THREE.Vector3(0, 1.1, 0)) } }
       : cinematic?.kind === 'capture' && alarmAge >= ALARM_SEQUENCE.volley ? { clip: 'Death01', time: alarmAge - ALARM_SEQUENCE.volley }
@@ -883,7 +933,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
         - Math.hypot(second.x - player.body.position.x, second.z - player.body.position.z)).slice(0, 2).map(ladder => ({ x: ladder.x, z: ladder.z })) }),
     getHintsEnabled: () => hintsOn,
     setHintsEnabled: (value: boolean) => { hintsOn = value; if (!value) hideHint(); else hintCooldown = 0.5; },
-    setMenuPaused: (value: boolean) => { menuPaused = value; if (value) skipHold.reset(); if (alarmAudio && value) alarmAudio.gain.gain.value = 0; },
+    setMenuPaused: (value: boolean) => { menuPaused = value; if (value) skipHold.reset(); },
     getStageState: () => ({ checkpoint, introSeen, hintsEnabled: hintsOn, fromQuarters, corridorEngaged, safeZone: director.safeZoneFor(player.body.position),
       phase: arrivalTime < HOLOGRAM_TRANSFER_DURATION ? 'arrival' : caught ? 'caught' : complete ? 'complete' : cinematic?.kind ?? (climbing ? 'ladder' : checkpoint ? 'hangar' : peeking ? 'peek' : fromQuarters && !inStorage() ? 'passage' : 'closet'),
       alarm: alarmAge > 0, suspicion, distractions: director.distractions, alarmTime: alarmAge, volleys: volleyCount, firingSquad: director.firingSquad }),
@@ -898,8 +948,9 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
       }
       skipHold.dispose();
       status.remove(); actions.remove(); retryButton.remove(); hint.remove(); checkpointNotice.remove(); skip.remove(); bars.remove();
+      transferFade.remove(); escape?.present();
       director.dispose();
-      if (alarmAudio) { alarmAudio.oscillator.stop(); void alarmAudio.context.close().catch(() => {}); }
+      if (audioContext) void audioContext.close().catch(error => console.warn('[Stealth] Audio context could not close:', error));
       player.dispose(); physics.dispose(); disposeRoom(scene);
     },
   };

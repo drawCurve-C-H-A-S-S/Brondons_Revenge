@@ -136,6 +136,7 @@ for (const fps of [30, 60, 144]) {
 
   test(`Boss shield, two-second window, three orb hits and exactly one dry exit at ${fps} FPS`, async t => {
     const { data, finishes } = await fixture(t, { entryState: bossEntry() }); step(data, 1.3, fps);
+    assert.equal(data.hasBossVictory(), false);
     const warden = target(data, 'Platform-warden'), orb = target(data, 'FacilitySidescrollScrambler');
     const waitForOpen = () => {
       for (let i = 0; i < fps * 8 && data.getPlatformerStatus().bossStage !== 'open'; i++) {
@@ -164,6 +165,7 @@ for (const fps of [30, 60, 144]) {
       assert.equal(warden.damage(25, 'pistol'), true);
     }
     assert.equal(data.getPlatformerStatus().phase, 'cleared');
+    assert.equal(data.hasBossVictory(), true);
     assert.equal(data.getPlatformerStatus().shots.hostile, 0);
     assert.equal(finishes.length, 0, 'Boss defeat alone cannot finish');
     data.player.setPosition(courseX(104), 1.6, 9); step(data, 1 / fps, fps);
