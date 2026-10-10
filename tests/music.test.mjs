@@ -44,7 +44,7 @@ test('the soundtrack manifest resolves the exact supplied music files, including
     loading: 'Loading.m4a', emotional: 'Emotional.m4a', 'living-quarters': 'Living quarters.m4a', menu: 'Menu.m4a',
     'stealth-1': 'Stealth1.m4a', 'stealth-2': 'Stealth1 2.m4a', 'stealth-alert': 'Stealth1 3.m4a',
     ship: 'DonRevBGM1.m4a', 'level-2': 'DonRevLevel2.m4a', 'level-2-boss': 'DonRevLevel2Boss.m4a',
-    jungle: 'DonRevJungleLoop.m4a', victory: 'Victory boss 1.m4a', credits: 'Level 2.m4a',
+    planet: 'Planetbfm.m4a', 'broken-chains': 'BrokenChainsBGm.m4a', credits: 'Level 2.m4a',
   };
   assert.deepEqual(Object.keys(MUSIC_URLS).sort(), Object.keys(names).sort());
   for (const [track, name] of Object.entries(names)) {
@@ -54,12 +54,12 @@ test('the soundtrack manifest resolves the exact supplied music files, including
   assert.notEqual(MUSIC_URLS.credits, MUSIC_URLS['level-2']);
 });
 
-test('scene entry selects the requested loops while preserving existing ship and jungle music', async t => {
+test('scene entry selects the requested loops and the new planet soundtrack', async t => {
   const music = fixture(t);
   for (const [id, track] of [
     ['scene1', 'loading'], ['prologue1', 'emotional'], ['living-quarters', 'living-quarters'],
     ['stage1-storage', 'stealth-1'], ['scene13', 'ship'], ['scene14', 'ship'],
-    ['scene15', 'level-2'], ['scene16', 'level-2'], ['scene17', 'jungle'], ['scene18', 'jungle'], ['scene19', 'jungle'],
+    ['scene15', 'level-2'], ['scene16', 'level-2'], ['scene17', 'planet'], ['scene20', 'stealth-2'],
   ]) {
     music.enterScene(id, {}); await flush();
     music.update(MUSIC_CROSSFADE_SECONDS);
@@ -120,32 +120,45 @@ test('scene music cues change immediately and reset correctly for a new attempt'
   assert.deepEqual(playing(), [latest('level-2')]);
 });
 
-test('boss victory plays once, survives scene transitions, pauses for M, and restores the current scene soundtrack', async t => {
+test('boss victory leaves the current soundtrack playing without restarting or overriding it', async t => {
   const music = fixture(t); let won = false;
   const bossScene = { hasBossVictory: () => won };
   music.enterScene('scene13', bossScene); await flush();
   const ship = latest('ship'); ship.currentTime = 22;
   won = true; music.update(0); await flush();
-  const victory = latest('victory');
-  assert.equal(victory.loop, false); assert.deepEqual(playing(), [victory]);
-  assert.equal(ship.paused, true);
+  assert.deepEqual(playing(), [ship]); assert.equal(ship.currentTime, 22);
   music.update(0.1); music.update(0.1); await flush();
-  assert.equal(TestAudio.instances.filter(audio => audio.src === MUSIC_URLS.victory).length, 1);
+  assert.equal(TestAudio.instances.length, 1);
   music.enterScene('scene14', {}); await flush();
-  assert.deepEqual(playing(), [victory], 'Descending cannot truncate the victory track');
-  victory.currentTime = 4;
+  assert.deepEqual(playing(), [ship], 'Descending preserves the existing song');
+  assert.equal(ship.currentTime, 22);
   setAudioMenuPaused(true); music.setMenuOpen(true); music.setPaused(true); await flush();
   assert.deepEqual(playing(), [latest('menu')]);
   music.setMenuOpen(false); setAudioMenuPaused(false); music.setPaused(false); await flush();
-  assert.deepEqual(playing(), [victory]); assert.equal(victory.currentTime, 4);
+  assert.deepEqual(playing(), [ship]); assert.equal(ship.currentTime, 22);
   music.enterScene('scene15', {}); await flush();
-  assert.equal(latest('level-2').paused, true); assert.deepEqual(playing(), [victory]);
-  victory.finish(); await flush();
+  music.update(MUSIC_CROSSFADE_SECONDS);
   assert.deepEqual(playing(), [latest('level-2')]);
-  music.enterScene('scene13', bossScene); music.update(0); await flush();
-  assert.equal(TestAudio.instances.filter(audio => audio.src === MUSIC_URLS.victory).length, 1);
-  music.enterScene('scene18', { hasBossVictory: () => true }); await flush();
-  assert.equal(TestAudio.instances.filter(audio => audio.src === MUSIC_URLS.victory).length, 2, 'A different boss gets its own one-shot');
+  assert.equal(MUSIC_URLS.victory, undefined);
+  music.enterScene('scene17', { hasBossVictory: () => true }); await flush(); music.update(MUSIC_CROSSFADE_SECONDS);
+  assert.deepEqual(playing(), [latest('planet')], 'Optional miniboss victories do not change the planet song');
+});
+
+test('the chain break switches immediately to Broken Chains and a new prologue resets the cue', async t => {
+  const music = fixture(t);
+  let broken = false;
+  const prologue = { getMusicTrack: () => broken ? 'broken-chains' : 'emotional' };
+  music.enterScene('prologue1', prologue); await flush();
+  const emotional = latest('emotional');
+  broken = true; music.update(0); await flush();
+  assert.deepEqual(playing(), [latest('broken-chains')]);
+  assert.equal(latest('broken-chains').volume, 0.5, 'The release cue starts at full gain, not halfway through a fade');
+  assert.equal(emotional.paused, true);
+  const released = latest('broken-chains'); released.currentTime = 8;
+  music.update(0.1); await flush();
+  assert.equal(latest('broken-chains'), released); assert.equal(released.currentTime, 8);
+  broken = false; music.enterScene('prologue1', prologue); await flush();
+  assert.deepEqual(playing(), [latest('emotional')]);
 });
 
 for (const fps of [30, 60, 144]) {
@@ -172,13 +185,13 @@ for (const fps of [30, 60, 144]) {
     for (const next of ['rupture', 'space', 'finisher']) { phase = next; music.update(0); }
     assert.equal(latest('ship'), battle); assert.equal(battle.currentTime, 12);
     phase = 'victory'; music.update(0); await flush();
-    const victory = latest('victory');
-    assert.equal(victory.loop, false); assert.deepEqual(playing(), [victory]);
+    assert.deepEqual(playing(), [battle]); assert.equal(battle.currentTime, 12);
     phase = 'credits'; music.update(0); await flush();
     const credits = latest('credits');
-    assert.equal(victory.paused, true); assert.equal(credits.loop, true); assert.deepEqual(playing(), [credits]);
+    music.update(MUSIC_CROSSFADE_SECONDS);
+    assert.equal(battle.paused, true); assert.equal(credits.loop, true); assert.deepEqual(playing(), [credits]);
     credits.currentTime = 7; phase = 'done'; music.update(0);
-    victory.dispatchEvent(new Event('ended')); await flush();
+    await flush();
     assert.equal(latest('credits'), credits); assert.equal(credits.currentTime, 7); assert.deepEqual(playing(), [credits]);
   });
 }
@@ -202,24 +215,24 @@ test('crossfades keep the outgoing track audible until the incoming track succes
   manager.update(1.5); assert.equal(outgoing.paused, true); assert.equal(incoming.volume, 0.2);
 });
 
-test('ordinary scene changes overlap smoothly, and rapid changes do not drop the audible mix', async t => {
+test('prologue and caught-stealth cues start at full gain without advancing a fade timer', async t => {
   const music = fixture(t);
   music.enterScene('scene1', {}); await flush();
   const loading = latest('loading');
   music.enterScene('prologue1', {}); await flush();
   const emotional = latest('emotional');
-  assert.equal(loading.volume, 0.5); assert.equal(emotional.volume, 0);
-  music.update(MUSIC_CROSSFADE_SECONDS / 2);
-  const volumes = [loading.volume, emotional.volume];
-  music.enterScene('living-quarters', {}); await flush();
-  assert.deepEqual([loading.volume, emotional.volume], volumes, 'Already audible tracks survive another cue change');
-  assert.equal(latest('living-quarters').volume, 0);
+  assert.equal(loading.paused, true); assert.equal(emotional.volume, 0.5);
+  assert.deepEqual(playing(), [emotional]);
+  let caught = false;
+  music.enterScene('stage1-storage', { getMusicTrack: () => caught ? 'stealth-alert' : 'stealth-1' }); await flush();
   music.update(MUSIC_CROSSFADE_SECONDS);
-  assert.deepEqual(playing(), [latest('living-quarters')]);
-  assert.equal(latest('living-quarters').volume, 0.5);
+  const stealth = latest('stealth-1');
+  caught = true; music.update(0); await flush();
+  assert.equal(stealth.paused, true); assert.equal(latest('stealth-alert').volume, 0.5);
+  assert.deepEqual(playing(), [latest('stealth-alert')]);
 });
 
-test('a cancelled autoplay request cannot resurrect gameplay during the victory or pause override', async t => {
+test('a cancelled autoplay request cannot resurrect gameplay during the pause override', async t => {
   const manager = new AudioManager({ getFile: path => ({ content: path }) }); t.after(() => manager.dispose());
   TestAudio.nextFailure = new DOMException('Interaction required', 'NotAllowedError');
   manager.setBgm({ path: 'intro', autoplay: true });

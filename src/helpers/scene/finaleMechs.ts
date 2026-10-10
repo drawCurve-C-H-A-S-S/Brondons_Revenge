@@ -48,12 +48,15 @@ export function createFinaleMech(side: MechSide, factory: MechFactory = DEFAULT_
   let swordBone: THREE.Object3D | null = null, gunBone: THREE.Object3D | null = null, chestBone: THREE.Object3D | null = null;
   const swordGripSocket = new THREE.Object3D();
   const swordFingerGrip: Array<{ bone: THREE.Object3D; rotation: THREE.Quaternion }> = [];
+  const openHand = new Map<THREE.Object3D, THREE.Quaternion>();
   let nativeMixer: THREE.AnimationMixer | null = null, nativeAction: THREE.AnimationAction | null = null;
   let resources: ReturnType<typeof captureFinaleResources> | null = null;
   let gunResources: ReturnType<typeof captureFinaleResources> | null = null, disposed = false;
   let build = 1, damage = 0, dissolve = 0, baseY = 0, restFootY = 0;
   let previousMove = '', blendStart = 0, gunHeld = false, gunEnabled = side === 'hero', rifleTime = 0;
-  let sampling = false;
+  let sampling = false, shielded = false, forwardMotion = 0, liftMotion = 0, poseBlend = 1;
+  const bladeEntry = { grip: new THREE.Vector3(), direction: new THREE.Vector3(0, 1, 0) };
+  const shieldCenter = new THREE.Vector3();
   const previousPose = new Map<THREE.Object3D, { rotation: THREE.Quaternion; position: THREE.Vector3 }>();
   const clips = new Map<string, THREE.AnimationClip>();
   const socketRest = new Map<THREE.Object3D, THREE.Quaternion>();
@@ -151,6 +154,9 @@ export function createFinaleMech(side: MechSide, factory: MechFactory = DEFAULT_
     for (const bone of [swordBone, gunBone, chestBone, animator.slots.leftHand, animator.slots.rightHand]) {
       if (bone) socketRest.set(bone, relativeRotation(bone));
     }
+    animator.slots.leftHand?.traverse(bone => {
+      if (/^(thumb|index|middle|ring|pinky)_0[1-3]_l$/.test(bone.name)) openHand.set(bone, bone.quaternion.clone());
+    });
     const swordIdle = clips.get('sword_idle');
     if (swordIdle) {
       const sample = nativeMixer.clipAction(swordIdle).play(); sample.paused = true; nativeMixer.update(0);
@@ -218,8 +224,12 @@ export function createFinaleMech(side: MechSide, factory: MechFactory = DEFAULT_
     aimHand(sword, swordBone, new THREE.Vector3(0, 1, 0), target);
     attachWeapon(sword, swordBone, swordOffset, swordGrip);
   }
-  function driveBlade(grip: THREE.Vector3, direction: THREE.Vector3, support = false) {
+  function driveBlade(grip: THREE.Vector3, direction: THREE.Vector3, support = false, transition = true) {
     if (!animator || !swordBone) return;
+    if (transition && poseBlend < 1) {
+      grip.lerpVectors(bladeEntry.grip, grip.clone(), poseBlend);
+      direction.lerpVectors(bladeEntry.direction, direction.clone(), poseBlend).normalize();
+    }
     const target = root.localToWorld(grip.clone());
     const look = root.localToWorld(grip.clone().addScaledVector(direction, 20));
     for (let pass = 0; pass < 4; pass++) {
@@ -258,13 +268,15 @@ export function createFinaleMech(side: MechSide, factory: MechFactory = DEFAULT_
   }
   function nativeClip(move: MechPoseName, airborne: boolean, poseTime: number, jumping: boolean) {
     const find = (...names: string[]) => names.map(name => clips.get(name.toLowerCase())).find((clip): clip is THREE.AnimationClip => !!clip);
+    if (move === 'guard' || move === 'hover' || move === 'flight') return undefined;
     if (jumping) return find('Jump_Loop');
     if (airborne && (move === 'idle' || move === 'walk' || move === 'dash')) return find('Sword_Idle', 'Idle_Loop');
     if (move === 'idle') return find('Sword_Idle', 'Idle_Loop');
     if (move === 'walk') return find('Walk_Loop');
-    if (move === 'slash' || move === 'sideSlash' || move === 'cleave' || move === 'reap' || move === 'overdrive') return find('Sword_Attack');
+    if (move === 'slash' || move === 'sideSlash' || move === 'cleave' || move === 'reap'
+      || move === 'overdrive' || move === 'orbitalCut') return find('Sword_Attack');
     if (move === 'thrust') return find('Punch_Jab');
-    if (move === 'guard' || move === 'clash') return find('Push_Loop', 'Sword_Idle');
+    if (move === 'clash') return find('Push_Loop', 'Sword_Idle');
     if (move === 'missiles') return sampleRifleSequence(poseTime).firing ? find('Pistol_Shoot') : find('Pistol_Idle_Loop');
     if (move === 'skyCharge' || move === 'reactor' || move === 'verdict' || move === 'bomb') return find('Spell_Simple_Idle_Loop');
     if (move === 'boost' || move === 'evade' || move === 'dash') return find('Jump_Loop');
@@ -278,38 +290,46 @@ export function createFinaleMech(side: MechSide, factory: MechFactory = DEFAULT_
   }
 
   const mech = { root, sword, gun, loaded, pointSwordAt,
+    setMotion(forward: number, lift: number) { forwardMotion = clamp(forward / 9, -1, 1); liftMotion = clamp(lift / 8.5, -1, 1); },
+    setGuarding(value: boolean) { shielded = value; },
     setAssembly(value: number) { build = clamp(value, 0, 1); },
     setDamage(value: number) { damage = clamp(value, 0, 1); },
     setDissolve(value: number) { dissolve = clamp(value, 0, 1); },
     setGunEnabled(value: boolean) { gunEnabled = value; },
-    setBladeCharge(value: number) { bladeMaterial.emissiveIntensity = 0.16 + clamp(value, 0, 1) * 3.8; },
+    setBladeCharge(value: number) { bladeMaterial.emissiveIntensity = 0.16 + clamp(value, 0, 1) * 1.8; },
     markSlash(from: THREE.Vector3, to: THREE.Vector3) {
       skin.engrave(root.worldToLocal(from.clone()), root.worldToLocal(to.clone()));
     },
-    lockBlade(contact: THREE.Vector3, side: 1 | -1, strain = 0) {
+    lockBlade(contact: THREE.Vector3, side: 1 | -1, strain = 0, weight = 1) {
       if (!animator || !swordBone) return;
-      const grip = new THREE.Vector3(-2.2, 8.6 + strain * 0.22, 1.5);
-      const direction = root.worldToLocal(contact.clone()).sub(grip).normalize();
-      driveBlade(grip, direction);
+      const grip = sword.position.clone().lerp(new THREE.Vector3(-2.2, 8.6 + strain * 0.22, 1.5), weight);
+      const direction = up.clone().applyQuaternion(sword.quaternion)
+        .lerp(root.worldToLocal(contact.clone()).sub(grip).normalize(), weight).normalize();
+      driveBlade(grip, direction, false, false);
+      if (weight < 0.99) return;
       for (let i = 0; i < 4; i++) pointSwordAt(contact);
       const support = sword.localToWorld(new THREE.Vector3(0, -0.5, 0));
       animator.reach('left', support, root.localToWorld(new THREE.Vector3(5, 9, side * 0.4)));
       root.updateMatrixWorld(true);
     },
-    pose(move: MechPoseName, time: number, duration = 1, airborne = false, combo = 0, effectTime = time, custom = false) {
+    pose(move: MechPoseName, time: number, duration = 1, airborne = false, combo = 0, effectTime = time, custom = false, sequence = '') {
       if (!animator || !nativeMixer || !normalized || !model) return;
+      const motion = Math.hypot(forwardMotion, liftMotion);
+      const poseMove = airborne && !custom && (move === 'idle' || move === 'walk') ? motion > 0.05 ? 'flight' : 'hover' : move;
       const jump = side === 'enemy' && !custom && (move === 'thrust' || move === 'verdict') && time < ENEMY_ATTACK_LEAPS[move].land
         ? sampleEnemyAttackLeap(move, time) : null;
-      const clip = nativeClip(move, airborne, time, !!jump);
+      const clip = nativeClip(poseMove, airborne, time, !!jump);
       const looping = !jump && (move === 'idle' || move === 'walk' || move === 'victory' || move === 'dance' || move === 'afterCut'
         || move === 'guard' || move === 'clash' || move === 'skyCharge' || move === 'reactor'
         || move === 'verdict' || move === 'bomb' || (move === 'missiles' && !sampleRifleSequence(time).firing));
-      const moveKey = `${move}-${clip?.name ?? 'procedural'}-${combo}`;
+      const moveKey = `${poseMove}-${clip?.name ?? 'procedural'}-${sequence}`;
       if (previousMove && previousMove !== moveKey) {
         previousPose.clear();
         for (const bone of Object.values(animator.slots)) if (bone) {
           previousPose.set(bone, { rotation: bone.quaternion.clone(), position: bone.position.clone() });
         }
+        bladeEntry.grip.copy(sword.position);
+        bladeEntry.direction.copy(up).applyQuaternion(sword.quaternion);
         blendStart = effectTime;
       }
       if (move === 'missiles' && !previousMove.startsWith('missiles-')) {
@@ -333,14 +353,17 @@ export function createFinaleMech(side: MechSide, factory: MechFactory = DEFAULT_
         nativeAction.paused = true;
         nativeMixer.update(0);
       } else {
-        animator.pose(move, looping ? effectTime : time, duration, airborne, combo);
+        animator.pose(poseMove, poseMove === 'flight' ? Math.min(1, motion) : looping ? effectTime : time,
+          poseMove === 'flight' ? 1 : duration, airborne, combo,
+          poseMove === 'guard' || poseMove === 'hover' || poseMove === 'flight');
       }
-      const blend = sampling ? 1 : THREE.MathUtils.smootherstep(effectTime - blendStart, 0, custom ? 0.2 : 0.13);
+      const blend = sampling || !previousPose.size ? 1 : THREE.MathUtils.smootherstep(effectTime - blendStart, 0, custom ? 0.2 : 0.13);
+      poseBlend = move === 'guard' || poseMove === 'hover' || poseMove === 'flight' ? blend : 1;
       if (blend < 1) for (const [bone, previous] of previousPose) {
         bone.quaternion.slerpQuaternions(previous.rotation, bone.quaternion.clone(), blend);
         bone.position.lerpVectors(previous.position, bone.position.clone(), blend);
       }
-      if (!sampling) animator.perform(move, effectTime, custom ? 1 : 0.45);
+      if (!sampling) animator.perform(poseMove, effectTime, custom ? 1 : 0.45, forwardMotion, liftMotion);
       root.updateMatrixWorld(true);
       if (!airborne && animator.slots.leftFoot && animator.slots.rightFoot) {
         const left = root.worldToLocal(animator.slots.leftFoot.getWorldPosition(new THREE.Vector3())).y;
@@ -419,7 +442,7 @@ export function createFinaleMech(side: MechSide, factory: MechFactory = DEFAULT_
       } else if ((isMeleeStrike(move) && move !== 'sideSlash') || move === 'overdrive') {
         const trajectory = move === 'overdrive' ? sampleUltimateBlade(time) : sampleMeleeBlade(move, time);
         driveBlade(new THREE.Vector3(...trajectory.grip), new THREE.Vector3(...trajectory.direction),
-          move === 'slash' || move === 'cleave' || move === 'overdrive');
+          !shielded && (move === 'slash' || move === 'cleave' || move === 'overdrive'));
       } else if (move === 'skyCharge' || move === 'reactor') {
         const rise = cinematicProgress(time / Math.max(duration, 0.01), 0, 0.55);
         driveBlade(new THREE.Vector3(-0.6, 10 + rise * 4.5, 1.7), new THREE.Vector3(0, 1, 0.015), true);
@@ -437,13 +460,16 @@ export function createFinaleMech(side: MechSide, factory: MechFactory = DEFAULT_
       } else if (move === 'afterCut') {
         driveBlade(new THREE.Vector3(-3, 8.6, 1.8), new THREE.Vector3(-0.1, -0.9, 0.35));
       } else if (move === 'guard') {
-        driveBlade(new THREE.Vector3(-2, 9.5, 2.4), new THREE.Vector3(-0.2, 0.92, 0.3));
-        animator.reach('left', root.localToWorld(new THREE.Vector3(1.3, 10.3, 4)),
-          root.localToWorld(new THREE.Vector3(5, 8, 3)));
+        driveBlade(new THREE.Vector3(-2.7, 8.2, 0.7), new THREE.Vector3(-0.12, 0.92, -0.35));
       } else if (!clip) {
         weaponDirection.set(-0.12, 0.86, 0.58);
         if (move === 'evade' || move === 'boost') weaponDirection.set(-0.15, 0.18, -1);
         pointSwordAt(root.localToWorld(sword.position.clone().addScaledVector(weaponDirection.normalize(), 20)));
+      }
+      if (shielded || move === 'guard') {
+        animator.reach('left', root.localToWorld(new THREE.Vector3(3.4, 10.6, 5.4)),
+          root.localToWorld(new THREE.Vector3(5.5, 10, 1)));
+        for (const [bone, rest] of openHand) bone.quaternion.copy(rest);
       }
       skin.update(root, effectTime, build, damage, dissolve);
       root.updateMatrixWorld(true);
@@ -479,6 +505,16 @@ export function createFinaleMech(side: MechSide, factory: MechFactory = DEFAULT_
       const bone = animator?.slots[side === 'left' ? 'leftHand' : 'rightHand'];
       return bone ? bone.getWorldPosition(out) : root.localToWorld(out.set(side === 'left' ? 2 : -2, 10, 0));
     },
+    getShieldCenter(out = new THREE.Vector3()) {
+      const head = animator?.slots.head, left = animator?.slots.leftFoot, right = animator?.slots.rightFoot;
+      if (!head || !left || !right) return root.localToWorld(out.set(0, MECH_HEIGHT / 2, 0));
+      head.getWorldPosition(out);
+      left.getWorldPosition(shieldCenter);
+      const footY = Math.min(shieldCenter.y, right.getWorldPosition(shieldCenter).y);
+      out.y = (out.y + footY) / 2;
+      out.x = root.position.x; out.z = root.position.z;
+      return out;
+    },
     getBlade(outA = bladeA, outB = bladeB) {
       sword.updateWorldMatrix(true, false);
       outA.set(0, 0.9, 0).applyMatrix4(sword.matrixWorld);
@@ -487,7 +523,7 @@ export function createFinaleMech(side: MechSide, factory: MechFactory = DEFAULT_
     },
     sampleAttackPaths(): DuelBladePaths {
       if (!animator || !model) throw new Error('Load the mech rig before sampling its blade paths');
-      const paths: Record<MeleeStrike, BladeSegment[]> = { slash: [], sideSlash: [], cleave: [], thrust: [], reap: [] };
+      const paths: Record<MeleeStrike, BladeSegment[]> = { slash: [], sideSlash: [], cleave: [], thrust: [], reap: [], orbitalCut: [] };
       const position = root.position.clone(), rotation = root.quaternion.clone(), scale = root.scale.clone();
       root.position.set(0, 0, 0); root.quaternion.identity(); root.scale.setScalar(1);
       sampling = true;

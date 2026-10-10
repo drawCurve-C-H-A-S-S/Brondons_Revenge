@@ -6,6 +6,8 @@ import { createStealthHangar } from '../level 1 stage 1/stealthHangar.js';
 import hologramVertexShader from '../../shaders/hologram.vert.glsl?raw';
 import hologramFragmentShader from '../../shaders/hologram.frag.glsl?raw';
 import { createEarthTextures, createEarthGroup, updateEarthGroup } from '../../scripts/earthTexture.js';
+import { prepareSceneRendering } from '../../core/renderer.js';
+import { yieldToMainThread } from '../../core/loader.js';
 
 export type PrologueShot = 'present' | 'asteroid' | 'collection' | 'ingest' | 'corruption'
   | 'capture' | 'laboratory' | 'shield' | 'planet' | 'corridor' | 'patrol' | 'stealth';
@@ -72,7 +74,7 @@ export function createPrologueFlashbacks() {
     return group;
   }
 
-  const restraintMaterial = new THREE.MeshStandardMaterial({ color: 0x91a8b8, metalness: 0.85, roughness: 0.28 });
+  const restraintMaterial = hologramMaterial;
   const restraintGeometry = new THREE.TorusGeometry(0.018, 0.005, 6, 12);
   const linkUp = new THREE.Vector3(0, 1, 0);
 
@@ -643,5 +645,15 @@ export function createPrologueFlashbacks() {
     for (const texture of textures) texture.dispose();
   }
 
-  return { ready: Promise.all([characterReady, toolReady]), sceneFor: (shot: PrologueShot) => shot === lastShot ? currentRenderScene : sceneForShot[shot], update, dispose };
+  const ready = Promise.all([characterReady, toolReady]);
+  return { ready, sceneFor: (shot: PrologueShot) => shot === lastShot ? currentRenderScene : sceneForShot[shot], update, dispose,
+    async prepareRendering(renderer: THREE.WebGLRenderer, camera: THREE.PerspectiveCamera) {
+      await ready;
+      for (const scene of scenes) {
+        if (disposed) throw new Error('Prologue preparation was interrupted');
+        await prepareSceneRendering(renderer, scene, camera);
+        await yieldToMainThread();
+      }
+    },
+  };
 }

@@ -15,15 +15,19 @@ import { createCameraVisitUI } from '../../helpers/scene/cameraVisit.js';
 import { SHIP_INTERIOR_PALETTE } from '../../helpers/scene/shipInterior.js';
 import { teleportPlayer } from '../../scripts/teleportationDevice.js';
 import { cameraVisitMap, type CameraRoomProgress } from '../level 1 stage 2/stageTwoLayout.js';
+import { loadToolModel } from '../../core/loader.js';
 
 export function createScene({ audioManager, entryState, gogglesCollected = false, onGogglesCollected,
-  remoteVisit = false, preview = false, deferActivation = false, loot, hasReturnMarker, onRestart }: {
+  remoteVisit = false, preview = false, deferActivation = false, loot, hasReturnMarker, onRestart,
+  onKeycardCollected, modelLoader = loadToolModel }: {
   audioManager?: unknown; entryState?: PlayerTransitionState;
   gogglesCollected?: boolean; onGogglesCollected?: () => void;
   remoteVisit?: boolean; preview?: boolean; deferActivation?: boolean; loot?: CameraRoomProgress;
   hasReturnMarker?: () => boolean; onRestart?: () => Promise<boolean>;
+  onKeycardCollected?: () => void; modelLoader?: typeof loadToolModel;
 } = {}) {
-  if (remoteVisit && !preview && (!hasReturnMarker || !onRestart)) throw new Error('Camera visits require a return-marker check and checkpoint restart');
+  if (remoteVisit && !preview && (!hasReturnMarker || !onRestart || !onKeycardCollected || !loot))
+    throw new Error('Camera visits require a return link, checkpoint restart and persistent keycard reward');
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(remoteVisit ? SHIP_INTERIOR_PALETTE.background : 0x100a0a);
 
@@ -241,13 +245,13 @@ export function createScene({ audioManager, entryState, gogglesCollected = false
   }
 
   const chest = !remoteVisit && gogglesCollected ? null : createRewardChest({ scene, world: physicsWorld, player,
-    position: new THREE.Vector3(0, 0, 3.7), reward: remoteVisit ? 'shield' : 'goggles', style: 'crew',
+    position: new THREE.Vector3(0, 0, 3.7), reward: remoteVisit ? 'keycard' : 'goggles', style: 'crew',
     initialCollected: loot?.rewardCollected, canInteract: () => active, unlocked: () => breakables.remaining() === 0,
     lockedPrompt: 'Destroy every wall target with the pistol',
     removeOnCollect: !remoteVisit, onCollect: () => {
       if (!remoteVisit) { onGogglesCollected?.(); return true; }
-      const collected = player.addShield(25); if (collected && loot) loot.rewardCollected = true; return collected;
-    } });
+      onKeycardCollected?.(); if (loot) loot.rewardCollected = true; player.addShield(25); return true;
+    } }, modelLoader);
   if (preview) player.disable();
   const visitUI = remoteVisit && !preview && hasReturnMarker && onRestart
     ? createCameraVisitUI({ title: '06 / Target range', player, hasReturnMarker, onRestart }) : null;

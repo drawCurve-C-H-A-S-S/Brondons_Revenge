@@ -120,6 +120,7 @@ test('a crossfade holds the outgoing sound until incoming decoding finishes', as
   let finishFetch;
   t.mock.method(globalThis, 'fetch', () => new Promise(resolve => { finishFetch = resolve; }));
   manager.crossfadeBgm({ path: 'buffered-incoming', volume: 0.5, autoplay: true }, 1);
+  await flush();
   manager.update(1);
   assert.equal(outgoing.paused, false); assert.equal(outgoing.volume, 0.5);
   assert.equal(manager.bgm.audio.volume, 0);

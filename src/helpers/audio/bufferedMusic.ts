@@ -1,11 +1,15 @@
+import { fetchAsset } from '../../core/assetCache.js';
+
 export const MUSIC_LOOP_BLEND_SECONDS = 0.65;
-const CACHE_LIMIT = 4;
+export const MUSIC_CACHE_BUDGET_BYTES = 128 * 1024 * 1024;
 type PreparedMusic = { buffer: AudioBuffer; loopStart: number };
 const prepared = new Map<string, Promise<PreparedMusic>>();
+const preparedSizes = new Map<string, number>();
+const unsupportedSources = new Set<string>();
 let context: AudioContext | null = null;
 
-export function supportsBufferedMusic() {
-  return typeof window.AudioContext === 'function';
+export function supportsBufferedMusic(source?: string) {
+  return typeof window.AudioContext === 'function' && (!source || !unsupportedSources.has(source));
 }
 
 function musicContext() {
@@ -48,19 +52,44 @@ function loadMusic(source: string, loop: boolean) {
   let pending = prepared.get(key);
   if (pending) { prepared.delete(key); prepared.set(key, pending); return pending; }
   const audioContext = musicContext();
-  pending = fetch(source).then(async response => {
+  pending = fetchAsset(source).then(async response => {
     if (!response.ok) throw new Error(`Music request failed (${response.status}): ${source}`);
     const buffer = await audioContext.decodeAudioData(await response.arrayBuffer());
-    return loop ? prepareMusicLoop(audioContext, buffer) : { buffer, loopStart: 0 };
+    const music = loop ? prepareMusicLoop(audioContext, buffer) : { buffer, loopStart: 0 };
+    preparedSizes.set(key, music.buffer.length * music.buffer.numberOfChannels * Float32Array.BYTES_PER_ELEMENT);
+    const memory = (globalThis.navigator as Navigator & { deviceMemory?: number } | undefined)?.deviceMemory;
+    const budget = memory !== undefined && memory <= 4 ? MUSIC_CACHE_BUDGET_BYTES / 2 : MUSIC_CACHE_BUDGET_BYTES;
+    let size = [...preparedSizes.values()].reduce((sum, bytes) => sum + bytes, 0);
+    for (const cachedKey of prepared.keys()) {
+      if (size <= budget) break;
+      if (cachedKey === key || !preparedSizes.has(cachedKey)) continue;
+      size -= preparedSizes.get(cachedKey)!;
+      prepared.delete(cachedKey); preparedSizes.delete(cachedKey);
+    }
+    return music;
+  }).catch(error => {
+    if (error instanceof Error && error.name === 'EncodingError' && !unsupportedSources.has(source)) {
+      unsupportedSources.add(source);
+      const message = 'This browser cannot decode the M4A soundtrack. Use a browser with AAC audio support.';
+      console.warn('[Audio]', message, source, error);
+      window.dispatchEvent(new CustomEvent('music-unavailable', { detail: { message } }));
+    }
+    throw error;
   });
   prepared.set(key, pending);
-  void pending.catch(() => { if (prepared.get(key) === pending) prepared.delete(key); });
-  while (prepared.size > CACHE_LIMIT) prepared.delete(prepared.keys().next().value!);
+  void pending.catch(() => {
+    if (prepared.get(key) === pending) { prepared.delete(key); preparedSizes.delete(key); }
+  });
   return pending;
 }
 
-export function preloadMusic(source: string, loop = true) {
-  return supportsBufferedMusic() ? loadMusic(source, loop).then(() => undefined) : Promise.resolve();
+export async function preloadMusic(source: string, loop = true): Promise<'decoded' | 'browser-audio' | 'unsupported'> {
+  if (!supportsBufferedMusic(source)) return unsupportedSources.has(source) ? 'unsupported' : 'browser-audio';
+  try { await loadMusic(source, loop); return 'decoded'; }
+  catch (error) {
+    if (error instanceof Error && error.name === 'EncodingError') return 'unsupported';
+    throw error;
+  }
 }
 
 export class BufferedMusic extends EventTarget {

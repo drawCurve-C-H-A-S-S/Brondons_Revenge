@@ -101,12 +101,12 @@ export function createIndustrialSkin(side: MechSide) {
           engraving = max(engraving, (1.0 - smoothstep(0.035, 0.15, distanceToCut)) * uCutStarts[i].w);
         }
         totalEmissiveRadiance += uCutColor * engraving * 7.0;
-        totalEmissiveRadiance += vec3(1.0, 0.18, 0.025) * uDamage * armorHash(floor(vArmorP * 15.0)) * 0.65;`);
+        totalEmissiveRadiance += ${side === 'enemy' ? 'uFrameGlow' : 'vec3(1.0, 0.18, 0.025)'} * uDamage * armorHash(floor(vArmorP * 15.0)) * 0.65;`);
     }
   }
   material.onBeforeCompile = shader => inject(shader, true);
   depth.onBeforeCompile = shader => inject(shader, false);
-  material.customProgramCacheKey = () => `finale-pbr-armor-cuts-${side}-v4`;
+  material.customProgramCacheKey = () => `finale-pbr-armor-cuts-${side}-v5`;
   depth.customProgramCacheKey = () => `finale-pbr-armor-depth-${side}-v4`;
   return { material, depth, uniforms,
     engrave(from: THREE.Vector3, to: THREE.Vector3) {
@@ -139,7 +139,7 @@ export function createBeamMaterial(color: number) {
         float core = pow(facing, 5.0);
         float filament = pow(0.5 + 0.5 * sin(vUv.x * 50.265 + vUv.y * 9.0 - uTime * 19.0), 16.0);
         float flow = 0.92 + 0.08 * sin(vUv.y * 42.0 - uTime * 32.0);
-        vec3 light = mix(uColor * 3.5, vec3(8.0), core * 0.9) + uColor * filament * 2.0;
+        vec3 light = uColor * (1.6 + core * 1.8 + filament * 1.5);
         gl_FragColor = vec4(light * flow, (0.15 + facing * 0.55) * uPower);
       }`,
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false,

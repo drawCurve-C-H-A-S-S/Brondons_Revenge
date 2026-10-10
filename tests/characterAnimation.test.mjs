@@ -226,6 +226,36 @@ test('scripted ladder traversal selects the generated alternating climb loop', a
   assert.ok(weight('Idle_Loop') > 0.99);
 });
 
+test('vent sprint retains the crouched rig and doubles its crawl animation without a standing sprint', async t => {
+  const { player, character, frame, key, weight } = await fixture(t);
+  player.setVentMode(true); key('keydown', 'KeyW'); frame(20);
+  assert.ok(weight('Crouch_Fwd_Loop') > 0.99);
+  const action = character.mixer._actions.find(action => action.getClip().name === 'Crouch_Fwd_Loop');
+  assert.equal(action.getEffectiveTimeScale(), 1);
+  key('keydown', 'ShiftLeft'); frame(20);
+  assert.equal(player.getState().crouching, true); assert.equal(action.getEffectiveTimeScale(), 2);
+  assert.ok(weight('Crouch_Fwd_Loop') > 0.99);
+  assert.ok(!character.mixer._actions.find(action => action.getClip().name === 'Sprint_Loop')?.isRunning());
+  key('keyup', 'ShiftLeft'); frame(10); assert.equal(action.getEffectiveTimeScale(), 1);
+  key('keyup', 'KeyW'); frame(20); assert.ok(weight('Crouch_Idle_Loop') > 0.99);
+});
+
+test('silent takedown animates the real arms and recovers to locomotion without moving the physics body', async t => {
+  const { player, character, frame, weight } = await fixture(t);
+  const bodyStart = player.body.position.clone();
+  const pose = time => {
+    character.update(0.12, player.body.position, player.getState(), true, player.radius, { clip: 'Silent_Takedown', time });
+    character.model.updateMatrixWorld(true);
+    return character.model.getObjectByName('hand_r').getWorldPosition(new THREE.Vector3());
+  };
+  const reaching = pose(0.35), disabling = pose(0.85), recovered = pose(1.65);
+  assert.ok(reaching.distanceTo(disabling) > 0.06, 'shutdown must articulate the reaching hand');
+  assert.ok(recovered.distanceTo(disabling) > 0.15, 'the hand must return after the shutdown');
+  assert.ok(player.body.position.distanceTo(bodyStart) < 1e-9, 'animation never owns physics travel');
+  character.update(0.1, player.body.position, player.getState(), true, player.radius);
+  frame(30); assert.ok(weight('Idle_Loop') > 0.99);
+});
+
 test('MC crouch lowers the torso while keeping both boots planted', async context => {
   const { player, character, frame, key, weight } = await fixture(context);
   const pose = () => {

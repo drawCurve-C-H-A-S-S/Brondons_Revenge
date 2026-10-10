@@ -5,7 +5,8 @@ import { createServer } from 'vite';
 import * as THREE from 'three';
 
 let server, createMechDuel, createFinaleQte, FINISHER_BEATS, createFinaleDirector, DUEL, choreography, createMechAnimator, FINALE_DURATION;
-let createIndustrialSkin, SLASH_MARK_LIFETIME, FRAME_COLORS;
+let createIndustrialSkin, createBeamMaterial, SLASH_MARK_LIFETIME, FRAME_COLORS;
+let createBladeTrail;
 
 before(async () => {
   server = await createServer({
@@ -17,7 +18,8 @@ before(async () => {
   ({ createFinaleDirector, FINALE_DURATION } = await server.ssrLoadModule('/scripts/finaleDirector.ts'));
   choreography = await server.ssrLoadModule('/scripts/finaleChoreography.ts');
   ({ createMechAnimator } = await server.ssrLoadModule('/scripts/mechAnimation.ts'));
-  ({ createIndustrialSkin, SLASH_MARK_LIFETIME, FRAME_COLORS } = await server.ssrLoadModule('/helpers/scene/finaleMaterials.ts'));
+  ({ createIndustrialSkin, createBeamMaterial, SLASH_MARK_LIFETIME, FRAME_COLORS } = await server.ssrLoadModule('/helpers/scene/finaleMaterials.ts'));
+  ({ createBladeTrail } = await server.ssrLoadModule('/helpers/scene/finaleEffects.ts'));
 });
 
 after(async () => server?.close());
@@ -141,29 +143,30 @@ test('the third missed QTE transitions to the game-over branch, not the first', 
   assert.equal(director.qte.getState().misses, 3);
 });
 
-test('scene 16-19 progression remains intact and the scene 19 exit opens scene 21', async () => {
+test('scene 16 enters the merged approach, then the facility interior and finale', async () => {
   const source = path => readFile(new URL(`../src/${path}`, import.meta.url), 'utf8');
-  const [main, approach, summit] = await Promise.all([
+  const [main, approach, facility] = await Promise.all([
     source('main.ts'),
     source('scenes/level 3/scene17.ts'),
-    source('scenes/level 3/scene19.ts'),
+    source('scenes/level 3/scene20.ts'),
   ]);
 
   assert.match(main, /16: \(\) => import\('\.\/scenes\/level 2\/scene16\.js'\)/);
-  for (const scene of [17, 18, 19, 21]) {
+  for (const scene of [17, 20, 21]) {
     assert.match(main, new RegExp(`${scene}: \\(\\) => import\\('\\.\\/scenes\\/level 3\\/scene${scene}\\.js'\\)`));
   }
   assert.match(main, /onFinished: arrival => \{ void loadGround17\(arrival\); \}/);
-  assert.match(main, /onPlatformer: loadPlatformer18/);
+  assert.doesNotMatch(main, /import\('\.\/scenes\/level 3\/scene1[89]\.js'\)|loadPlatformer18|onPlatformer/);
+  assert.match(main, /entryState, onFinished: loadFacility20/);
   assert.match(main, /onFinished: next => \{ void loadScene21\(next\); \}/);
-  assert.match(approach, /if \(returning\) onFinished\?\.\(/);
-  assert.match(summit, /section: 'return'/);
+  assert.match(approach, /onFinished\?\.\(/);
+  assert.match(facility, /PRIME: I expected more security\./);
 });
 
 test('the finale reuses the facility roof and assigns guarding to R', async () => {
   const boss = await readFile(new URL('../src/scenes/level 3/scene21.ts', import.meta.url), 'utf8');
 
-  assert.match(boss, /createRescueSite\(physics, \{ culling: true, bridgeBrokenAtStart: true \}\)/);
+  assert.match(boss, /createRescueSite\(physics, \{ culling: true \}\)/);
   assert.match(boss, /site\.disintegrateTrees/);
   assert.match(boss, /guard: keys\.has\('KeyR'\)/);
   assert.doesNotMatch(boss, /getCockpitPoint/);
@@ -486,7 +489,7 @@ test('the enemy sword beam locks its aim and can be dodged or fully blocked afte
   assert.ok(guarding.drainEvents().some(event => event.kind === 'guard' && event.attack === 'verdict'));
 });
 
-test('Sudoers 5 uses thrust, reverse cut and sword beam, never the player sword/rifle moves', () => {
+test('Sudoers 5 keeps its original attacks and adds an orbital sword special, never the player sword/rifle moves', () => {
   const duel = createMechDuel('space');
   duel.hero.invulnerable = 100;
   advance(dt => duel.update(dt), 22);
@@ -494,7 +497,8 @@ test('Sudoers 5 uses thrust, reverse cut and sword beam, never the player sword/
   assert.ok(attacks.includes('thrust'));
   assert.ok(attacks.includes('reap'));
   assert.ok(attacks.includes('verdict'));
-  assert.ok(attacks.every(attack => ['thrust', 'reap', 'verdict'].includes(attack)));
+  assert.ok(attacks.includes('orbitalCut'));
+  assert.ok(attacks.every(attack => ['thrust', 'reap', 'verdict', 'orbitalCut'].includes(attack)));
 });
 
 test('damage engravings stay in mech-local armor coordinates and fade in 1.65 seconds', () => {
@@ -789,4 +793,182 @@ test('developer Unlock no longer requires a password', async () => {
   assert.doesNotMatch(main, /developerPassword|Incorrect password/);
   assert.doesNotMatch(markup, /developer-password/);
   assert.match(markup, /id="developer-unlock" type="submit">Unlock/);
+});
+
+test('original sword timings and authored special animations are retained instead of procedural replacements', async () => {
+  const { MELEE_STRIKES, RIFLE_SEQUENCE, HERO_ULTIMATE, ENEMY_VERDICT } = choreography;
+  assert.deepEqual(MELEE_STRIKES.slash, { duration: 1.04, start: 0.34, end: 0.62 });
+  assert.deepEqual(MELEE_STRIKES.sideSlash, { duration: 1.12, start: 0.25, end: 0.88 });
+  assert.deepEqual(MELEE_STRIKES.cleave, { duration: 1.4, start: 0.6, end: 0.94 });
+  assert.equal(RIFLE_SEQUENCE.swordReady, 4.25);
+  assert.equal(HERO_ULTIMATE.duration, 2.95);
+  assert.equal(ENEMY_VERDICT.duration, 3.15);
+  const source = await readFile(new URL('../src/helpers/scene/finaleMechs.ts', import.meta.url), 'utf8');
+  assert.match(source, /const clip = nativeClip\(poseMove, airborne, time, !!jump\)/);
+  assert.doesNotMatch(source, /custom \? undefined : nativeClip/);
+  assert.match(source, /move === 'overdrive'.*move === 'orbitalCut'.*find\('Sword_Attack'\)/);
+  assert.match(source, /move === 'skyCharge'.*move === 'verdict'.*find\('Spell_Simple_Idle_Loop'\)/);
+  assert.match(source, /isMeleeStrike\(move\) && move !== 'sideSlash'/);
+});
+
+test('boosts have no energy gate and can interrupt or chain without recharging', () => {
+  for (const phase of ['ground', 'space']) {
+    const duel = createMechDuel(phase);
+    Object.assign(duel.enemy, { move: 'stagger', duration: 100, invulnerable: 100 });
+    duel.hero.energy = 0;
+    assert.equal(duel.act('slash'), true);
+    assert.equal(duel.act('dash'), true);
+    assert.equal(duel.hero.move, 'dash');
+    assert.equal(duel.hero.energy, 0);
+    for (let i = 0; i < 12; i++) {
+      duel.setInput({ move: i % 2 ? 1 : -1, lift: 0, guard: false });
+      duel.hero.energy = 0;
+      assert.equal(duel.act('dash'), true);
+      assert.equal(duel.hero.energy, 0);
+      advance(dt => duel.update(dt), choreography.MECH_DODGE.crossDuration + 0.02);
+      assert.equal(duel.getState().feedback, '');
+      assert.ok(Math.abs(duel.hero.x) <= DUEL.arena);
+    }
+  }
+});
+
+test('ground and orbital horizontal acceleration match, with smooth stops and reversals', () => {
+  const ground = createMechDuel('ground'), space = createMechDuel('space');
+  for (const duel of [ground, space]) {
+    duel.hero.x = -25; duel.enemy.x = 38;
+    Object.assign(duel.enemy, { move: 'stagger', duration: 100 });
+  }
+  for (const direction of [1, 0, -1, 0]) {
+    ground.setInput({ move: direction, lift: 0, guard: false });
+    space.setInput({ move: direction, lift: 0, guard: false });
+    for (let i = 0; i < 90; i++) {
+      const before = space.hero.vx;
+      ground.update(1 / 120); space.update(1 / 120);
+      assert.ok(Math.abs(space.hero.vx - before) < 1);
+      assert.ok(Math.abs(space.hero.x - ground.hero.x) < 1e-10);
+      assert.ok(Math.abs(space.hero.vx - ground.hero.vx) < 1e-10);
+    }
+  }
+});
+
+test('the cinematic clock retains fractional time and root velocity across prompt boundaries', () => {
+  const qte = createFinaleQte();
+  const firstEnd = choreography.finisherBeatDuration(FINISHER_BEATS[0]);
+  advance(dt => qte.update(dt), firstEnd + 0.027);
+  assert.equal(qte.getState().index, 1);
+  assert.ok(Math.abs(qte.getState().clock - 0.027) < 1e-8);
+  assert.ok(Math.abs(qte.getState().elapsed - firstEnd - 0.027) < 1e-8);
+  const epsilon = 0.0001;
+  for (const shot of choreography.FINISHER_TIMELINE.slice(1)) {
+    const before = choreography.sampleFinisherSequence(shot.start - epsilon);
+    const earlier = choreography.sampleFinisherSequence(shot.start - epsilon * 2);
+    const after = choreography.sampleFinisherSequence(shot.start + epsilon);
+    const later = choreography.sampleFinisherSequence(shot.start + epsilon * 2);
+    for (const side of ['hero', 'enemy']) {
+      for (let axis = 0; axis < 3; axis++) {
+        const incoming = (before[side][axis] - earlier[side][axis]) / epsilon;
+        const outgoing = (later[side][axis] - after[side][axis]) / epsilon;
+        assert.ok(Math.abs(incoming - outgoing) < 0.01, `${shot.beat.id}: ${side} axis ${axis} velocity`);
+        assert.ok(Math.abs(before[side][axis] - after[side][axis]) < 0.005);
+      }
+    }
+  }
+});
+
+test('blade trails are short, subdued, motion-only, and cleared on teleport', () => {
+  const scene = new THREE.Scene(), trail = createBladeTrail(scene, 'hero');
+  const mesh = scene.getObjectByName('hero_BladeAfterimage');
+  const a = new THREE.Vector3(0, 0, 0), b = new THREE.Vector3(0, 12, 0);
+  try {
+    for (let i = 0; i < 30; i++) trail.update(a, b, 1 / 60, true);
+    const alpha = mesh.geometry.getAttribute('trailAlpha').array;
+    assert.equal(Math.max(...alpha), 0, 'standing still must not stack luminous blade sheets');
+    for (let i = 0; i < 12; i++) {
+      a.x += 0.3; b.x += 0.8;
+      trail.update(a, b, 1 / 60, true);
+    }
+    assert.ok(Math.max(...alpha) > 0);
+    assert.ok(Math.max(...alpha) <= 0.066);
+    assert.equal(mesh.geometry.getAttribute('position').count, 60);
+    trail.update(a, b, 0.09, false);
+    assert.equal(Math.max(...alpha), 0, 'all afterimages must fade within 0.085 seconds');
+    b.x += 1; trail.update(a, b, 1 / 60, true);
+    b.x += 1; trail.update(a, b, 1 / 60, true);
+    a.x += 40; b.x += 40; trail.update(a, b, 1 / 60, true);
+    assert.equal(Math.max(...alpha), 0, 'teleports must never draw a ribbon across the arena');
+  } finally { trail.dispose(); }
+});
+
+test('Eclipse Rend has an orbital-only cinematic tell and a real sword crossing', () => {
+  const duel = createMechDuel('space');
+  duel.hero.invulnerable = 100;
+  waitForEnemyAttack(duel, 'orbitalCut');
+  const origin = duel.enemy.x, timing = choreography.ENEMY_ORBITAL_CUT;
+  assert.equal(duel.getState().special.kind, 'orbitalCut');
+  assert.equal(duel.getState().special.cinematic, true);
+  advance(dt => duel.update(dt), timing.cameraEnd - duel.enemy.time + 0.001);
+  assert.equal(duel.getState().special.cinematic, false);
+  assert.ok(duel.getState().special.counterRemaining >= DUEL.counterWindow);
+  advance(dt => duel.update(dt), timing.cross - duel.enemy.time + 0.01);
+  assert.ok(Math.abs(duel.enemy.x - origin) > 12);
+  assert.equal(duel.missiles.length, 0, 'this special must use the sword, not another beam projectile');
+  const ground = createMechDuel('ground');
+  ground.hero.invulnerable = 100;
+  advance(dt => ground.update(dt), 25);
+  assert.ok(ground.drainEvents().every(event => event.attack !== 'orbitalCut'));
+});
+
+test('reboosting mid-crossing preserves the visible arc instead of snapping back to the flight lane', () => {
+  const duel = createMechDuel('space');
+  duel.hero.x = -6; duel.enemy.x = 6;
+  Object.assign(duel.enemy, { move: 'stagger', duration: 100 });
+  duel.setInput({ move: 1, lift: 0, guard: false });
+  duel.act('dash'); advance(dt => duel.update(dt), 0.25);
+  const before = choreography.sampleDodgeArc(duel.hero.time, duel.hero.duration, duel.hero.dash.crossing, duel.hero.dash.offset);
+  duel.setInput({ move: -1, lift: 0, guard: false }); duel.act('dash');
+  const after = choreography.sampleDodgeArc(duel.hero.time, duel.hero.duration, duel.hero.dash.crossing, duel.hero.dash.offset);
+  for (const key of ['lane', 'lift', 'roll']) assert.ok(Math.abs(before[key] - after[key]) < 1e-8);
+});
+
+test('hostile beams and damaged armor keep the same sinister palette without a white beam core', () => {
+  const skin = createIndustrialSkin('enemy'), beam = createBeamMaterial(FRAME_COLORS.enemy);
+  try {
+    assert.equal(beam.uniforms.uColor.value.getHex(), skin.uniforms.uFrameGlow.value.getHex());
+    assert.equal(beam.uniforms.uColor.value.getHex(), FRAME_COLORS.enemy);
+    const shader = { uniforms: {}, vertexShader: '#include <project_vertex>',
+      fragmentShader: '#include <clipping_planes_fragment>\n#include <color_fragment>\n#include <emissivemap_fragment>' };
+    skin.material.onBeforeCompile(shader, {});
+    assert.match(shader.fragmentShader, /totalEmissiveRadiance \+= uFrameGlow \* uDamage/);
+    assert.doesNotMatch(beam.fragmentShader, /vec3\(8\.0\)/);
+  } finally { skin.dispose(); beam.dispose(); }
+});
+
+test('the burning boy and cockpit grief finish before the seamless orbital handoff', async () => {
+  const { PLANET_RUPTURE: timing, samplePlanetAftermath } = choreography;
+  assert.ok(timing.forest > timing.burst);
+  assert.equal(samplePlanetAftermath(timing.forest).forest, true);
+  assert.equal(samplePlanetAftermath(timing.forest).burn, 0);
+  assert.equal(samplePlanetAftermath(timing.forestEnd - 0.1).burn, 1);
+  assert.equal(samplePlanetAftermath(timing.cockpit).forest, false);
+  assert.equal(samplePlanetAftermath(timing.cockpit).cockpit, true);
+  assert.equal(samplePlanetAftermath(timing.returnToDuel).cockpit, false);
+  assert.equal(samplePlanetAftermath(FINALE_DURATION.rupture).orbit, 1);
+  const director = createFinaleDirector('ground'); director.assetsLoaded();
+  advance(dt => director.update(dt), FINALE_DURATION.versus + 0.01);
+  director.duel.enemy.health = DUEL.half;
+  director.update(1 / 60);
+  assert.equal(director.getState().phase, 'rupture');
+  advance(dt => director.update(dt), timing.returnToDuel);
+  assert.equal(director.getState().phase, 'rupture', 'the cockpit dialogue cannot be interrupted by combat input');
+  advance(dt => director.update(dt), FINALE_DURATION.rupture - timing.returnToDuel + 0.02);
+  assert.equal(director.getState().phase, 'space');
+  const [scene, aftermath] = await Promise.all([
+    readFile(new URL('../src/scenes/level 3/scene21.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/helpers/scene/finaleAftermath.ts', import.meta.url), 'utf8'),
+  ]);
+  assert.match(scene, /Noooooo! You killed Brendannnnn!/);
+  assert.match(scene, /There is no forgiving you now\. You will die\./);
+  assert.match(scene, /createFinaleAftermath\(scene, site\.boy, site\.ready/);
+  assert.match(aftermath, /Sitting_Talking_Loop/);
+  assert.match(aftermath, /uBurn/);
 });

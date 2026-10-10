@@ -10,6 +10,7 @@ import { CABINS, CABIN_BY_ID, QUARTERS, LIVING_QUARTERS_MAP, cabinPoint, cabinDo
 import { createCabinFurnishings, disposeQuartersObject, type CabinFurnishings, type CabinModelLoader } from './furnishings.js';
 import { createQuartersHull } from './hull.js';
 import { createInspectionView, type InspectionTarget } from './inspectionView.js';
+import { inputHint } from '../../scripts/gamepadInput.js';
 
 interface QuartersOptions {
   progress?: QuartersProgress;
@@ -186,7 +187,7 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
     if (disposed) return;
     console.error('[LivingQuarters] Unable to open the Deck One connection:', error);
     passageFailed = true; passagePreparing = passageTransferring = false; player.setInputLocked(false);
-    loading.textContent = 'Unable to load Deck One. Press R to retry or E to cancel.'; loading.classList.remove('hidden');
+    loading.textContent = inputHint('Unable to load Deck One. Press R to retry or E to cancel.'); loading.classList.remove('hidden');
   }
   function prepareBulkhead() {
     if (passagePreparing || passagePrepared) return;
@@ -304,7 +305,7 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
     const actionable = target && target.kind !== 'sign';
     prompt.classList.toggle('hidden', !actionable);
     if (target && actionable) {
-      const text = targetText(target); if (prompt.textContent !== text) prompt.textContent = text;
+      const text = inputHint(targetText(target)); if (prompt.textContent !== text) prompt.textContent = text;
     }
   }
   function interact(candidate: Interaction) {

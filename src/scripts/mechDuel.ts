@@ -1,17 +1,21 @@
 import {
-  FINALE_START_X, RIFLE_SEQUENCE, HERO_ULTIMATE, ENEMY_VERDICT, ENEMY_ATTACK_LEAPS, MELEE_STRIKES,
+  FINALE_START_X, RIFLE_SEQUENCE, HERO_ULTIMATE, ENEMY_VERDICT, ENEMY_ORBITAL_CUT, ENEMY_ATTACK_LEAPS, MELEE_STRIKES,
+  FINISHER_BEATS, cinematicProgress,
   isMeleeStrike, sampleMeleeBlade, finisherBeatDuration, finisherActionTime, MECH_DODGE, sampleDodgeArc,
   sampleEnemyAttackLeap,
   type CinematicPoint, type MeleeStrike,
 } from './finaleChoreography.js';
 
 export type MechMove = 'idle' | 'walk' | 'slash' | 'sideSlash' | 'cleave' | 'thrust' | 'reap' | 'verdict'
-  | 'missiles' | 'guard' | 'dash' | 'stagger' | 'overdrive' | 'defeat';
+  | 'orbitalCut' | 'missiles' | 'guard' | 'dash' | 'stagger' | 'overdrive' | 'defeat';
 export type DuelPhase = 'ground' | 'rupture' | 'space' | 'finisher' | 'lost' | 'won';
 export type MechSide = 'hero' | 'enemy';
 export type MechAction = 'slash' | 'missiles' | 'dash' | 'overdrive';
 export interface DuelInput { move: number; lift: number; guard: boolean; }
-export interface DuelDash { from: number; to: number; crossing: boolean; evading: boolean; }
+export interface DuelDash {
+  from: number; to: number; crossing: boolean; evading: boolean;
+  offset: { lane: number; lift: number; roll: number };
+}
 export interface Fighter {
   x: number; y: number; vx: number; vy: number; health: number; energy: number; shield: number;
   shieldCooldown: number; shieldLock: number;
@@ -34,14 +38,15 @@ export interface DuelEvent {
   trace: BladeDamageTrace | null;
 }
 export const DUEL = Object.freeze({
-  health: 1800, heroHealth: 1000, half: 900, range: 18, arena: 32, speed: 9,
+  health: 1800, heroHealth: 1000, half: 900, range: 18, arena: 38, speed: 9,
   separation: 7, slashDamage: 58, cleaveDamage: 96, missileDamage: 22,
   parryWindow: 0.24, parryCost: 12, shieldMax: 100, shieldDrain: 24, shieldRegen: 34,
   shieldRegenDelay: 0.8, shieldBreak: 2.2, shieldHitScale: 0.5, shieldRadius: 10.5, spaceShield: 55,
-  overdriveDamage: 245, verdictDamage: 64, specialSeconds: HERO_ULTIMATE.duration,
+  overdriveDamage: 245, verdictDamage: 64, orbitalCutDamage: 112, specialSeconds: HERO_ULTIMATE.duration,
   ultimateCooldown: HERO_ULTIMATE.cooldown, counterWindow: 0.55, step: 1 / 120, repair: 240,
   enemyReaction: 0.2, enemyDefenseCooldown: 2.6, enemyGuardDuration: 1.15, enemyRushCooldown: 2.5,
 });
+export const BOSS_IMMUNITY_SECONDS = 30;
 const clamp = (n: number, a: number, b: number) => Math.max(a, Math.min(b, n));
 const neutralInput = (): DuelInput => ({ move: 0, lift: 0, guard: false });
 const busy = (f: Fighter) => f.move !== 'idle' && f.move !== 'walk' && f.move !== 'guard';
@@ -119,13 +124,17 @@ export function sampleBladeDamageTrace(move: MeleeStrike, attacker: Fighter, tar
   return { from: [impact[0], impact[1] - 0.5, impact[2]], to: [impact[0], impact[1] + 0.5, impact[2]] };
 }
 
-export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground') {
+export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground', {
+  bossImmunityAvailable = false, bossImmunityUsed = false,
+}: { bossImmunityAvailable?: boolean; bossImmunityUsed?: boolean } = {}) {
   const hero = fighter(-FINALE_START_X, DUEL.heroHealth, 1, DUEL.shieldMax);
   const enemy = fighter(FINALE_START_X, start === 'ground' ? DUEL.health : start === 'space' ? DUEL.half : 0, -1, DUEL.shieldMax);
   let phase: DuelPhase = start, time = 0, sync = 0, combo = 0, comboClock = 0;
+  let bossImmunityRemaining = 0;
   let aiClock = 2.1, aiPattern = 0, missileId = 0, hitStop = 0, guardWasDown = false, parryArmed = false;
   let defenseClock = 0.12, defensePattern = 0, threatTime = 0, rushClock = 0.65;
   let enemyLeap: { fromX: number; fromY: number; toX: number; toY: number } | null = null;
+  let orbitalArc: { fromX: number; fromY: number; toX: number; toY: number } | null = null;
   let input = neutralInput(), bufferedSlash = 0, feedback = '';
   const missiles: DuelMissile[] = [], events: DuelEvent[] = [];
   const bladePaths: Partial<Record<MechSide, DuelBladePaths>> = {};
@@ -137,6 +146,7 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
     f.move = name; f.time = 0; f.duration = duration; f.hit = false; f.volley = 0; f.aimLocked = false;
     if (f === enemy) {
       enemyLeap = null;
+      orbitalArc = null;
       if (name === 'thrust' || name === 'verdict') {
         const leap = ENEMY_ATTACK_LEAPS[name];
         const distance = name === 'verdict' ? -leap.distance
@@ -161,12 +171,14 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
   }
   function special() {
     const f = hero.move === 'overdrive' || hero.move === 'missiles' ? hero
-      : enemy.move === 'verdict' ? enemy : null;
+      : enemy.move === 'verdict' || enemy.move === 'orbitalCut' ? enemy : null;
     if (!f) return null;
     const cameraEnd = f.move === 'missiles' ? RIFLE_SEQUENCE.cameraEnd
-      : f.move === 'verdict' ? ENEMY_VERDICT.cameraEnd : HERO_ULTIMATE.cameraEnd;
+      : f.move === 'verdict' ? ENEMY_VERDICT.cameraEnd
+        : f.move === 'orbitalCut' ? ENEMY_ORBITAL_CUT.cameraEnd : HERO_ULTIMATE.cameraEnd;
     const release = f.move === 'missiles' ? RIFLE_SEQUENCE.fire
-      : f.move === 'verdict' ? ENEMY_VERDICT.release : HERO_ULTIMATE.release;
+      : f.move === 'verdict' ? ENEMY_VERDICT.release
+        : f.move === 'orbitalCut' ? ENEMY_ORBITAL_CUT.release : HERO_ULTIMATE.release;
     return { owner: f === hero ? 'hero' as const : 'enemy' as const, kind: f.move, time: f.time,
       duration: f.duration, cinematic: f.time < cameraEnd, counterRemaining: Math.max(0, release - f.time) };
   }
@@ -180,11 +192,14 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
   }
   function startDash(f: Fighter, direction: number, evading: boolean, crossing = false) {
     const target = f === hero ? enemy : hero;
+    const offset = f.dash ? sampleDodgeArc(f.time, f.duration, f.dash.crossing, f.dash.offset) : { lane: 0, lift: 0, roll: 0 };
     const landing = target.x + direction * MECH_DODGE.clearance;
     crossing = crossing && Math.abs(landing) <= DUEL.arena;
-    const end = crossing ? landing : clamp(f.x + direction * MECH_DODGE.distance, -DUEL.arena, DUEL.arena);
+    const distance = !evading && f === enemy ? Math.min(MECH_DODGE.distance, Math.max(0, Math.abs(target.x - f.x) - 13))
+      : MECH_DODGE.distance;
+    const end = crossing ? landing : clamp(f.x + direction * distance, -DUEL.arena, DUEL.arena);
     move(f, 'dash', crossing ? MECH_DODGE.crossDuration : MECH_DODGE.duration);
-    f.dash = { from: f.x, to: end, crossing, evading };
+    f.dash = { from: f.x, to: end, crossing, evading, offset: { lane: offset.lane, lift: offset.lift, roll: offset.roll } };
     f.vx = (end - f.x) / f.duration;
     f.invulnerable = evading ? f.duration : 0;
     emit('dash', f, f === hero ? 'hero' : 'enemy', 0, 'dash');
@@ -202,6 +217,7 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
   }
   function hurt(target: Fighter, damage: number, owner: MechSide, blockable = true, attack?: MechMove, trace: BladeDamageTrace | null = null): 'hit' | 'guard' | 'parry' | 'evade' {
     if (!live()) return 'evade';
+    if (target === hero && bossImmunityRemaining > 0) return 'evade';
     const attacker = owner === 'hero' ? hero : enemy;
     const attackMove = attack ?? attacker.move;
     if (blockable && guarding(target)) {
@@ -252,6 +268,14 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
     if (special()?.cinematic && special()?.owner === 'enemy') {
       return false;
     }
+    if (action === 'dash' && !special()?.cinematic) {
+      const direction = input.move ? Math.sign(input.move) : -hero.facing;
+      const crossing = direction === Math.sign(enemy.x - hero.x) && Math.abs(enemy.x - hero.x) <= MECH_DODGE.crossRange
+        && Math.abs(enemy.y - hero.y) < 7;
+      bufferedSlash = 0;
+      startDash(hero, direction, true, crossing);
+      return true;
+    }
     if (busy(hero)) {
       if (action === 'slash' && isMeleeStrike(hero.move) && hero.time >= hero.duration * 0.5) {
         bufferedSlash = 0.75; return true;
@@ -263,13 +287,6 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
       const attack = combo === 2 ? 'cleave' : combo === 1 ? 'sideSlash' : 'slash';
       hero.combo = combo; move(hero, attack, MELEE_STRIKES[attack].duration);
       emit('swing', hero, 'hero', 0, hero.move);
-    } else if (action === 'dash') {
-      if (hero.energy < 22) { feedback = 'BOOST NEEDS 22 ENERGY'; return false; }
-      hero.energy -= 22;
-      const direction = input.move ? Math.sign(input.move) : -hero.facing;
-      const crossing = direction === Math.sign(enemy.x - hero.x) && Math.abs(enemy.x - hero.x) <= MECH_DODGE.crossRange
-        && Math.abs(enemy.y - hero.y) < 7;
-      startDash(hero, direction, true, crossing);
     } else if (action === 'missiles') {
       if (hero.energy < 38) { feedback = 'SALVO NEEDS 38 ENERGY'; return false; }
       hero.energy -= 38; move(hero, 'missiles', RIFLE_SEQUENCE.swordReady + 0.1);
@@ -286,8 +303,13 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
     const before = f.time;
     f.time += dt;
     const cameraEnd = f.move === 'missiles' ? RIFLE_SEQUENCE.cameraEnd
-      : f.move === 'overdrive' ? HERO_ULTIMATE.cameraEnd : f.move === 'verdict' ? ENEMY_VERDICT.cameraEnd : Infinity;
-    if (!f.aimLocked && f.time >= cameraEnd) { f.aimLocked = true; f.aimX = target.x; f.aimY = target.y + 8.6; }
+      : f.move === 'overdrive' ? HERO_ULTIMATE.cameraEnd : f.move === 'verdict' ? ENEMY_VERDICT.cameraEnd
+        : f.move === 'orbitalCut' ? ENEMY_ORBITAL_CUT.cameraEnd : Infinity;
+    if (!f.aimLocked && f.time >= cameraEnd) {
+      f.aimLocked = true; f.aimX = target.x; f.aimY = target.y + 8.6;
+      if (f === enemy && f.move === 'orbitalCut') orbitalArc = { fromX: f.x, fromY: f.y,
+        toX: clamp(target.x + f.facing * MECH_DODGE.clearance, -DUEL.arena, DUEL.arena), toY: target.y };
+    }
     if (f.move === 'missiles') {
       while (f.volley < 5 && f.time >= RIFLE_SEQUENCE.fire + f.volley * 0.14 && live()) launch(f, owner);
     }
@@ -297,7 +319,8 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
       launch(f, owner, f.move === 'overdrive' ? 'bladeWave' : 'verdictBeam');
     } else if (!f.hit && isMeleeStrike(f.move) && bladeContact(f.move, before, f.time, f, target, bladePaths[owner], guarding(target))) {
       f.hit = true;
-      const damage = f.move === 'cleave' || f.move === 'reap' ? DUEL.cleaveDamage : f.move === 'thrust' ? 72 : DUEL.slashDamage;
+      const damage = f.move === 'orbitalCut' ? DUEL.orbitalCutDamage
+        : f.move === 'cleave' || f.move === 'reap' ? DUEL.cleaveDamage : f.move === 'thrust' ? 72 : DUEL.slashDamage;
       hurt(target, damage, owner, true, f.move, sampleBladeDamageTrace(f.move, f, target, bladePaths[owner]));
     }
     if (f.time >= f.duration && f.move !== 'defeat') {
@@ -329,9 +352,7 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
       const shield = enemy.shield >= 28 && enemy.shieldLock <= 0 && (rifleTell || defensePattern++ % 2 === 1
         || Math.abs(enemy.x - direction * MECH_DODGE.distance) > DUEL.arena);
       if (shield) { move(enemy, 'guard', DUEL.enemyGuardDuration); enemy.guardTime = 0; }
-      else if (enemy.energy >= 22) {
-        enemy.energy -= 22; startDash(enemy, -direction, true);
-      }
+      else startDash(enemy, -direction, true);
       if (enemy.move === 'guard' || enemy.move === 'dash') {
         defenseClock = DUEL.enemyDefenseCooldown; threatTime = 0; aiClock = 0.35; return;
       }
@@ -343,18 +364,21 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
     const speed = closing ? direction * (distance > 20 ? 11.5 : 8.5) : distance < 9 ? -direction * 3 : 0;
     enemy.vx += clamp(speed - enemy.vx, -38 * dt, 38 * dt);
     enemy.move = Math.abs(speed) > 0 ? 'walk' : 'idle'; enemy.time += dt;
-    if (phase === 'space') enemy.vy += clamp((hero.y - enemy.y) * 2.4 - enemy.vy, -26 * dt, 26 * dt);
-    if (aiClock > 0) return;
-    const pattern = aiPattern++ % 5;
-    if (distance > 20 || Math.abs(hero.y - enemy.y) > 9) {
-      if (pattern !== 3) { aiPattern--; return; }
+    if (phase === 'space') {
+      const lift = clamp((hero.y - enemy.y) * 1.7, -8.5, 8.5);
+      enemy.vy += (lift - enemy.vy) * (1 - Math.exp(-dt * 5.5));
     }
-    const attack = pattern === 3 ? 'verdict' : pattern === 1 || pattern === 4 ? 'reap' : 'thrust';
+    if (aiClock > 0) return;
+    const pattern = aiPattern++ % (phase === 'space' ? 6 : 5);
+    if (distance > 20 || Math.abs(hero.y - enemy.y) > 9) {
+      if (pattern !== 3 && pattern !== 5) { aiPattern--; return; }
+    }
+    const attack = pattern === 5 ? 'orbitalCut' : pattern === 3 ? 'verdict' : pattern === 1 || pattern === 4 ? 'reap' : 'thrust';
     move(enemy, attack, attack === 'verdict' ? ENEMY_VERDICT.duration : MELEE_STRIKES[attack].duration);
     enemy.vx = 0;
     aiClock = enemy.duration + (phase === 'space' ? 0.32 : 0.48);
     emit('tell', enemy, 'enemy', 0, attack);
-    if (attack === 'verdict') emit('special', enemy, 'enemy', 0, attack);
+    if (attack === 'verdict' || attack === 'orbitalCut') emit('special', enemy, 'enemy', 0, attack);
   }
   function tickMissiles(dt: number) {
     for (let i = missiles.length - 1; i >= 0 && live(); i--) {
@@ -397,6 +421,7 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
   function step(dt: number) {
     if (!live()) return;
     time += dt;
+    bossImmunityRemaining = Math.max(0, bossImmunityRemaining - dt);
     const cinematic = special();
     hero.ultimateCooldown = Math.max(0, hero.ultimateCooldown - dt);
     if (cinematic?.cinematic) {
@@ -431,8 +456,8 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
         hero.vx += clamp(-hero.vx, -45 * dt, 45 * dt); hero.vy += clamp(-hero.vy, -35 * dt, 35 * dt);
       } else {
         hero.move = input.move || (phase === 'space' && input.lift) ? 'walk' : 'idle'; hero.time += dt;
-        hero.vx += clamp(input.move * DUEL.speed - hero.vx, -38 * dt, 38 * dt);
-        hero.vy += clamp((phase === 'space' ? input.lift * 8.5 : 0) - hero.vy, -30 * dt, 30 * dt);
+        hero.vx += (input.move * DUEL.speed - hero.vx) * (1 - Math.exp(-dt * 7));
+        hero.vy += ((phase === 'space' ? input.lift * 8.5 : 0) - hero.vy) * (1 - Math.exp(-dt * 7));
       }
     } else if (hero.move !== 'dash') {
       hero.vx *= Math.exp(-dt * 16); hero.vy *= Math.exp(-dt * 12);
@@ -444,15 +469,24 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
       enemy.vy *= Math.exp(-dt * 10);
     }
     const enemyLeaping = tickEnemyLeap(dt);
+    const orbitCrossing = enemy.move === 'orbitalCut' && orbitalArc !== null;
+    if (orbitCrossing && orbitalArc) {
+      const p = cinematicProgress(enemy.time + dt, ENEMY_ORBITAL_CUT.release - 0.18, ENEMY_ORBITAL_CUT.cross);
+      enemy.x = orbitalArc.fromX + (orbitalArc.toX - orbitalArc.fromX) * p;
+      enemy.y = orbitalArc.fromY + (orbitalArc.toY - orbitalArc.fromY) * p + Math.sin(p * Math.PI) * 3.2;
+      enemy.vx = enemy.vy = 0;
+      if (enemy.time + dt >= ENEMY_ORBITAL_CUT.cross) orbitalArc = null;
+    }
     for (const f of [hero, enemy]) {
-      if (f === enemy && enemyLeaping) continue;
+      if (f === enemy && (enemyLeaping || orbitCrossing)) continue;
       if (f.move === 'dash' && f.dash) {
         const progress = sampleDodgeArc(f.time + dt, f.duration, f.dash.crossing).progress;
         f.x = f.dash.from + (f.dash.to - f.dash.from) * progress;
       } else f.x += f.vx * dt;
     }
     hero.y = phase === 'space' ? clamp(hero.y + hero.vy * dt, -10, 15) : 0;
-    if (!enemyLeaping) {
+    if (hero.y === -10 || hero.y === 15) hero.vy = 0;
+    if (!enemyLeaping && !orbitCrossing) {
       if (phase === 'space') enemy.y = clamp(enemy.y + enemy.vy * dt, -10, 15);
       else {
         enemy.vy -= 48 * dt;
@@ -462,7 +496,8 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
     }
     hero.x = clamp(hero.x, -DUEL.arena, DUEL.arena);
     enemy.x = clamp(enemy.x, -DUEL.arena, DUEL.arena);
-    if (Math.abs(enemy.x - hero.x) < DUEL.separation && !hero.dash?.crossing && !enemy.dash?.crossing) {
+    if (Math.abs(enemy.x - hero.x) < DUEL.separation && Math.abs(enemy.y - hero.y) < 8
+      && !hero.dash?.crossing && !enemy.dash?.crossing && !orbitCrossing) {
       const center = clamp((hero.x + enemy.x) / 2, -DUEL.arena + DUEL.separation / 2, DUEL.arena - DUEL.separation / 2);
       const order = Math.sign(enemy.x - hero.x) || hero.facing;
       hero.x = center - order * DUEL.separation / 2; enemy.x = center + order * DUEL.separation / 2; hero.vx = enemy.vx = 0;
@@ -474,6 +509,11 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
   }
   return {
     hero, enemy, missiles, act,
+    activateBossImmunity() {
+      if (!live() || !bossImmunityAvailable || bossImmunityUsed) return false;
+      bossImmunityUsed = true; bossImmunityAvailable = false; bossImmunityRemaining = BOSS_IMMUNITY_SECONDS;
+      return true;
+    },
     setBladePaths(side: MechSide, paths: DuelBladePaths) {
       for (const move of Object.keys(MELEE_STRIKES) as MeleeStrike[]) {
         const frames = paths[move];
@@ -511,7 +551,7 @@ export function createMechDuel(start: 'ground' | 'space' | 'finisher' = 'ground'
       return true;
     },
     drainEvents() { return events.splice(0); },
-    getState: () => ({ phase, time, sync, hitStop, feedback, combo: hero.combo,
+    getState: () => ({ phase, time, sync, hitStop, feedback, combo: hero.combo, bossImmunityRemaining, bossImmunityUsed,
       shield: hero.shield, shieldLock: hero.shieldLock, shieldCooldown: hero.shieldCooldown, guarding: guarding(),
       enemyShield: enemy.shield, enemyShieldLock: enemy.shieldLock, enemyGuarding: guarding(enemy),
       ultimateCooldown: hero.ultimateCooldown, special: special(),
@@ -524,35 +564,25 @@ export interface FinisherBeat {
   lead: number; window: number; hold: number; presses: number; resolve: number;
   shot: 'evade' | 'missileCut' | 'countershot' | 'boost' | 'clash' | 'armCut' | 'ascend' | 'reactor' | 'finalCut';
 }
-export const FINISHER_BEATS: readonly FinisherBeat[] = Object.freeze([
-  { id: 'evade', key: 'KeyA', label: 'EVADE THE EXECUTION SHOT', mode: 'tap', lead: 0.65, window: 1.65, hold: 0, presses: 1, resolve: 1.3, shot: 'evade' },
-  { id: 'missile-cut', key: 'KeyJ', label: 'CUT THROUGH THE BARRAGE', mode: 'tap', lead: 0.5, window: 1.5, hold: 0, presses: 1, resolve: 1.45, shot: 'missileCut' },
-  { id: 'countershot', key: 'KeyF', label: 'DRAW / RETURN FIRE', mode: 'tap', lead: 0.55, window: 1.4, hold: 0, presses: 1, resolve: 2.35, shot: 'countershot' },
-  { id: 'boost', key: 'Space', label: 'CLOSE THE DISTANCE', mode: 'tap', lead: 0.5, window: 1.3, hold: 0, presses: 1, resolve: 1.5, shot: 'boost' },
-  { id: 'clash', key: 'KeyD', label: 'BREAK THE BLADE LOCK', mode: 'mash', lead: 0.65, window: 1.5, hold: 0, presses: 6, resolve: 1.65, shot: 'clash' },
-  { id: 'arm-cut', key: 'KeyJ', label: 'BREAK THEIR SWORD ARM', mode: 'tap', lead: 0.45, window: 1.5, hold: 0, presses: 1, resolve: 1.6, shot: 'armCut' },
-  { id: 'ascend', key: 'KeyW', label: 'RISE ABOVE THE COUNTER', mode: 'tap', lead: 0.5, window: 1.45, hold: 0, presses: 1, resolve: 1.6, shot: 'ascend' },
-  { id: 'reactor', key: 'KeyE', label: 'CHARGE THE SKYWARD BLADE', mode: 'hold', lead: 0.65, window: 1.6, hold: 1.15, presses: 1, resolve: 2.6, shot: 'reactor' },
-  { id: 'final-cut', key: 'KeyJ', label: 'LAST LIGHT / RELEASE', mode: 'tap', lead: 0.45, window: 1.65, hold: 0, presses: 1, resolve: 5.25, shot: 'finalCut' },
-]);
+export { FINISHER_BEATS } from './finaleChoreography.js';
 export interface QteEvent { kind: 'armed' | 'success' | 'miss' | 'beat' | 'lost' | 'won'; index: number; stars: number; }
 const QTE_KEYS = new Set(['KeyA', 'KeyD', 'KeyW', 'KeyS', 'KeyC', 'KeyJ', 'KeyF', 'KeyE', 'Space', 'ShiftLeft', 'ShiftRight']);
 
 export function createFinaleQte() {
   let index = 0, clock = 0, hold = 0, presses = 0, armed = false, judged = false;
-  let misses = 0, stars = 0, totalStars = 0, elapsed = 0;
+  let misses = 0, stars = 0, totalStars = 0, elapsed = 0, judgedAt = 0;
   let result: 'active' | 'won' | 'lost' = 'active', failure: 'timeout' | 'wrong-input' | null = null;
   const held = new Set<string>(), events: QteEvent[] = [];
   function lose(reason: NonNullable<typeof failure>) {
     result = 'lost'; failure = reason; held.clear(); events.push({ kind: 'lost', index, stars: 0 });
   }
   function miss(reason: NonNullable<typeof failure>) {
-    judged = true; stars = 0; misses++;
+    judged = true; judgedAt = clock; stars = 0; misses++;
     events.push({ kind: 'miss', index, stars: 0 });
     if (misses >= 3) lose(reason);
   }
   function success() {
-    judged = true;
+    judged = true; judgedAt = clock;
     const beat = FINISHER_BEATS[index];
     if (beat.mode === 'tap') {
       const error = Math.abs(clock - finisherActionTime(beat));
@@ -578,7 +608,8 @@ export function createFinaleQte() {
     if (!judged && clock + 1e-8 >= beat.lead + beat.window) miss('timeout');
     if (result !== 'active') return;
     if (clock + 1e-8 >= finisherBeatDuration(beat)) {
-      index++; clock = hold = presses = stars = 0; judged = armed = false; held.clear();
+      clock = Math.max(0, clock - finisherBeatDuration(beat));
+      index++; hold = presses = stars = judgedAt = 0; judged = armed = false; held.clear();
       if (index === FINISHER_BEATS.length) { result = 'won'; events.push({ kind: 'won', index: index - 1, stars: totalStars }); }
       else events.push({ kind: 'beat', index, stars: 0 });
     }
@@ -603,7 +634,7 @@ export function createFinaleQte() {
     drainEvents() { return events.splice(0); },
     getState() {
       const beat = FINISHER_BEATS[Math.min(index, FINISHER_BEATS.length - 1)];
-      return { index, clock, elapsed, hold, presses, armed, judged, result, failure, beat, misses, stars, totalStars,
+      return { index, clock, elapsed, hold, presses, armed, judged, judgedAt, result, failure, beat, misses, stars, totalStars,
         judgement: !judged ? 'pending' as const : stars > 0 ? 'success' as const : 'miss' as const,
         ringScale: clamp(1 + (finisherActionTime(beat) - clock) / beat.window * 1.6, 0.65, 2.6),
         inputProgress: judged && stars > 0 ? 1 : beat.mode === 'hold' ? clamp(hold / beat.hold, 0, 1)

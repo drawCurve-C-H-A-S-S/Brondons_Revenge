@@ -10,10 +10,11 @@ import {
 export interface FinaleCameraContext {
   phase: FinalePhase; phaseTime: number; time: number; space: boolean;
   hero: THREE.Object3D; enemy: THREE.Object3D; human: THREE.Vector3; students: readonly THREE.Object3D[];
+  boy: THREE.Vector3; pilotFace: THREE.Vector3; pilotCamera: THREE.Vector3;
   ship: THREE.Object3D; mothership: THREE.Object3D; bomb: THREE.Vector3; heroChest: THREE.Vector3; enemyChest: THREE.Vector3;
   heroMuzzle: THREE.Vector3; enemyMuzzle: THREE.Vector3; clash: THREE.Vector3;
   heroBladeBase: THREE.Vector3; heroBladeTip: THREE.Vector3; enemyBladeTip: THREE.Vector3;
-  special: { owner: MechSide; kind: 'missiles' | 'overdrive' | 'verdict'; time: number; duration: number } | null;
+  special: { owner: MechSide; kind: 'missiles' | 'overdrive' | 'verdict' | 'orbitalCut'; time: number; duration: number } | null;
   qte: { beat: FinisherBeat; clock: number };
 }
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
@@ -132,14 +133,21 @@ export function createFinaleCamera(camera: THREE.PerspectiveCamera, reducedMotio
         } else if (t < PLANET_RUPTURE.wide) {
           id += '-meteor';
           frame(context.bomb.clone().add(V(-48, -25, 70)), context.bomb.clone().lerp(PLANET_CENTER, 0.1), 62, 0.035);
-        } else if (t < PLANET_RUPTURE.returnToDuel) {
-          id += '-planet'; const p = smooth(t, PLANET_RUPTURE.wide, PLANET_RUPTURE.returnToDuel);
+        } else if (t < PLANET_RUPTURE.forest) {
+          id += '-planet'; const p = smooth(t, PLANET_RUPTURE.wide, PLANET_RUPTURE.forest);
           frame(PLANET_CENTER.clone().add(V(600 + p * 70, 480 + p * 45, 1000 + p * 25)),
             PLANET_CENTER.clone().add(V(0, 95, 0)), 46, -0.012);
+        } else if (t < PLANET_RUPTURE.forestEnd) {
+          id += '-brendan'; const push = cinematicProgress(t, PLANET_RUPTURE.forest, PLANET_RUPTURE.forestEnd);
+          frame(context.boy.clone().add(V(-3.8 + push * 1.7, 1.1 - push * 0.3, 5.5 - push * 1.8)),
+            context.boy.clone().add(V(0, -push * 0.25, 0)), 43 - push * 5, -0.012);
+        } else if (t < PLANET_RUPTURE.returnToDuel) {
+          id += '-cockpit'; const resolve = cinematicProgress(t, PLANET_RUPTURE.resolve, PLANET_RUPTURE.returnToDuel);
+          frame(context.pilotCamera, context.pilotFace, 43 - resolve * 3);
         } else {
-          id += '-orbit'; const p = smooth(t, PLANET_RUPTURE.returnToDuel, 19.2);
-          const start = PLANET_CENTER.clone().add(V(670, 525, 1025));
-          frame(start.lerp(combat.position, p), PLANET_CENTER.clone().add(V(0, 95, 0)).lerp(combat.center, p), 46 + p * 8);
+          id += '-orbit'; const p = cinematicProgress(t, PLANET_RUPTURE.returnToDuel, PLANET_RUPTURE.orbit + 0.4);
+          const start = hero.position.clone().add(V(8, 15, 25));
+          frame(start.lerp(combat.position, p), context.heroChest.clone().lerp(combat.center, p), 43 + p * 11);
         }
       } else if (phase === 'finisher') {
         const { beat, clock } = context.qte;
@@ -274,7 +282,11 @@ export function createFinaleCamera(camera: THREE.PerspectiveCamera, reducedMotio
               id += '-sight'; frame(muzzle.clone().add(V(-facing * 6, 2, 10)), muzzle.clone().lerp(opponent, 0.18), 53);
             }
           }
-          else if (special.kind === 'verdict') {
+          else if (special.kind === 'orbitalCut') {
+            id += '-eclipse-rend'; const orbit = cinematicProgress(special.time, 0, 1.25);
+            frame(enemy.position.clone().add(V(-19 + orbit * 5, 12 + orbit * 3, 25 - orbit * 4)),
+              context.enemyChest.clone().lerp(context.enemyBladeTip, 0.3 + orbit * 0.12), 51 - orbit * 4, -0.03);
+          } else if (special.kind === 'verdict') {
             if (special.time < ENEMY_ATTACK_LEAPS.verdict.land) {
               id += '-retreat';
               frame(enemy.position.clone().add(V(-22, 9, 34)), enemy.position.clone().add(V(0, 8, 0)), 57, -0.015);
@@ -292,10 +304,13 @@ export function createFinaleCamera(camera: THREE.PerspectiveCamera, reducedMotio
       if (id !== shotId) {
         lastPosition.copy(camera.position); lastRotation.copy(camera.quaternion);
         lastFov = camera.fov;
-        const editorialCut = phase === 'finisher' || (context.special !== null && shotId.startsWith(phase));
+        const editorialCut = phase === 'finisher' && shotId.startsWith('finisher')
+          && (id.endsWith('-behind') || id.endsWith('-empty-blade'));
         shotId = id; transition = reducedMotion || editorialCut ? 1 : 0;
       }
-      transition = Math.min(1, transition + dt / (phase === 'ground' || phase === 'space' ? 0.22 : 0.32));
+      const transitionSeconds = phase === 'defeat' || (phase === 'rupture' && t >= PLANET_RUPTURE.forest) ? 0.65
+        : phase === 'finisher' ? 0.38 : phase === 'ground' || phase === 'space' ? 0.28 : 0.32;
+      transition = Math.min(1, transition + dt / transitionSeconds);
       if (transition < 1) {
         const blend = smooth(transition, 0, 1);
         position.lerpVectors(lastPosition, position.clone(), blend); rotation.slerpQuaternions(lastRotation, rotation.clone(), blend);

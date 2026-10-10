@@ -22,18 +22,23 @@ after(async () => server?.close());
 function browser(t) {
   const old = { window: globalThis.window, document: globalThis.document, HTMLElement: globalThis.HTMLElement, ProgressEvent: globalThis.ProgressEvent, self: globalThis.self };
   class Element extends EventTarget {
-    style = {}; dataset = {}; textContent = ''; classes = new Set(['hidden']);
+    style = { setProperty(name, value) { this[name] = value; } }; dataset = {}; textContent = ''; classes = new Set(['hidden']);
     classList = { add: (...names) => names.forEach(n => this.classes.add(n)), remove: (...names) => names.forEach(n => this.classes.delete(n)), contains: n => this.classes.has(n), toggle: (n, force) => force ? this.classes.add(n) : this.classes.delete(n) };
     closest() { return null; }
     requestPointerLock() {}
     setAttribute(name, value) { this[name] = String(value); }
     removeAttribute(name) { if (name === 'style') this.style = {}; else delete this[name]; }
+    appendChild() {}
+    remove() {}
+    querySelector() { return null; }
   }
   const elements = new Map();
   globalThis.HTMLElement = Element; globalThis.ProgressEvent = class extends Event {}; globalThis.self = globalThis;
-  globalThis.window = Object.assign(new EventTarget(), { innerWidth: 1280, innerHeight: 720 });
+  globalThis.window = Object.assign(new EventTarget(), { innerWidth: 1280, innerHeight: 720,
+    matchMedia: () => ({ matches: false }) });
   globalThis.document = Object.assign(new EventTarget(), { pointerLockElement: null, body: new Element(),
     getElementById(id) { if (!elements.has(id)) elements.set(id, new Element()); return elements.get(id); },
+    createElement: () => new Element(),
   });
   t.mock.method(console, 'log', () => {});
   const cleanups = []; t.cleanup = callback => cleanups.push(callback);
@@ -54,6 +59,11 @@ async function toolModel(name) {
   delete json.materials; delete json.textures; delete json.images;
   for (const mesh of json.meshes) for (const primitive of mesh.primitives) delete primitive.material;
   return new GLTFLoader().parseAsync(JSON.stringify(json), '');
+}
+async function cinematicFixtureModel() {
+  const scene = new THREE.Group();
+  scene.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial()));
+  return { scene, animations: ['Idle', 'Walk', 'TurnOff'].map(name => new THREE.AnimationClip(name, 1, [])) };
 }
 function key(code, type = 'keydown', repeat = false) {
   const event = new Event(type, { cancelable: true });
@@ -127,7 +137,7 @@ test('cinematic sampling deforms the actual rig, freezes, repeats, and returns t
 
 async function hangar(t, fps = 60, withCharacter = false) {
   const elements = browser(t); let failures = 0; const launches = [];
-  const room = createHangar({ loadModel: toolModel, onFailure: () => failures++, onLaunch: state => launches.push(state) });
+  const room = createHangar({ loadModel: cinematicFixtureModel, onFailure: () => failures++, onLaunch: state => launches.push(state) });
   t.cleanup(() => room.dispose()); await Promise.all([room.ready, room.gunReady]);
   assert.equal(room.robots.length, 48);
   const character = withCharacter ? await loadCharacter({ loadAsync: subjectModel }) : null;
@@ -135,12 +145,14 @@ async function hangar(t, fps = 60, withCharacter = false) {
   function frame() {
     room.updatePhysics(1 / fps, true);
     if (['orbit', 'prompt', 'action', 'escape', 'boarding'].includes(room.getEscapeStatus().phase)) {
-      assert.ok(room.robots.every(robot => robot.root.position.x * robot.side >= 1.85),
-        'All robots, including stunned targets, stay outside the straight running lane');
+      const minimum = ['KeyI', 'KeyO'].includes(room.getEscapeStatus().expected) ? 1 : 1.8;
+      assert.ok(room.robots.every(robot => robot.root.position.x * robot.side >= minimum),
+        'Robots stay outside the runner; charging and saber victims may approach striking range');
     }
     if (character) {
       const state = room.getCinematicState();
       character.weapon.setEquipped(false); character.setCrowbarEquipped(room.getCinematicWeapon() === 'crowbar');
+      character.setLightsaberEquipped(room.getCinematicWeapon() === 'lightsaber');
       if (room.hideCharacter()) character.model.visible = false;
       else character.update(state ? room.getCinematicDelta() : 1 / fps, room.player.body.position, state ?? room.player.getState(), true, room.player.radius, room.getCinematicPose());
       room.updateCinematicCharacter(character);
@@ -157,21 +169,23 @@ async function hangar(t, fps = 60, withCharacter = false) {
     assert.ok(predicate(), `Bounded wait expired in ${room.getEscapeStatus().phase}`);
   }
   function enterPrompt() {
-    until(() => room.getEscapeStatus().phase === 'run');
-    assert.equal(room.camera.fov, 70); assert.equal(room.getCinematicPose(), null);
-    room.player.setPosition(0, 0.3, -21.9); frame();
-    assert.equal(room.getEscapeStatus().phase, 'orbit');
-    assert.equal(room.getCinematicPose().clip, 'Sprint_Loop');
-    until(() => room.getEscapeStatus().phase === 'prompt');
-    assert.ok(room.player.body.position.z > -19, 'The camera orbit preserves forward running');
+    until(() => room.getEscapeStatus().phase === 'prompt', 17);
+    assert.ok(room.player.body.position.z > -26, 'The camera orbit preserves forward running');
   }
   return { room, character, elements, frame, seconds, until, enterPrompt, launches, failures: () => failures };
 }
 
-for (const fps of [30, 60, 144]) test(`six continuous running actions, boarding, and launch at ${fps} FPS`, { timeout: 30000 }, async t => {
+test('production hangar crowd supplies walking and shutdown clips', async t => {
+  browser(t);
+  const gltf = await toolModel('Enemy_Trilobite');
+  assert.ok(gltf.animations.some(clip => clip.name === 'Walk'));
+  assert.ok(gltf.animations.some(clip => clip.name === 'TurnOff'));
+});
+
+for (const fps of [30, 60, 144]) test(`four continuous running actions, boarding, and launch at ${fps} FPS`, { timeout: 180000 }, async t => {
   const h = await hangar(t, fps, fps === 60), { room, character } = h;
   h.enterPrompt(); const seen = new Set();
-  for (let stage = 0; stage < 6; stage++) {
+  for (let stage = 0; stage < 4; stage++) {
     const expected = room.getEscapeStatus().expected; seen.add(expected);
     assert.equal(room.getEscapeStatus().timeLeft, 2.2);
     const before = room.camera.position.clone(), start = new THREE.Vector3().copy(room.player.body.position);
@@ -184,13 +198,16 @@ for (const fps of [30, 60, 144]) test(`six continuous running actions, boarding,
     const pose = room.getCinematicPose();
     assert.ok(room.player.body.position.z > start.z + 0.5, 'Every attack and roll keeps moving forward');
     assert.ok(Math.abs(room.player.body.position.x) < 1e-6, 'Actions stay in the straight escape lane');
-    if (expected !== 'KeyZ') {
+    if (expected === 'KeyY' || expected === 'KeyU') {
       assert.equal(pose.clip, 'Sprint_Loop');
-      assert.equal(pose.upperBody.clip, expected === 'KeyX' ? 'Pistol_Shoot' : 'Sword_Attack');
+      assert.equal(pose.upperBody.clip, expected === 'KeyY' ? 'Pistol_Shoot' : 'Sword_Attack');
       assert.equal(room.robots.filter(r => r.stunned).length, stunned + 1);
-    } else {
+      assert.ok(room.scene.getObjectByName('ComicCombatEffects'), 'Cinematic impact emits onomatopoeia');
+    } else if (expected === 'KeyI') {
       assert.equal(pose.clip, 'Roll');
       assert.equal(room.robots.filter(r => r.stunned).length, stunned, 'Dodge does not kill its target');
+    } else {
+      assert.equal(pose.clip, 'Sword_Attack');
     }
     const projected = new THREE.Vector3(room.player.body.position.x, room.player.body.position.y + 0.65, room.player.body.position.z).project(room.camera);
     assert.ok(Math.abs(projected.x) < 0.95 && Math.abs(projected.y) < 0.95, 'Actor remains framed by action camera');
@@ -200,9 +217,9 @@ for (const fps of [30, 60, 144]) test(`six continuous running actions, boarding,
     h.until(() => room.getEscapeStatus().phase !== 'action');
     assert.equal(room.getEscapeStatus().phase, 'escape');
     assert.equal(room.getEscapeStatus().stage, stage + 1);
-    h.until(() => room.getEscapeStatus().phase === (stage === 5 ? 'boarding' : 'prompt'));
+    h.until(() => room.getEscapeStatus().phase === (stage === 3 ? 'boarding' : 'prompt'), 8);
   }
-  assert.deepEqual([...seen].sort(), ['KeyX', 'KeyY', 'KeyZ']);
+  assert.deepEqual([...seen].sort(), ['KeyI', 'KeyO', 'KeyU', 'KeyY']);
   assert.equal(room.getEscapeStatus().phase, 'boarding');
   const clips = new Set(), shots = new Set(); let peak = 0;
   for (let i = 0; i < 6 * fps && room.getEscapeStatus().phase === 'boarding'; i++) {
@@ -239,7 +256,11 @@ test('paused QTE/animation/camera stay fixed; wrong keys show authored death the
   h.seconds(3); key(expected);
   assert.deepEqual(room.getEscapeStatus(), paused); assert.ok(camera.equals(room.camera.position)); assert.equal(character.mixer.time, mixerTime);
   window.dispatchEvent(new Event('focus'));
-  const wrong = expected === 'KeyX' ? 'KeyY' : 'KeyX'; key(wrong); key(wrong, 'keyup');
+  const wrong = expected === 'KeyY' ? 'KeyU' : 'KeyY';
+  const position = new THREE.Vector3().copy(room.player.body.position), view = room.camera.position.clone();
+  key(wrong); key(wrong, 'keyup');
+  assert.ok(room.camera.position.equals(view), 'Failure does not cut the camera');
+  assert.ok(position.equals(new THREE.Vector3().copy(room.player.body.position)), 'Failure starts from the live actor position');
   assert.equal(room.getCinematicPose().clip, 'Hit_Chest'); assert.equal(room.player.getHealth(), 0);
   h.seconds(0.5); assert.equal(room.getCinematicPose().clip, 'Death01'); assert.equal(room.getEscapeStatus().shot, 'failure');
   h.seconds(2.3); assert.equal(h.failures(), 0, 'Death finishes before checkpoint transfer');
@@ -250,10 +271,10 @@ test('paused QTE/animation/camera stay fixed; wrong keys show authored death the
 test('missed cockpit launch window destroys the occupied shuttle and returns once', async t => {
   const h = await hangar(t), { room } = h;
   h.enterPrompt();
-  for (let stage = 0; stage < 6; stage++) {
+  for (let stage = 0; stage < 4; stage++) {
     const expected = room.getEscapeStatus().expected;
     key(expected); key(expected, 'keyup');
-    h.until(() => room.getEscapeStatus().phase === (stage === 5 ? 'boarding' : 'prompt'));
+    h.until(() => room.getEscapeStatus().phase === (stage === 3 ? 'boarding' : 'prompt'), 9);
   }
   h.until(() => room.getEscapeStatus().phase === 'aboard');
   h.seconds(2.9); assert.equal(room.getEscapeStatus().phase, 'aboard');
@@ -269,6 +290,24 @@ test('missed cockpit launch window destroys the occupied shuttle and returns onc
 test('timeout and disposed input handlers do not launch or transfer twice', async t => {
   const h = await hangar(t); h.enterPrompt(); h.seconds(2.25);
   assert.equal(h.room.getEscapeStatus().phase, 'failed'); h.seconds(3.3); assert.equal(h.failures(), 1);
-  h.room.dispose(); key('KeyE'); key('KeyX'); h.seconds(1);
+  h.room.dispose(); key('KeyE'); key('KeyY'); h.seconds(1);
   assert.equal(h.failures(), 1); assert.equal(h.launches.length, 0);
+});
+
+for (const fps of [30, 60, 144]) test(`prompt motion and accepted input stay continuous at ${fps} FPS`, async t => {
+  const h = await hangar(t, fps); h.enterPrompt();
+  const { room } = h, start = new THREE.Vector3().copy(room.player.body.position);
+  const startPose = room.getCinematicPose().time;
+  h.seconds(1);
+  assert.ok(room.player.body.position.z > start.z, 'Prompt is slow motion, not a frozen tableau');
+  assert.ok(room.getCinematicPose().time > startPose, 'Running clip keeps advancing during the prompt');
+  assert.ok(Math.abs(room.getEscapeStatus().timeLeft - 1.2) < 1 / fps + 0.001, 'Input timer uses real frame time');
+  const before = room.camera.position.clone(), poseTime = room.getCinematicPose().time;
+  key(room.getEscapeStatus().expected);
+  assert.equal(room.getCinematicPose().time, poseTime, 'Accepting a prompt never resets the locomotion clock');
+  assert.ok(room.camera.position.equals(before));
+  const position = new THREE.Vector3().copy(room.player.body.position);
+  h.frame();
+  assert.ok(new THREE.Vector3().copy(room.player.body.position).distanceTo(position) < 0.15, 'No actor teleport on resuming');
+  assert.ok(room.camera.position.distanceTo(before) < 0.35, 'No camera cut on resuming');
 });

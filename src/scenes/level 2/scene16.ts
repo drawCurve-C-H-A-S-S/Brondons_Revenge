@@ -86,15 +86,15 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
   const site = createRescueSite(physics); site.scene.visible = false; scene.add(site.scene);
   site.boy.visible = false; site.ship.setFlying(true, true);
   const groundPoint = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z).add(RESCUE_SITE.landingOffset);
-  const groundPodStart = groundPoint(-55, 100, -105);
+  const groundPodStart = groundPoint(8, 100, -105);
   const groundPodImpact = RESCUE_SITE.pod.clone().add(new THREE.Vector3(0, 0, -4));
-  const groundPodPath = new THREE.CubicBezierCurve3(groundPodStart, groundPoint(-30, 68, -55), groundPoint(0, 22, -3), groundPodImpact);
+  const groundPodPath = new THREE.CubicBezierCurve3(groundPodStart, groundPoint(16, 68, -55), groundPoint(0, 22, -3), groundPodImpact);
   const groundShipHover = RESCUE_SITE.ship.clone().add(new THREE.Vector3(0, 4, 0));
-  const groundShipPath = new THREE.CubicBezierCurve3(groundPoint(-64, 115, -127), groundPoint(-40, 44, -20), RESCUE_SITE.ship.clone().add(new THREE.Vector3(0, 12, 10)), groundShipHover);
+  const groundShipPath = new THREE.CubicBezierCurve3(groundPoint(8, 115, -127), groundPoint(24, 44, -20), RESCUE_SITE.ship.clone().add(new THREE.Vector3(0, 12, 10)), groundShipHover);
   const revealPath = new THREE.CatmullRomCurve3([
-    groundPoint(1, 2.3, 17), new THREE.Vector3(-59, 6, 67), new THREE.Vector3(-57, 7, 49),
-    new THREE.Vector3(-46, 7, 34), new THREE.Vector3(-42, 7, 17), new THREE.Vector3(-29, 7, -10),
-    new THREE.Vector3(-24, 7, -30), new THREE.Vector3(-7, 8, -41), new THREE.Vector3(0, 12, -43), new THREE.Vector3(0, 30, -44),
+    groundPoint(1, 2.3, 17), new THREE.Vector3(-59, 8, 63), new THREE.Vector3(-60, 11, 38),
+    new THREE.Vector3(-70, 15, 23), new THREE.Vector3(-58, 12, 17), new THREE.Vector3(-34, 13, -8),
+    new THREE.Vector3(-18, 17, -31), new THREE.Vector3(0, 20, -43),
   ]);
   const crashBits = new THREE.InstancedMesh(new THREE.BoxGeometry(0.18, 0.12, 0.35), new THREE.MeshStandardMaterial({ color: 0x898779, roughness: 0.8 }), 24);
   crashBits.frustumCulled = false; site.scene.add(crashBits); const bitDummy = new THREE.Object3D();
@@ -134,9 +134,9 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
       camera.position.copy(groundPoint(1, 2.3, 17)); camera.lookAt(site.boy.position.clone().add(new THREE.Vector3(0, 1.1, 0))); camera.fov = 56;
     } else {
       const rush = THREE.MathUtils.smootherstep(t, 23, 27), pan = THREE.MathUtils.smootherstep(t, 27, 30), handoff = THREE.MathUtils.smootherstep(t, 30, 34);
-      camera.position.copy(revealPath.getPointAt(rush)).lerp(new THREE.Vector3(-55, 32, -24), pan);
+      camera.position.copy(revealPath.getPointAt(rush)).lerp(new THREE.Vector3(-20, 25, -30), pan);
       const target = revealPath.getPointAt(Math.min(1, rush + 0.08));
-      target.lerp(new THREE.Vector3(0, 17, -65), THREE.MathUtils.smoothstep(t, 26, 28));
+      target.lerp(new THREE.Vector3(0, 12, RESCUE_SITE.doorZ), THREE.MathUtils.smoothstep(t, 26, 28));
       const shoulder = RESCUE_SITE.player.clone().add(new THREE.Vector3(Math.sin(JUNGLE_ENTRY_YAW) * 4, 2.5, Math.cos(JUNGLE_ENTRY_YAW) * 4));
       camera.position.lerp(shoulder, handoff);
       const pathLook = RESCUE_SITE.player.clone().add(new THREE.Vector3(-Math.sin(JUNGLE_ENTRY_YAW) * 15, 1.3, -Math.cos(JUNGLE_ENTRY_YAW) * 15));
@@ -212,7 +212,7 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
     if (caption) caption.textContent = t < 2.05 ? 'STAY WITH THE POD — BRAKING FOR LANDING' : t < 7 ? 'POD IMPACT / SURVIVOR SIGNAL DETECTED'
       : t < 11 ? 'SHUTTLE LANDED / OUTER FOREST' : t < 17 ? 'THE HATCH IS OPENING'
       : t < 23 ? '"Thank you for saving me. I thought I was never getting out of there."'
-      : t < 30 ? '"The AI is experimenting in a facility somewhere in this forest. We have to find it and save our friends. Follow the old stone path."'
+      : t < 30 ? '"The facility is straight ahead. The mountain seals the west side. Follow the stone path and cross the bridge; that waterfall may hide something."'
       : 'FOLLOW THE STONE PATH THROUGH THE JUNGLE';
     groundCamera();
   }
@@ -293,7 +293,7 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
   }
   updateVisuals(0);
   return {
-    roomId: 'scene16', scene, camera, physicsWorld, player, planet, pod, shuttle, cutsceneManager: null,
+    roomId: 'scene16', scene, camera, physicsWorld, player, planet, pod, shuttle, ready: site.ready, cutsceneManager: null,
     getMusicTrack: (): 'level-2' | 'level-2-boss' => entryState ? 'level-2-boss' : 'level-2',
     isCinematic: () => true, hideCharacter: () => (clock - 11) * 1.3 < 11,
     isThirdPersonView: () => true,

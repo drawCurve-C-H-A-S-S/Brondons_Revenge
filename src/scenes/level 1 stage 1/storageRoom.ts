@@ -9,9 +9,15 @@ import type { ShipMapBlock } from '../../helpers/scene/shipLayout.js';
 import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
 import { getAudioSettings } from '../../helpers/audio/AudioManager.js';
 import { createStealthHangar, HANGAR_LAYOUT } from './stealthHangar.js';
-import { createStealthDirector, type StealthActor } from './stealthDirector.js';
+import { createStealthDirector, isBehindDrone, type StealthActor } from './stealthDirector.js';
+import beamVertex from '../../shaders/stealthBeam.vert.glsl?raw';
+import beamFragment from '../../shaders/stealthBeam.frag.glsl?raw';
+import { emitComicEffect } from '../../helpers/scene/comicEffects.js';
 import { createHoldToSkip } from '../../helpers/animation/holdToSkip.js';
 import { HOLOGRAM_TRANSFER_DURATION, hologramTransitionAt } from '../../scripts/characterManager.js';
+import { applyTraversalCamera } from '../../core/camera.js';
+import { LADDER } from '../../utils/constants.js';
+import { isControllerActive, isControllerEvent, inputHint } from '../../scripts/gamepadInput.js';
 
 export const STORAGE_CLOSET = { width: 3.6, depth: 3.3, height: 3.05, doorWidth: 1.5, doorHeight: 2.55 };
 export const ALARM_SEQUENCE = { pullback: 2.4, approaches: 5.8, surround: 8.4, volley: 9.2, collapse: 10.1, retry: 12.2 };
@@ -33,14 +39,22 @@ export const DECK_ONE_MAP: ShipMapLayout = {
     { id: 31, name: 'Deck One cargo hangar', deck: 'main',
       width: HANGAR_LAYOUT.bounds.maxX - HANGAR_LAYOUT.bounds.minX, depth: HANGAR_LAYOUT.bounds.maxZ - HANGAR_LAYOUT.bounds.minZ,
       position: new THREE.Vector3(50, 0, 0), yaw: 0, portalWidth: 3.2,
-      description: 'Patrolled cargo aisles / Container ladders / Stage Two airlock',
+      description: 'Locked airlock target / Container cover / Ceiling vent at the far end, opposite the door',
       portals: { passage: { x: -36, z: -2.5, yaw: Math.PI / 2 }, airlock: { x: 36, z: 20, yaw: -Math.PI / 2 } },
       mapContents: HANGAR_LAYOUT.containers.map((cargo): ShipMapBlock => ({
         size: [cargo.width, cargo.height * (cargo.stacked ? 2 : 1), cargo.depth],
         position: [cargo.x - 50, cargo.height * (cargo.stacked ? 2 : 1) / 2, cargo.z],
       })) },
+    { id: 32, name: 'Hangar vent landing', deck: 'upper', width: 2.2, depth: 1.8,
+      position: new THREE.Vector3(HANGAR_LAYOUT.ventAccess.x, 18, HANGAR_LAYOUT.ventAccess.z), yaw: 0,
+      portals: { vent: { x: 0, z: 0, yaw: 0 } }, description: 'Hangar ladder / Direct access to the vent maze' },
   ],
-  connections: [[29, 30], [29, 31]], playerPoint: (_id, position) => new THREE.Vector3(position.x, 2.2, position.z),
+  connections: [[29, 30], [29, 31], [31, 32]],
+  playerPoint: (id, position) => new THREE.Vector3(position.x, id === 32 ? 20.2 : 2.2, position.z),
+  verticalLinks: [{ id: 31, position: new THREE.Vector3(HANGAR_LAYOUT.ventAccess.x, 0, HANGAR_LAYOUT.ventAccess.z),
+    upper: 18, label: 'Hangar vent ladder' }],
+  goals: [{ id: 'locked-airlock', room: 31, position: new THREE.Vector3(HANGAR_LAYOUT.exit.x, 1.5, HANGAR_LAYOUT.exit.z),
+    label: 'AIRLOCK' }],
 };
 
 export async function preloadAssets() {
@@ -48,10 +62,12 @@ export async function preloadAssets() {
 }
 
 export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint = false, openingEntry = false, fromQuarters = false,
-  entryState, onReturnToQuarters, deferActivation = false, modelLoader = loadToolModel }: {
+  entryState, onReturnToQuarters, deferActivation = false, modelLoader = loadToolModel,
+  fromCameraRoom = false, airlockUnlocked = false, onAirlockEnter }: {
   onComplete?: (presentation?: Promise<void>) => Promise<boolean>; hintsEnabled?: boolean; restoreCheckpoint?: boolean; openingEntry?: boolean; fromQuarters?: boolean;
   entryState?: PlayerTransitionState; onReturnToQuarters?: (state: PlayerTransitionState) => Promise<boolean>;
   deferActivation?: boolean; modelLoader?: typeof loadToolModel;
+  fromCameraRoom?: boolean; airlockUnlocked?: boolean; onAirlockEnter?: (state: PlayerTransitionState) => Promise<boolean>;
 } = {}) {
   const scene = new THREE.Scene();
   let active = !deferActivation;
@@ -163,6 +179,36 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   drone.add(lens);
   const droneFacing = new THREE.Vector3(-1, 0, 0);
   const droneTarget = new THREE.Vector3();
+  let droneDown = false, droneDownTime = 0, droneCaptionTime = 0, corridorRearShot = false;
+  const droneBody = new CANNON.Body({ mass: 0, type: CANNON.Body.KINEMATIC,
+    shape: new CANNON.Sphere(0.4), collisionFilterGroup: 2, collisionFilterMask: 1 });
+  droneBody.position.set(0, deckY + 2.02, -2.5); physics.world.addBody(droneBody);
+  const droneLight = new THREE.SpotLight(0xc5e7fa, 25, 12, Math.PI / 7, 0.65, 1.3);
+  droneLight.name = 'HallwayDroneSearchlight'; droneLight.castShadow = true; droneLight.shadow.mapSize.set(256, 256);
+  scene.add(droneLight, droneLight.target);
+  const droneBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 1, 1, 24, 1, true),
+    new THREE.ShaderMaterial({ vertexShader: beamVertex, fragmentShader: beamFragment,
+      uniforms: { uColor: { value: new THREE.Color(0xc5e7fa) }, uTime: { value: 0 }, uAlert: { value: 0 } },
+      transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+  droneBeam.name = 'HallwayDroneLightCone'; droneBeam.userData.minimap = false; scene.add(droneBeam);
+  const beamFrom = new THREE.Vector3(), beamTo = new THREE.Vector3(), beamUp = new THREE.Vector3(0, 1, 0);
+  function updateHallwayLight() {
+    droneLight.visible = droneBeam.visible = !droneDown;
+    if (droneDown) return;
+    beamFrom.copy(drone.position).addScaledVector(droneFacing, 0.45);
+    beamTo.copy(drone.position).addScaledVector(droneFacing, 5.5); beamTo.y = deckY + 0.04;
+    let nearest = beamFrom.distanceTo(beamTo);
+    physics.world.raycastAll(new CANNON.Vec3(beamFrom.x, beamFrom.y, beamFrom.z), new CANNON.Vec3(beamTo.x, beamTo.y, beamTo.z),
+      { skipBackfaces: false, checkCollisionResponse: true }, hit => {
+        if (hit.body?.type !== CANNON.Body.STATIC || hit.distance >= nearest) return;
+        nearest = hit.distance; beamTo.set(hit.hitPointWorld.x, hit.hitPointWorld.y, hit.hitPointWorld.z);
+      });
+    droneLight.position.copy(beamFrom); droneLight.target.position.copy(beamTo);
+    const direction = beamFrom.clone().sub(beamTo), length = direction.length();
+    droneBeam.position.copy(beamFrom).add(beamTo).multiplyScalar(0.5);
+    droneBeam.quaternion.setFromUnitVectors(beamUp, direction.normalize()); droneBeam.scale.set(length * 0.24, length, length * 0.24);
+    droneBeam.material.uniforms.uTime.value = elapsed; droneBeam.material.uniforms.uAlert.value = suspicion;
+  }
   let disposed = false;
   const corridorReady = modelLoader('Enemy_EyeDrone').then(gltf => {
     if (disposed) { disposeRoom(gltf.scene); return; }
@@ -238,7 +284,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   let checkpoint = restoreCheckpoint, introSeen = restoreCheckpoint, entranceRequested = false, complete = false;
   let secondHalfReached = false;
   let quartersRequested = false, passageCaptionTime = fromQuarters ? 8 : 0;
-  type Destination = 'quarters' | 'stage-two';
+  type Destination = 'quarters' | 'stage-two' | 'camera-room';
   let doorwayTransfer: { destination: Destination; error: boolean } | null = null;
   let blockedTransfer: Destination | null = null;
   let alarmAge = 0, hintTime = 0, hintCooldown = 3.5, noticeTime = 0, menuPaused = false;
@@ -249,15 +295,12 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   let arrivalTime = openingEntry && !restoreCheckpoint && !fromQuarters ? 0 : HOLOGRAM_TRANSFER_DURATION;
   let corridorEngaged = !fromQuarters, corridorPatrolTime = 0;
   const usedHints = new Set<string>(), panelCooldowns = new Map<string, number>();
-  type Cinematic = { kind: 'reveal' | 'alarm' | 'capture' | 'takedown' | 'escape';
+  type Cinematic = { kind: 'reveal' | 'alarm' | 'capture' | 'takedown';
     time: number; actor?: StealthActor; start: THREE.Vector3; startYaw: number; cameraStart: THREE.Vector3;
     facing?: THREE.Vector3; approachActors?: StealthActor[]; entryWalk?: { start: THREE.Vector3; time: number } };
   let cinematic: Cinematic | null = null;
-  // Airlock walkthrough: Brondon walks in while Stage Two prepares behind the fade.
-  let escape: { from: THREE.Vector3; via: THREE.Vector3; to: THREE.Vector3; cameraPosition: THREE.Vector3;
-    cameraRotation: THREE.Quaternion; fov: number; yaw: number; present: () => void; shown: boolean } | null = null;
-  const escapePoint = new THREE.Vector3(), escapeHeading = new THREE.Vector3();
   let climbing: { ladder: typeof hangar.ladders[number]; down: boolean; time: number; start: THREE.Vector3; duration: number } | null = null;
+  let fastClimb = false, airlockCaptionTime = 0;
   let audioContext: AudioContext | null = null;
   const peekStartPosition = new THREE.Vector3();
   const peekStartRotation = new THREE.Quaternion();
@@ -275,10 +318,15 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     const state = player.getState();
     return { position: player.body.position, crouching: state.crouching, sprinting: state.sprinting, moving: state.isMoving,
       protected: peeking || director.isProtected(player.body.position) || inStorage(),
-      enabled: checkpoint && !caught && !complete && !doorwayTransfer && cinematic?.kind !== 'reveal' && cinematic?.kind !== 'escape' };
+      enabled: checkpoint && !caught && !complete && !doorwayTransfer && cinematic?.kind !== 'reveal' };
   }
   const director = createStealthDirector(scene, physics, hangar, {
     onAlarm: actor => startAlarm(actor),
+    getPlayerPosition: () => player.body.position,
+    onDroneShotBlocked: () => {
+      droneCaptionTime = 3;
+      if (subtitle) { subtitle.textContent = 'Eye-drone armour. Shoot directly from behind.'; subtitle.classList.remove('hidden'); }
+    },
     onAttack: (_actor, damage) => {
       if (!caught && !doorwayTransfer && cinematic?.kind !== 'reveal') {
         player.takeDamage(Math.min(damage, Math.max(0, player.getHealth() - 1))); ping(920, 0.12);
@@ -308,7 +356,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   function hideHint() { hintTime = 0; hint.classList.add('hidden'); }
   function showHint(id: string, text: string) {
     if (!hintsOn || usedHints.has(id) || hintCooldown > 0 || peeking || cinematic || caught) return;
-    usedHints.add(id); hintText.textContent = text; hintTime = 4.5; hintCooldown = 30;
+    usedHints.add(id); hintText.textContent = inputHint(text); hintTime = 4.5; hintCooldown = 30;
     hint.classList.remove('hidden');
   }
   function lock(locked: boolean) {
@@ -334,7 +382,6 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     camera.fov = 75; camera.updateProjectionMatrix();
     if (!caught) lock(false);
     if (kind === 'reveal') hintCooldown = 1.2;
-    else if (kind === 'escape') { complete = true; lock(true); void onComplete?.(); }
   }
   function startAlarm(actor?: StealthActor) {
     if (caught || complete || cinematic?.kind === 'alarm' || cinematic?.kind === 'capture' || alarmAge > 0) return;
@@ -345,48 +392,6 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     document.body.classList.add('storage-alert');
     startCinematic('alarm', actor); ensureAudio();
     if (subtitle) { subtitle.textContent = 'Prime: They have sealed the exits.'; subtitle.classList.remove('hidden'); }
-  }
-  function escapeWalking() {
-    return cinematic?.kind === 'escape' && cinematic.time > 0.35 && cinematic.time < 3.9;
-  }
-  function beginEscape() {
-    if (escape || complete || cinematic || doorwayTransfer || !onComplete) return;
-    const from = new THREE.Vector3().copy(player.body.position);
-    let present = () => {};
-    const presented = new Promise<void>(resolve => { present = resolve; });
-    const request = { from, via: new THREE.Vector3(Math.min(from.x, 85.3), from.y, 20), to: new THREE.Vector3(88.05, from.y, 20),
-      cameraPosition: camera.position.clone(), cameraRotation: camera.quaternion.clone(), fov: camera.fov,
-      yaw: player.getState().yaw, present, shown: false };
-    subtitle?.classList.add('hidden');
-    startCinematic('escape'); escape = request; complete = true;
-    void onComplete(presented).then(entered => { if (!entered) escapeFailed(request); }, error => escapeFailed(request, error));
-  }
-  function escapeFailed(request: NonNullable<typeof escape>, error?: unknown) {
-    if (disposed || escape !== request) return;
-    if (error) console.error('[StealthPassage] Unable to enter stage-two:', error);
-    escape = null; cinematic = null; complete = false; transferFade.style.opacity = '0';
-    player.setPosition(85, deckY + player.radius, 20); player.setRotation(-Math.PI / 2, 0);
-    camera.fov = 75; camera.updateProjectionMatrix();
-    if (active) document.body.classList.remove('stealth-cinematic');
-    lock(false);
-    if (subtitle) { subtitle.textContent = 'Unable to load the next area. Press E to try again.'; subtitle.classList.remove('hidden'); }
-  }
-  function updateEscape(time: number, frame: number) {
-    if (!escape) return;
-    const { from, via, to } = escape, u = THREE.MathUtils.smoothstep(time, 0.35, 3.9), inverse = 1 - u;
-    escapePoint.set(0, 0, 0).addScaledVector(from, inverse * inverse).addScaledVector(via, 2 * u * inverse).addScaledVector(to, u * u);
-    player.setPosition(escapePoint.x, deckY + player.radius, escapePoint.z);
-    const along = Math.max(u, 0.04);
-    escapeHeading.subVectors(via, from).multiplyScalar(1 - along).addScaledVector(new THREE.Vector3().subVectors(to, via), along);
-    if (escapeHeading.lengthSq() < 1e-5) escapeHeading.subVectors(to, escapePoint);
-    if (escapeHeading.lengthSq() > 1e-5) {
-      const target = Math.atan2(-escapeHeading.x, -escapeHeading.z);
-      const turn = Math.atan2(Math.sin(target - escape.yaw), Math.cos(target - escape.yaw));
-      escape.yaw += turn * (1 - Math.exp(-9 * frame));
-    }
-    player.setRotation(escape.yaw, 0);
-    transferFade.style.opacity = THREE.MathUtils.smoothstep(time, 4.1, 4.7).toFixed(3);
-    if (time >= 4.7 && !escape.shown) { escape.shown = true; escape.present(); }
   }
   function activatePanel(id: string) {
     const panel = hangar.panels.find(candidate => candidate.id === id);
@@ -425,16 +430,17 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     if (alarmAge > 0 || cinematic || climbing) return;
     const down = player.body.position.y > deckY + 2.8;
     const start = new THREE.Vector3().copy(player.body.position);
-    player.setClimbing(true, down ? -1 : 1); lock(true);
+    fastClimb = player.captureTransition({ x: 0, y: 0, z: 0 }).heldKeys.includes('Space');
+    player.setForcedCrouch(false); player.setClimbing(true, down ? -1 : 1); lock(true);
     player.setRotation(ladder.side < 0 ? Math.PI : 0, 0);
-    climbing = { ladder, down, time: 0, start, duration: (ladder.height - deckY) / 1.8 + 0.65 };
+    climbing = { ladder, down, time: 0, start, duration: (ladder.height - deckY) / LADDER.climbSpeed + LADDER.mountDuration * 2 };
     prompt?.classList.add('hidden');
   }
   function nearbyLadder() {
     const position = player.body.position, elevated = position.y > deckY + 2.8;
     return hangar.ladders.find(ladder => Math.abs(position.x - ladder.x) < 1
       && Math.abs(position.y - (elevated ? ladder.height + player.radius : deckY + player.radius)) < 0.65
-      && Math.abs(position.z - (elevated ? ladder.topZ : ladder.z + ladder.side * 0.6)) < 1.1);
+      && Math.abs(position.z - (elevated ? ladder.topZ : ladder.z + ladder.side * LADDER.bodyOffset)) < 1.1);
   }
   function beginTakedown(actor: StealthActor) {
     if (!director.completeTakedown(actor.id)) return;
@@ -463,17 +469,34 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     if (disposed || doorwayTransfer !== request) return;
     console.error(`[StealthPassage] Unable to enter ${request.destination}:`, error);
     request.error = true; complete = false; player.setInputLocked(false);
-    if (subtitle) { subtitle.textContent = 'Unable to load the next area. R to retry / E to cancel.'; subtitle.classList.remove('hidden'); }
+    player.setLookLocked(false);
+    if (request.destination === 'stage-two') {
+      player.setClimbing(false); player.enable();
+      const vent = hangar.ladders.find(ladder => ladder.id === 'VentAccessLadder')!;
+      player.setPosition(vent.x, deckY + player.radius, vent.z + vent.side * LADDER.bodyOffset);
+      player.setRotation(0, 0);
+    }
+    if (request.destination === 'camera-room') {
+      player.setClimbing(false); player.enable(); player.setPosition(84.5, deckY + player.radius, 20);
+    }
+    transferFade.style.opacity = '0';
+    if (subtitle) { subtitle.textContent = inputHint('Unable to load the next area. R to retry / E to cancel.'); subtitle.classList.remove('hidden'); }
   }
   function transferThroughDoor(destination: Destination) {
     if (doorwayTransfer && !doorwayTransfer.error) return;
     const request = { destination, error: false }; doorwayTransfer = request;
-    complete = destination === 'stage-two'; player.clearInput(); player.setInputLocked(true);
-    if (subtitle) { subtitle.textContent = destination === 'quarters' ? 'Opening living quarters...' : 'Opening Stage Two airlock...'; subtitle.classList.remove('hidden'); }
+    complete = destination !== 'quarters'; player.clearInput(); player.setInputLocked(true);
+    if (destination !== 'quarters') { player.setClimbing(true); player.disable(); }
+    if (subtitle) { subtitle.textContent = destination === 'quarters' ? 'Opening living quarters...'
+      : destination === 'camera-room' ? 'Entering the camera room...' : 'Entering the vents...'; subtitle.classList.remove('hidden'); }
     void Promise.resolve().then(() => {
       if (destination === 'quarters') {
         if (!onReturnToQuarters) throw new Error('The living-quarters return connection is not configured');
         return onReturnToQuarters(player.captureTransition({ x: 0, y: 0, z: 0 }));
+      }
+      if (destination === 'camera-room') {
+        if (!onAirlockEnter) throw new Error('The camera-room airlock connection is not configured');
+        return onAirlockEnter(player.captureTransition({ x: 0, y: 0, z: 0 }));
       }
       if (!onComplete) throw new Error('The Stage Two scene connection is not configured');
       return onComplete();
@@ -512,7 +535,10 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
 
   function resetEncounter() {
     endPeek(false);
-    elapsed = suspicion = doorAngle = alarmAge = volleyCount = corridorPatrolTime = 0; corridorEngaged = !fromQuarters;
+    elapsed = suspicion = doorAngle = alarmAge = volleyCount = corridorPatrolTime = airlockCaptionTime = 0;
+    fastClimb = false; corridorEngaged = !fromQuarters;
+    droneDown = false; droneDownTime = droneCaptionTime = 0; drone.visible = true;
+    if (droneBody.world !== physics.world) physics.world.addBody(droneBody);
     caught = complete = false; cinematic = climbing = null; doorwayTransfer = null; blockedTransfer = null;
     secondHalfReached = false;
     quartersRequested = false; passageCaptionTime = 0;
@@ -553,20 +579,26 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     } else if (Math.hypot(player.body.position.x - 14, player.body.position.z + 2.5) < 2.4 && !checkpoint) {
       entranceRequested = true; player.setRotation(-Math.PI / 2, 0); startCinematic('reveal');
     } else {
-      const ladder = nearbyLadder();
-      if (ladder) { startLadder(ladder); return; }
       const candidate = director.getTakedownCandidate(observation());
       if (candidate) { beginTakedown(candidate); return; }
+      const ladder = nearbyLadder();
+      if (ladder) { startLadder(ladder); return; }
       const panel = hangar.panels.find(item => item.position.distanceTo(new THREE.Vector3().copy(player.body.position)) < 2.2);
       if (panel) { activatePanel(panel.id); return; }
       if (alarmAge === 0 && Math.abs(player.body.position.y - deckY - player.radius) < 0.8
-        && Math.hypot(player.body.position.x - 86, player.body.position.z - 20) < 2.5) beginEscape();
+        && Math.hypot(player.body.position.x - 86, player.body.position.z - 20) < 2.5) {
+        if (airlockUnlocked && onAirlockEnter) { transferThroughDoor('camera-room'); return; }
+        airlockCaptionTime = 4.7;
+        if (subtitle) { subtitle.textContent = 'Door locked.'; subtitle.classList.remove('hidden'); }
+        ping(220, 0.3);
+      }
     }
   }
 
   function onKey(event: KeyboardEvent) {
     if (!active || event.repeat || document.hidden || document.body.classList.contains('quick-menu-open')) return;
     if (event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if (climbing && event.code === 'Space') { event.preventDefault(); fastClimb = true; return; }
     if (doorwayTransfer?.error) {
       if (event.code === 'KeyR') { event.preventDefault(); transferThroughDoor(doorwayTransfer.destination); }
       else if (event.code === 'KeyE') {
@@ -575,13 +607,18 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
       }
       return;
     }
+    const hide = event.code === 'KeyB' || isControllerEvent(event)
+      && (peeking && event.code === 'Space' || !caught && event.code === 'KeyR');
     if (event.code === 'KeyE') { event.preventDefault(); interact(); }
-    else if (event.code === 'KeyB' && peeking) { event.preventDefault(); endPeek(false); }
-    else if (event.code === 'KeyB' && !checkpoint && nearDoor() && doorOpen && alarmAge === 0) { event.preventDefault(); endPeek(false); }
+    else if (hide && peeking) { event.preventDefault(); endPeek(false); }
+    else if (hide && !checkpoint && nearDoor() && doorOpen && alarmAge === 0) { event.preventDefault(); endPeek(false); }
     else if (event.code === 'KeyH') { event.preventDefault(); hideHint(); }
     else if (event.code === 'KeyR' && caught) { event.preventDefault(); resetEncounter(); }
   }
   window.addEventListener('keydown', onKey);
+  function resetFastClimb() { fastClimb = false; }
+  function onClimbKeyUp(event: KeyboardEvent) { if (event.code === 'Space') resetFastClimb(); }
+  window.addEventListener('keyup', onClimbKeyUp); window.addEventListener('blur', resetFastClimb);
   retryButton.addEventListener('click', resetEncounter);
   dismissHint.addEventListener('click', hideHint);
   const skipHold = createHoldToSkip({ button: skip, onSkip: skipCinematic, isAvailable: canSkipCinematic, isPaused: () => menuPaused });
@@ -646,16 +683,6 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
       actorDirection.copy(cinematic.facing!);
       cinematicPosition.copy(cinematic.actor.root.position).addScaledVector(actorDirection, -2.5).add(new THREE.Vector3(1.2, 1.9, 0.6));
       cinematicFocus.copy(cinematic.actor.root.position).add(new THREE.Vector3(0, 0.8, 0));
-    } else if (cinematic.kind === 'escape' && escape) {
-      // Ease out of the shoulder camera, then hold at the threshold as Brondon walks into the airlock.
-      const settle = THREE.MathUtils.smootherstep(time, 0, 1.2), drift = THREE.MathUtils.smoothstep(time, 0.35, 2.8);
-      cinematicPosition.set(Math.min(position.x - 2.3, 84.55), deckY + 1.8, THREE.MathUtils.lerp(escape.from.z + 0.65, 20.45, drift));
-      cinematicFocus.set(position.x + 1.4, deckY + 1.3, THREE.MathUtils.lerp(position.z, 20, 0.5));
-      shotCamera.position.copy(cinematicPosition); shotCamera.lookAt(cinematicFocus);
-      camera.position.lerpVectors(escape.cameraPosition, cinematicPosition, settle);
-      camera.quaternion.slerpQuaternions(escape.cameraRotation, shotCamera.quaternion, settle);
-      camera.fov = THREE.MathUtils.lerp(escape.fov, 62, settle); camera.updateProjectionMatrix();
-      return;
     } else {
       if (alarmAge < ALARM_SEQUENCE.surround) {
         const orbit = (alarmAge - ALARM_SEQUENCE.approaches) * 0.65 + player.getState().yaw;
@@ -694,19 +721,23 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
 
   function updateTraversal(frame: number, thirdPerson: boolean) {
     if (!climbing) return;
-    climbing.time += frame;
+    climbing.time += frame * (fastClimb ? 2 : 1);
     const { ladder, down, start, duration } = climbing;
     const progress = THREE.MathUtils.clamp(climbing.time / duration, 0, 1);
     const height = down ? deckY + player.radius : ladder.height + player.radius;
-    const standZ = ladder.z + ladder.side * 0.6;
-    const mount = THREE.MathUtils.smoothstep(progress, 0, 0.15);
-    const rise = THREE.MathUtils.clamp((progress - 0.15) / 0.7, 0, 1);
-    const dismount = THREE.MathUtils.smoothstep(progress, 0.85, 1);
+    const standZ = ladder.z + ladder.side * LADDER.bodyOffset;
+    const mount = THREE.MathUtils.smoothstep(climbing.time, 0, LADDER.mountDuration);
+    const rise = THREE.MathUtils.clamp((climbing.time - LADDER.mountDuration) / (duration - LADDER.mountDuration * 2), 0, 1);
+    const dismount = THREE.MathUtils.smoothstep(climbing.time, duration - LADDER.mountDuration, duration);
     player.body.position.set(THREE.MathUtils.lerp(start.x, ladder.x, mount), THREE.MathUtils.lerp(start.y, height, rise),
-      down ? THREE.MathUtils.lerp(start.z, standZ, mount) : THREE.MathUtils.lerp(standZ, ladder.topZ, dismount));
+      THREE.MathUtils.lerp(THREE.MathUtils.lerp(start.z, standZ, mount), down ? standZ : ladder.topZ, dismount));
     player.body.aabbNeedsUpdate = true; player.updateCamera(0, thirdPerson);
+    if (ladder.id === 'VentAccessLadder' && !down) transferFade.style.opacity = String(THREE.MathUtils.smoothstep(progress, 0.94, 1));
     if (progress >= 1) {
-      player.setClimbing(false); climbing = null; lock(false);
+      player.setClimbing(false); climbing = null;
+      if (ladder.id === 'VentAccessLadder' && !down && onComplete) {
+        transferThroughDoor('stage-two');
+      } else { transferFade.style.opacity = '0'; lock(false); }
     }
   }
 
@@ -721,7 +752,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
       else showHint('passage', 'Stay behind the drone.');
     } else if (player.body.position.y > deckY + 2.8) showHint('roof', 'Catwalks are exposed. Drop behind cargo if they sweep.');
     else if (director.suspicion > 0.25) showHint('suspicion', 'Break line of sight. Don\'t sprint.');
-    else if (position.x > 70) showHint('exit', 'Airlock is past the shuttle.');
+    else if (position.x > 70) showHint('exit', 'Airlock locked. Use the ceiling ladder at the far end, opposite the door.');
     else if (director.distractions === 0 && position.x > 32) showHint('distraction', 'Shoot metal away from you to pull them off.');
     else if (hangar.ladders.some(ladder => Math.hypot(position.x - ladder.x, position.z - ladder.z) < 8)) showHint('ladder', 'Ladders reach the container roofs.');
     else if (hangar.panels.some(panel => Math.hypot(position.x - panel.position.x, position.z - panel.position.z) < 9)) showHint('relay', 'Relays fake a fault. Patrols check it.');
@@ -732,7 +763,8 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     if (disposed || !active) return;
     const frame = Number.isFinite(dt) ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime)) : 0;
     lastDelta = frame;
-    elapsed += frame;
+    const takedown = cinematic?.kind === 'takedown';
+    if (!takedown) elapsed += frame;
     if (arrivalTime < HOLOGRAM_TRANSFER_DURATION) {
       arrivalTime = Math.min(HOLOGRAM_TRANSFER_DURATION, arrivalTime + frame);
       if (arrivalTime >= HOLOGRAM_TRANSFER_DURATION) {
@@ -741,11 +773,19 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
       }
     }
     if (peeking) peekTime += frame;
-    if (corridorEngaged) corridorPatrolTime += frame;
+    if (corridorEngaged && !takedown) corridorPatrolTime += frame;
     const patrolTime = fromQuarters ? corridorPatrolTime : elapsed, phase = 2.15 + patrolTime * 0.19;
-    drone.position.set(Math.sin(phase) * 11, deckY + 2.02 + Math.sin(patrolTime * 2.2) * 0.055, -2.5);
-    droneFacing.x = Math.cos(phase) >= 0 ? 1 : -1;
-    drone.lookAt(droneTarget.copy(drone.position).add(droneFacing));
+    if (!droneDown) {
+      drone.position.set(Math.sin(phase) * 11, deckY + 2.02 + Math.sin(patrolTime * 2.2) * 0.055, -2.5);
+      droneFacing.x = Math.cos(phase) >= 0 ? 1 : -1;
+      drone.lookAt(droneTarget.copy(drone.position).add(droneFacing));
+      droneBody.position.set(drone.position.x, drone.position.y, drone.position.z); droneBody.aabbNeedsUpdate = true;
+    } else if (!takedown) {
+      droneDownTime += frame; drone.position.y = Math.max(deckY + 0.4, drone.position.y - frame * 2);
+      drone.rotation.z = Math.min(1.5, droneDownTime * 2);
+      if (droneDownTime > 2) drone.visible = false;
+    }
+    updateHallwayLight();
     doorAngle = THREE.MathUtils.damp(doorAngle, doorOpen ? Math.PI / 2 : peeking ? 0.045 : 0, 9, frame);
     syncDoor();
     physics.step(frame, player, thirdPerson);
@@ -768,7 +808,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     }
     const nearEntrance = Math.hypot(position.x - 14, position.z + 2.5) < 3;
     hangar.entrance.update(frame, alarmAge === 0 && (entranceRequested || (checkpoint && nearEntrance)));
-    hangar.exit.update(frame, alarmAge === 0 && cinematic?.kind === 'escape' && cinematic.time < 3.9);
+    hangar.exit.update(frame, airlockUnlocked && alarmAge === 0 && Math.hypot(position.x - 86, position.z - 20) < 3);
     if (cinematic?.kind === 'reveal' && cinematic.entryWalk && hangar.entrance.open > 0.9) {
       const walk = cinematic.entryWalk; walk.time = Math.min(1.6, walk.time + frame);
       const progress = THREE.MathUtils.smoothstep(walk.time, 0, 1.6);
@@ -794,11 +834,23 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
         subtitle.classList.toggle('hidden', passageCaptionTime === 0);
       }
     }
+    if (airlockCaptionTime > 0 && !cinematic && !doorwayTransfer) {
+      airlockCaptionTime = Math.max(0, airlockCaptionTime - frame);
+      if (subtitle) {
+        subtitle.textContent = airlockCaptionTime > 3.2 ? 'Door locked.' : 'Prime: We must find another way.';
+        subtitle.classList.toggle('hidden', airlockCaptionTime === 0);
+      }
+    }
+    if (droneCaptionTime > 0 && !cinematic && !doorwayTransfer) {
+      droneCaptionTime = Math.max(0, droneCaptionTime - frame);
+      if (droneCaptionTime === 0) subtitle?.classList.add('hidden');
+    }
     if (noticeTime > 0) { noticeTime -= frame; if (noticeTime <= 0) checkpointNotice.classList.add('hidden'); }
-    director.update(frame, observation());
+    if (takedown) director.updateTakedown(frame, cinematic?.actor?.id);
+    else director.update(frame, observation());
 
     let visible = false;
-    if (corridorEngaged && !peeking && !caught && !checkpoint && alarmAge === 0 && !doorwayTransfer) {
+    if (!droneDown && corridorEngaged && !peeking && !caught && !checkpoint && alarmAge === 0 && !doorwayTransfer) {
       const from = player.body.position.clone();
       from.set(drone.position.x, drone.position.y, drone.position.z);
       const to = player.body.position.clone();
@@ -843,9 +895,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
           player.body.position.set(THREE.MathUtils.lerp(cinematic.start.x, reach.x, blend), reach.y,
             THREE.MathUtils.lerp(cinematic.start.z, reach.z, blend)); player.body.aabbNeedsUpdate = true;
         }
-        if (cinematic.time >= 1.25) endCinematic();
-      } else if (cinematic.kind === 'escape') {
-        updateEscape(cinematic.time, frame);
+        if (cinematic.time >= 1.65) endCinematic();
       } else if (cinematic.kind === 'capture' && alarmAge >= ALARM_SEQUENCE.retry && !caught) {
         finishCapture();
       }
@@ -865,21 +915,22 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
       if (!checkpoint && nearDoor()) text = doorOpen ? 'E: close door / B: hide' : player.body.position.z < 0 ? 'E: open storage door' : 'E: peek';
       else if (nearQuartersDoor()) text = `E: ${quartersRequested ? 'close' : 'open'} living-quarters bulkhead`;
       else if (!checkpoint && nearEntrance) text = 'E: open bulkhead';
-      else if (nearbyLadder()) text = player.body.position.y > deckY + 2.8 ? 'E: descend' : 'E: climb';
       else if (director.getTakedownCandidate(observation())) text = 'E: silent takedown';
+      else if (nearbyLadder()) text = player.body.position.y > deckY + 2.8 ? 'E: descend / Hold Space: faster' : 'E: climb / Hold Space: faster';
       else {
         const panel = hangar.panels.find(item => Math.hypot(position.x - item.position.x, position.z - item.position.z) < 1.8);
         if (panel) text = (panelCooldowns.get(panel.id) ?? 0) > 0 ? 'Relay cooling down' : 'E: trigger fault';
         else if (Math.abs(position.y - deckY - player.radius) < 0.8
           && Math.hypot(position.x - 86, position.z - 20) < 2.5) text = 'E: airlock';
       }
-      prompt.textContent = text; prompt.classList.toggle('hidden', !text || peeking || caught || !!cinematic || !!climbing || !!doorwayTransfer || alarmAge > 0);
+      prompt.textContent = inputHint(isControllerActive() ? text.replace('B: hide', 'D-pad Left: hide') : text);
+      prompt.classList.toggle('hidden', !text || peeking || caught || !!cinematic || !!climbing || !!doorwayTransfer || alarmAge > 0);
     }
   }
   if (arrivalTime < HOLOGRAM_TRANSFER_DURATION) { lock(true); if (active) document.body.classList.add('stealth-cinematic'); }
   if (restoreCheckpoint) {
-    player.setPosition(HANGAR_LAYOUT.checkpoint.x, deckY + player.radius, HANGAR_LAYOUT.checkpoint.z);
-    player.setRotation(-Math.PI / 2, 0); entranceRequested = true;
+    player.setPosition(fromCameraRoom ? 84.5 : HANGAR_LAYOUT.checkpoint.x, deckY + player.radius, fromCameraRoom ? 20 : HANGAR_LAYOUT.checkpoint.z);
+    player.setRotation(fromCameraRoom ? Math.PI / 2 : -Math.PI / 2, 0); entranceRequested = true;
     retryButton.textContent = 'Press R to retry from hangar'; retryButton.title = 'Retry from hangar checkpoint (R)';
   }
   updatePhysics(0);
@@ -896,44 +947,68 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     },
     requiresRecoveredPistol: fromQuarters,
     getMapLayout: () => map,
-    getMapSceneId: () => `scene${checkpoint ? 31 : inStorage() ? 30 : 29}`,
+    getMapSceneId: () => `scene${checkpoint ? player.body.position.y >= deckY + HANGAR_LAYOUT.ventAccess.height - 0.1
+      && Math.hypot(player.body.position.x - HANGAR_LAYOUT.ventAccess.x, player.body.position.z - HANGAR_LAYOUT.ventAccess.z) < 2 ? 32 : 31
+      : inStorage() ? 30 : 29}`,
     cutsceneManager: null,
     get ownsWeaponInput() { return arrivalTime < HOLOGRAM_TRANSFER_DURATION || peeking || caught || !!cinematic || !!climbing; },
     canToggleView: () => arrivalTime >= HOLOGRAM_TRANSFER_DURATION && !peeking && !caught && !cinematic && !climbing,
     controlsReady: () => false,
-    isCinematic: () => arrivalTime < HOLOGRAM_TRANSFER_DURATION || peeking || !!cinematic || corridorDeathAt >= 0,
+    isCinematic: () => arrivalTime < HOLOGRAM_TRANSFER_DURATION || peeking || !!cinematic || !!climbing || complete || corridorDeathAt >= 0,
     hideCharacter: () => peeking,
-    getCinematicState: () => arrivalTime < HOLOGRAM_TRANSFER_DURATION || peeking || cinematic || corridorDeathAt >= 0 ? { ...player.getState(),
-      isMoving: !!cinematic?.entryWalk && cinematic.entryWalk.time > 0 && cinematic.entryWalk.time < 1.6 || escapeWalking(),
+    getCinematicState: () => complete ? { ...player.getState(), isMoving: false, isOnGround: false, climbing: false, jumping: false }
+      : climbing ? { ...player.getState(), isMoving: false, isOnGround: false, climbing: true, jumping: false }
+      : arrivalTime < HOLOGRAM_TRANSFER_DURATION || peeking || cinematic || corridorDeathAt >= 0 ? { ...player.getState(),
+      isMoving: !!cinematic?.entryWalk && cinematic.entryWalk.time > 0 && cinematic.entryWalk.time < 1.6,
       isOnGround: true, sprinting: false } : null,
     getCinematicDelta: () => lastDelta,
     getHologramTransition: () => arrivalTime < HOLOGRAM_TRANSFER_DURATION ? hologramTransitionAt(arrivalTime, true) : null,
-    applyCinematicCamera,
+    applyCinematicCamera: () => {
+      if (climbing) { player.updateCamera(0, true); applyTraversalCamera(camera, player, true); }
+      else applyCinematicCamera();
+    },
     getCinematicPose: () => corridorDeathAt >= 0 ? { clip: 'Death01', time: corridorDeathFinished ? 2.5 : elapsed - corridorDeathAt }
-      : climbing ? { clip: 'Ladder_Climb_Loop', time: climbing.time }
+      : climbing ? { clip: 'Ladder_Climb_Loop', loop: true,
+        time: climbing.down
+          ? LADDER.cycleDuration - (Math.abs(player.body.position.y - climbing.start.y) / LADDER.climbSpeed) % LADDER.cycleDuration
+          : Math.abs(player.body.position.y - climbing.start.y) / LADDER.climbSpeed }
       : cinematic?.entryWalk && cinematic.entryWalk.time > 0 && cinematic.entryWalk.time < 1.6 ? { clip: 'Walk_Loop', time: cinematic.entryWalk.time }
-      : escapeWalking() ? { clip: 'Walk_Loop', time: cinematic!.time - 0.35 }
-      : cinematic?.kind === 'takedown' ? { clip: 'Interact', time: Math.min(0.9, cinematic.time),
-      handTargets: { right: cinematic.actor!.root.position.clone().add(new THREE.Vector3(0, 1.1, 0)) } }
+      : cinematic?.kind === 'takedown' ? { clip: 'Silent_Takedown', time: cinematic.time }
       : cinematic?.kind === 'capture' && alarmAge >= ALARM_SEQUENCE.volley ? { clip: 'Death01', time: alarmAge - ALARM_SEQUENCE.volley }
       : { clip: 'Idle_Loop', time: elapsed },
     onPistolShot: (point: THREE.Vector3) => {
       if (cinematic || peeking || caught || climbing) return;
+      if (corridorRearShot) { corridorRearShot = false; return; }
+      if (director.consumeSilentDroneShot()) return;
       const panel = hangar.panels.find(item => Math.hypot(point.x - item.position.x, point.z - item.position.z) < 1);
       if (panel) activatePanel(panel.id); else director.emitNoise(point, 21);
       ping(180, 0.1);
     },
-    getDamageTargets: () => director.getDamageTargets(),
+    getDamageTargets: () => [...director.getDamageTargets(), ...droneDown ? [] : [{
+      root: drone, body: droneBody, damage: (amount: number, weapon?: 'pistol' | 'crowbar' | 'lightsaber') => {
+        if (!Number.isFinite(amount) || amount <= 0) return false;
+        if (weapon !== 'pistol' || !isBehindDrone(drone.position, droneFacing, player.body.position)) {
+          droneCaptionTime = 3;
+          if (subtitle) { subtitle.textContent = 'Eye-drone armour. Shoot directly from behind.'; subtitle.classList.remove('hidden'); }
+          if (!checkpoint) eliminateInCorridor();
+          return false;
+        }
+        droneDown = true; droneDownTime = 0; corridorRearShot = true; suspicion = 0;
+        physics.world.removeBody(droneBody); droneLight.visible = droneBeam.visible = false;
+        emitComicEffect(scene, 'clank', { source: drone }); return true;
+      },
+    }]],
     getParryableBolts: () => [],
     minimap: { bounds: { minX: -16, maxX: 86, minZ: -31, maxZ: 31 }, radius: 19, floor: deckY,
       deckLabel: 'DECK ONE', deck: 'upper', stairs: hangar.ladders.slice(0, 2).map(ladder => ({ x: ladder.x, z: ladder.z })) },
     getMinimapState: () => ({ position: player.body.position, yaw: player.getState().yaw,
-      enemies: [{ id: 'storage-camera-drone', position: drone.position, yaw: Math.atan2(-droneFacing.x, -droneFacing.z), alerted: suspicion > 0, range: 7.5 }, ...director.getMinimapEnemies()],
+      goal: { ...HANGAR_LAYOUT.exit, label: 'AIRLOCK' },
+      enemies: [...droneDown ? [] : [{ id: 'storage-camera-drone', position: drone.position, yaw: Math.atan2(-droneFacing.x, -droneFacing.z), alerted: suspicion > 0, range: 7.5 }], ...director.getMinimapEnemies()],
       stairs: [...hangar.ladders].sort((first, second) => Math.hypot(first.x - player.body.position.x, first.z - player.body.position.z)
         - Math.hypot(second.x - player.body.position.x, second.z - player.body.position.z)).slice(0, 2).map(ladder => ({ x: ladder.x, z: ladder.z })) }),
     getHintsEnabled: () => hintsOn,
     setHintsEnabled: (value: boolean) => { hintsOn = value; if (!value) hideHint(); else hintCooldown = 0.5; },
-    setMenuPaused: (value: boolean) => { menuPaused = value; if (value) skipHold.reset(); },
+    setMenuPaused: (value: boolean) => { menuPaused = value; if (value) { fastClimb = false; skipHold.reset(); } },
     getStageState: () => ({ checkpoint, introSeen, hintsEnabled: hintsOn, fromQuarters, corridorEngaged, safeZone: director.safeZoneFor(player.body.position),
       phase: arrivalTime < HOLOGRAM_TRANSFER_DURATION ? 'arrival' : caught ? 'caught' : complete ? 'complete' : cinematic?.kind ?? (climbing ? 'ladder' : checkpoint ? 'hangar' : peeking ? 'peek' : fromQuarters && !inStorage() ? 'passage' : 'closet'),
       alarm: alarmAge > 0, suspicion, distractions: director.distractions, alarmTime: alarmAge, volleys: volleyCount, firingSquad: director.firingSquad }),
@@ -942,13 +1017,14 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
       if (disposed) return;
       disposed = true;
       window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onClimbKeyUp); window.removeEventListener('blur', resetFastClimb);
       if (active) {
         document.body.classList.remove('storage-peeking', 'storage-alert', 'storage-caught', 'stealth-cinematic');
         prompt?.classList.add('hidden'); subtitle?.classList.add('hidden');
       }
       skipHold.dispose();
       status.remove(); actions.remove(); retryButton.remove(); hint.remove(); checkpointNotice.remove(); skip.remove(); bars.remove();
-      transferFade.remove(); escape?.present();
+      transferFade.remove();
       director.dispose();
       if (audioContext) void audioContext.close().catch(error => console.warn('[Stealth] Audio context could not close:', error));
       player.dispose(); physics.dispose(); disposeRoom(scene);

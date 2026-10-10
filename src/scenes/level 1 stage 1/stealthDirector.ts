@@ -25,6 +25,7 @@ export interface StealthObservation {
 export interface StealthActor {
   id: string;
   kind: RobotKind;
+  reserve: boolean;
   root: THREE.Group;
   body: CANNON.Body;
   mode: PatrolMode;
@@ -52,6 +53,11 @@ export interface StealthActor {
   scanning: boolean;
   scanRoof: string | null;
   scanTarget: THREE.Vector3 | null;
+}
+
+export function isBehindDrone(drone: Point, forward: Point, shooter: Point) {
+  const dx = shooter.x - drone.x, dz = shooter.z - drone.z, distance = Math.hypot(dx, dz);
+  return distance > 0.1 && distance < 20 && (dx * forward.x + dz * forward.z) / distance < -0.9;
 }
 
 export function createHangarNavigation(hangar: StealthHangar) {
@@ -95,7 +101,8 @@ export function createHangarNavigation(hangar: StealthHangar) {
 }
 
 export function createStealthDirector(scene: THREE.Scene, physics: Physics, hangar: StealthHangar,
-  callbacks: { onAlarm: (actor: StealthActor) => void; onAttack: (actor: StealthActor, damage: number) => void },
+  callbacks: { onAlarm: (actor: StealthActor) => void; onAttack: (actor: StealthActor, damage: number) => void;
+    getPlayerPosition?: () => Point; onDroneShotBlocked?: () => void },
   modelLoader: typeof loadToolModel = loadToolModel) {
   const navigation = createHangarNavigation(hangar);
   const actors: StealthActor[] = [];
@@ -104,6 +111,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
   const facing = new THREE.Vector3(), eye = new THREE.Vector3(), target = new THREE.Vector3();
   const up = new THREE.Vector3(0, 1, 0), direction = new THREE.Vector3(), desiredRotation = new THREE.Quaternion();
   let elapsed = 0, disposed = false, alarmed = false, stepNoiseTime = 0, distractions = 0;
+  let observerPosition: Point | null = null, silentDroneShot = false;
   let encirclement: THREE.Vector3 | null = null, firing = false;
   const volleyGeometry = new THREE.CylinderGeometry(0.022, 0.022, 1, 6);
   const volleyMaterial = new THREE.MeshBasicMaterial({ color: 0xff5266, transparent: true, opacity: 0.95,
@@ -161,7 +169,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
       light.castShadow = index === 10; light.shadow.mapSize.set(256, 256);
       scene.add(light, light.target);
     }
-    const actor: StealthActor = { id: root.name, kind, root, body, mode: reserve ? 'reserve' : 'patrol', suspicion: 0,
+    const actor: StealthActor = { id: root.name, kind, reserve, root, body, mode: reserve ? 'reserve' : 'patrol', suspicion: 0,
       range: kind === 'eye' ? 13 : 9, route, routeIndex: index % route.length, path: [], target: null,
       dwell: index % 3 * 0.5, searchTime: 0, repath: 0, attackTime: 0, lastNoise: null, heardAt: -Infinity,
       health: 50, mixer: null, actions: new Map(), animation: '', beam, footprint, light, downTime: 0, formation: null,
@@ -320,8 +328,19 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
   const damageTargets: DamageTarget[] = actors.map(actor => ({ root: actor.root, body: actor.body,
     damage(amount, weapon) {
       if (actor.mode === 'down' || actor.mode === 'reserve' || !Number.isFinite(amount) || amount <= 0) return false;
+      if (actor.kind === 'eye') {
+        const shooter = callbacks.getPlayerPosition?.() ?? observerPosition;
+        if (weapon !== 'pistol' || !shooter || !isBehindDrone(actor.root.position, actorFacing(actor), shooter)) {
+          callbacks.onDroneShotBlocked?.();
+          if (!shooter) console.warn('[Stealth] Cannot resolve shooter position for the eye drone');
+          forceAlarm(actor.id); return false;
+        }
+        actor.health = 0; actor.mode = 'down'; actor.downTime = 0; actor.suspicion = 0;
+        actor.body.collisionResponse = false; animation(actor, 'down'); updateBeam(actor);
+        emitComicEffect(scene, 'clank', { source: actor.root }); silentDroneShot = true; return true;
+      }
       actor.health -= amount;
-      emitComicEffect(scene, actor.health <= 0 ? actor.kind === 'eye' ? 'boom' : 'clank' : 'hit', { source: actor.root, weapon });
+      emitComicEffect(scene, actor.health <= 0 ? 'clank' : 'hit', { source: actor.root, weapon });
       if (actor.health <= 0) { actor.mode = 'down'; actor.downTime = 0; actor.body.collisionResponse = false; animation(actor, 'down'); }
       if (weapon) forceAlarm(actor.id);
       return true;
@@ -380,16 +399,16 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
   }
   function updateRooftopScan(actor: StealthActor, dt: number) {
     if (actor.kind !== 'eye') return;
-    const index = actors.indexOf(actor) - 10, clock = elapsed + index * 5.5, phase = clock % 26;
-    const scan = !alarmed && actor.mode === 'patrol' && phase > 21.5;
+    const index = actors.indexOf(actor) - 10, clock = elapsed + index * 3.5, phase = clock % 14;
+    const scan = !alarmed && actor.mode === 'patrol' && phase > 9;
     if (scan && !actor.scanning) {
       const candidates = [...hangar.scanSurfaces].sort((first, second) => distance(first, actor.root.position) - distance(second, actor.root.position));
-      actor.scanRoof = candidates[Math.floor(clock / 26) % 3].id; actor.path = [];
+      actor.scanRoof = candidates[Math.floor(clock / 14) % 3].id; actor.path = [];
     }
     actor.scanning = scan;
     if (!scan) { actor.scanTarget = null; return; }
     const roof = hangar.scanSurfaces.find(item => item.id === actor.scanRoof)!;
-    const progress = (phase - 21.5) / 4.5;
+    const progress = (phase - 9) / 5;
     actor.scanTarget ??= new THREE.Vector3();
     if ('mesh' in roof && roof.mesh instanceof THREE.Mesh) {
       actor.scanTarget.set(Math.sin(progress * Math.PI * 2) * (roof.width / 2 - 0.5), 0.14,
@@ -406,6 +425,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
   }
   function update(dt: number, observation: StealthObservation) {
     if (disposed) return;
+    observerPosition = observation.position;
     elapsed += dt; stepNoiseTime -= dt;
     for (let index = volleys.length - 1; index >= 0; index--) {
       volleys[index].life -= dt;
@@ -474,12 +494,20 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
       updateBeam(actor);
     }
   }
+  function updateTakedown(dt: number, id?: string) {
+    const actor = actors.find(actor => actor.id === id);
+    if (!actor || actor.mode !== 'down') return;
+    actor.mixer?.update(dt); actor.downTime += dt;
+    if (![...actor.actions.keys()].some(name => /death|die|shutdown/i.test(name)))
+      actor.root.rotation.z = -1.25 * THREE.MathUtils.smoothstep(actor.downTime, 0.45, 1.2);
+    updateBeam(actor);
+  }
   function reset() {
     clearComicEffects(scene);
-    alarmed = false; encirclement = null; firing = false; elapsed = distractions = stepNoiseTime = 0;
+    alarmed = false; silentDroneShot = false; encirclement = null; firing = false; elapsed = distractions = stepNoiseTime = 0;
     for (const volley of volleys) volley.mesh.removeFromParent(); volleys.length = 0;
     actors.forEach((actor, index) => {
-      const reserve = index >= 14, start = actor.route[index % actor.route.length];
+      const reserve = actor.reserve, start = actor.route[index % actor.route.length];
       actor.mode = reserve ? 'reserve' : 'patrol'; actor.suspicion = actor.downTime = 0; actor.health = 50;
       actor.root.position.set(start.x, hangar.deckY + (actor.kind === 'eye' ? 3.8 : 0), start.z);
       actor.root.rotation.set(0, index % 2 ? Math.PI : Math.PI / 2, 0);
@@ -495,7 +523,8 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
     });
   }
   return { actors, ready: Promise.all(loading).then(() => undefined), navigation, safeZoneFor, isProtected, canSee, emitNoise,
-    getTakedownCandidate, completeTakedown, forceAlarm, formFiringSquad, fireVolley, reset, update,
+    getTakedownCandidate, completeTakedown, forceAlarm, formFiringSquad, fireVolley, reset, update, updateTakedown,
+    consumeSilentDroneShot() { const shot = silentDroneShot; silentDroneShot = false; return shot; },
     get alarmed() { return alarmed; },
     get suspicion() { return Math.max(0, ...actors.map(actor => actor.suspicion)); },
     get distractions() { return distractions; },

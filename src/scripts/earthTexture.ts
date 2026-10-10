@@ -75,8 +75,32 @@ export interface EarthTextures {
 }
 
 let cachedTextures: EarthTextures | undefined;
+let preparation: Promise<void> | undefined;
 
 export function createEarthTextures(width = 2048, height = 1024): EarthTextures {
+  const generator = generateEarthTextures(width, height);
+  let result = generator.next();
+  while (!result.done) result = generator.next();
+  return result.value;
+}
+
+export function preloadEarthTextures(): Promise<void> {
+  if (cachedTextures) return Promise.resolve();
+  if (!preparation) {
+    preparation = (async () => {
+      const generator = generateEarthTextures(2048, 1024);
+      let result = generator.next();
+      while (!result.done) {
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        result = generator.next();
+      }
+      Object.values(result.value).forEach(texture => texture.dispose());
+    })().catch(error => { preparation = undefined; throw error; });
+  }
+  return preparation;
+}
+
+function* generateEarthTextures(width: number, height: number): Generator<void, EarthTextures> {
   const cacheable = width === 2048 && height === 1024;
   if (cacheable && cachedTextures) return {
     colorTexture: cachedTextures.colorTexture.clone(),
@@ -160,6 +184,7 @@ export function createEarthTextures(width = 2048, height = 1024): EarthTextures 
       const rv = Math.round(roughness * 255);
       roughData.set([rv, rv, rv, 255], i);
     }
+    if (py % 4 === 3) yield;
   }
 
   for (let py = 0; py < height; py++) {
@@ -174,6 +199,7 @@ export function createEarthTextures(width = 2048, height = 1024): EarthTextures 
       const i = (py * width + px) * 4;
       cloudData.set([242, 248, 252, alpha], i);
     }
+    if (py % 8 === 7) yield;
   }
 
   const colorTexture = new THREE.DataTexture(colorData, width, height);

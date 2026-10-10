@@ -6,6 +6,7 @@ import { createLightsaber } from './items/createLightsaber.js';
 import { createCrowbar } from './items/createCrowbar.js';
 import { createCrewChest, CREW_CHEST_SIZE } from '../helpers/scene/crewChest.js';
 import { createRecoveryPickup } from '../helpers/scene/recoveryPickup.js';
+import { inputHint } from './gamepadInput.js';
 
 export function createGoggles() {
   const root = new THREE.Group(); root.name = 'ScannerGoggles';
@@ -45,12 +46,12 @@ function disposeObject(root: THREE.Object3D) {
 export function createRewardChest({ scene, world, player, position, yaw = 0, reward, unlocked, onCollect, removeOnCollect = false,
   style = 'model', initialCollected = false, canInteract = () => true, lockedPrompt }: {
   scene: THREE.Scene; world: CANNON.World; player: Player; position: THREE.Vector3; yaw?: number;
-  reward: 'goggles' | 'health' | 'shield' | 'lightsaber' | 'crowbar';
+  reward: 'goggles' | 'health' | 'shield' | 'lightsaber' | 'crowbar' | 'keycard' | 'aegis';
   unlocked: () => boolean; onCollect: () => boolean; removeOnCollect?: boolean;
   style?: 'model' | 'crew'; initialCollected?: boolean; canInteract?: () => boolean; lockedPrompt?: string;
-}, load = () => loadToolModel('Prop_Chest')) {
+}, load = loadToolModel) {
   const root = new THREE.Group(); root.name = `${reward}Chest`; root.position.copy(position); root.rotation.y = yaw; scene.add(root);
-  const footlocker = createCrewChest(reward === 'lightsaber' ? 0xbd77ff : 0x6ad9e8), fallback = footlocker.root;
+  const footlocker = createCrewChest(reward === 'lightsaber' || reward === 'aegis' ? 0xbd77ff : 0x6ad9e8), fallback = footlocker.root;
   root.add(fallback); footlocker.update(0, initialCollected, true);
   const body = new CANNON.Body({ mass: 0 });
   body.addShape(new CANNON.Box(new CANNON.Vec3(CREW_CHEST_SIZE.x / 2, CREW_CHEST_SIZE.y / 2, CREW_CHEST_SIZE.z / 2)));
@@ -71,15 +72,21 @@ export function createRewardChest({ scene, world, player, position, yaw = 0, rew
       cross.position.z = -0.116; loot.add(cross);
     }
   }
+  if (reward === 'aegis') {
+    const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.3),
+      new THREE.MeshStandardMaterial({ color: 0xb979ff, emissive: 0x9b40ff, emissiveIntensity: 1.8, metalness: 0.6, roughness: 0.3 }));
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.035, 8, 24), new THREE.MeshBasicMaterial({ color: 0xa7eeff }));
+    ring.rotation.x = Math.PI / 3; loot.add(core, ring);
+  }
   loot.position.set(reward === 'lightsaber' ? 0.5 : reward === 'crowbar' ? 0.2 : 0, 0.85, 0);
   loot.visible = false; root.add(loot);
   let mixer: THREE.AnimationMixer | null = null;
   let openAction: THREE.AnimationAction | null = null;
-  let opening = 0, collected = initialCollected, disposed = false;
+  let opening = 0, collected = initialCollected, disposed = false, rewardReady = reward !== 'keycard';
   const prompt = document.getElementById('interact-prompt');
   let ownsPrompt = false;
   function hidePrompt() { if (ownsPrompt) prompt?.classList.add('hidden'); ownsPrompt = false; }
-  const ready = style === 'crew' ? Promise.resolve() : load().then(gltf => {
+  const chestReady = style === 'crew' ? Promise.resolve() : load('Prop_Chest').then(gltf => {
     if (disposed || opening > 0 || collected) { disposeObject(gltf.scene); return; }
     const model = gltf.scene;
     let box = new THREE.Box3().setFromObject(model);
@@ -100,11 +107,21 @@ export function createRewardChest({ scene, world, player, position, yaw = 0, rew
     const clip = THREE.AnimationClip.findByName(gltf.animations, 'Open');
     if (clip) { openAction = mixer.clipAction(clip).setLoop(THREE.LoopOnce, 1); openAction.clampWhenFinished = true; }
   }).catch(error => { if (!disposed) console.error('[RewardChest] Using fallback chest:', error); });
+  const lootReady = reward !== 'keycard' ? Promise.resolve() : load('Prop_KeyCard').then(gltf => {
+    if (disposed) { disposeObject(gltf.scene); return; }
+    const bounds = new THREE.Box3().setFromObject(gltf.scene), size = bounds.getSize(new THREE.Vector3());
+    const scale = 0.46 / Math.max(size.x, size.y, size.z);
+    if (!Number.isFinite(scale) || scale <= 0) { disposeObject(gltf.scene); throw new Error('Invalid keycard asset bounds'); }
+    const center = bounds.getCenter(new THREE.Vector3());
+    gltf.scene.scale.multiplyScalar(scale); gltf.scene.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
+    gltf.scene.name = 'ChestKeycardAsset'; loot.add(gltf.scene); rewardReady = true;
+  });
+  const ready = Promise.all([chestReady, lootReady]).then(() => undefined);
 
   function near() { return player.body.position.distanceTo(new CANNON.Vec3(position.x, position.y + player.radius, position.z)) <= 1.8; }
   function onKeyDown(event: KeyboardEvent) {
     if (event.code !== 'KeyE' || event.repeat || event.defaultPrevented || disposed || collected || opening > 0
-      || !canInteract() || !player.isEnabled() || player.getState().boxHandling || !near() || !unlocked()) return;
+      || !rewardReady || !canInteract() || !player.isEnabled() || player.getState().boxHandling || !near() || !unlocked()) return;
     if (document.hidden || document.body.classList.contains('quick-menu-open') ||
       (event.target instanceof HTMLElement && event.target.closest('button, dialog, input, textarea, select, [contenteditable="true"]'))) return;
     if (reward === 'health' && player.getHealth() >= 100) return;
@@ -129,11 +146,13 @@ export function createRewardChest({ scene, world, player, position, yaw = 0, rew
       }
     }
     if (canInteract() && player.isEnabled() && !player.getState().boxHandling && near() && !collected && opening === 0 && prompt) {
-      prompt.textContent = !unlocked() ? lockedPrompt ?? (reward === 'goggles' ? 'Destroy every wall target with the pistol' : reward === 'lightsaber' ? 'Unlock the Bay Warden door' : 'Break the crates with your crowbar')
+      prompt.textContent = inputHint(!unlocked() ? lockedPrompt ?? (reward === 'goggles' ? 'Destroy every wall target with the pistol' : reward === 'lightsaber' ? 'Unlock the Bay Warden door' : 'Break the crates with your crowbar')
+        : !rewardReady ? 'Preparing keycard...'
         : reward === 'health' && player.getHealth() >= 100 ? 'Health is full'
           : reward === 'shield' && player.getShield() >= player.getMaxShield() ? 'Shield is full'
             : `Press E to open chest - ${reward === 'goggles' ? 'scanner goggles' : reward === 'lightsaber' ? 'lightsaber'
-              : reward === 'crowbar' ? 'crowbar' : reward === 'shield' ? '+25 shield' : '+15 HP'}`;
+              : reward === 'crowbar' ? 'crowbar' : reward === 'keycard' ? 'keycard'
+                : reward === 'aegis' ? 'Aegis Core - one 30-second boss immunity' : reward === 'shield' ? '+25 shield' : '+15 HP'}`);
       prompt.classList.remove('hidden'); ownsPrompt = true;
     } else hidePrompt();
   }

@@ -37,7 +37,7 @@ export function hologramTransitionAt(time: number, arriving = false, duration = 
 }
 
 export interface CinematicPose {
-  clip: 'Walk_Loop' | 'Float_Loop' | 'Ladder_Climb_Loop' | 'Crouch_Idle_Loop' | 'Interact' | 'Idle_Loop' | 'Sprint_Loop' | 'Slide_Tackle' | 'Pistol_Aim_Neutral' | 'Pistol_Shoot' | 'Sword_Idle' | 'Sword_Attack' | 'Roll' | 'Hit_Chest' | 'Death01' | 'Jump_Start' | 'Jump_Loop' | 'Jump_Land' | 'Sitting_Enter';
+  clip: 'Walk_Loop' | 'Float_Loop' | 'Ladder_Climb_Loop' | 'Crouch_Idle_Loop' | 'Interact' | 'Silent_Takedown' | 'Idle_Loop' | 'Sprint_Loop' | 'Slide_Tackle' | 'Pistol_Aim_Neutral' | 'Pistol_Shoot' | 'Sword_Idle' | 'Sword_Attack' | 'Roll' | 'Hit_Chest' | 'Death01' | 'Jump_Start' | 'Jump_Loop' | 'Jump_Land' | 'Sitting_Enter';
   time: number;
   duration?: number;
   loop?: boolean;
@@ -58,7 +58,7 @@ const CLIP_NAMES = [
   'Crouch_Idle_Loop', 'Crouch_Fwd_Loop',
   'Ladder_Climb_Loop',
   'Float_Loop', 'Box_Push_Loop', 'Box_Pull_Loop',
-  'Slide_Tackle',
+  'Slide_Tackle', 'Silent_Takedown',
 ] as const;
 type ClipName = typeof CLIP_NAMES[number] | LightsaberAttackName;
 
@@ -414,6 +414,27 @@ export async function loadCharacter(loader?: GLTFLoader) {
       bone.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(axis, angle)); model.updateMatrixWorld(true);
     }
   }
+  clips.push(await bakeRigClip('Silent_Takedown', 1.65, 35, time => {
+    const reach = THREE.MathUtils.smootherstep(time, 0, 0.4);
+    const disable = THREE.MathUtils.smootherstep(time, 0.45, 0.9);
+    const recover = THREE.MathUtils.smootherstep(time, 1.1, 1.65);
+    const weight = reach * (1 - recover), twist = Math.sin(disable * Math.PI) * weight;
+    const hips = hipRest.clone(); hips.y -= weight * 0.13; hips.z += weight * 0.08;
+    pelvis.position.copy(pelvis.parent!.worldToLocal(hips)); model.updateMatrixWorld(true);
+    rotateAnatomically(spine[0], weight * 0.12, -twist * 0.2);
+    rotateAnatomically(spine[1], weight * 0.1, -twist * 0.15);
+    rotateAnatomically(neck, -weight * 0.1);
+    for (const suffix of ['l', 'r']) {
+      const side = suffix === 'l' ? 1 : -1;
+      solveLimb(`thigh_${suffix}`, `calf_${suffix}`, `foot_${suffix}`,
+        new THREE.Vector3(side * 0.17, floor + ankleHeight, side * weight * 0.16), new THREE.Vector3(side * 0.2, 0, 1));
+      const hand = new THREE.Vector3(side * (0.29 - weight * 0.09),
+        1.08 + weight * (suffix === 'l' ? 0.2 : 0.08) - disable * weight * 0.16,
+        0.08 + weight * 0.61 - (suffix === 'r' ? twist * 0.18 : 0));
+      solveLimb(`upperarm_${suffix}`, `lowerarm_${suffix}`, `hand_${suffix}`, hand, new THREE.Vector3(side, -0.2, -0.15));
+      orientHand(suffix, false, weight > 0.2);
+    }
+  }));
   clips.push(await bakeRigClip('Slide_Tackle', SLIDE_TACKLE.duration, 85, time => {
     const { low, recover } = slideTackleMotion(time);
     const drop = THREE.MathUtils.smootherstep(time, 0.04, 0.3);
@@ -735,6 +756,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
       currentAction.time = THREE.MathUtils.clamp(playerState.slideTime, 0, SLIDE_TACKLE.duration);
     } else if (playerState.ventMode) {
       fadeTo(isMoving ? 'Crouch_Fwd_Loop' : 'Crouch_Idle_Loop', false, !wasVentMode);
+      currentAction.setEffectiveTimeScale(isMoving && sprinting ? 2 : 1);
     } else if (climbing) {
       fadeTo('Ladder_Climb_Loop');
       currentAction.setEffectiveTimeScale(climbDirection ?? 1);

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "cannon-es": "^0.20.0",
+    "gifuct-js": "^2.1.2",
     "pathfinding": "^0.4.18",
     "three": "^0.170.0",
     "three-bvh-csg": "^0.0.17",

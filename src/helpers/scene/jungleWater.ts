@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import vertexShader from '../../shaders/jungleWater.vert.glsl?raw';
 import fragmentShader from '../../shaders/jungleWater.frag.glsl?raw';
+import waterNoise from '../../shaders/waterNoise.glsl?raw';
 
 /** GPU-driven river surface; the owning scene disposes its geometry and material. */
 export function createJungleWater(scene: THREE.Scene, options: { y: number; z: number; halfWidth: number; length: number }) {
@@ -20,7 +21,7 @@ export function createJungleWater(scene: THREE.Scene, options: { y: number; z: n
     uObstacles: { value: Array.from({ length: 24 }, () => new THREE.Vector4()) },
   };
   const material = new THREE.ShaderMaterial({
-    name: 'JungleRiverWater', uniforms, vertexShader, fragmentShader,
+    name: 'JungleRiverWater', uniforms, vertexShader, fragmentShader: fragmentShader.replace('#include <jungle_water_noise>', waterNoise),
     fog: true, side: THREE.DoubleSide, depthWrite: true, toneMapped: true,
   });
   const geometry = new THREE.PlaneGeometry(options.length, options.halfWidth * 2, 256, 24);

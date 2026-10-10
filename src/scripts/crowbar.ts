@@ -5,6 +5,7 @@ import type { DamageTarget } from './pistol.js';
 import { MeleeSwing, getAttackSegment } from './melee.js';
 import type { Player } from './player.js';
 import { registerTouchAttackCallback, refreshTouchAttackButton } from './touchControls.js';
+import { isControllerEvent, inputHint } from './gamepadInput.js';
 
 const CROWBAR_SWING_DURATION = 0.35;
 
@@ -70,12 +71,12 @@ export class CrowbarController {
     this.context().holsterOther?.();
     this.equipped = true;
     refreshTouchAttackButton();
-    if (this.status) this.status.textContent = 'Hold Tab: weapons | Left click: crowbar';
+    if (this.status) this.status.textContent = inputHint('Hold Tab: weapons | Left click: crowbar');
   }
 
   private onMouseDown = (event: MouseEvent) => {
     const touchActive = (window as any).__touchActive === true;
-    if (event.button === 0 && (document.pointerLockElement || touchActive)) this.swing();
+    if (event.button === 0 && (document.pointerLockElement || touchActive || isControllerEvent(event))) this.swing();
   };
 
   private swing() {

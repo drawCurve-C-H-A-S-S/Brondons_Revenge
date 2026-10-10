@@ -65,7 +65,7 @@ test('prologue and wake-up skip controls share Enter-only progress, pause reset,
   assert.doesNotMatch(wake, /wakeSkipBtn\.addEventListener\('click'/);
 });
 
-test('hangar has physical cover, container ladders, refuges, no vents, and two working bulkheads', async () => {
+test('hangar has physical cover, container ladders, refuges and a ceiling vent ladder', async () => {
   const server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom',
     optimizeDeps: { noDiscovery: true, include: [] } });
   let physics;
@@ -77,7 +77,7 @@ test('hangar has physical cover, container ladders, refuges, no vents, and two w
     physics = createScenePhysics();
     const scene = new THREE.Scene();
     const hangar = createStealthHangar(scene, physics, 12);
-    assert.equal(hangar.ladders.length, 12);
+    assert.equal(hangar.ladders.length, 13);
     assert.equal(hangar.rooftops.length, 12);
     assert.equal(hangar.platforms.length, 7);
     assert.equal(hangar.scanSurfaces.length, 19);
@@ -98,16 +98,11 @@ test('hangar has physical cover, container ladders, refuges, no vents, and two w
       assert.ok(Math.atan2(Math.abs(platform.end.y - platform.start.y), Math.hypot(platform.end.x - platform.start.x,
         platform.end.z - platform.start.z)) < Math.PI / 4, 'Sloped links must remain walkable');
     }
-    assert.equal(hangar.safeZones.length, 15);
-    assert.equal(scene.children.some(object => /^Vent/.test(object.name)), false);
+    assert.equal(hangar.safeZones.length, 16);
+    assert.ok(scene.getObjectByName('VentCeilingShaft'));
     assert.ok(hangar.obstacles.length >= 20);
     assert.equal(HANGAR_LAYOUT.containers.length, 12);
-    assert.ok(scene.getObjectByName('HangarDockedShuttle'));
-    for (const name of ['ShuttleHullWithCockpitCutout', 'ShuttleWindshield', 'ShuttleCanopy', 'ShuttlePilotSeat']) {
-      assert.ok(hangar.shuttle.getObjectByName(name), `The docked shuttle must reuse the detailed ${name}`);
-    }
-    const shipBounds = new THREE.Box3().setFromObject(hangar.shuttle);
-    assert.ok(shipBounds.max.x < 83 && shipBounds.min.z > 21, 'The improved ship must leave the airlock approach clear');
+    assert.equal(scene.getObjectByName('HangarDockedShuttle'), undefined);
     assert.ok(scene.getObjectByName('CentralRotatingAlarmBeacon'));
     hangar.updateAlarm(0.2, true);
     const firstSweep = hangar.alarmSpots[0].light.target.position.clone();
@@ -472,7 +467,7 @@ test('playable stage connects closet, automatic entry, alarm retry, container ro
         const ladder = data.hangar.ladders[0];
         data.player.setPosition(ladder.x, 12.3, ladder.z + ladder.side * 0.6); stageKey('KeyE');
         assert.equal(data.player.getState().climbing, true); assert.equal(data.getCinematicPose().clip, 'Ladder_Climb_Loop');
-        advanceStage(data, 4.5);
+        advanceStage(data, 9);
         assert.equal(data.player.getState().ventMode, false); assert.equal(data.player.getState().climbing, false);
         assert.equal(data.getStageState().safeZone, 'cargo-roof-0', JSON.stringify({ position: data.player.body.position, stage: data.getStageState() }));
         assert.equal(data.ownsWeaponInput, false);
@@ -482,7 +477,7 @@ test('playable stage connects closet, automatic entry, alarm retry, container ro
         assert.ok(data.player.body.position.z > ladder.topZ + 1, 'W physically walks freely across the container roof');
         assert.equal(data.getStageState().alarm, false);
         data.player.setPosition(ladder.x, ladder.height + 0.3, ladder.topZ); stageKey('KeyE');
-        assert.equal(data.player.getState().climbDirection, -1); advanceStage(data, 4.5);
+        assert.equal(data.player.getState().climbDirection, -1); advanceStage(data, 9);
         assert.equal(data.player.getState().ventMode, false); assert.equal(data.player.getState().climbing, false);
         assert.ok(Math.abs(data.player.body.position.y - 12.3) < 0.06);
         assert.equal(data.ownsWeaponInput, false);
@@ -554,29 +549,29 @@ test('playable stage connects closet, automatic entry, alarm retry, container ro
         data.player.setPosition(18.8, 12.3, -7); stageKey('KeyE');
         assert.equal(data.getStageState().phase, 'takedown');
         assert.ok(Math.abs(data.player.getState().yaw + Math.PI / 2) < 1e-6);
-        assert.equal(data.getCinematicPose().clip, 'Interact');
-        advanceStage(data, 1.4);
+        assert.equal(data.getCinematicPose().clip, 'Silent_Takedown');
+        advanceStage(data, 1.8);
         assert.equal(data.getStageState().phase, 'hangar'); assert.equal(actor.mode, 'down');
         assert.equal(data.getStageState().alarm, false); assert.equal(data.ownsWeaponInput, false);
         assert.ok(data.player.body.position.x > 19.1);
       } finally { data?.dispose(); restore(); }
     });
-    await context.test('far airlock transitions once and alarm prevents its use', async () => {
+    await context.test('far airlock stays locked and cannot transition to Stage Two', async () => {
       const restore = stageBrowser(); let data;
       try {
         let completed = 0;
-        data = createScene({ modelLoader, restoreCheckpoint: true, onComplete: () => completed++ }); await data.ready;
+        data = createScene({ modelLoader, restoreCheckpoint: true, onComplete: async () => { completed++; return true; } }); await data.ready;
         data.player.setPosition(84.4, 18.7, 20); stageKey('KeyE');
         assert.equal(data.getStageState().phase, 'hangar', 'The exit cannot be activated remotely from rooftop height');
         assert.equal(completed, 0);
         data.player.setPosition(84.4, 12.3, 20); stageKey('KeyE'); advanceStage(data, 3.1);
-        assert.equal(data.getStageState().phase, 'complete'); assert.equal(completed, 1);
-        advanceStage(data, 0.2); assert.equal(completed, 1);
+        assert.equal(data.getStageState().phase, 'hangar'); assert.equal(completed, 0);
+        advanceStage(data, 0.2); assert.equal(completed, 0);
         data.dispose();
         data = createScene({ modelLoader, restoreCheckpoint: true, onComplete: () => completed++ }); await data.ready;
         data.stealth.forceAlarm(data.stealth.actors[0].id); advanceStage(data, 2.6);
         data.player.setPosition(84.4, 12.3, 20); stageKey('KeyE'); advanceStage(data, 0.1);
-        assert.equal(data.hangar.exit.open, 0); assert.equal(completed, 1);
+        assert.equal(data.hangar.exit.open, 0); assert.equal(completed, 0);
         assert.equal(data.getStageState().alarm, true);
       } finally { data?.dispose(); restore(); }
     });

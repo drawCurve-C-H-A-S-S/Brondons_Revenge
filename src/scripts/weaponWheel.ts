@@ -84,6 +84,9 @@ export function createWeaponWheel(options: WeaponWheelOptions) {
     // Keep pointer lock. Relative mouse motion drives a virtual cursor without moving the camera.
     root.classList.toggle('locked-pointer', !!document.pointerLockElement);
     options.setPaused(true);
+    root.querySelector('.ww-hint')!.innerHTML = isControllerActive()
+      ? `Hold <kbd>${controllerButtonLabel('l')}</kbd> &nbsp; Right stick to select &nbsp; Release to equip<br>Unarmed to holster &nbsp; / &nbsp; ${controllerMenuLabel('back')} to cancel`
+      : 'Hold <kbd>Tab</kbd> &nbsp; Aim to select &nbsp; Release to equip<br>Unarmed to holster &nbsp; / &nbsp; Esc to cancel';
     return true;
   }
   function close(confirm = false) {
@@ -110,8 +113,15 @@ export function createWeaponWheel(options: WeaponWheelOptions) {
     cursor.setAttribute('cx', String(x)); cursor.setAttribute('cy', String(y));
     select(weaponWheelIndex(x, y, entries.length));
   }
+  function aimFromStick(stickX: number, stickY: number) {
+    if (!open || Math.hypot(stickX, stickY) < 0.2) return;
+    x = stickX * RADIUS; y = stickY * RADIUS;
+    cursor.setAttribute('cx', String(x)); cursor.setAttribute('cy', String(y));
+    select(weaponWheelIndex(x, y, entries.length));
+  }
   const capture = { capture: true, signal: events.signal };
   window.addEventListener('keydown', event => {
+    if (isControllerActive() && !isControllerEvent(event) && event.code !== 'Escape') return;
     if (open) {
       consume(event);
       if (event.code === 'Escape') close();
@@ -131,6 +141,7 @@ export function createWeaponWheel(options: WeaponWheelOptions) {
     } else if (openWheel()) consume(event);
   }, capture);
   window.addEventListener('keyup', event => {
+    if (isControllerActive() && !isControllerEvent(event)) return;
     if (event.code === 'Tab' && holdTimer !== null) {
       const action = tapAction; cancelHold(); consume(event);
       if (!options.isBlocked()) action?.();
@@ -140,12 +151,13 @@ export function createWeaponWheel(options: WeaponWheelOptions) {
     consume(event);
     if (event.code === 'Tab') close(true);
   }, capture);
-  window.addEventListener('mousemove', event => { if (open) { point(event); consume(event); } }, capture);
+  window.addEventListener('mousemove', event => { if (open) { if (!isControllerActive()) point(event); consume(event); } }, capture);
   for (const type of ['mousedown', 'mouseup', 'click', 'dblclick', 'wheel', 'pointerdown', 'pointerup', 'pointermove', 'touchstart', 'touchmove', 'touchend'] as const) {
     window.addEventListener(type, event => { if (open) consume(event); }, { ...capture, passive: false });
   }
   window.addEventListener('blur', () => close(), { signal: events.signal });
   document.addEventListener('visibilitychange', () => { if (document.hidden) close(); }, { signal: events.signal });
-  document.addEventListener('pointerlockchange', () => { if (open && !document.pointerLockElement) close(); }, { signal: events.signal });
-  return { isOpen: () => open, close, dispose() { close(); events.abort(); root.remove(); } };
+  document.addEventListener('pointerlockchange', () => { if (open && !document.pointerLockElement && !isControllerActive()) close(); }, { signal: events.signal });
+  return { isOpen: () => open, close, aimFromStick, dispose() { close(); events.abort(); root.remove(); } };
 }
+import { isControllerActive, isControllerEvent, controllerButtonLabel, controllerMenuLabel } from './gamepadInput.js';

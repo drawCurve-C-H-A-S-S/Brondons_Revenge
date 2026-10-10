@@ -3,10 +3,10 @@ import { HERO_TRANSFORM, PLANET_RUPTURE } from './finaleChoreography.js';
 
 export type FinaleStart = 'reveal' | 'ground' | 'space' | 'finisher';
 export type FinalePhase = 'loading' | 'error' | FinaleStart | 'enemyTransform' | 'heroTransform' | 'versus' | 'rupture' | 'defeat' | 'victory' | 'credits' | 'done';
-export interface FinaleCheckpoint { stage: FinaleStart; }
+export interface FinaleCheckpoint { stage: FinaleStart; bossImmunityUsed?: boolean; }
 export interface FinaleCue { phase: FinalePhase; id: string; at: number; }
 export const FINALE_DURATION = Object.freeze({
-  reveal: 27, enemyTransform: 19.2, heroTransform: 17, versus: 4.6, rupture: 19.2, defeat: 6, victory: 18, credits: 28,
+  reveal: 27, enemyTransform: 19.2, heroTransform: 17, versus: 4.6, rupture: PLANET_RUPTURE.orbit + 0.4, defeat: 6, victory: 18, credits: 28,
 });
 export const FINALE_CUES: readonly FinaleCue[] = [
   { phase: 'reveal', id: 'lights', at: 2 }, { phase: 'reveal', id: 'pose', at: 21.2 },
@@ -25,14 +25,18 @@ export const FINALE_CUES: readonly FinaleCue[] = [
   { phase: 'rupture', id: 'escape-boost', at: PLANET_RUPTURE.escape },
   { phase: 'rupture', id: 'world-crack', at: PLANET_RUPTURE.impact },
   { phase: 'rupture', id: 'planet-burst', at: PLANET_RUPTURE.burst },
+  { phase: 'rupture', id: 'forest-aftermath', at: PLANET_RUPTURE.forest },
+  { phase: 'rupture', id: 'brondon-grief', at: PLANET_RUPTURE.cockpit },
   { phase: 'rupture', id: 'orbit-lock', at: PLANET_RUPTURE.orbit },
   { phase: 'defeat', id: 'execution', at: 1.8 }, { phase: 'defeat', id: 'signal-flatline', at: 4.2 },
   { phase: 'victory', id: 'reactor-cut', at: 0.3 }, { phase: 'victory', id: 'sudoers-burst', at: 3.2 },
   { phase: 'victory', id: 'donus-restored', at: 9.2 }, { phase: 'victory', id: 'the-end', at: 14 },
 ];
 
-export function createFinaleDirector(start: FinaleStart = 'reveal') {
-  const duel = createMechDuel(start === 'finisher' ? 'finisher' : start === 'space' ? 'space' : 'ground');
+export function createFinaleDirector(start: FinaleStart = 'reveal', immunity: {
+  bossImmunityAvailable?: boolean; bossImmunityUsed?: boolean;
+} = {}) {
+  const duel = createMechDuel(start === 'finisher' ? 'finisher' : start === 'space' ? 'space' : 'ground', immunity);
   const qte = createFinaleQte();
   let phase: FinalePhase = 'loading', phaseTime = 0, time = 0, paused = false, assetsReady = false, error = '';
   let checkpoint: FinaleStart = start, failure = '', skipHold = 0, skipDown = false, ended = false;
@@ -41,6 +45,7 @@ export function createFinaleDirector(start: FinaleStart = 'reveal') {
   function change(next: FinalePhase) {
     phase = next; phaseTime = 0; clearInput(); changes.push(next);
     if (next === 'ground' || next === 'space' || next === 'finisher') checkpoint = next;
+    if (next === 'ground' || next === 'space') duel.activateBossImmunity();
   }
   function fail(text: string) {
     if (phase === 'defeat' || phase === 'victory' || phase === 'credits' || phase === 'done') return;
@@ -96,7 +101,7 @@ export function createFinaleDirector(start: FinaleStart = 'reveal') {
     },
     drainCues() { return cues.splice(0); }, drainChanges() { return changes.splice(0); },
     drainDuelEvents() { return duelEvents.splice(0); }, drainQteEvents() { return qteEvents.splice(0); },
-    getCheckpoint: (): FinaleCheckpoint => ({ stage: checkpoint }),
+    getCheckpoint: (): FinaleCheckpoint => ({ stage: checkpoint, ...(duel.getState().bossImmunityUsed ? { bossImmunityUsed: true } : {}) }),
     getState: () => ({ phase, phaseTime, time, paused, assetsReady, error, failure, skipHold, ended }),
   };
 }

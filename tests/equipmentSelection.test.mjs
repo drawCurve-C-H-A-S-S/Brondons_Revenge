@@ -288,7 +288,7 @@ test('gem collection preserves the shader light layout and no weapon consumes T/
   assert.doesNotMatch(room, /teleportDeviceLight\.visible\s*=\s*false/);
   assert.match(room, /teleportDevice\.visible = false;\s*teleportDeviceLight\.intensity = 0;/);
   assert.doesNotMatch(room, /createPlacedMarker|placedMarkerLight/);
-  for (const path of ['scripts/crowbar.ts', 'scripts/pistol.ts', 'scripts/lightsaber.ts', 'scripts/touchControls.ts', 'scenes/level 3/scene18.ts']) {
+  for (const path of ['scripts/crowbar.ts', 'scripts/pistol.ts', 'scripts/lightsaber.ts', 'scripts/touchControls.ts', 'scenes/level 3/scene17.ts']) {
     assert.doesNotMatch(await source(path), /['"]Key[TKL]['"]/);
   }
 });

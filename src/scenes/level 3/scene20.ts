@@ -1,8 +1,9 @@
 import * as THREE from 'three';
+import { inputHint } from '../../scripts/gamepadInput.js';
 import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
 import { roomBox, disposeRoom } from '../../helpers/scene/shipRoom.js';
 import { createPlayer } from '../../scripts/player.js';
-import type { RescueArrival } from '../../helpers/scene/rescueSite.js';
+import { RESCUE_SITE, type RescueArrival } from '../../helpers/scene/rescueSite.js';
 
 /**
  * Scene 20 — AI Research Facility interior (Level 3).
@@ -251,6 +252,9 @@ export function createScene({ entryState, onRespawn, onFinished }: {
   player.setRotation(0);
   player.enable();
   player.updateCamera(0);
+  const exteriorCamera = entryState?.cameraPosition?.clone().add(new THREE.Vector3(0, 0, spawn.z - (RESCUE_SITE.doorZ - 6)));
+  const entryBasePosition = new THREE.Vector3(), entryBaseRotation = new THREE.Quaternion();
+  let entryViewClock = -1;
 
   // ── Puzzle state ───────────────────────────────────────────────────────────
   let progress = 0;             // how many stations correctly activated in a row
@@ -305,6 +309,7 @@ export function createScene({ entryState, onRespawn, onFinished }: {
     messageEl.style.display = 'block';
     messageTime = seconds;
   }
+  message('PRIME: I expected more security.', 3.8);
 
   // ── Interaction (E key) ────────────────────────────────────────────────────
   const prompt = document.getElementById('interact-prompt');
@@ -334,7 +339,7 @@ export function createScene({ entryState, onRespawn, onFinished }: {
   // ── Update loop ────────────────────────────────────────────────────────────
   let clock = 0;
   function updatePhysics(dt: number, thirdPerson = false) {
-    if (disposed || finished || document.hidden) return;
+    if (disposed || finished || document.hidden || document.body.classList.contains('quick-menu-open')) return;
     dt = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, PHYSICS.maxFrameTime));
     clock += dt;
     physics.step(dt, player, thirdPerson);
@@ -344,9 +349,9 @@ export function createScene({ entryState, onRespawn, onFinished }: {
       const target = currentTarget();
       if (target) {
         prompt.classList.remove('hidden');
-        prompt.textContent = target.kind === 'log'
+        prompt.textContent = inputHint(target.kind === 'log'
           ? (target.log.read ? 'E: re-read data log' : 'E: read data log')
-          : `E: activate ${target.station.id}`;
+          : `E: activate ${target.station.id}`);
       } else prompt.classList.add('hidden');
     }
 
@@ -394,7 +399,8 @@ export function createScene({ entryState, onRespawn, onFinished }: {
       revealTime += dt;
       if (revealTime > 3.4) {
         finished = true;
-        onFinished({ pilotState: player.captureTransition({ x: 0, y: 0, z: 0 }), hullHealth: entryState?.hullHealth });
+        onFinished({ ...entryState, cameraPosition: undefined, cameraQuaternion: undefined, cameraFov: undefined,
+          pilotState: player.captureTransition({ x: 0, y: 0, z: 0 }) });
       }
     }
   }
@@ -405,6 +411,16 @@ export function createScene({ entryState, onRespawn, onFinished }: {
     hideMinimap: () => true,
     getMinimapState: () => ({ position: player.body.position, yaw: player.getState().yaw }),
     getMusicTrack: (): 'stealth-2' => 'stealth-2',
+    applyEntryCamera() {
+      if (!exteriorCamera || !entryState?.cameraQuaternion || clock >= 0.75) return;
+      if (entryViewClock !== clock) {
+        entryViewClock = clock; entryBasePosition.copy(camera.position); entryBaseRotation.copy(camera.quaternion);
+      }
+      const progress = THREE.MathUtils.smootherstep(clock, 0, 0.75);
+      camera.position.lerpVectors(exteriorCamera, entryBasePosition, progress);
+      camera.quaternion.slerpQuaternions(entryState.cameraQuaternion, entryBaseRotation, progress);
+      camera.fov = THREE.MathUtils.lerp(entryState.cameraFov ?? 75, 75, progress); camera.updateProjectionMatrix();
+    },
     updatePhysics,
     dispose() {
       if (disposed) return;

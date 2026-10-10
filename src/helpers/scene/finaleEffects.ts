@@ -166,14 +166,14 @@ export function createFinaleEffects(scene: THREE.Scene, reducedMotion: boolean, 
       bladeCharge.visible = power > 0.01;
       direction.copy(to).sub(from);
       bladeCharge.position.copy(from).lerp(to, 0.5);
-      bladeCharge.scale.set(0.07 + power * 0.13, direction.length(), 0.07 + power * 0.13);
+      bladeCharge.scale.set(0.05 + power * 0.08, direction.length(), 0.05 + power * 0.08);
       if (direction.lengthSq() > 0) bladeCharge.quaternion.setFromUnitVectors(up, direction.normalize());
       bladeCharge.material.uniforms.uPower.value = power; bladeCharge.material.uniforms.uTime.value = time;
       bladeCorona.visible = bladeCharge.visible;
       bladeCorona.position.copy(bladeCharge.position); bladeCorona.quaternion.copy(bladeCharge.quaternion);
-      bladeCorona.scale.set(0.25 + power * 0.5, from.distanceTo(to), 0.25 + power * 0.5);
-      bladeCorona.material.uniforms.uPower.value = power * 0.32; bladeCorona.material.uniforms.uTime.value = time;
-      const frame = Math.floor(time * 24);
+      bladeCorona.scale.set(0.16 + power * 0.28, from.distanceTo(to), 0.16 + power * 0.28);
+      bladeCorona.material.uniforms.uPower.value = power * 0.18; bladeCorona.material.uniforms.uTime.value = time;
+      const frame = Math.floor(time * 12);
       if (power > 0.25 && frame !== lastChargeSpark) {
         lastChargeSpark = frame;
         const point = from.clone().lerp(to, random());
@@ -181,11 +181,11 @@ export function createFinaleEffects(scene: THREE.Scene, reducedMotion: boolean, 
       }
     },
     projectile(position: THREE.Vector3, velocity: THREE.Vector3, side: MechSide, time: number, slot = 0) {
-      const frame = Math.floor(time * 45);
+      const frame = Math.floor(time * 30);
       if (frame === projectileSparkFrames[slot]) return;
       projectileSparkFrames[slot] = frame;
-      for (let i = 0; i < 3; i++) particle(position, i === 0 ? 0xffffff : FRAME_COLORS[side],
-        8 + random() * 5, 0.2 + random() * 0.16, 0.24, velocity.clone().normalize().negate());
+      for (let i = 0; i < 2; i++) particle(position, i === 0 && side === 'hero' ? 0xffffff : FRAME_COLORS[side],
+        8 + random() * 5, 0.16 + random() * 0.12, 0.15, velocity.clone().normalize().negate());
     },
     slash,
     speedStreaks(position: THREE.Vector3, forward: THREE.Vector3, power: number, time: number) {
@@ -269,7 +269,8 @@ export function createFinaleEffects(scene: THREE.Scene, reducedMotion: boolean, 
 }
 
 export function createBladeTrail(scene: THREE.Scene, side: MechSide) {
-  const capacity = 22, positions = new Float32Array(capacity * 18), alpha = new Float32Array(capacity * 6);
+  const capacity = 10, lifetime = 0.085, cadence = 1 / 90;
+  const positions = new Float32Array(capacity * 18), alpha = new Float32Array(capacity * 6);
   const ages = new Float32Array(capacity), geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage));
   geometry.setAttribute('trailAlpha', new THREE.BufferAttribute(alpha, 1).setUsage(THREE.DynamicDrawUsage));
@@ -278,26 +279,43 @@ export function createBladeTrail(scene: THREE.Scene, side: MechSide) {
     vertexShader: `attribute float trailAlpha; varying float vAlpha; void main() {
       vAlpha = trailAlpha; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `uniform vec3 color; varying float vAlpha; void main() {
-      gl_FragColor = vec4(mix(color * 3.5, vec3(5.0), vAlpha * 0.5), vAlpha); }`,
+      gl_FragColor = vec4(color * 1.25, vAlpha); }`,
     transparent: true, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
   });
   const mesh = new THREE.Mesh(geometry, material); mesh.name = `${side}_BladeAfterimage`; mesh.frustumCulled = false; scene.add(mesh);
-  const previousA = new THREE.Vector3(), previousB = new THREE.Vector3(); let cursor = 0, wasActive = false;
+  const previousA = new THREE.Vector3(), previousB = new THREE.Vector3();
+  const start = new THREE.Vector3(), end = new THREE.Vector3(), inner = new THREE.Vector3(), outer = new THREE.Vector3();
+  let cursor = 0, wasActive = false, carry = 0;
+  const weights = [0.015, 0.065, 0.065, 0.015, 0.065, 0.015];
   return {
     update(a: THREE.Vector3, b: THREE.Vector3, dt: number, active: boolean) {
       for (let i = 0; i < capacity; i++) {
         ages[i] = Math.max(0, ages[i] - dt);
-        alpha.fill(ages[i] / 0.22 * 0.55, i * 6, i * 6 + 6);
+        for (let vertex = 0; vertex < 6; vertex++) alpha[i * 6 + vertex] = (ages[i] / lifetime) ** 1.5 * weights[vertex];
       }
-      if (active && wasActive && dt > 0) {
-        const i = cursor++ % capacity; ages[i] = 0.22;
-        [previousA, previousB, b, previousA, b, a].forEach((point, vertex) => point.toArray(positions, i * 18 + vertex * 3));
-        alpha.fill(0.55, i * 6, i * 6 + 6);
+      const teleported = previousA.distanceToSquared(a) > 28 ** 2;
+      if (teleported) { ages.fill(0); alpha.fill(0); wasActive = false; }
+      if (active && wasActive && dt > 0 && previousB.distanceToSquared(b) > 0.025) {
+        start.copy(previousA).lerp(previousB, 0.78); end.copy(previousB);
+        for (let at = cadence - carry; at <= dt + 1e-8; at += cadence) {
+          const p = Math.min(1, at / dt), i = cursor++ % capacity;
+          outer.lerpVectors(previousB, b, p);
+          inner.lerpVectors(previousA, a, p).lerp(outer, 0.78);
+          ages[i] = Math.max(0, lifetime - (dt - at));
+          [start, end, outer, start, outer, inner].forEach((point, vertex) => {
+            point.toArray(positions, i * 18 + vertex * 3);
+            alpha[i * 6 + vertex] = (ages[i] / lifetime) ** 1.5 * weights[vertex];
+          });
+          start.copy(inner); end.copy(outer);
+        }
+        carry = (carry + dt) % cadence;
+      } else if (!active || !wasActive) {
+        carry = 0;
       }
       previousA.copy(a); previousB.copy(b); wasActive = active;
       geometry.getAttribute('position').needsUpdate = geometry.getAttribute('trailAlpha').needsUpdate = true;
     },
-    clear() { ages.fill(0); alpha.fill(0); geometry.getAttribute('trailAlpha').needsUpdate = true; wasActive = false; },
+    clear() { ages.fill(0); alpha.fill(0); geometry.getAttribute('trailAlpha').needsUpdate = true; wasActive = false; carry = 0; },
     dispose() { mesh.removeFromParent(); geometry.dispose(); material.dispose(); },
   };
 }

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Player, PlayerTransitionState } from './player.js';
+import { inputHint } from './gamepadInput.js';
 
 export function createTeleportCrystal() {
   const root = new THREE.Group(); root.name = 'PurpleTeleportCrystal';
@@ -84,7 +85,7 @@ export class TeleportationDeviceController {
   collect(announce = true) {
     if (this.state.collected) return;
     this.state.collected = true;
-    if (announce) this.showMessage('Teleport crystal linked! Q: place marker / T: return / Hold Tab: weapons.');
+    if (announce) this.showMessage(inputHint('Teleport crystal linked! Q: place marker / T: return / Hold Tab: weapons.'));
   }
 
   reset() {

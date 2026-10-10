@@ -7,6 +7,9 @@ type DeckFilter = ShipDeck | 'all';
 interface ShipMapJoin {
   from: { room: number; portal: string };
   to: { room: number; portal: string };
+  kind?: 'camera';
+  verticalOffset?: number;
+  displayOffset?: { x: number; z: number };
 }
 export interface ShipMapLayout {
   name: string;
@@ -17,6 +20,10 @@ export interface ShipMapLayout {
   joins?: readonly ShipMapJoin[];
   ventPaths?: readonly (readonly THREE.Vector3[])[];
   verticalLinks?: readonly { id: number; position: THREE.Vector3; upper: number; label: string }[];
+  cameraLinks?: readonly (readonly [number, number])[];
+  goals?: readonly { id: string; room: number; position: THREE.Vector3; label: string }[];
+  elevatorRoutes?: readonly { id: number; position: THREE.Vector3; width: number; depth: number; yaw?: number;
+    stops: readonly { height: number; label: string; locked?: boolean }[] }[];
 }
 
 export const SHIP_MAP_LAYOUT: ShipMapLayout = {
@@ -53,6 +60,9 @@ export function createShipMapProgress() {
         if (!exit || !entry) throw new Error(`Missing map portal joining ${known.room} to ${arriving.room}`);
         yaw = anchor.yaw + exit.yaw - local.yaw - entry.yaw + Math.PI;
         offset.copy(roomPoint(anchor, exit.x, exit.z)).sub(roomPoint(local, entry.x, entry.z).applyAxisAngle(up, yaw));
+        offset.y += (forward ? 1 : -1) * (join.verticalOffset ?? 0);
+        if (join.displayOffset) offset.add(new THREE.Vector3(join.displayOffset.x, 0, join.displayOffset.z)
+          .applyAxisAngle(up, anchor.yaw).multiplyScalar(forward ? 1 : -1));
         joined = true; break;
       }
       // Unconnected blueprints stay separate instead of overlapping discovered rooms.
@@ -69,15 +79,18 @@ export function createShipMapProgress() {
     getLayout(): ShipMapLayout {
       if (snapshot) return snapshot;
       const charted = [...sections.values()], connections = new Map<string, readonly [number, number]>();
-      const addConnection = (from: number, to: number) => {
-        if (rooms.has(from) && rooms.has(to)) connections.set(`${Math.min(from, to)}:${Math.max(from, to)}`, [from, to]);
+      const cameraLinks = new Map<string, readonly [number, number]>();
+      const addConnection = (from: number, to: number, camera = false) => {
+        if (rooms.has(from) && rooms.has(to)) (camera ? cameraLinks : connections).set(`${Math.min(from, to)}:${Math.max(from, to)}`, [from, to]);
       };
       for (const section of charted) {
         section.layout.connections.forEach(([from, to]) => addConnection(from, to));
-        section.layout.joins?.forEach(join => addConnection(join.from.room, join.to.room));
+        section.layout.joins?.forEach(join => addConnection(join.from.room, join.to.room, join.kind === 'camera'));
+        section.layout.cameraLinks?.forEach(([from, to]) => addConnection(from, to, true));
       }
       snapshot = {
         name: 'Ship', rooms: [...rooms.values()], connections: [...connections.values()],
+        cameraLinks: [...cameraLinks.values()],
         initialRoom: charted[charted.length - 1]?.layout.initialRoom ?? 0,
         playerPoint(id, position) {
           const section = owners.get(id);
@@ -88,6 +101,14 @@ export function createShipMapProgress() {
           .map(path => path.map(point => point.clone().applyMatrix4(section.transform)))),
         verticalLinks: charted.flatMap(section => (section.layout.verticalLinks ?? []).map(link => ({
           ...link, position: link.position.clone().applyMatrix4(section.transform), upper: link.upper + section.transform.elements[13],
+        }))),
+        goals: charted.flatMap(section => (section.layout.goals ?? []).map(goal => ({
+          ...goal, position: goal.position.clone().applyMatrix4(section.transform),
+        }))),
+        elevatorRoutes: charted.flatMap(section => (section.layout.elevatorRoutes ?? []).map(route => ({
+          ...route, position: route.position.clone().applyMatrix4(section.transform),
+          yaw: (route.yaw ?? 0) + Math.atan2(section.transform.elements[8], section.transform.elements[0]),
+          stops: route.stops.map(stop => ({ ...stop, height: stop.height + section.transform.elements[13] })),
         }))),
       };
       return snapshot;
@@ -252,6 +273,48 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
     const geometry = new THREE.BufferGeometry().setFromPoints([link.position, link.position.clone().setY(link.upper)]); shaftGeometries.push(geometry);
     const line = new THREE.Line(geometry, shaftMaterial); line.computeLineDistances(); scene.add(line); links.push({ object: line, id: link.id });
   }
+  const elevatorMaterial = new THREE.MeshBasicMaterial({ color: 0x6ad9e8, transparent: true, opacity: 0.11,
+    depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+  const elevatorEdges = new THREE.LineBasicMaterial({ color: 0x6ad9e8, transparent: true, opacity: 0.8, toneMapped: false });
+  const elevatorOffline = new THREE.LineBasicMaterial({ color: 0xff785e, transparent: true, opacity: 0.65, toneMapped: false });
+  const elevatorLabels: { point: THREE.Vector3; label: HTMLElement; object: THREE.Object3D }[] = [];
+  for (const route of layout?.elevatorRoutes ?? []) {
+    if (route.stops.length < 2) continue;
+    const minY = Math.min(...route.stops.map(stop => stop.height)), maxY = Math.max(...route.stops.map(stop => stop.height));
+    const group = new THREE.Group(); group.name = 'HolographicElevatorRoute'; scene.add(group); links.push({ object: group, id: route.id });
+    const geometry = new THREE.BoxGeometry(route.width, maxY - minY + 2, route.depth); shaftGeometries.push(geometry);
+    const shaft = new THREE.Mesh(geometry, elevatorMaterial);
+    shaft.rotation.y = route.yaw ?? 0;
+    shaft.position.set(route.position.x, (minY + maxY) / 2 + 1, route.position.z); group.add(shaft);
+    const edges = new THREE.EdgesGeometry(geometry); shaftGeometries.push(edges); shaft.add(new THREE.LineSegments(edges, elevatorEdges));
+    for (const stop of route.stops) {
+      const point = new THREE.Vector3(route.position.x, stop.height + 0.15, route.position.z);
+      const landingGeometry = new THREE.BoxGeometry(route.width + 1.2, 0.18, route.depth + 1.2); shaftGeometries.push(landingGeometry);
+      const landing = new THREE.Mesh(landingGeometry, elevatorMaterial); landing.position.copy(point); group.add(landing);
+      landing.rotation.y = route.yaw ?? 0;
+      const frame = new THREE.EdgesGeometry(landingGeometry); shaftGeometries.push(frame);
+      landing.add(new THREE.LineSegments(frame, stop.locked ? elevatorOffline : elevatorEdges));
+      const label = document.createElement('span'); label.className = 'ship-map-elevator-label'; label.textContent = stop.label;
+      label.dataset.locked = String(!!stop.locked); labelLayer.append(label); elevatorLabels.push({ point, label, object: group });
+    }
+    bounds.get(route.id)?.expandByPoint(new THREE.Vector3(route.position.x, minY, route.position.z));
+  }
+  const cameraLinkMaterial = new THREE.LineDashedMaterial({ color: 0xbd77ff, dashSize: 0.9, gapSize: 0.7, transparent: true, opacity: 0.8, toneMapped: false });
+  for (const [from, to] of layout?.cameraLinks ?? []) {
+    const source = roomById.get(from), destination = roomById.get(to);
+    if (!source || !destination) continue;
+    const geometry = new THREE.BufferGeometry().setFromPoints([source.position.clone().add(new THREE.Vector3(0, 2, 0)),
+      destination.position.clone().add(new THREE.Vector3(0, 2, 0))]); shaftGeometries.push(geometry);
+    const line = new THREE.Line(geometry, cameraLinkMaterial); line.computeLineDistances(); scene.add(line); links.push({ object: line, id: to });
+  }
+  const goalGeometry = new THREE.TorusGeometry(0.8, 0.12, 8, 24); goalGeometry.rotateX(-Math.PI / 2);
+  const goalMaterial = new THREE.MeshBasicMaterial({ color: 0xffcf40, depthTest: false, toneMapped: false });
+  const goals = (layout?.goals ?? []).map(goal => {
+    const mesh = new THREE.Mesh(goalGeometry, goalMaterial); mesh.position.copy(goal.position); mesh.renderOrder = 101; scene.add(mesh);
+    const label = document.createElement('button'); label.type = 'button'; label.className = 'ship-map-goal-label';
+    label.textContent = goal.label; label.dataset.room = String(goal.room); label.setAttribute('aria-label', `Target: ${goal.label}`);
+    labelLayer.append(label); return { goal, mesh, label };
+  });
   const markerMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false, depthTest: false });
   const markerGeometry = new THREE.ConeGeometry(0.65, 1.7, 3); markerGeometry.rotateX(-Math.PI / 2);
   const marker = new THREE.Mesh(markerGeometry, markerMaterial); marker.renderOrder = 100; marker.visible = false; scene.add(marker);
@@ -278,6 +341,7 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
     filter = deck;
     rooms.forEach(room => { groups.get(room.id)!.visible = deck === 'all' || room.deck === deck; });
     links.forEach(link => { link.object.visible = deck === 'all'; });
+    goals.forEach(({ goal, mesh }) => { mesh.visible = deck === 'all' || roomById.get(goal.room)?.deck === deck; });
     decks.querySelectorAll<HTMLButtonElement>('button').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.deck === deck)));
     marker.visible = playerPosition !== null && (deck === 'all' || roomById.get(current)?.deck === deck);
     if (changed) needsFit = true;
@@ -388,6 +452,16 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
         label.style.setProperty('--leader-angle', `${Math.atan2(origin.y - point.y, origin.x - point.x)}rad`);
         label.style.setProperty('--leader-start', `${step}px`);
       });
+      goals.forEach(({ goal, mesh, label }) => {
+        projected.copy(goal.position).project(camera);
+        label.hidden = !mesh.visible || Math.abs(projected.x) > 0.98 || Math.abs(projected.y) > 0.98 || Math.abs(projected.z) > 1;
+        label.style.left = `${(projected.x + 1) * rect.width / 2}px`; label.style.top = `${(1 - projected.y) * rect.height / 2}px`;
+      });
+      elevatorLabels.forEach(({ point, label, object }) => {
+        projected.copy(point).project(camera);
+        label.hidden = !object.visible || Math.abs(projected.x) > 0.96 || Math.abs(projected.y) > 0.96 || Math.abs(projected.z) > 1;
+        label.style.left = `${(projected.x + 1) * rect.width / 2}px`; label.style.top = `${(1 - projected.y) * rect.height / 2}px`;
+      });
       renderer.getViewport(viewport); renderer.getScissor(scissor); renderer.getClearColor(clearColor); renderer.getSize(size);
       const target = renderer.getRenderTarget(), autoClear = renderer.autoClear, oldScissor = renderer.getScissorTest(), alpha = renderer.getClearAlpha();
       try {
@@ -404,7 +478,10 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
     },
     dispose() {
       events.abort(); observer.disconnect(); controls.dispose(); boxGeometry.dispose(); edgeGeometry.dispose(); markerGeometry.dispose(); markerMaterial.dispose();
-      materials.forEach(material => material.dispose()); outlineMaterials.forEach(material => material.dispose()); shaftMaterial.dispose(); shaftGeometries.forEach(geometry => geometry.dispose()); root.replaceChildren();
+      materials.forEach(material => material.dispose()); outlineMaterials.forEach(material => material.dispose());
+      shaftMaterial.dispose(); cameraLinkMaterial.dispose(); goalGeometry.dispose(); goalMaterial.dispose();
+      elevatorMaterial.dispose(); elevatorEdges.dispose(); elevatorOffline.dispose();
+      shaftGeometries.forEach(geometry => geometry.dispose()); root.replaceChildren();
     },
   };
 }

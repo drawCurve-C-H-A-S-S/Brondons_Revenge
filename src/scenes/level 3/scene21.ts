@@ -3,6 +3,7 @@ import { finaleMusicTrack } from '../../helpers/audio/gameMusic.js';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
 import { createFinaleStudents, SUDOERS_5 } from '../../helpers/scene/finaleActors.js';
 import { createFinaleCamera } from '../../helpers/scene/finaleCinematography.js';
+import { createFinaleAftermath } from '../../helpers/scene/finaleAftermath.js';
 import { createBladeTrail, createFinaleEffects } from '../../helpers/scene/finaleEffects.js';
 import { createFinaleMech, type MechFactory } from '../../helpers/scene/finaleMechs.js';
 import { createFinalePresentation } from '../../helpers/scene/finalePresentation.js';
@@ -20,16 +21,17 @@ import { loadSubjectModel } from '../../core/loader.js';
 import { createRescueSite, RESCUE_SITE, type RescueArrival } from '../../helpers/scene/rescueSite.js';
 import { disposeComicEffects, emitComicEffect } from '../../helpers/scene/comicEffects.js';
 import { createFinaleDirector, FINALE_DURATION, type FinaleCheckpoint, type FinalePhase } from '../../scripts/finaleDirector.js';
-import { DUEL, FINISHER_BEATS, sampleBladeDamageTrace, type DuelProjectileKind, type BladeDamageTrace, type FinisherBeat } from '../../scripts/mechDuel.js';
+import { DUEL, sampleBladeDamageTrace, type DuelProjectileKind, type BladeDamageTrace, type FinisherBeat } from '../../scripts/mechDuel.js';
 import {
   FINALE_START_X, STUDENT_TIMELINE, HERO_TRANSFORM, PLANET_RUPTURE, RIFLE_SEQUENCE,
-  HERO_ULTIMATE, ENEMY_VERDICT, MELEE_STRIKES, FINISHER_EXECUTION,
-  activeStudent, sampleStudentBoarding, sampleFinisher, isMeleeStrike, sampleMeleeBlade,
+  HERO_ULTIMATE, ENEMY_VERDICT, ENEMY_ORBITAL_CUT, MELEE_STRIKES, FINISHER_EXECUTION,
+  activeStudent, sampleStudentBoarding, sampleFinisherSequence, samplePlanetAftermath, isMeleeStrike, sampleMeleeBlade,
   finisherActionTime, cinematicProgress, sampleRooftopNight, DONUS_RETURN, sampleDodgeArc,
 } from '../../scripts/finaleChoreography.js';
 import type { MechPoseName } from '../../scripts/mechAnimation.js';
 import { createPlayer } from '../../scripts/player.js';
 import type { CinematicPose, loadCharacter } from '../../scripts/characterManager.js';
+import { isControllerActive, getControllerMovement } from '../../scripts/gamepadInput.js';
 
 interface FinaleOptions {
   entryState?: RescueArrival;
@@ -39,6 +41,10 @@ interface FinaleOptions {
   onRetry: (checkpoint: FinaleCheckpoint) => void;
   mechFactories?: Partial<Record<'hero' | 'enemy', MechFactory>>;
   loadStudents?: typeof loadSubjectModel;
+}
+interface FinaleFramingEntry {
+  hero: THREE.Vector3; enemy: THREE.Vector3;
+  heroRotation: THREE.Quaternion; enemyRotation: THREE.Quaternion; heroDissolve: number;
 }
 
 const smooth = THREE.MathUtils.smootherstep;
@@ -89,7 +95,8 @@ const LINES: Partial<Record<FinalePhase, { start: number; end: number; speaker: 
   rupture: [
     { start: 0, end: 3.8, speaker: 'SUDOERS 5', text: 'If we cannot rule this world, no one will.' },
     { start: 3.8, end: 9, speaker: 'PRIME', text: 'That bomb will ignite the core! Boost now, Brondon!' },
-    { start: 14.8, end: 19.2, speaker: 'BRONDON', text: 'Then we finish this among the stars.' },
+    { start: PLANET_RUPTURE.cockpit + 0.5, end: PLANET_RUPTURE.resolve, speaker: 'BRONDON', text: 'Noooooo! You killed Brendannnnn!' },
+    { start: PLANET_RUPTURE.resolve, end: PLANET_RUPTURE.returnToDuel + 0.3, speaker: 'BRONDON', text: 'There is no forgiving you now. You will die.' },
   ],
   finisher: [
     { start: 0, end: 3.2, speaker: 'PRIME', text: 'The frame is coming apart. Stay with me, Brondon!' },
@@ -107,10 +114,12 @@ const LINES: Partial<Record<FinalePhase, { start: number; end: number; speaker: 
 export function createScene({ entryState, checkpoint, renderer, onFinished, onRetry,
   mechFactories, loadStudents = loadSubjectModel }: FinaleOptions) {
   const physics = createScenePhysics();
-  const site = createRescueSite(physics, { culling: true, bridgeBrokenAtStart: true });
+  const site = createRescueSite(physics, { culling: true });
   const scene = site.scene;
   const ceilingLift = FINALE_ROOFTOP.y - (site.facilityRoof.position.y + 0.4);
   site.facilityRoof.position.y += ceilingLift;
+  site.facilityRoof.scale.x *= FINALE_ROOFTOP.width / 71;
+  site.facilityRoof.scale.z *= FINALE_ROOFTOP.depth / 33;
   site.rooftopEquipment.position.y += ceilingLift;
   const terrestrial = new THREE.Group(); terrestrial.name = 'FinaleTerrestrialEnvironment';
   const environmentLights: THREE.Object3D[] = [];
@@ -150,8 +159,10 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
 
   const world = createFinaleWorld(scene, { facilityRoof: site.facilityRoof });
   const mothership = createMothership(); mothership.root.visible = false; scene.add(mothership.root);
-  physics.addBox({ x: 70, y: 0.4, z: 32 }, { x: 0, y: FINALE_DECK_Y - 0.2, z: FINALE_ROOFTOP.z });
+  physics.addBox({ x: FINALE_ROOFTOP.width, y: 0.4, z: FINALE_ROOFTOP.depth - 1 },
+    { x: FINALE_ROOFTOP.x, y: FINALE_DECK_Y - 0.2, z: FINALE_ROOFTOP.z });
   site.releasePropCulling(site.ship.root);
+  site.releasePropCulling(site.boy);
   site.ship.setCanopyOpen(1); site.ship.update(0);
   const shipTransform = createFinaleShipTransformation(scene, site.ship, finaleBattlePoint(-FINALE_START_X));
   const students = createFinaleStudents(loadStudents);
@@ -162,6 +173,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
   heroMech.root.visible = false;
   enemyMech.root.visible = false;
   scene.add(heroMech.root, enemyMech.root);
+  const aftermath = createFinaleAftermath(scene, site.boy, site.ready, window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const versus = createHangarVersus({
     singleOpponent: true, playerName: 'BRONDON / PRIME FRAME', opponentName: 'SUDOERS 5 / FINAL VERDICT',
     portraitScale: 1.83 / 16, layout: 'columns',
@@ -178,7 +190,9 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
   const heroTrail = createBladeTrail(scene, 'hero');
   const enemyTrail = createBladeTrail(scene, 'enemy');
   const cameraRig = createFinaleCamera(camera, reducedMotion);
-  const director = createFinaleDirector(checkpoint?.stage ?? 'reveal');
+  const director = createFinaleDirector(checkpoint?.stage ?? 'reveal', {
+    bossImmunityAvailable: entryState?.bossImmunityCollected, bossImmunityUsed: checkpoint?.bossImmunityUsed,
+  });
   const presentation = createFinalePresentation((code, pressed) => handleInput(code, pressed), () => onRetry(director.getCheckpoint()));
   let postProcessing: ReturnType<typeof createFinaleRenderer> | null = null;
   try {
@@ -209,12 +223,17 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
   waveGeometry.translate(0, 0, -0.09);
   const waveGlowGeometry = new THREE.ShapeGeometry(waveShape, 32);
   const verdictGeometry = new THREE.CylinderGeometry(0.24, 0.24, 10.5, 20);
-  const waveMaterial = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xe7fcff).multiplyScalar(4), toneMapped: false });
+  const waveMaterial = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xc6f3ff).multiplyScalar(2.4), toneMapped: false });
   const waveGlowMaterial = new THREE.MeshBasicMaterial({ color: new THREE.Color(FRAME_COLORS.hero).multiplyScalar(3),
     transparent: true, opacity: 0.38, side: THREE.DoubleSide,
     blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
-  const verdictMaterial = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffe6ec).multiplyScalar(5), toneMapped: false });
-  const verdictGlowMaterial = createBeamMaterial(FRAME_COLORS.enemy);
+  const waveWakeMaterial = waveGlowMaterial.clone(); waveWakeMaterial.opacity = 0.16;
+  const verdictMaterials = {
+    hero: new THREE.MeshBasicMaterial({ color: new THREE.Color(FRAME_COLORS.hero).multiplyScalar(2.2), toneMapped: false }),
+    enemy: new THREE.MeshBasicMaterial({ color: new THREE.Color(FRAME_COLORS.enemy).multiplyScalar(1.1), toneMapped: false }),
+  };
+  const verdictGlows = { hero: createBeamMaterial(FRAME_COLORS.hero), enemy: createBeamMaterial(FRAME_COLORS.enemy) };
+  verdictGlows.enemy.uniforms.uPower.value = 0.3;
   const missilePool = Array.from({ length: 32 }, () => {
     const root = new THREE.Group();
     const body = new THREE.Mesh(missileGeometry, missileMaterials.hero);
@@ -229,26 +248,30 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     wave.name = 'FlyingBladeWave';
     const edge = new THREE.Mesh(waveGeometry, waveMaterial), glow = new THREE.Mesh(waveGlowGeometry, waveGlowMaterial);
     glow.scale.set(1.14, 1.2, 1);
-    const crossGlow = glow.clone(); crossGlow.rotation.y = Math.PI / 2;
-    wave.add(edge, glow, crossGlow);
-    const beam = new THREE.Mesh(verdictGeometry, verdictMaterial);
+    const wake = new THREE.Mesh(waveGlowGeometry, waveWakeMaterial);
+    wake.position.y = -1.6; wake.scale.set(0.86, 0.9, 1);
+    const tail = wake.clone(); tail.position.y = -3.2; tail.scale.set(0.64, 0.72, 1);
+    edge.rotation.x = -0.12; glow.rotation.x = -0.12;
+    wave.add(edge, glow, wake, tail);
+    const beam = new THREE.Mesh(verdictGeometry, verdictMaterials.enemy);
     beam.name = 'SwordTipBeam';
-    const beamGlow = new THREE.Mesh(verdictGeometry, verdictGlowMaterial);
-    beamGlow.scale.set(4.3, 1, 4.3); beam.add(beamGlow);
+    const beamGlow = new THREE.Mesh(verdictGeometry, verdictGlows.enemy);
+    beamGlow.scale.set(2.5, 1, 2.5); beam.add(beamGlow);
     wave.visible = beam.visible = false;
     root.add(body, nose, flame, tracer, wave, beam);
     root.visible = false;
     scene.add(root);
-    return { root, body, nose, flame, tracer, wave, beam };
+    return { root, body, nose, flame, tracer, wave, beam, beamGlow };
   });
   const missileDirection = vector(0, 1, 0);
   const spaceReached = checkpoint?.stage === 'space' || checkpoint?.stage === 'finisher';
   let reachedSpace = spaceReached, paused = false, blurred = false, disposed = false;
   let lastPhase: FinalePhase = 'loading', lastFirework = -1;
   let animationDelta = 0, finishedCallbackSent = false;
-  let versusCaptured = false, lastBoardingCue = -1, qteShotIndex = -1, lastClashSpark = -1;
+  let versusCaptured = false, lastBoardingCue = -1, lastClashSpark = -1;
   let finisherEffectIndex = -1, finisherEffectClock = -1, lastExecutionCut = -1;
-  let endingEntry: { hero: THREE.Vector3; enemy: THREE.Vector3; heroRotation: THREE.Quaternion; enemyRotation: THREE.Quaternion } | null = null;
+  let endingEntry: FinaleFramingEntry | null = null;
+  let finisherEntry: FinaleFramingEntry | null = null;
   const clashContact = new THREE.Vector3();
   const qteProjectiles = Array.from({ length: 7 }, () => ({
     active: false, owner: 'enemy' as 'hero' | 'enemy', kind: 'verdictBeam' as DuelProjectileKind,
@@ -262,9 +285,10 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     const left = keys.has('KeyA') || keys.has('ArrowLeft');
     const right = keys.has('KeyD') || keys.has('ArrowRight');
     const up = keys.has('KeyW'), down = keys.has('KeyS');
+    const stick = getControllerMovement();
     director.duel.setInput({
-      move: Number(right) - Number(left),
-      lift: Number(up) - Number(down),
+      move: isControllerActive() ? stick.x : Number(right) - Number(left),
+      lift: isControllerActive() ? -stick.y : Number(up) - Number(down),
       guard: keys.has('KeyR'),
     });
   }
@@ -326,7 +350,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     isAvailable: () => ['reveal', 'enemyTransform', 'heroTransform'].includes(director.getState().phase),
     isPaused: () => paused || blurred });
 
-  const ready = Promise.all([site.ready, students.loaded, heroMech.loaded, enemyMech.loaded, mothership.ready]).then(async () => {
+  const ready = Promise.all([site.ready, students.loaded, heroMech.loaded, enemyMech.loaded, mothership.ready, aftermath.ready]).then(async () => {
     if (disposed) return;
     director.duel.setBladePaths('hero', heroMech.sampleAttackPaths());
     director.duel.setBladePaths('enemy', enemyMech.sampleAttackPaths());
@@ -461,6 +485,10 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
       effects.burst(heroMech.getChest(), 3.4, 0x5ce6ff, 110);
     } else if (id === 'escape-boost') {
       effects.ring(summitPoint(0, 7), 15, 0x65dcff, true, 1.6);
+    } else if (id === 'forest-aftermath') {
+      effects.sparks(RESCUE_SITE.boy.clone().add(vector(0, 0.6, 0)), 0xff873c, 18, vector(0, 1, 0));
+    } else if (id === 'brondon-grief') {
+      presentation.sound('hit');
     } else if (id === 'fight') {
       presentation.sound('special'); presentation.flash(0.25);
     } else if (id === 'execution') {
@@ -485,7 +513,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
       if (event.kind === 'launch') {
         const source = event.owner === 'hero' ? heroMech : enemyMech;
         point.copy(event.attack === 'missiles' ? source.getMuzzle() : source.getBlade().tip);
-        effects.sparks(point, FRAME_COLORS[event.owner], event.attack === 'missiles' ? 10 : 30);
+        effects.sparks(point, FRAME_COLORS[event.owner], event.attack === 'missiles' ? 6 : 12);
         if (event.attack === 'missiles') {
           const target = event.owner === 'hero' ? enemyMech : heroMech;
           effects.muzzle(point, target.getChest().sub(point).normalize(), event.owner);
@@ -506,7 +534,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
         effects.deflect(point, false, event.owner === 'hero' ? 'enemy' : 'hero');
         presentation.sound('parry'); cameraRig.impact(0.16);
       } else if (event.kind === 'hit' || event.kind === 'guardBreak' || event.kind === 'cut') {
-        effects.sparks(point, FRAME_COLORS[event.owner], 16);
+        effects.sparks(point, FRAME_COLORS[event.owner], 10);
         if (event.trace) engraveTrace(event.owner === 'hero' ? enemyMech : heroMech, event.trace, FRAME_COLORS[event.owner]);
         if (event.kind === 'guardBreak') effects.ring(point, 3.8, 0xc9827a, true, 0.35);
         presentation.sound(event.kind === 'cut' ? 'parry' : 'hit');
@@ -515,7 +543,11 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
       } else if (event.kind === 'dash') {
         effects.ring(point, 2.6, FRAME_COLORS[event.owner], true, 0.3);
       } else if (event.kind === 'special') {
-        effects.ring(point, 4, FRAME_COLORS[event.owner], true, 0.85);
+        effects.ring(point, 2.8, FRAME_COLORS[event.owner], true, 0.5);
+        if (event.attack === 'orbitalCut') {
+          effects.ring(enemyMech.getChest(), 7, FRAME_COLORS.enemy, true, 1.25);
+          effects.sparks(enemyMech.getBlade().tip, FRAME_COLORS.enemy, 24);
+        }
         presentation.sound('special');
       } else if (event.kind === 'rupture') {
         effects.ring(point, 15, 0xff6b40, true, 1.6);
@@ -534,17 +566,6 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     for (const event of director.drainQteEvents()) {
       if (event.kind === 'success') {
         presentation.sound('qte');
-      } else if (event.kind === 'armed') {
-        const beat = FINISHER_BEATS[event.index];
-        if (beat.shot === 'evade' || beat.shot === 'missileCut') {
-          const muzzle = enemyMech.getBlade().tip.clone(), target = heroMech.getChest();
-          qteProjectiles.forEach((projectile, i) => {
-            projectile.active = beat.shot === 'missileCut' || i === 0;
-            projectile.owner = 'enemy'; projectile.kind = 'verdictBeam';
-            projectile.start.copy(muzzle); projectile.end.copy(target).add(vector(0, (i - 1) * 0.6, 0));
-            projectile.delay = finisherActionTime(beat) - (beat.shot === 'evade' ? 0.5 : 0.3) + i * 0.055;
-          });
-        }
       } else if (event.kind === 'miss') {
         presentation.sound('hit');
       } else if (event.kind === 'lost') {
@@ -559,7 +580,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
 
   function showDialogue(phase: FinalePhase, phaseTime: number) {
     if (phase === 'finisher') {
-      const { beat, clock } = director.qte.getState();
+      const { beat, clock } = sampleFinisherSequence(director.qte.getState().elapsed);
       const lines: Record<FinisherBeat['shot'], { speaker: string; text: string; start: number; end: number }> = {
         evade: { speaker: 'PRIME', text: 'The frame is coming apart. Stay with me, Brondon!', start: 0, end: 2.6 },
         missileCut: { speaker: 'SUDOERS 5', text: 'There is nowhere left to run.', start: 0.1, end: 2.7 },
@@ -600,37 +621,48 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     if (phase === 'reveal' && phaseTime >= 23) presentation.title('SUDOERS 5');
     else if (phase === 'enemyTransform' && phaseTime >= 17.6) presentation.title('FINAL VERDICT');
     else if (phase === 'heroTransform' && phaseTime >= 14.2) presentation.title('PRIME FRAME');
-    else if (phase === 'rupture' && phaseTime >= PLANET_RUPTURE.burst && phaseTime < PLANET_RUPTURE.returnToDuel - 1) presentation.title('BOOM!');
+    else if (phase === 'rupture' && phaseTime >= PLANET_RUPTURE.burst && phaseTime < PLANET_RUPTURE.forest - 0.2) presentation.title('BOOM!');
+    else if ((phase === 'space' || phase === 'ground') && director.duel.getState().special?.kind === 'orbitalCut'
+      && director.duel.getState().special?.cinematic) presentation.title('ECLIPSE REND');
     else if (phase === 'victory' && phaseTime >= 14) presentation.title('THE END');
     else if (phase === 'credits' || phase === 'done') presentation.title('');
     else presentation.title('');
   }
 
-  function updateFinisherEffects(sample: ReturnType<typeof sampleFinisher>) {
-    const qte = director.qte.getState(), clock = qte.clock;
-    if (qte.index !== finisherEffectIndex) {
-      finisherEffectIndex = qte.index; finisherEffectClock = -1; lastExecutionCut = -1;
+  function updateFinisherEffects(sample: ReturnType<typeof sampleFinisherSequence>) {
+    const { clock, beat, index } = sample;
+    if (index !== finisherEffectIndex) {
+      finisherEffectIndex = index; finisherEffectClock = -1; lastExecutionCut = -1;
+      qteProjectiles.forEach(projectile => { projectile.active = false; });
     }
     const crossed = (at: number) => finisherEffectClock < at && clock >= at;
-    const action = finisherActionTime(qte.beat);
-    if ((qte.beat.shot === 'evade' || qte.beat.shot === 'missileCut')
-      && crossed(action - (qte.beat.shot === 'evade' ? 0.5 : 0.3))) {
+    const action = finisherActionTime(beat);
+    if ((beat.shot === 'evade' || beat.shot === 'missileCut')
+      && crossed(action - (beat.shot === 'evade' ? 0.5 : 0.3))) {
+      const muzzle = enemyMech.getBlade().tip.clone();
+      const target = beat.shot === 'evade' ? finaleBattlePoint(-14, 8.6, SPACE_ALTITUDE) : heroMech.getChest();
+      qteProjectiles.forEach((projectile, i) => {
+        projectile.active = beat.shot === 'missileCut' || i === 0;
+        projectile.owner = 'enemy'; projectile.kind = 'verdictBeam';
+        projectile.start.copy(muzzle); projectile.end.copy(target).add(vector(0, (i - 1) * 0.6, 0));
+        projectile.delay = action - (beat.shot === 'evade' ? 0.5 : 0.3) + i * 0.055;
+      });
       effects.sparks(enemyMech.getBlade().tip, FRAME_COLORS.enemy, 18); presentation.sound('launch');
     }
-    if (qte.beat.shot === 'missileCut' && crossed(action + 0.25)) {
+    if (beat.shot === 'missileCut' && crossed(action + 0.25)) {
       effects.sparks(heroMech.getBlade().tip, FRAME_COLORS.hero, 22);
       presentation.sound('parry');
-    } else if ((qte.beat.shot === 'armCut' || qte.beat.shot === 'clash') && crossed(action + 0.45)) {
-      const attack = qte.beat.shot === 'clash' ? 'sideSlash' : 'slash';
+    } else if ((beat.shot === 'armCut' || beat.shot === 'clash') && crossed(action + 0.45)) {
+      const attack = beat.shot === 'clash' ? 'sideSlash' : 'slash';
       const trace = sampleBladeDamageTrace(attack,
         { ...director.duel.hero, x: sample.hero[0], y: sample.hero[1] },
         { ...director.duel.enemy, x: sample.enemy[0], y: sample.enemy[1] });
       engraveTrace(enemyMech, trace); effects.sparks(enemyMech.getChest(), FRAME_COLORS.hero, 24);
       presentation.sound('hit'); cameraRig.impact(0.24);
-    } else if (qte.beat.shot === 'countershot' && crossed(RIFLE_SEQUENCE.fire + 0.65)) {
+    } else if (beat.shot === 'countershot' && crossed(RIFLE_SEQUENCE.fire + 0.65)) {
       effects.sparks(enemyMech.getChest(), 0xe0d5c7, 26); presentation.sound('hit');
     }
-    if (qte.beat.shot === 'finalCut') {
+    if (beat.shot === 'finalCut') {
       const timing = FINISHER_EXECUTION;
       if (crossed(timing.dash)) {
         effects.ring(heroMech.getChest(), 4.2, FRAME_COLORS.hero, true, 0.4); presentation.sound('launch');
@@ -669,6 +701,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
       || phase === 'rupture' || phase === 'space' || phase === 'finisher' || phase === 'defeat'
       || phase === 'victory' || phase === 'credits' || phase === 'done';
     const duel = director.duel, hero = duel.hero, enemy = duel.enemy;
+    const duelState = duel.getState();
     const baseY = FINALE_DECK_Y + (reachedSpace ? SPACE_ALTITUDE : 0);
     let heroX = hero.x, heroY = baseY + hero.y, enemyX = enemy.x, enemyY = baseY + enemy.y;
     if (phase === 'enemyTransform' || phase === 'heroTransform') {
@@ -679,8 +712,8 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
       const settle = cinematicProgress(phaseTime, PLANET_RUPTURE.returnToDuel, PLANET_RUPTURE.orbit);
       heroX = THREE.MathUtils.lerp(hero.x, -FINALE_START_X, settle);
       enemyX = THREE.MathUtils.lerp(enemy.x - enemy.facing * jump * 7.5, FINALE_START_X, settle);
-      heroY = FINALE_DECK_Y + lift + hero.y;
-      enemyY = FINALE_DECK_Y + lift + enemy.y + Math.sin(jump * Math.PI) * 5.4;
+      heroY = FINALE_DECK_Y + lift + hero.y * (1 - settle);
+      enemyY = FINALE_DECK_Y + lift + enemy.y * (1 - settle) + Math.sin(jump * Math.PI) * 5.4;
     } else if (phase === 'reveal' || phase === 'loading' || phase === 'error') {
       heroX = -FINALE_START_X; heroY = FINALE_DECK_Y; enemyX = FINALE_START_X; enemyY = FINALE_DECK_Y;
     }
@@ -695,15 +728,16 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
       [heroMech, hero, enemy, 1], [enemyMech, enemy, hero, -1],
     ] as const) {
       let facing = combat ? fighter.facing : defaultFacing;
-      const dodge = combat && fighter.dash ? sampleDodgeArc(fighter.time, fighter.duration, fighter.dash.crossing) : null;
+      const dodge = combat && fighter.dash ? sampleDodgeArc(fighter.time, fighter.duration, fighter.dash.crossing, fighter.dash.offset) : null;
       if (dodge) {
         mech.root.position.add(vector(dodge.lane * 0.2425356, dodge.lift, dodge.lane * 0.9701425));
         if (fighter.dash?.crossing && dodge.progress > 0.5) facing = Math.sign(opponent.x - fighter.x) || facing;
       }
       const yaw = FINALE_BATTLE_YAW + (facing < 0 ? Math.PI : 0);
       const turn = Math.atan2(Math.sin(yaw - mech.root.rotation.y), Math.cos(yaw - mech.root.rotation.y));
-      mech.root.rotation.set(0, combat && animationDelta > 0 ? mech.root.rotation.y + turn * (1 - Math.exp(-animationDelta * 18)) : yaw,
+      mech.root.rotation.set(0, combat && animationDelta > 0 ? mech.root.rotation.y + turn * (1 - Math.exp(-animationDelta * 12)) : yaw,
         dodge ? -fighter.facing * dodge.roll : 0);
+      mech.setMotion(fighter.vx * fighter.facing, fighter.vy);
     }
     if (endingEntry && (phase === 'defeat' || phase === 'victory' || phase === 'credits' || phase === 'done')) {
       heroMech.root.position.copy(endingEntry.hero);
@@ -731,7 +765,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     enemyMech.setAssembly(enemyAssembly);
 
     const qte = director.qte.getState();
-    const choreography = phase === 'finisher' ? sampleFinisher(qte.beat, qte.clock) : null;
+    const choreography = phase === 'finisher' ? sampleFinisherSequence(qte.elapsed) : null;
     let heroMove: MechPoseName = hero.move;
     let enemyMove: MechPoseName = enemy.move;
     if (phase === 'enemyTransform') enemyMove = 'transform';
@@ -748,6 +782,13 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
       heroMech.root.rotation.z = choreography.heroRoll; enemyMech.root.rotation.z = choreography.enemyRoll;
       heroMech.root.rotateY(choreography.heroYaw); enemyMech.root.rotateY(choreography.enemyYaw);
       heroMech.root.visible = choreography.heroVisible;
+      if (finisherEntry && qte.elapsed < 0.65) {
+        const entry = cinematicProgress(qte.elapsed, 0, 0.65);
+        heroMech.root.position.lerpVectors(finisherEntry.hero, heroMech.root.position.clone(), entry);
+        enemyMech.root.position.lerpVectors(finisherEntry.enemy, enemyMech.root.position.clone(), entry);
+        heroMech.root.quaternion.slerpQuaternions(finisherEntry.heroRotation, heroMech.root.quaternion.clone(), entry);
+        enemyMech.root.quaternion.slerpQuaternions(finisherEntry.enemyRotation, enemyMech.root.quaternion.clone(), entry);
+      }
     } else if (phase === 'victory' || phase === 'credits' || phase === 'done') {
       heroMove = phase === 'credits' || phase === 'done' || phaseTime >= DONUS_RETURN.appear ? 'dance'
         : phaseTime < 6 ? 'afterCut' : 'victory'; enemyMove = 'defeat';
@@ -770,12 +811,16 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
           : phase === 'defeat' ? phaseTime : enemy.time;
     heroMech.setDamage(1 - hero.health / DUEL.heroHealth);
     enemyMech.setDamage(1 - enemy.health / DUEL.health);
-    heroMech.setDissolve(choreography?.heroDissolve ?? (phase === 'defeat' ? smooth(phaseTime, 2.1, 5.4) : 0));
+    heroMech.setDissolve(choreography?.heroDissolve ?? (phase === 'defeat'
+      ? (endingEntry?.heroDissolve ?? 0) * (1 - cinematicProgress(phaseTime, 0, 0.5)) + smooth(phaseTime, 2.1, 5.4) : 0));
     enemyMech.setDissolve(phase === 'victory' ? smooth(phaseTime, 2.8, 5.8)
       : phase === 'credits' || phase === 'done' ? 1 : 0);
     const custom = !!choreography || phase === 'rupture' || phase === 'defeat';
-    heroMech.pose(heroMove, heroPoseTime, heroDuration, phase === 'rupture' || reachedSpace || hero.y > 1, hero.combo, time, custom);
-    enemyMech.pose(enemyMove, enemyPoseTime, enemyDuration, phase === 'rupture' || reachedSpace || enemy.y > 1, 0, time, custom);
+    heroMech.setGuarding(combat && duelState.guarding); enemyMech.setGuarding(combat && duelState.enemyGuarding);
+    heroMech.pose(heroMove, heroPoseTime, heroDuration, phase === 'rupture' || reachedSpace || hero.y > 1, hero.combo, time, custom,
+      `${phase}-${choreography?.beat.id ?? hero.dash?.from ?? ''}`);
+    enemyMech.pose(enemyMove, enemyPoseTime, enemyDuration, phase === 'rupture' || reachedSpace || enemy.y > 1, 0, time, custom,
+      `${phase}-${choreography?.beat.id ?? enemy.dash?.from ?? ''}`);
     const enemyChest = enemyMech.getChest(), heroChest = heroMech.getChest();
     heroMech.watch(enemyChest, heroMove === 'afterCut' || heroMove === 'skyCharge' || heroMove === 'dance' ? 0 : 0.35);
     enemyMech.watch(heroChest, enemyMove === 'defeat' ? 0 : 0.55);
@@ -783,22 +828,24 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     const enemyAim = combat && enemy.aimLocked ? finaleBattlePoint(enemy.aimX, enemy.aimY, reachedSpace ? SPACE_ALTITUDE : 0) : heroChest;
     heroMech.aimGun(heroAim); enemyMech.aimGun(enemyAim);
     if (enemyMove === 'verdict') enemyMech.pointSwordAt(enemyAim);
-    if (phase === 'finisher' && qte.beat.shot === 'clash' && qte.clock < finisherActionTime(qte.beat) + 0.2) {
+    if (choreography && choreography.bladeLock > 0) {
       clashContact.copy(heroChest).lerp(enemyChest, 0.5).add(vector(0, 1.6, 2.2));
-      const strain = Math.sin(qte.clock * 8) * 0.5;
-      heroMech.lockBlade(clashContact, 1, strain); enemyMech.lockBlade(clashContact, -1, -strain);
-      const spark = Math.floor(qte.clock * 14);
-      if (spark !== lastClashSpark) {
+      const strain = Math.sin(qte.elapsed * 6) * 0.18;
+      heroMech.lockBlade(clashContact, 1, strain, choreography.bladeLock); enemyMech.lockBlade(clashContact, -1, -strain, choreography.bladeLock);
+      const spark = Math.floor(qte.elapsed * 8);
+      if (choreography.bladeLock > 0.95 && spark !== lastClashSpark) {
         lastClashSpark = spark;
-        effects.sparks(clashContact, 0xffe4ad, 14);
+        effects.sparks(clashContact, 0xffe4ad, 8);
+        if (spark % 4 === 0) presentation.sound('parry');
       }
-    } else if (phase !== 'finisher' || qte.beat.shot !== 'clash') lastClashSpark = -1;
+    } else lastClashSpark = -1;
     world.updateBomb(phase === 'rupture' ? phaseTime : -1,
       enemyMech.getHand('left').lerp(enemyMech.getHand('right'), 0.5));
     const heroCharge = choreography?.heroCharge ?? (heroMove === 'overdrive'
       ? cinematicProgress(hero.time, 0.15, HERO_ULTIMATE.cameraEnd) * (1 - cinematicProgress(hero.time, HERO_ULTIMATE.release, HERO_ULTIMATE.release + 0.2)) : 0);
-    const enemyCharge = enemyMove === 'verdict' ? cinematicProgress(enemyPoseTime, 0, ENEMY_VERDICT.cameraEnd)
-      * (1 - cinematicProgress(enemyPoseTime, ENEMY_VERDICT.release, ENEMY_VERDICT.release + 0.2)) : 0;
+    const enemySpecialTiming = enemyMove === 'orbitalCut' ? ENEMY_ORBITAL_CUT : ENEMY_VERDICT;
+    const enemyCharge = enemyMove === 'verdict' || enemyMove === 'orbitalCut' ? cinematicProgress(enemyPoseTime, 0, enemySpecialTiming.cameraEnd)
+      * (1 - cinematicProgress(enemyPoseTime, enemySpecialTiming.release, enemySpecialTiming.release + 0.2)) : 0;
     heroMech.setBladeCharge(heroCharge); enemyMech.setBladeCharge(enemyCharge);
     effects.aura(enemyMech.root.position.clone().add(vector(0, 8, 0)), enemyMech.root.visible
       ? phase === 'enemyTransform' ? 0.7 : phase === 'victory' || phase === 'credits' ? 0 : 0.16 + enemyCharge * 0.35 : 0, time);
@@ -832,10 +879,10 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     const enemyBlade = enemyMech.getBlade();
     const trailActive = (move: MechPoseName, poseTime: number) => isMeleeStrike(move) ? sampleMeleeBlade(move, poseTime).active
       : move === 'overdrive' && poseTime >= HERO_ULTIMATE.cameraEnd && poseTime <= HERO_ULTIMATE.release + 0.1;
-    heroTrail.update(heroBlade.base, heroBlade.tip, animationDelta, heroMech.root.visible && trailActive(heroMove, heroPoseTime));
+    heroTrail.update(heroBlade.base, heroBlade.tip, animationDelta, heroMech.root.visible && !duelState.guarding && trailActive(heroMove, heroPoseTime));
     enemyTrail.update(enemyBlade.base, enemyBlade.tip, animationDelta, enemyMech.root.visible && trailActive(enemyMove, enemyPoseTime));
     effects.chargeBlade(heroBlade.base, heroBlade.tip, heroCharge, time);
-    const clash = phase === 'finisher' && qte.beat.shot === 'clash' && qte.clock < finisherActionTime(qte.beat) + 0.2;
+    const clash = choreography && choreography.bladeLock > 0.95;
     effects.beam('hero', clashContact.clone().add(vector(0, -0.4, 0)), clashContact.clone().add(vector(0, 0.4, 0)),
       clash ? 0.25 + Math.sin(time * 30) * 0.08 : 0, time);
     effects.beam('enemy', enemyBlade.tip, heroChest, phase === 'defeat' && phaseTime >= 1.6 && phaseTime < 2.15 ? 0.3 : 0, time);
@@ -846,19 +893,16 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     visual.body.material = missileMaterials[owner]; visual.nose.material = missileMaterials[owner];
     visual.flame.material = flameMaterials[owner];
     visual.tracer.material = tracerMaterials[owner];
+    visual.beam.material = verdictMaterials[owner]; visual.beamGlow.material = verdictGlows[owner];
     visual.body.visible = visual.nose.visible = visual.flame.visible = visual.tracer.visible = kind === 'round';
     visual.wave.visible = kind === 'bladeWave'; visual.beam.visible = kind === 'verdictBeam';
   }
 
   function updateMissiles(phase: FinalePhase) {
-    verdictGlowMaterial.uniforms.uTime.value = director.getState().time;
+    Object.values(verdictGlows).forEach(material => { material.uniforms.uTime.value = director.getState().time; });
     Object.values(tracerMaterials).forEach(material => { material.uniforms.uTime.value = director.getState().time; });
     if (phase === 'finisher') {
-      const qte = director.qte.getState();
-      if (qte.index !== qteShotIndex) {
-        qteShotIndex = qte.index;
-        qteProjectiles.forEach(projectile => { projectile.active = false; });
-      }
+      const qte = sampleFinisherSequence(director.qte.getState().elapsed);
       if (qte.beat.shot === 'countershot' && qte.clock >= RIFLE_SEQUENCE.fire && !qteProjectiles[0].active) {
         const muzzle = heroMech.getMuzzle(), target = enemyMech.getChest();
         for (let i = 0; i < 5; i++) {
@@ -889,7 +933,6 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
       });
       return;
     }
-    qteShotIndex = -1;
     const missiles = director.duel.missiles;
     missilePool.forEach((visual, i) => {
       const missile = missiles[i];
@@ -907,6 +950,8 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
       visual.root.scale.setScalar(missile.damage <= 0 ? Math.max(0.08, missile.life / 0.24) : 1);
       missileDirection.set(missile.vx * 0.9701425, missile.vy, -missile.vx * 0.2425356).normalize();
       visual.root.quaternion.setFromUnitVectors(vector(0, 1, 0), missileDirection);
+      visual.wave.rotation.y = Math.sin(missile.age * 4) * 0.08;
+      visual.wave.scale.setScalar(0.85 + Math.min(0.25, missile.age * 0.6));
       visual.flame.scale.setScalar(0.55 + Math.sin(missile.age * 40) * 0.12);
       effects.projectile(visual.root.position, missileDirection, side, director.getState().time, i);
     });
@@ -922,12 +967,18 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
   function updatePhysics(dt: number) {
     if (disposed || paused || blurred || document.hidden || document.body.classList.contains('quick-menu-open')) return;
     animationDelta = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, 0.1));
+    if (isControllerActive()) updateInput();
     skipHold.update(animationDelta);
     director.update(animationDelta);
     for (const phase of director.drainChanges()) {
+      if (phase === 'finisher' && lastPhase !== 'loading') {
+        finisherEntry = { hero: heroMech.root.position.clone(), enemy: enemyMech.root.position.clone(),
+          heroRotation: heroMech.root.quaternion.clone(), enemyRotation: enemyMech.root.quaternion.clone(), heroDissolve: 0 };
+      }
       if (phase === 'defeat' || phase === 'victory') {
         endingEntry = { hero: heroMech.root.position.clone(), enemy: enemyMech.root.position.clone(),
-          heroRotation: heroMech.root.quaternion.clone(), enemyRotation: enemyMech.root.quaternion.clone() };
+          heroRotation: heroMech.root.quaternion.clone(), enemyRotation: enemyMech.root.quaternion.clone(),
+          heroDissolve: lastPhase === 'finisher' ? sampleFinisherSequence(director.qte.getState().elapsed).heroDissolve : 0 };
       }
       lastPhase = phase;
       keys.clear();
@@ -952,7 +1003,8 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     const inSpace = reachedSpace && state.phase !== 'rupture';
     const roofBlast = state.phase === 'enemyTransform' ? state.phaseTime
       : state.phase === 'loading' || state.phase === 'error' || state.phase === 'reveal' ? -1 : 3;
-    terrestrial.visible = !inSpace && !(state.phase === 'rupture' && state.phaseTime >= PLANET_RUPTURE.wide);
+    const aftermathState = samplePlanetAftermath(state.phase === 'rupture' ? state.phaseTime : -1);
+    terrestrial.visible = !inSpace && (!(state.phase === 'rupture' && state.phaseTime >= PLANET_RUPTURE.wide) || aftermathState.forest);
     site.rooftopEquipment.visible = roofBlast < 0.25 && terrestrial.visible;
     for (const light of environmentLights) if (light instanceof THREE.DirectionalLight) {
       light.castShadow = terrestrial.visible;
@@ -980,6 +1032,10 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     } else if (state.phase !== 'enemyTransform') lastFirework = -1;
 
     updateActors(state.phase, state.phaseTime, state.time);
+    aftermath.update(state.phase === 'rupture' ? state.phaseTime : -1, state.time, heroMech.root);
+    if (aftermathState.forest || aftermathState.cockpit) {
+      heroMech.root.visible = enemyMech.root.visible = false;
+    }
     mothership.root.visible = (state.phase === 'victory' && state.phaseTime >= DONUS_RETURN.appear)
       || state.phase === 'credits' || state.phase === 'done';
     if (mothership.root.visible) {
@@ -1010,16 +1066,18 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     } else {
       const combat = state.phase === 'ground' || state.phase === 'space';
       const fractured = combat && duelState.shieldLock > DUEL.shieldBreak - 0.28;
-      effects.shield(heroMech.root.position.clone().add(vector(0, 7.5, 0)), DUEL.shieldRadius,
-        combat && duelState.guarding ? 0.45 + duelState.shield / DUEL.shieldMax * 0.55 : fractured ? 0.24 : 0,
+      effects.shield(heroMech.getShieldCenter(), DUEL.shieldRadius,
+        combat && duelState.bossImmunityRemaining > 0 ? 0.85
+          : combat && duelState.guarding ? 0.45 + duelState.shield / DUEL.shieldMax * 0.55 : fractured ? 0.24 : 0,
         state.time, fractured);
     }
     const enemyFractured = (state.phase === 'ground' || state.phase === 'space') && duelState.enemyShieldLock > DUEL.shieldBreak - 0.28;
-    effects.shield(enemyMech.root.position.clone().add(vector(0, 7.5, 0)), DUEL.shieldRadius,
+    effects.shield(enemyMech.getShieldCenter(), DUEL.shieldRadius,
       duelState.enemyGuarding ? 0.45 + duelState.enemyShield / DUEL.shieldMax * 0.55 : enemyFractured ? 0.24 : 0,
       state.time, enemyFractured, 'enemy');
     const activeSpecial = duelState.special;
-    const special = activeSpecial?.cinematic && (activeSpecial.kind === 'missiles' || activeSpecial.kind === 'overdrive' || activeSpecial.kind === 'verdict')
+    const special = activeSpecial?.cinematic && (activeSpecial.kind === 'missiles' || activeSpecial.kind === 'overdrive'
+      || activeSpecial.kind === 'verdict' || activeSpecial.kind === 'orbitalCut')
       ? { owner: activeSpecial.owner, kind: activeSpecial.kind, time: activeSpecial.time, duration: activeSpecial.duration } : null;
     const heroBlade = heroMech.getBlade(), enemyBlade = enemyMech.getBlade();
     cameraRig.update({
@@ -1037,8 +1095,9 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
       heroChest: heroMech.getChest(), enemyChest: enemyMech.getChest(),
       heroMuzzle: heroMech.getMuzzle(), enemyMuzzle: enemyMech.getMuzzle(), clash: clashContact,
       heroBladeBase: heroBlade.base, heroBladeTip: heroBlade.tip, enemyBladeTip: enemyBlade.tip,
+      boy: aftermath.getBoyFocus(), pilotFace: aftermath.getPilotFace(), pilotCamera: aftermath.getPilotCamera(state.phaseTime),
       special,
-      qte: { beat: qte.beat, clock: qte.clock },
+      qte: sampleFinisherSequence(qte.elapsed),
     }, animationDelta);
 
     updateObjective(state.phase, state.phaseTime);
@@ -1047,14 +1106,15 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     presentation.mode(state.phase, !isMechCombat || !!special, isMechCombat && !special);
     presentation.stats(director.duel.hero.health, director.duel.enemy.health, director.duel.hero.energy,
       duelState.shield, duelState.ultimateCooldown,
-      special ? '' : duelState.feedback || (duelState.enemyGuarding ? 'SHIELD RAISED' : duelState.enemyTell === 'verdict' ? 'BEAM INCOMING'
+      special ? '' : duelState.feedback || (duelState.enemyGuarding ? 'SHIELD RAISED' : duelState.enemyTell === 'orbitalCut' ? 'ECLIPSE REND / DODGE OR PARRY'
+        : duelState.enemyTell === 'verdict' ? 'BEAM INCOMING'
         : duelState.enemyTell === 'reap' ? 'REVERSE CUT'
-          : duelState.enemyTell === 'thrust' ? 'THRUST' : ''), duelState.shieldLock);
+          : duelState.enemyTell === 'thrust' ? 'THRUST' : ''), duelState.shieldLock, duelState.bossImmunityRemaining);
     if (state.phase === 'finisher') {
       presentation.qte(qte);
     } else presentation.qte(null);
     const speed = state.phase === 'rupture' && state.phaseTime >= PLANET_RUPTURE.slam && state.phaseTime < PLANET_RUPTURE.impact ? 0.32
-      : state.phase === 'finisher' ? sampleFinisher(qte.beat, qte.clock).speed : 0;
+      : state.phase === 'finisher' ? sampleFinisherSequence(qte.elapsed).speed : 0;
     presentation.speedLines(speed); presentation.update(animationDelta);
 
     if (state.phase === 'defeat' && state.phaseTime >= 4.2) {
@@ -1093,6 +1153,8 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
       else renderer.render(scene, camera);
     },
     getSceneId: () => 'scene21',
+    getControllerPhase: () => lastPhase,
+    getControllerQteIndex: () => director.qte.getState().index,
     getMusicTrack: () => finaleMusicTrack(director.getState().phase),
     hasBossVictory: () => director.getState().phase === 'victory',
     isMusicPaused: () => paused || blurred,
@@ -1107,6 +1169,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
       postProcessing?.dispose();
       heroTrail.dispose(); enemyTrail.dispose();
       effects.dispose();
+      aftermath.dispose();
       disposeComicEffects(scene);
       world.dispose();
       shipTransform.dispose();
@@ -1117,7 +1180,9 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
       missileGeometry.dispose(); missileNoseGeometry.dispose();
       waveGeometry.dispose(); waveGlowGeometry.dispose(); verdictGeometry.dispose(); tracerGeometry.dispose();
       Object.values(tracerMaterials).forEach(material => material.dispose());
-      waveMaterial.dispose(); waveGlowMaterial.dispose(); verdictMaterial.dispose(); verdictGlowMaterial.dispose();
+      waveMaterial.dispose(); waveGlowMaterial.dispose(); waveWakeMaterial.dispose();
+      Object.values(verdictMaterials).forEach(material => material.dispose());
+      Object.values(verdictGlows).forEach(material => material.dispose());
       Object.values(missileMaterials).forEach(material => material.dispose());
       Object.values(flameMaterials).forEach(material => material.dispose());
       player.dispose();

@@ -7,10 +7,16 @@
   <link rel="stylesheet" href="./styles/main.css" />
 </head>
 <body data-scene="scene1">
+  <section id="startup-loading" class="startup-loading" role="status" aria-live="polite">
+    <strong>BRONDON'S REVENGE</strong>
+    <p>Preparing the opening soundtrack first...</p>
+  </section>
+  <div id="music-warning" class="music-warning hidden" role="status" aria-live="polite"></div>
   <div id="look-reticle" class="hidden" aria-hidden="true"></div>
   <div id="crosshair" aria-hidden="true"></div>
   <div id="interact-prompt" class="hidden">Press E to open chest</div>
   <div id="adaptive-hint" class="hidden" role="status" aria-live="polite"></div>
+  <div id="controller-notice" class="hidden" role="status" aria-live="polite"></div>
   <div id="scene-checkpoint" class="hidden" role="status" aria-live="polite">CHECKPOINT SAVED</div>
   <section id="boss-hud" class="hidden" aria-label="Bay Warden health">
     <div id="boss-health-label">BAY WARDEN</div>
@@ -100,6 +106,7 @@
   <div id="menu-buttons" class="hidden">
     <button id="play-btn" class="menu-btn">PLAY</button>
     <button id="quit-btn" class="menu-btn">DON'T PLAY</button>
+    <p class="controller-menu-hint">Left stick / D-pad: choose · A: select · +: menu</p>
   </div>
   
   <!-- Fade overlay for transitions -->
@@ -129,8 +136,34 @@
       <button type="button" data-pause-back>Back</button>
     </section>
     <section id="pause-controls-panel" class="pause-panel hidden" aria-label="Controls reference">
+      <div id="input-mode-tabs" role="tablist" aria-label="Input device">
+        <button id="input-keyboard" type="button" role="tab" aria-selected="true" aria-controls="pause-controls-list">Keyboard &amp; Mouse</button>
+        <button id="input-controller" type="button" role="tab" aria-selected="false" aria-controls="controller-controls-settings pause-controls-list" tabindex="-1">Controller</button>
+      </div>
+      <div id="controller-controls-settings" class="hidden" role="region" aria-label="Controller settings">
+        <fieldset id="controller-type-options">
+          <legend>Choose your controller</legend>
+          <p>Pick the type that matches your controller so its buttons and prompts use the correct layout.</p>
+          <div class="controller-type-buttons" role="group" aria-label="Controller type">
+            <button type="button" data-controller-type="switch" aria-pressed="false">Switch</button>
+            <button type="button" data-controller-type="xbox" aria-pressed="false">Xbox</button>
+            <button type="button" data-controller-type="playstation" aria-pressed="false">PlayStation</button>
+          </div>
+        </fieldset>
+        <p id="controller-status" role="status" aria-live="polite">Choose a controller type. Plug it in, then press a button to let the browser detect it.</p>
+        <label id="controller-layout-options" class="hidden">
+          <input id="controller-swap-ab" type="checkbox" />
+          <span id="controller-swap-label">Swap A/B for this controller</span>
+        </label>
+        <div id="controller-setup" class="hidden">
+          <p>Calibration covers only the buttons used for gameplay, menus and skipping cinematics, plus both sticks. Stick clicks, system buttons and unused extras are not required. Release all buttons and center both sticks before starting.</p>
+          <p id="controller-setup-step" role="status" aria-live="polite"></p>
+          <button id="controller-setup-start" type="button">Calibrate game controls</button>
+          <button id="controller-setup-cancel" type="button" class="hidden">Cancel calibration</button>
+        </div>
+      </div>
       <p id="pause-controls-description"></p>
-      <div id="pause-controls-list" role="region" aria-label="Available controls" tabindex="0"></div>
+      <div id="pause-controls-list" role="tabpanel" aria-labelledby="input-keyboard" tabindex="0"></div>
       <button type="button" data-pause-back>Back</button>
     </section>
     <section id="pause-sound-panel" class="pause-panel hidden" aria-label="Sound settings">
@@ -145,6 +178,7 @@
       <button id="developer-unlock" type="submit">Unlock</button>
       <button type="button" data-pause-back>Back</button>
     </form>
+    <p class="controller-menu-hint">Left stick / D-pad: choose · A: select · B: back · +: resume</p>
   </dialog>
   <dialog id="scene-quick-menu" aria-labelledby="scene-menu-title" aria-describedby="scene-menu-description">
     <header class="scene-menu-header">
@@ -154,12 +188,13 @@
       </div>
       <button id="scene-quick-close" type="button">Back <kbd>Esc</kbd></button>
     </header>
-    <p id="scene-menu-description">Jump to any scene with full health, a crowbar, pistol, lightsaber, goggles, and teleportation device.</p>
-    <p class="scene-menu-gear">Hold <kbd>Tab</kbd> to select weapons · <kbd>Q</kbd> place anchor · <kbd>T</kbd> teleport · <kbd>N</kbd> goggles</p>
+    <p id="scene-menu-description">Chapters are listed in story order. Jump to a level or stage with full health, a crowbar, pistol, lightsaber, goggles, and teleportation device.</p>
+    <p class="scene-menu-gear">Hold <kbd data-input-key="Tab">Tab</kbd> to select weapons · <kbd data-input-key="KeyQ">Q</kbd> place anchor · <kbd data-input-key="KeyT">T</kbd> teleport · <kbd data-input-key="KeyN">N</kbd> goggles</p>
     <button id="scene-quick-controls" type="button">All Controls</button>
-    <div id="scene-quick-list" role="group" aria-label="Choose a scene"></div>
+    <div id="scene-quick-list" role="group" aria-label="Choose a level or stage"></div>
     <p id="scene-menu-error" role="alert"></p>
     <footer class="scene-menu-footer">Arrow keys to select · Enter to load · Click a scene to jump</footer>
+    <p class="controller-menu-hint">Left stick / D-pad: choose · A: select · B: back</p>
   </dialog>
 
   <div id="touch-controls" class="hidden">

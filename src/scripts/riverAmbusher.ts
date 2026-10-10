@@ -11,9 +11,9 @@ function releaseAsset(asset: QuadShellAsset) {
 }
 
 /** One asset allocation per encounter, with independent skeletons and mixers for each actor. */
-export function createRiverAmbushers(scene: THREE.Object3D, health: number[]) {
+export function createRiverAmbushers(scene: THREE.Object3D, health: number[], load = loadToolModel) {
   let disposed = false, asset: QuadShellAsset | null = null;
-  const source = loadToolModel('Enemy_QuadShell');
+  const source = load('Enemy_QuadShell');
   const actors = health.map(value => createRiverAmbusher(scene, value, source));
   const ready = Promise.all(actors.map(actor => actor.ready));
   void source.then(value => { if (disposed) releaseAsset(value); else asset = value; }).catch(() => {});

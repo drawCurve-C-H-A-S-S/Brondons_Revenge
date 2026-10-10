@@ -3,6 +3,7 @@ import * as CANNON from 'cannon-es';
 import { loadToolModel } from '../core/loader.js';
 import type { Player } from './player.js';
 import { registerTouchAttackCallback, refreshTouchAttackButton } from './touchControls.js';
+import { isControllerEvent, inputHint } from './gamepadInput.js';
 
 export type DamageWeapon = 'pistol' | 'crowbar' | 'lightsaber';
 export interface DamageTarget {
@@ -117,7 +118,7 @@ export class PistolController {
 
   private onMouseDown = (event: MouseEvent) => {
     const touchActive = (window as any).__touchActive === true;
-    if (event.button !== 0 || (!document.pointerLockElement && !touchActive)) return;
+    if (event.button !== 0 || (!document.pointerLockElement && !touchActive && !isControllerEvent(event))) return;
     if (event.target instanceof HTMLElement && event.target.closest('button, input, textarea')) return;
     this.shoot();
   };
@@ -125,8 +126,8 @@ export class PistolController {
   private updateStatus() {
     refreshTouchAttackButton();
     if (this.crosshair && !this.isAiming()) this.crosshair.style.display = 'none';
-    if (this.status) this.status.textContent = this.context().hasPistol === false ? 'Recover your pistol from your cabin chest' : this.equipped
-      ? (this.loaded ? 'Hold Tab: weapons | Left click: shoot' : 'Loading pistol...') : 'Hold Tab: weapons';
+    if (this.status) this.status.textContent = inputHint(this.context().hasPistol === false ? 'Recover your pistol from your cabin chest' : this.equipped
+      ? (this.loaded ? 'Hold Tab: weapons | Left click: shoot' : 'Loading pistol...') : 'Hold Tab: weapons');
   }
 
   isAiming() {

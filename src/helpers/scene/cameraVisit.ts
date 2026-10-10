@@ -1,4 +1,5 @@
 import type { Player } from '../../scripts/player.js';
+import { inputHint } from '../../scripts/gamepadInput.js';
 
 export interface CameraVisitOptions {
   title: string;
@@ -23,7 +24,7 @@ export function createCameraVisitUI({ title, player, hasReturnMarker, onRestart 
     } catch (error) {
       if (disposed) return;
       console.error('[CameraVisit] Checkpoint restart failed:', error);
-      help.textContent = 'Checkpoint could not be loaded. Press R to retry.'; player.enable(); restarting = false;
+      help.textContent = inputHint('Checkpoint could not be loaded. Press R to retry.'); player.enable(); restarting = false;
     }
   }
   function onKey(event: KeyboardEvent) {
@@ -38,8 +39,9 @@ export function createCameraVisitUI({ title, player, hasReturnMarker, onRestart 
     update() {
       if (disposed || restarting) return;
       const linked = hasReturnMarker();
-      help.textContent = linked ? 'T: return to surveillance / Hold Tab: weapons / Q replaces your return marker'
-        : 'Surveillance return marker lost. This room has no walking route back. Restart from the surveillance checkpoint.';
+      help.textContent = inputHint(linked ? 'T: return to surveillance / Hold Tab: weapons / Q replaces your return marker'
+        : 'Surveillance return marker lost. This room has no walking route back. Restart from the surveillance checkpoint.');
+      restart.textContent = inputHint('R / Restart at surveillance checkpoint');
       restart.classList.toggle('hidden', linked);
     },
     dispose() { disposed = true; window.removeEventListener('keydown', onKey); root.remove(); },

@@ -3,6 +3,7 @@ import { DUEL, type FinaleQteState } from '../../scripts/mechDuel.js';
 import { finisherActionTime } from '../../scripts/finaleChoreography.js';
 import { FINALE_DURATION } from '../../scripts/finaleDirector.js';
 import { createComicEffectArtwork } from './comicEffects.js';
+import { isControllerActive, controllerLabel, inputHint } from '../../scripts/gamepadInput.js';
 
 const KEY_LABELS: Record<string, string> = {
   KeyA: 'A', KeyD: 'D', KeyW: 'W', KeyS: 'S', KeyJ: 'J', KeyF: 'F', KeyE: 'E', KeyR: 'R',
@@ -20,18 +21,18 @@ export function createFinalePresentation(onInput: (code: string, pressed: boolea
     <section class="finale-player-status" aria-label="Prime Frame status">
       <div class="finale-status-heading"><strong>BRONDON</strong><span class="finale-health-value">1000 / 1000</span></div>
       <meter class="finale-integrity" min="0" max="1000" value="1000" aria-label="Prime Frame integrity"></meter>
-      <div class="finale-resources"><span class="finale-shield-value">SHIELD 100% / R</span><span class="finale-energy">BOOST 100%</span></div>
+      <div class="finale-resources"><span class="finale-shield-value">SHIELD 100% / R</span><span class="finale-energy">RIFLE 100%</span></div>
       <div class="finale-resource-meters"><meter class="finale-shield-meter" min="0" max="100" value="100" aria-label="Prime Frame shield"></meter>
-        <meter class="finale-energy-meter" min="0" max="100" value="100" aria-label="Prime Frame boost and rifle energy"></meter></div>
+        <meter class="finale-energy-meter" min="0" max="100" value="100" aria-label="Prime Frame rifle energy"></meter></div>
     </section>
     <aside class="finale-ultimate" aria-label="Blade-wave ultimate">
-      <kbd>E</kbd><div><strong>LAST LIGHT</strong><span class="finale-ultimate-state">READY</span>
+      <kbd data-input-key="KeyE">E</kbd><div><strong>LAST LIGHT</strong><span class="finale-ultimate-state">READY</span>
         <meter min="0" max="18" value="18" aria-label="Ultimate recharge"></meter></div>
     </aside>
     <nav class="finale-controls" aria-label="Combat controls">
-      <span><kbd>A</kbd><kbd>D</kbd> MOVE</span><span><kbd>J</kbd> SWORD</span>
-      <span><kbd>F</kbd> RIFLE</span><span><kbd>R</kbd> GUARD</span><span><kbd>SPACE</kbd> DODGE</span>
-      <span class="finale-orbit-controls"><kbd>W</kbd><kbd>S</kbd> ALTITUDE</span>
+      <span><kbd data-input-key="KeyA">A</kbd><kbd data-input-key="KeyD">D</kbd> MOVE</span><span><kbd data-input-key="KeyJ">J</kbd> SWORD</span>
+      <span><kbd data-input-key="KeyF">F</kbd> RIFLE</span><span><kbd data-input-key="KeyR">R</kbd> GUARD</span><span title="Boost has no energy cost or recharge"><kbd data-input-key="Space">SPACE</kbd> BOOST / ALWAYS READY</span>
+      <span class="finale-orbit-controls"><kbd data-input-key="KeyW">W</kbd><kbd data-input-key="KeyS">S</kbd> ALTITUDE</span>
     </nav>
     <div class="finale-tell" role="status" aria-live="polite"></div><div class="finale-title" aria-live="polite"></div>
     <section class="finale-dialogue" aria-live="polite"><b></b><p></p></section>
@@ -84,6 +85,14 @@ export function createFinalePresentation(onInput: (code: string, pressed: boolea
   const ultimateState = get('.finale-ultimate-state');
   const ultimateBar = get<HTMLMeterElement>('.finale-ultimate meter');
   const controls = get('.finale-controls');
+  let objectiveHint = '';
+  function updateInputLabels() {
+    for (const key of root.querySelectorAll<HTMLElement>('kbd[data-input-key]')) {
+      const code = key.dataset.inputKey!;
+      key.textContent = isControllerActive() ? controllerLabel(code, 'finale') : KEY_LABELS[code];
+    }
+    hint.textContent = inputHint(objectiveHint, 'finale');
+  }
   const bossHud = document.getElementById('boss-hud');
   const bossLabel = document.getElementById('boss-health-label');
   const bossFill = document.getElementById('boss-health-fill');
@@ -183,11 +192,11 @@ export function createFinalePresentation(onInput: (code: string, pressed: boolea
         bossHud.setAttribute('aria-label', 'Sudoers 5 / Final Verdict health');
         bossFill.setAttribute('aria-valuemin', '0'); bossFill.setAttribute('aria-valuemax', String(DUEL.health));
       }
-      get('.finale-touch').hidden = cinematic || !document.body.classList.contains('touch-device');
+      get('.finale-touch').hidden = cinematic || isControllerActive() || !document.body.classList.contains('touch-device');
     },
     objective(text: string, controlHint: string) {
       objective.textContent = text;
-      hint.textContent = controlHint;
+      objectiveHint = controlHint; hint.textContent = inputHint(controlHint, 'finale');
     },
     title(text: string) {
       if (title.dataset.word === text) return;
@@ -202,7 +211,7 @@ export function createFinalePresentation(onInput: (code: string, pressed: boolea
       dialogue.dataset.speaker = name;
       dialogue.hidden = !text;
     },
-    stats(hp: number, enemyHp: number, power: number, shield: number, cooldown: number, warning: string, shieldLock = 0) {
+    stats(hp: number, enemyHp: number, power: number, shield: number, cooldown: number, warning: string, shieldLock = 0, immunityRemaining = 0) {
       heroBar.value = Math.max(0, Math.min(1000, hp));
       playerStatus.dataset.health = hp <= DUEL.heroHealth * 0.25 ? 'low' : hp <= DUEL.heroHealth * 0.5 ? 'mid' : 'high';
       shieldBar.value = Math.max(0, Math.min(100, shield));
@@ -210,9 +219,9 @@ export function createFinalePresentation(onInput: (code: string, pressed: boolea
       bossFill.setAttribute('aria-valuenow', String(Math.max(0, Math.min(DUEL.health, enemyHp))));
       healthValue.textContent = `${Math.ceil(hp)} / ${DUEL.heroHealth}`;
       energyBar.value = power;
-      energy.textContent = `BOOST ${Math.ceil(power)}%`;
-      shieldValue.textContent = shieldLock > 0 ? 'SHIELD BROKEN'
-        : shield <= 0 ? 'RELEASE R' : `SHIELD ${Math.ceil(shield)}%`;
+      energy.textContent = `RIFLE ${Math.ceil(power)}%`;
+      shieldValue.textContent = immunityRemaining > 0 ? `AEGIS / IMMUNE ${Math.ceil(immunityRemaining)}s` : shieldLock > 0 ? 'SHIELD BROKEN'
+        : shield <= 0 ? inputHint('RELEASE R', 'finale') : `SHIELD ${Math.ceil(shield)}%`;
       ultimateState.textContent = cooldown > 0 ? `${Math.ceil(cooldown)}s` : 'READY';
       ultimateBar.max = DUEL.ultimateCooldown; ultimateBar.value = DUEL.ultimateCooldown - cooldown;
       ultimate.classList.toggle('ready', cooldown <= 0);
@@ -225,11 +234,13 @@ export function createFinalePresentation(onInput: (code: string, pressed: boolea
       const { beat, remaining, armed, judged, judgement, stars, misses, ringScale, clock } = state;
       qteKey = beat.key;
       qte.dataset.mode = beat.mode;
+      qte.dataset.retired = String(judged && clock - state.judgedAt > 0.45);
       qte.dataset.judgement = judgement; qte.dataset.armed = String(armed);
       qteLabel.textContent = beat.mode === 'mash' ? 'MASH' : beat.mode === 'hold' ? 'HOLD' : 'TIME IT';
       qte.setAttribute('aria-label', `${beat.label}. ${beat.mode === 'mash' ? 'Press repeatedly' : beat.mode === 'hold'
         ? 'Hold to charge' : 'Press as the rings meet'}. Three missed commands break the link.`);
-      qteButton.textContent = KEY_LABELS[beat.key] ?? beat.key.replace('Key', '').toUpperCase();
+      qteButton.textContent = isControllerActive() ? controllerLabel(beat.key, 'finale-qte')
+        : KEY_LABELS[beat.key] ?? beat.key.replace('Key', '').toUpperCase();
       qteButton.setAttribute('aria-label', `${qteLabel.textContent}: ${qteButton.textContent}`);
       qteButton.classList.toggle('success', judgement === 'success');
       qteButton.disabled = judged;
@@ -255,6 +266,7 @@ export function createFinalePresentation(onInput: (code: string, pressed: boolea
       get('.finale-speed-lines').style.opacity = String(reducedMotion ? 0 : Math.max(0, Math.min(0.42, power)));
     },
     update(dt: number) {
+      updateInputLabels();
       flashPower = Math.max(0, flashPower - dt * 2.8);
       get('.finale-flash').style.opacity = String(flashPower);
     },

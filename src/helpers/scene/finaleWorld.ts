@@ -7,7 +7,7 @@ import { createEarthTextures, createEarthGroup } from '../../scripts/earthTextur
 
 export const PLANET_RADIUS = 340;
 export const SPACE_ALTITUDE = 95;
-export const FINALE_ROOFTOP = Object.freeze({ x: 0, y: 32.4, z: -71, width: 70, depth: 33 });
+export const FINALE_ROOFTOP = Object.freeze({ x: 0, y: 32.4, z: -71, width: 84, depth: 38 });
 export const FINALE_DECK_Y = 21.2;
 export const PLANET_CENTER = new THREE.Vector3(0, -PLANET_RADIUS - 2, 0);
 export function finaleBattlePoint(x: number, y = 0, altitude = 0) {
@@ -30,6 +30,7 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
   const spaceBackground = new THREE.Color(0x030711);
   const nightBackground = new THREE.Color(0x091121);
   const rooftopDestructionColor = new THREE.Color(0x2c3444);
+  const forestFog = new THREE.Fog(0x231914, 14, 45);
   const armorTextures = createArmorTextures();
   const metal = new THREE.MeshStandardMaterial({
     color: 0x697783, metalness: 0.9, roughness: 0.48,
@@ -38,18 +39,18 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
   });
   const black = new THREE.MeshPhysicalMaterial({ color: 0x121923, metalness: 0.86, roughness: 0.42, clearcoat: 0.7 });
   const roofCenter = new THREE.Vector3(FINALE_ROOFTOP.x, FINALE_ROOFTOP.y, FINALE_ROOFTOP.z);
-  const floor = new THREE.Mesh(new THREE.BoxGeometry(70, 0.4, 32), metal);
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(FINALE_ROOFTOP.width, 0.4, FINALE_ROOFTOP.depth - 1), metal);
   floor.name = 'FacilityTopFloor';
   floor.position.set(FINALE_ROOFTOP.x, FINALE_DECK_Y - 0.2, FINALE_ROOFTOP.z);
   floor.castShadow = floor.receiveShadow = true;
   root.add(floor);
   const upperWalls = new THREE.Group(); upperWalls.name = 'FacilitySummitWalls';
   for (const side of [-1, 1]) {
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(1, 8, 32), black);
-    wall.position.set(side * 35, 28, -71); upperWalls.add(wall);
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(1, 8, FINALE_ROOFTOP.depth - 1), black);
+    wall.position.set(side * FINALE_ROOFTOP.width / 2, 28, -71); upperWalls.add(wall);
   }
-  const rearWall = new THREE.Mesh(new THREE.BoxGeometry(70, 8, 1), black);
-  rearWall.position.set(0, 28, -87); upperWalls.add(rearWall);
+  const rearWall = new THREE.Mesh(new THREE.BoxGeometry(FINALE_ROOFTOP.width, 8, 1), black);
+  rearWall.position.set(0, 28, FINALE_ROOFTOP.z - (FINALE_ROOFTOP.depth - 1) / 2); upperWalls.add(rearWall);
   root.add(upperWalls);
 
   const roofPieces: Array<{ mesh: THREE.Mesh; origin: THREE.Vector3; velocity: THREE.Vector3; axis: THREE.Vector3 }> = [];
@@ -310,6 +311,9 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
     getPlanetImpact: () => impactPosition.clone(),
     update(time: number, rupture: number, space: boolean, reveal = 0, roofBlast = -1, ruptureTime = -1, night = 0) {
       const planetView = ruptureTime >= PLANET_RUPTURE.wide;
+      const forestView = ruptureTime >= PLANET_RUPTURE.forest && ruptureTime < PLANET_RUPTURE.forestEnd;
+      const cockpitView = ruptureTime >= PLANET_RUPTURE.cockpit && ruptureTime < PLANET_RUPTURE.returnToDuel;
+      planetRoot.visible = !forestView && !cockpitView;
       floor.visible = !space && !planetView;
       upperWalls.visible = roofBlast < 0.25 && !space && !planetView;
       if (facilityRoof) facilityRoof.visible = roofBlast < 0.25 && !space && !planetView;
@@ -323,8 +327,10 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
         piece.mesh.rotation.set(piece.axis.x * elapsed * 1.3, piece.axis.y * elapsed, piece.axis.z * elapsed * 1.3);
       }
       sky.visible = !space && !planetView && rupture < 1;
-      scene.fog = space || planetView ? null : roofFog;
-      if (space || planetView) {
+      scene.fog = forestView ? forestFog : space || planetView ? null : roofFog;
+      if (forestView) {
+        roofBackground.copy(forestFog.color);
+      } else if (space || planetView) {
         roofBackground.copy(spaceBackground);
       } else {
         roofBackground.set(0x263138).lerp(nightBackground, night).lerp(rooftopDestructionColor, smooth(rupture, 0, 1));
@@ -340,7 +346,7 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
         beams[i].material.uniforms.uTime.value = time;
         beams[i].material.uniforms.uPower.value = spot.intensity / 58;
       });
-      starsMaterial.opacity = space ? 0.95 : Math.max(night * 0.48, smooth(ruptureTime, PLANET_RUPTURE.escape, PLANET_RUPTURE.wide + 1));
+      starsMaterial.opacity = forestView ? 0 : space ? 0.95 : Math.max(night * 0.48, smooth(ruptureTime, PLANET_RUPTURE.escape, PLANET_RUPTURE.wide + 1));
       planetUniforms.uRupture.value = rupture;
       planetUniforms.uTime.value = time;
       planet.visible = rupture < 0.36;

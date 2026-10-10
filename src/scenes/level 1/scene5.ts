@@ -15,13 +15,17 @@ import { createCameraVisitUI } from '../../helpers/scene/cameraVisit.js';
 import { SHIP_INTERIOR_PALETTE } from '../../helpers/scene/shipInterior.js';
 import { teleportPlayer } from '../../scripts/teleportationDevice.js';
 import { cameraVisitMap, type CameraRoomProgress } from '../level 1 stage 2/stageTwoLayout.js';
+import { loadToolModel } from '../../core/loader.js';
 
-export function createScene({ audioManager, entryState, remoteVisit = false, preview = false, deferActivation = false, loot, hasReturnMarker, onRestart }: {
+export function createScene({ audioManager, entryState, remoteVisit = false, preview = false, deferActivation = false, loot,
+  hasReturnMarker, onRestart, onKeycardCollected, modelLoader = loadToolModel }: {
   audioManager?: unknown; entryState?: PlayerTransitionState;
   remoteVisit?: boolean; preview?: boolean; deferActivation?: boolean; loot?: CameraRoomProgress;
   hasReturnMarker?: () => boolean; onRestart?: () => Promise<boolean>;
+  onKeycardCollected?: () => void; modelLoader?: typeof loadToolModel;
 } = {}) {
-  if (remoteVisit && !preview && (!hasReturnMarker || !onRestart)) throw new Error('Camera visits require a return-marker check and checkpoint restart');
+  if (remoteVisit && !preview && (!hasReturnMarker || !onRestart || !onKeycardCollected || !loot))
+    throw new Error('Camera visits require a return link, checkpoint restart and persistent keycard reward');
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(remoteVisit ? SHIP_INTERIOR_PALETTE.background : 0x0a0f0a);
 
@@ -226,9 +230,12 @@ export function createScene({ audioManager, entryState, remoteVisit = false, pre
   }
 
   const chest = createRewardChest({ scene, world: physicsWorld, player, position: new THREE.Vector3(0, 0, 2.7),
-    reward: 'health', style: 'crew', initialCollected: loot?.rewardCollected, canInteract: () => active,
+    reward: remoteVisit ? 'keycard' : 'health', style: 'crew', initialCollected: loot?.rewardCollected, canInteract: () => active,
     unlocked: () => breakables.objects.slice(0, 6).every(item => item.broken),
-    onCollect: () => { const collected = player.heal(15); if (collected && loot) loot.rewardCollected = true; return collected; } });
+    onCollect: () => {
+      if (remoteVisit) { onKeycardCollected?.(); if (loot) loot.rewardCollected = true; player.heal(15); return true; }
+      const collected = player.heal(15); if (collected && loot) loot.rewardCollected = true; return collected;
+    } }, modelLoader);
   if (preview) player.disable();
   const visitUI = remoteVisit && !preview && hasReturnMarker && onRestart
     ? createCameraVisitUI({ title: '05 / Cargo hold', player, hasReturnMarker, onRestart }) : null;

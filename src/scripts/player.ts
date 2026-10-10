@@ -7,6 +7,7 @@ import * as CANNON from 'cannon-es';
 import { PHYSICS } from '../helpers/physics/scenePhysics.js';
 import { SLIDE_TACKLE, slideTackleMotion, slideTackleSpeed } from '../helpers/animation/slideTackle.js';
 import type { CargoTransfer } from './cargoPuzzle.js';
+import { isControllerActive, isControllerEvent, getControllerMovement, resetControllerInput } from './gamepadInput.js';
 
 // One-shot character actions (see characterManager.ts) on number keys 6-9.
 export type PlayerActionName = `Sword_${string}` | 'Pistol_Shoot' | 'Pistol_Reload' | 'Dance_Loop' | 'Interact';
@@ -106,6 +107,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   const moveSpeed = PHYSICS.moveSpeed;
   const crouchMoveSpeed = PHYSICS.moveSpeed * 0.6; // 60% speed when crouching
   const sprintMoveSpeed = PHYSICS.moveSpeed * 1.6; // 160% speed when sprinting
+  const ventMoveSpeed = 1.6, ventSprintSpeed = 3.2;
   let isOnGround = false;
   let enabled = false;
   let jumpQueued = false;
@@ -212,6 +214,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   }
 
   function clearInput() {
+    if (isControllerActive()) resetControllerInput();
     for (const code of Object.keys(keys)) delete keys[code];
     jumpQueued = false;
     actionRequest = null;
@@ -238,7 +241,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
 
   function onMouseMove(e: MouseEvent) {
     const touchActive = !!(window as any).__touchActive;
-    if (!enabled || inputLocked || (!isPointerLocked && !touchActive) || lookLocked || sideScrollDepth !== null) return;
+    if (!enabled || inputLocked || (!isPointerLocked && !touchActive && !isControllerEvent(e)) || lookLocked || sideScrollDepth !== null) return;
     yaw -= e.movementX * mouseSensitivity;
     pitch -= e.movementY * mouseSensitivity;
     pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch));
@@ -246,11 +249,11 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
 
   function onPointerLockChange() {
     isPointerLocked = document.pointerLockElement != null;
-    if (!isPointerLocked && !(window as any).__touchActive) clearInput();
+    if (!isPointerLocked && !(window as any).__touchActive && !isControllerActive()) clearInput();
   }
 
   function onClick() {
-    if (enabled && !inputLocked && sideScrollDepth === null && !isPointerLocked && !(window as any).__touchActive) document.body.requestPointerLock();
+    if (enabled && !inputLocked && sideScrollDepth === null && !isPointerLocked && !(window as any).__touchActive && !isControllerActive()) document.body.requestPointerLock();
   }
 
   window.addEventListener('keydown', onKeyDown);
@@ -262,6 +265,16 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
 
   // --- Movement direction ---
   function getMoveDirection(): { x: number; z: number } | null {
+    if (isControllerActive()) {
+      const stick = getControllerMovement();
+      if (overheadMovement) return stick.x || stick.y ? { x: stick.x, z: stick.y } : null;
+      if (sideScrollDepth !== null) return stick.x ? { x: -stick.x, z: 0 } : null;
+      if (ventMode && turnRemaining !== 0) return null;
+      const forward = floatingStrafeOnly ? 0 : -stick.y, right = ventMode ? 0 : stick.x;
+      if (!forward && !right) return null;
+      const sinY = Math.sin(yaw), cosY = Math.cos(yaw);
+      return { x: -forward * sinY + right * cosY, z: -forward * cosY - right * sinY };
+    }
     if (overheadMovement) {
       const x = Number(!!(keys.KeyD || keys.ArrowRight)) - Number(!!(keys.KeyA || keys.ArrowLeft));
       const z = Number(!!(keys.KeyS || keys.ArrowDown)) - Number(!!(keys.KeyW || keys.ArrowUp));
@@ -368,14 +381,15 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       turnRemaining -= turn;
       if (Math.abs(turnRemaining) < 1e-6) turnRemaining = 0;
     }
-    sprinting = !crouchForced && !boxHandling && !!(keys['ShiftLeft'] || keys['ShiftRight']);
+    sprinting = (!crouchForced || ventMode) && !boxHandling && !!(keys['ShiftLeft'] || keys['ShiftRight']);
     const moveDir = getMoveDirection();
+    let moveStrength = moveDir ? Math.min(1, Math.hypot(moveDir.x, moveDir.z)) : 0;
     if (overheadMovement && moveDir) yaw = Math.atan2(-moveDir.x, -moveDir.z);
     if (sideScrollDepth !== null && moveDir) yaw = moveDir.x < 0 ? Math.PI / 2 : -Math.PI / 2;
     const desired = new CANNON.Vec3(moveDir?.x ?? 0, 0, moveDir?.z ?? 0);
     if (floating) {
       desired.y = floatingStrafeOnly ? 0 : (keys['Space'] ? 1 : 0) - (keys['KeyC'] ? 1 : 0);
-      if (desired.lengthSquared() > 0) desired.normalize();
+      if (desired.lengthSquared() > 1 || (!isControllerActive() && desired.lengthSquared() > 0)) desired.normalize();
       desired.scale(sprinting ? 4.8 : 3.2, desired);
       if (floatingStrafeOnly) desired.y = THREE.MathUtils.clamp((floatingStrafeHeight - playerBody.position.y) * 3, -1.5, 1.5);
       // Responsive thrusters with a short braking glide on release.
@@ -386,12 +400,13 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       floatTime += _dt;
       return;
     }
-    let currentMoveSpeed = boxHandling ? 1.25 : ventMode ? 1.6 : crouching ? crouchMoveSpeed : moveSpeed;
+    let currentMoveSpeed = boxHandling ? 1.25 : ventMode ? sprinting ? ventSprintSpeed : ventMoveSpeed : crouching ? crouchMoveSpeed : moveSpeed;
     if (sprinting && !crouching) currentMoveSpeed = sprintMoveSpeed;
     if (sliding) {
       if (!isOnGround || slideTime >= SLIDE_TACKLE.duration) cancelSlide();
       else {
         desired.set(-Math.sin(slideYaw), 0, -Math.cos(slideYaw));
+        moveStrength = 1;
         const exitSpeed = keys.KeyW && !keys.KeyS ? currentMoveSpeed : 0;
         currentMoveSpeed = slideTackleSpeed(slideTime, slideEntrySpeed, exitSpeed);
         slideTime = Math.min(SLIDE_TACKLE.duration, slideTime + _dt);
@@ -401,7 +416,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     if (isOnGround) {
       desired.y = -(desired.x * groundNormal.x + desired.z * groundNormal.z) / groundNormal.y;
       desired.normalize();
-      desired.scale(currentMoveSpeed, playerBody.velocity);
+      desired.scale(currentMoveSpeed * moveStrength, playerBody.velocity);
     } else {
       playerBody.velocity.x = desired.x * currentMoveSpeed;
       playerBody.velocity.z = desired.z * currentMoveSpeed;
@@ -642,7 +657,12 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     setClimbing: (active: boolean, direction: 1 | -1 = 1) => {
       climbing = active;
       climbDirection = direction;
-      if (active) clearInput();
+      if (active) {
+        clearInput();
+        crouching = false;
+        sprinting = false;
+        cancelSlide();
+      }
       playerBody.velocity.set(0, 0, 0);
       playerBody.force.set(0, 0, 0);
       playerBody.type = active ? CANNON.Body.KINEMATIC : CANNON.Body.DYNAMIC;

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { inputHint } from '../../scripts/gamepadInput.js';
 import { teleportPlayer } from '../../scripts/teleportationDevice.js';
 import { BAY_THIRTEEN_MAP } from '../level 1 stage 2/stageTwoLayout.js';
 import * as CANNON from 'cannon-es';
@@ -565,7 +566,7 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
   function updateHud() {
     const s = boss.getStatus();
     hud?.classList.toggle('hidden', cleared || cinematic === 'versus' || cinematic === 'reveal' || cinematic === 'lift');
-    if (cleared && !cinematic && prompt) { prompt.textContent = 'Press E to interact — descend to hangar'; prompt.classList.toggle('hidden', !nearConsole()); }
+    if (cleared && !cinematic && prompt) { prompt.textContent = inputHint('Press E to interact — descend to hangar'); prompt.classList.toggle('hidden', !nearConsole()); }
     if (fill) fill.style.width = `${s.health / s.maxHealth * 100}%`;
     if (label) label.textContent = `BAY WARDEN / ${s.health} / ${s.maxHealth}`;
   }

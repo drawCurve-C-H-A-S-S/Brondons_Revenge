@@ -4,25 +4,27 @@ import { loadToolModel, preloadToolModel } from '../../core/loader.js';
 import type { MinimapSettings } from '../../core/renderer.js';
 import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
 import { createSlidingPortal, disposeRoom, roomBox } from '../../helpers/scene/shipRoom.js';
-import { createShipInteriorMaterials, createShipStorageShelf, createShipServerRack, createShipStatusTexture,
+import { createShipInteriorMaterials, createShipServerRack,
   createShipTerminal, SHIP_INTERIOR_PALETTE } from '../../helpers/scene/shipInterior.js';
 import { getAudioSettings, subscribeAudioSettings } from '../../helpers/audio/AudioManager.js';
 import { createPlayer, PLAYER_MAX_HEALTH, type PlayerState, type PlayerTransitionState } from '../../scripts/player.js';
-import { createBreakables, type Breakable } from '../../scripts/breakables.js';
 import { createRewardChest } from '../../scripts/rewardChest.js';
+import { createCorridorMonitor } from '../../helpers/scene/corridorMonitor.js';
 import { teleportPlayer } from '../../scripts/teleportationDevice.js';
 import { hologramTransitionAt, HOLOGRAM_TRANSFER_DURATION, type CinematicPose } from '../../scripts/characterManager.js';
 import type { DamageTarget } from '../../scripts/pistol.js';
 import type { CctvTarget } from '../../scripts/cctv.js';
 import type { WeaponId } from '../../scripts/weaponWheel.js';
-import { createKeypad } from '../living quarters/surfaces.js';
-import { createInspectionView } from '../living quarters/inspectionView.js';
+import { inputHint } from '../../scripts/gamepadInput.js';
 import { fitCabinProp } from '../living quarters/furnishings.js';
-import { STAGE_TWO, STAGE_TWO_MAP, SURVEILLANCE_CODE, VENT_MAZE, VENT_SENSORS, VENT_SAFE_CELLS,
-  VENT_ROUTE, ventPoint, ventSensorState, type CameraRoomId, type StageTwoProgress } from './stageTwoLayout.js';
+import { STAGE_TWO, STAGE_TWO_MAP, STAGE_TWO_KEYCARD_ROOMS, VENT_MAZE, VENT_BOUNDS, VENT_START,
+  VENT_EXIT, VENT_CENTER, VENT_SENSORS, VENT_SAFE_CELLS, ventPoint, ventSensorState, swipeStageTwoKeycard, collectStageTwoKeycard,
+  type CameraRoomId, type StageTwoProgress } from './stageTwoLayout.js';
 
-type Phase = 'intro' | 'approach' | 'alarm' | 'chase' | 'climb' | 'maze' | 'drop' | 'guard'
-  | 'takedown' | 'brief' | 'surveillance' | 'teleport' | 'lift' | 'handoff' | 'load-error' | 'failed';
+type Physics = ReturnType<typeof createScenePhysics>;
+type Materials = ReturnType<typeof createShipInteriorMaterials>;
+type Phase = 'maze' | 'drop' | 'hub-loading' | 'guard' | 'takedown' | 'surveillance'
+  | 'swipe' | 'teleport' | 'lift-button' | 'lift' | 'handoff' | 'load-error' | 'failed';
 interface StageTwoOptions {
   progress: StageTwoProgress;
   entryState?: PlayerTransitionState;
@@ -32,233 +34,192 @@ interface StageTwoOptions {
   getEquippedWeapon: () => WeaponId;
   holsterWeapons: () => void;
   onCrowbarCollected: () => void;
-  onRetryFeed: (id: CameraRoomId) => void;
+  onRetryFeed: (id: CctvTarget['id']) => void;
   onCameraTeleport: (id: CameraRoomId, state: PlayerTransitionState) => Promise<boolean>;
+  onVentDrop: () => Promise<void>;
   prepareBay13: () => Promise<void>;
   onExitToBay13: (state: PlayerTransitionState) => Promise<boolean>;
+  onAirlockReturn: (state: PlayerTransitionState) => Promise<boolean>;
+  fromAirlock?: boolean;
+  modelLoader?: typeof loadToolModel;
+  monitorFactory?: typeof createCorridorMonitor;
 }
 
 export async function preloadAssets() {
-  await Promise.all([preloadToolModel('Enemy_Trilobite'), preloadToolModel('Enemy_QuadShell'), preloadToolModel('Prop_Chair')]);
+  await Promise.all((['Enemy_Trilobite', 'Prop_Desk_Small', 'Prop_Chair', 'Prop_KeyCard'] as const)
+    .map(name => preloadToolModel(name)));
+}
+
+function hatchSurface(scene: THREE.Scene, group: THREE.Group, physics: Physics | undefined,
+  bounds: [number, number, number, number], y: number, opening: [number, number, number, number], material: THREE.Material) {
+  const [left, right, north, south] = bounds, [x, z, width, depth] = opening;
+  const a = x - width / 2, b = x + width / 2, c = z - depth / 2, d = z + depth / 2;
+  if (!(a > left && b < right && c > north && d < south)) throw new Error('A vent hatch must fit inside its supporting surface');
+  for (const [minX, maxX, minZ, maxZ] of [[left, a, north, south], [b, right, north, south], [a, b, north, c], [a, b, d, south]]) {
+    const size: [number, number, number] = [maxX - minX, 0.16, maxZ - minZ];
+    const at: [number, number, number] = [(minX + maxX) / 2, y, (minZ + maxZ) / 2];
+    const mesh = physics ? roomBox(scene, physics, size, at, material)
+      : new THREE.Mesh(new THREE.BoxGeometry(...size), material);
+    mesh.position.set(...at); group.add(mesh); mesh.userData.minimap = false;
+  }
+}
+
+function buildVentMaze(scene: THREE.Scene, materials: Materials, physics?: Physics) {
+  const root = new THREE.Group(); root.name = 'SensorVentMaze'; scene.add(root);
+  const walls: THREE.Matrix4[] = [], floors: THREE.Matrix4[] = [], trim: THREE.Matrix4[] = [], strips: THREE.Matrix4[] = [];
+  const transform = new THREE.Object3D();
+  function instance(list: THREE.Matrix4[], size: [number, number, number], position: [number, number, number], solid = true) {
+    transform.position.set(...position); transform.scale.set(...size); transform.updateMatrix(); list.push(transform.matrix.clone());
+    if (solid) physics?.addBox({ x: size[0], y: size[1], z: size[2] }, { x: position[0], y: position[1], z: position[2] });
+  }
+  for (const [row, line] of VENT_MAZE.entries()) for (const [column, cell] of [...line].entries()) {
+    const point = ventPoint(column, row);
+    if (cell === '#') instance(walls, [2, 1.35, 2], [point.x, 4.675, point.z]);
+    else {
+      if (cell === 'E') hatchSurface(scene, root, physics, [point.x - 1, point.x + 1, point.z - 1, point.z + 1],
+        3.92, [point.x, point.z, 1.25, 1.25], materials.deck);
+      else instance(floors, [2, 0.16, 2], [point.x, 3.92, point.z]);
+      for (const side of [-1, 1]) {
+        if (VENT_MAZE[row]?.[column + side] === '#') {
+          instance(trim, [0.025, 0.055, 1.92], [point.x + side * 0.975, 4.16, point.z], false);
+          if ((row + column) % 4 === 0) instance(strips, [0.025, 0.035, 0.55], [point.x + side * 0.972, 5.1, point.z], false);
+        }
+        if (VENT_MAZE[row + side]?.[column] === '#') {
+          instance(trim, [1.92, 0.055, 0.025], [point.x, 4.16, point.z + side * 0.975], false);
+          if ((row + column) % 4 === 0) instance(strips, [0.55, 0.035, 0.025], [point.x, 5.1, point.z + side * 0.972], false);
+        }
+      }
+    }
+  }
+  for (const [name, matrices, material] of [
+    ['VentWalls', walls, materials.steel], ['VentFloor', floors, materials.deck],
+    ['VentWallTrim', trim, materials.trim], ['VentWallLights', strips, materials.cyan],
+  ] as const) {
+    const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), material, matrices.length);
+    mesh.name = name; matrices.forEach((matrix, index) => mesh.setMatrixAt(index, matrix));
+    mesh.computeBoundingSphere(); root.add(mesh);
+    if (name === 'VentWallTrim' || name === 'VentWallLights') mesh.userData.minimap = false;
+  }
+  const ceiling = new THREE.Mesh(new THREE.BoxGeometry(34, 0.12, 50), materials.dark);
+  ceiling.position.set(VENT_CENTER.x, 5.48, VENT_CENTER.z); ceiling.userData.minimap = false; root.add(ceiling);
+  physics?.addBox({ x: 34, y: 0.12, z: 50 }, ceiling.position);
+  for (const cell of VENT_SAFE_CELLS) {
+    const pad = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.014, 0.55), materials.cyan);
+    pad.position.copy(ventPoint(cell.column, cell.row, 4.015)); root.add(pad);
+  }
+  const exit = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.035, 1.25), materials.cyan);
+  exit.position.copy(ventPoint(VENT_EXIT.column, VENT_EXIT.row, 4.015)); exit.position.x -= 0.68; root.add(exit);
+  const sensors = VENT_SENSORS.map((sensor, index) => {
+    const material = new THREE.MeshStandardMaterial({ color: 0xff795e, emissive: 0xc32d18, emissiveIntensity: 1.8 });
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.19, 12, 8), material);
+    mesh.name = sensor.id; mesh.position.copy(ventSensorState(index, 0).position); mesh.userData.minimap = false; root.add(mesh);
+    const ring = new THREE.Mesh(new THREE.CircleGeometry(0.48, 24),
+      new THREE.MeshBasicMaterial({ color: 0xff795e, transparent: true, opacity: 0.24, depthWrite: false, toneMapped: false }));
+    ring.rotation.x = -Math.PI / 2; ring.position.y = -0.475; mesh.add(ring);
+    return { mesh, ring };
+  });
+  function update(time: number) {
+    sensors.forEach(({ mesh, ring }, index) => {
+      const state = ventSensorState(index, time); mesh.position.copy(state.position);
+      mesh.material.color.setHex(state.active ? 0xff795e : 0x72eeaa);
+      mesh.material.emissive.setHex(state.active ? 0xc32d18 : 0x248549);
+      ring.material.color.copy(mesh.material.color); ring.material.opacity = state.active ? 0.24 : 0.12;
+    });
+  }
+  return { root, ceiling, sensors, update };
+}
+
+export function createVentFeed() {
+  const scene = new THREE.Scene(); scene.background = new THREE.Color(0x0a121d);
+  const maze = buildVentMaze(scene, createShipInteriorMaterials(17, 25)); maze.ceiling.visible = false;
+  scene.add(new THREE.HemisphereLight(0xb9d5e9, 0x273342, 2.3));
+  const camera = new THREE.PerspectiveCamera(62, 16 / 9, 0.1, 120);
+  camera.position.set(VENT_CENTER.x, 38, VENT_BOUNDS.maxZ + 14); camera.lookAt(VENT_CENTER.x, 4, VENT_CENTER.z);
+  let elapsed = 0;
+  return { scene, camera, update(dt: number) { elapsed += dt; maze.update(elapsed); }, dispose: () => disposeRoom(scene) };
 }
 
 export function createScene(options: StageTwoOptions) {
-  const { progress } = options;
+  const { progress, modelLoader = loadToolModel, monitorFactory = createCorridorMonitor } = options;
   const scene = new THREE.Scene(); scene.background = new THREE.Color(SHIP_INTERIOR_PALETTE.background);
-  scene.fog = new THREE.Fog(0x0a121d, 24, 60);
+  scene.fog = new THREE.Fog(0x0a121d, 30, 85);
   const physics = createScenePhysics();
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / Math.max(1, window.innerHeight), 0.05, 90);
-  const materials = createShipInteriorMaterials(9, 7);
-  materials.deck.color.setHex(0x3b4c5d);
+  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / Math.max(1, window.innerHeight), 0.05, 120);
+  const materials = createShipInteriorMaterials(17, 25); materials.deck.color.setHex(0x3b4c5d);
   const pale = new THREE.MeshStandardMaterial({ color: 0xbfcad0, roughness: 0.8, metalness: 0.15 });
-  const warning = new THREE.MeshStandardMaterial({ color: 0xdab943, roughness: 0.65, metalness: 0.25 });
-  const passage = new THREE.Group(), storage = new THREE.Group(), maze = new THREE.Group();
-  const surveillance = new THREE.Group(), lift = new THREE.Group();
-  scene.add(passage, storage, maze, surveillance, lift);
-  const groups = [passage, storage, maze, surveillance, lift];
+  const surveillance = new THREE.Group(), lift = new THREE.Group(); scene.add(surveillance, lift);
+  surveillance.name = 'SurveillanceHub'; lift.name = 'ServiceElevator';
+  const maze = buildVentMaze(scene, materials, physics), groups = [maze.root, surveillance, lift];
   const box = (group: THREE.Group, size: [number, number, number], at: [number, number, number],
     material: THREE.Material = materials.steel, solid = true) => {
     const mesh = roomBox(scene, physics, size, at, material, solid); group.add(mesh); return mesh;
   };
-  function hatchSurface(group: THREE.Group, bounds: [number, number, number, number], y: number,
-    opening: [number, number, number, number], material: THREE.Material) {
-    const [left, right, north, south] = bounds, [x, z, width, depth] = opening;
-    const a = x - width / 2, b = x + width / 2, c = z - depth / 2, d = z + depth / 2;
-    if (!(a > left && b < right && c > north && d < south)) throw new Error('A vent hatch must fit inside its supporting surface');
-    const panels = [[left, a, north, south], [b, right, north, south], [a, b, north, c], [a, b, d, south]];
-    return panels.map(([minX, maxX, minZ, maxZ]) =>
-      box(group, [maxX - minX, 0.16, maxZ - minZ], [(minX + maxX) / 2, y, (minZ + maxZ) / 2], material));
+  const room = STAGE_TWO.camera, height = STAGE_TWO.height, { x: liftX, z: liftZ } = STAGE_TWO.elevator;
+  box(surveillance, [18, 0.2, 22], [28, -0.1, -53], materials.deck).name = 'SurveillanceFloor';
+  box(surveillance, [0.18, height, 22], [room.maxX, height / 2, -53]);
+  box(surveillance, [0.18, height, 16], [room.minX, height / 2, -56]);
+  box(surveillance, [0.18, height, 2], [room.minX, height / 2, -43]);
+  const returnAirlock = createSlidingPortal(scene, physics, { x: room.minX, y: 0, z: -46, yaw: Math.PI / 2 },
+    4, height, 'HANGAR AIRLOCK', { doorHeight: 2.65, sign: false });
+  surveillance.add(returnAirlock.group);
+  box(surveillance, [2, 0.2, 3], [18, -0.1, -46], materials.deck);
+  box(surveillance, [18, height, 0.18], [28, height / 2, room.maxZ]);
+  for (const x of [22.5, 33.5]) box(surveillance, [7, height, 0.18], [x, height / 2, room.minZ]);
+  hatchSurface(scene, surveillance, physics, [room.minX, room.maxX, room.minZ, room.maxZ], height,
+    [STAGE_TWO.drop.x, STAGE_TWO.drop.z, 1.25, 1.25], materials.dark);
+  for (const x of [21, 35]) {
+    const lamp = new THREE.PointLight(0xb6dfec, 24, 22); lamp.position.set(x, 3.25, -52); surveillance.add(lamp);
+    box(surveillance, [0.03, 0.055, 18], [x < 28 ? 19.13 : 36.87, 2.65, -53], materials.cyan, false);
+    box(surveillance, [0.07, 0.07, 21.5], [x < 28 ? 19.15 : 36.85, 0.17, -53], materials.trim, false);
   }
-  box(passage, [5, 0.2, 34], [0, -0.1, -11], materials.deck);
-  box(passage, [0.18, 3.2, 34], [-2.5, 1.6, -11]);
-  box(passage, [0.18, 3.2, 18.4], [2.5, 1.6, -18.8]);
-  box(passage, [0.18, 3.2, 12.4], [2.5, 1.6, -0.2]);
-  for (const z of [-28, 6]) box(passage, [5, 3.2, 0.18], [0, 1.6, z], materials.dark);
-  box(passage, [5, 0.16, 34], [0, 3.2, -11], materials.dark).userData.minimap = false;
-  for (const z of [2, -4, -12, -18, -24]) {
-    for (const side of [-1, 1]) box(passage, [0.025, 0.05, 2.5], [side * 2.39, 2.35, z], materials.cyan, false);
-    const lamp = new THREE.PointLight(0xb6dfec, 9, 8); lamp.position.set(0, 2.8, z); passage.add(lamp);
-    box(passage, [1.1, 0.04, 0.13], [0, 3.06, z], materials.cyan, false);
+  for (const z of [-46, -52, -58, -62]) {
+    box(surveillance, [17.7, 0.1, 0.18], [28, height - 0.2, z], materials.trim, false).userData.minimap = false;
+    box(surveillance, [2.8, 0.04, 0.12], [28, height - 0.12, z], materials.cyan, false);
   }
-  // Sealed airlock leaf behind the arrival point, matching the Deck One bulkhead Brondon just walked through.
-  box(passage, [3.3, 3.0, 0.08], [0, 1.5, 5.87], materials.trim, false);
-  for (const side of [-1, 1]) box(passage, [1.42, 2.72, 0.06], [side * 0.73, 1.36, 5.81], materials.dark, false);
-  box(passage, [0.035, 2.6, 0.03], [0, 1.34, 5.77], materials.cyan, false);
-  for (const z of [-2, -14, -22]) {
-    box(passage, [4.8, 0.14, 0.16], [0, 3.01, z], materials.trim, false);
-    for (const side of [-1, 1]) {
-      box(passage, [0.06, 2.8, 0.12], [side * 2.37, 1.5, z], materials.trim, false);
-      box(passage, [0.04, 0.06, 5], [side * 2.35, 0.19, z + 2.5], materials.dark, false);
-    }
+  for (const [index, x] of [20, 36].entries()) for (const z of [-44.4, -61.5]) {
+    const rack = createShipServerRack(materials); rack.name = `SurveillanceServerRack-${index}-${z}`;
+    rack.position.set(x, 0, z); rack.rotation.y = x < 28 ? Math.PI / 2 : -Math.PI / 2; surveillance.add(rack);
+    physics.addBox({ x: 0.8, y: 2.65, z: 0.86 }, { x, y: 1.325, z });
   }
+  const frontDoor = createSlidingPortal(scene, physics, { x: liftX, y: 0, z: room.minZ, yaw: 0 }, 4, height,
+    'SERVICE ELEVATOR', { doorHeight: 2.65, sign: false }); surveillance.add(frontDoor.group);
+  box(lift, [4, 0.2, 6.8], [liftX, -0.1, liftZ - 1], materials.deck);
+  for (const x of [liftX - 2, liftX + 2]) box(lift, [0.18, height, 6.8], [x, height / 2, liftZ - 1]);
+  box(lift, [4, 0.16, 6.8], [liftX, height, liftZ - 1], materials.dark).userData.minimap = false;
+  const rearZ = liftZ - 2.4;
+  const rearDoor = createSlidingPortal(scene, physics, { x: liftX, y: 0, z: rearZ, yaw: 0 }, 4, height,
+    'BAY 13', { doorHeight: 2.65, sign: false }); lift.add(rearDoor.group);
+  const liftLamp = new THREE.PointLight(0xb6dfec, 16, 8); liftLamp.position.set(liftX, 3.1, liftZ); lift.add(liftLamp);
+  const liftStrip = new THREE.MeshBasicMaterial({ color: 0x6ad9e8, toneMapped: false });
+  box(lift, [1.8, 0.04, 0.16], [liftX, height - 0.12, liftZ], liftStrip, false);
+  const liftButtonPoint = new THREE.Vector3(liftX - 1.82, 1.2, liftZ);
+  box(lift, [0.08, 0.62, 1.0], [liftButtonPoint.x - 0.05, liftButtonPoint.y, liftButtonPoint.z], materials.dark, false);
+  const liftButtonMaterial = new THREE.MeshBasicMaterial({ color: 0x72eeaa, toneMapped: false });
+  const liftButton = new THREE.Mesh(new THREE.CircleGeometry(0.105, 20), liftButtonMaterial);
+  liftButton.name = 'Bay13ElevatorButton'; liftButton.rotation.y = Math.PI / 2; liftButton.position.copy(liftButtonPoint); lift.add(liftButton);
+  for (const z of [liftZ - 0.35, liftZ - 0.42])
+    box(lift, [0.035, 0.19, 0.025], [liftButtonPoint.x + 0.02, 1.2, z], materials.trim, false).rotation.x = 0.35;
+  const readerMaterial = new THREE.MeshStandardMaterial({ color: 0xff785e, emissive: 0x8d2019, emissiveIntensity: 1.4 });
+  const readerPoint = new THREE.Vector3(STAGE_TWO.reader.x, STAGE_TWO.reader.y, STAGE_TWO.reader.z);
+  const reader = box(surveillance, [0.34, 0.58, 0.12], [readerPoint.x, readerPoint.y, readerPoint.z], materials.dark, false);
+  reader.name = 'ElevatorKeycardReader';
+  box(surveillance, [0.23, 0.035, 0.018], [readerPoint.x, readerPoint.y + 0.14, readerPoint.z + 0.07], readerMaterial, false);
+  box(surveillance, [0.27, 0.023, 0.03], [readerPoint.x, readerPoint.y - 0.08, readerPoint.z + 0.07], pale, false);
+  scene.add(new THREE.AmbientLight(SHIP_INTERIOR_PALETTE.ambient, 1.3), new THREE.HemisphereLight(0xb9d5e9, 0x1b2a36, 1.5));
 
-  box(storage, [7, 0.2, 6], [6, -0.1, -8], materials.deck);
-  box(storage, [7, 3.2, 0.18], [6, 1.6, -11]);
-  box(storage, [7, 3.2, 0.18], [6, 1.6, -5]);
-  box(storage, [0.18, 3.2, 6], [9.5, 1.6, -8]);
-  for (const mesh of hatchSurface(storage, [2.5, 9.5, -11, -5], 3.2, [8, -9.55, 1, 1.3], materials.dark)) mesh.userData.minimap = false;
-  for (const x of [7.5, 8.5]) box(storage, [0.08, 0.8, 1.3], [x, 3.6, -9.55], materials.dark);
-  for (const z of [-10.2, -8.9]) box(storage, [1, 0.8, 0.08], [8, 3.6, z], materials.dark);
-  for (const x of [7.52, 8.48]) box(storage, [0.065, 4.4, 0.065], [x, 2.2, -10.18], materials.trim, false);
-  for (let y = 0.25; y < 4.4; y += 0.3) box(storage, [0.96, 0.055, 0.065], [8, y, -10.18], materials.trim, false);
-  const storeDoor = createSlidingPortal(scene, physics, { x: 2.5, y: 0, z: -8, yaw: -Math.PI / 2 },
-    6, 3.2, 'MAINTENANCE / STOREROOM', { doorHeight: 2.5, sign: false });
-  storage.add(storeDoor.group);
-  for (const [index, x] of [3.85, 6.1, 8.35].entries()) {
-    const shelf = createShipStorageShelf(materials);
-    shelf.name = `StoreroomShelf-${index + 1}`; shelf.position.set(x, 0, -5.55); shelf.rotation.y = Math.PI; storage.add(shelf);
-    physics.addBox({ x: 2.08, y: 2.55, z: 0.8 }, { x, y: 1.275, z: -5.55 });
-  }
-  const toolShelf = createShipStorageShelf(materials);
-  toolShelf.name = 'StoreroomToolShelf'; toolShelf.position.set(6.15, 0, -10.43); toolShelf.scale.x = 0.9; storage.add(toolShelf);
-  physics.addBox({ x: 2.08 * 0.9, y: 2.55, z: 0.8 }, { x: 6.15, y: 1.275, z: -10.43 });
-  for (const x of [3.1, 6.7, 9.35]) {
-    box(storage, [0.085, 2.85, 0.06], [x, 1.5, -10.86], materials.trim, false);
-  }
-  box(storage, [6.65, 0.14, 0.15], [6, 2.93, -8], materials.trim, false);
-  for (const y of [0.15, 2.75]) {
-    box(storage, [0.055, 0.07, 5.6], [9.36, y, -8], materials.trim, false);
-  }
-  for (const x of [6.85, 9.1]) box(storage, [0.07, 0.014, 2.1], [x, 0.015, -9.45], warning, false);
-  for (const z of [-8.45, -10.5]) box(storage, [2.3, 0.014, 0.07], [8, 0.015, z], warning, false);
-  for (let x = 7.05; x < 9; x += 0.32) {
-    box(storage, [0.12, 0.016, 0.32], [x, 0.025, -8.45], materials.dark, false).rotation.y = -Math.PI / 4;
-  }
-  const storeLight = new THREE.PointLight(0xb6dfec, 20, 10); storeLight.position.set(6, 2.8, -8); storage.add(storeLight);
-  box(storage, [1.6, 0.04, 0.14], [6, 3.06, -8], materials.cyan, false);
-  const alarmMaterial = new THREE.MeshStandardMaterial({ color: 0x42352b, emissive: 0x000000 });
-  box(storage, [0.2, 0.18, 0.12], [2.7, 2.65, -6.35], alarmMaterial, false);
-
-  for (const [row, line] of VENT_MAZE.entries()) for (const [column, cell] of [...line].entries()) {
-    const point = ventPoint(column, row);
-    if (cell === '#') box(maze, [2, 1.35, 2], [point.x, 4.675, point.z]);
-    else if (cell === 'S') hatchSurface(maze, [point.x - 1, point.x + 1, point.z - 1, point.z + 1],
-      3.92, [8, -9.55, 1, 1.3], materials.deck);
-    else if (cell === 'E') hatchSurface(maze, [point.x - 1, point.x + 1, point.z - 1, point.z + 1],
-      3.92, [20, -1.5, 1.25, 1.25], materials.deck);
-    else box(maze, [2, 0.16, 2], [point.x, 3.92, point.z], materials.deck);
-  }
-  box(maze, [18, 0.12, 14], [14, 5.48, -5.5], materials.dark).userData.minimap = false;
-  const hatch = box(maze, [1, 0.16, 1.3], [8, 3.92, -9.55], materials.trim, false); hatch.visible = false;
-  let hatchBody: CANNON.Body | null = null;
-  function closeHatch() {
-    hatch.visible = true;
-    if (!hatchBody) hatchBody = physics.addBox({ x: 1, y: 0.16, z: 1.3 }, hatch.position);
-  }
-  for (const cell of VENT_SAFE_CELLS) {
-    const point = ventPoint(cell.column, cell.row);
-    box(maze, [0.55, 0.014, 0.55], [point.x, 4.015, point.z], materials.cyan, false);
-  }
-  const sensorMaterial = new THREE.MeshStandardMaterial({ color: 0xff795e, emissive: 0xff2d17, emissiveIntensity: 1.8 });
-  const sensors = VENT_SENSORS.map((sensor, index) => {
-    const root = new THREE.Mesh(new THREE.SphereGeometry(0.19, 12, 8), sensorMaterial.clone());
-    root.name = sensor.id; root.position.copy(ventSensorState(index, 0).position);
-    root.userData.minimap = false; maze.add(root); return root;
-  });
-  const sensorRings = sensors.map(sensor => {
-    const ring = new THREE.Mesh(new THREE.CircleGeometry(0.48, 32),
-      new THREE.MeshBasicMaterial({ color: 0xff795e, transparent: true, opacity: 0.25, depthWrite: false, toneMapped: false }));
-    ring.name = 'SensorDetectionFootprint'; ring.rotation.x = -Math.PI / 2; ring.position.y = -0.475; sensor.add(ring);
-    return ring;
-  });
-  for (const column of [2, 4, 6]) {
-    const point = ventPoint(column, 1);
-    box(maze, [0.07, 0.08, 1.92], [point.x, 5.26, point.z], materials.trim, false).userData.minimap = false;
-    for (const side of [-1, 1]) box(maze, [0.07, 1.16, 0.055], [point.x, 4.65, point.z + side * 0.96], materials.trim, false);
-  }
-  for (const row of [2, 4]) {
-    const point = ventPoint(7, row);
-    box(maze, [1.92, 0.08, 0.07], [point.x, 5.26, point.z], materials.trim, false).userData.minimap = false;
-    for (const side of [-1, 1]) box(maze, [0.055, 1.16, 0.07], [point.x + side * 0.96, 4.65, point.z], materials.trim, false);
-  }
-  for (const column of [1, 3, 5, 7]) {
-    const point = ventPoint(column, 1); const lamp = new THREE.PointLight(0x78b9cd, 4, 5);
-    lamp.position.set(point.x, 5.2, point.z); maze.add(lamp);
-  }
-  const exitLight = new THREE.PointLight(0x72eeaa, 6, 5); exitLight.position.set(20, 5.2, -1.5); maze.add(exitLight);
-
-  box(surveillance, [10, 0.2, 10], [20, -0.1, -4.8], materials.deck);
-  for (const x of [15, 25]) box(surveillance, [0.18, 3.2, 10], [x, 1.6, -4.8]);
-  box(surveillance, [10, 3.2, 0.18], [20, 1.6, 0.2]);
-  box(surveillance, [6, 3.2, 0.18], [18, 1.6, -9.8]);
-  for (const mesh of hatchSurface(surveillance, [15, 25, -9.8, 0.2], 3.2, [20, -1.5, 1.25, 1.25], materials.dark)) mesh.userData.minimap = false;
-  for (const x of [19.375, 20.625]) box(surveillance, [0.08, 0.8, 1.25], [x, 3.6, -1.5], materials.dark);
-  for (const z of [-2.125, -0.875]) box(surveillance, [1.25, 0.8, 0.08], [20, 3.6, z], materials.dark);
-  for (const x of [16.4, 23.8]) {
-    const lamp = new THREE.PointLight(0xb6dfec, 14, 10); lamp.position.set(x, 2.7, -4.5); surveillance.add(lamp);
-    box(surveillance, [0.035, 0.06, 3.2], [x < 20 ? 15.12 : 24.88, 2.25, -4.8], materials.cyan, false);
-  }
-  box(surveillance, [5.5, 0.1, 1.1], [17.8, 0.9, -8.85], pale);
-  for (const x of [15.5, 20.1]) {
-    box(surveillance, [0.58, 0.85, 0.86], [x, 0.425, -8.85], materials.dark);
-    for (const y of [0.25, 0.52]) box(surveillance, [0.4, 0.025, 0.025], [x, y, -8.4], materials.trim, false);
-  }
-  for (const x of [16.2, 17.8, 19.4]) {
-    box(surveillance, [0.62, 0.025, 0.23], [x, 0.97, -8.55], materials.dark, false);
-    for (let key = 0; key < 7; key++) box(surveillance, [0.045, 0.016, 0.08],
-      [x - 0.22 + key * 0.07, 0.992, -8.55], materials.trim, false);
-  }
-  for (const [index, z] of [-3.8, -5.5].entries()) {
-    const rack = createShipServerRack(materials);
-    rack.name = `SurveillanceServerRack-${index + 1}`; rack.position.set(15.55, 0, z); rack.rotation.y = Math.PI / 2;
-    surveillance.add(rack); physics.addBox({ x: 0.8, y: 2.65, z: 0.86 }, { x: 15.55, y: 1.325, z });
-  }
-  const telemetry = createShipStatusTexture('SURVEILLANCE / DECK 01', [
-    '03 REMOTE CAMERA LINKS / ONLINE', 'VENT SENSOR ARRAY / STANDBY', 'SERVICE LIFT / RESTRICTED', 'BAY 14 CIRCUIT / OFFLINE',
-  ]);
-  box(surveillance, [0.95, 0.85, 3.3], [24.22, 0.425, -4.85], materials.dark);
-  box(surveillance, [1.05, 0.08, 3.4], [24.2, 0.9, -4.85], pale);
-  for (const z of [-4, -5.7]) {
-    const terminal = createShipTerminal(telemetry);
-    terminal.root.position.set(24.32, 0.95, z); terminal.root.rotation.y = Math.PI / 2; surveillance.add(terminal.root);
-  }
-  const chairsReady = Promise.all([16.25, 20].map(async x => {
-    const gltf = await loadToolModel('Prop_Chair');
-    if (disposed) { disposeRoom(gltf.scene); return; }
-    const size = fitCabinProp(gltf.scene, 1.05, 0.68, 0.8);
-    gltf.scene.name = 'SurveillanceConsoleChair'; gltf.scene.position.add(new THREE.Vector3(x, 0, -7.45)); surveillance.add(gltf.scene);
-    physics.addBox(size, { x, y: size.y / 2, z: -7.45 });
-  }));
-  for (const x of [16.5, 23.5]) {
-    box(surveillance, [0.16, 0.12, 9.6], [x, 3.03, -4.8], materials.trim, false).userData.minimap = false;
-  }
-  for (const x of [15.16, 24.84]) {
-    box(surveillance, [0.045, 0.07, 9.6], [x, 0.16, -4.8], materials.trim, false);
-    box(surveillance, [0.025, 0.02, 8.8], [x, 0.02, -4.8], materials.cyan, false);
-  }
-  const frontDoor = createSlidingPortal(scene, physics, { x: 23, y: 0, z: -9.8, yaw: 0 }, 4, 3.2,
-    'SERVICE ELEVATOR', { doorHeight: 2.5, sign: false });
-  surveillance.add(frontDoor.group);
-  box(lift, [4, 0.2, 6.8], [23, -0.1, -13.2], materials.deck);
-  for (const x of [21, 25]) box(lift, [0.18, 3.2, 6.8], [x, 1.6, -13.2]);
-  box(lift, [4, 0.16, 4.8], [23, 3.2, -12.2], materials.dark).userData.minimap = false;
-  const rearDoor = createSlidingPortal(scene, physics, { x: 23, y: 0, z: -14.6, yaw: 0 }, 4, 3.2,
-    'BAY 13 / CARGO ARENA', { doorHeight: 2.5, sign: false }); lift.add(rearDoor.group);
-  const liftLamp = new THREE.PointLight(0xb6dfec, 13, 7); liftLamp.position.set(23, 2.7, -12.2); lift.add(liftLamp);
-  const liftStripMaterial = new THREE.MeshBasicMaterial({ color: 0x6ad9e8, toneMapped: false });
-  box(lift, [1.5, 0.04, 0.16], [23, 3.06, -12.2], liftStripMaterial, false);
-  box(lift, [0.08, 0.5, 1.05], [21.13, 1.15, -12.3], materials.dark, false);
-  const workingButtonMaterial = new THREE.MeshBasicMaterial({ color: 0x72eeaa, toneMapped: false });
-  const workingButton = new THREE.Mesh(new THREE.CircleGeometry(0.105, 16), workingButtonMaterial);
-  workingButton.rotation.y = Math.PI / 2; workingButton.position.set(21.18, 1.15, -12.05); lift.add(workingButton);
-  box(lift, [0.035, 0.14, 0.17], [21.2, 1.1, -12.58], materials.trim, false).rotation.x = -0.7;
-  for (const z of [-12.56, -12.63]) box(lift, [0.055, 0.23, 0.025], [21.22, 1.15, z], alarmMaterial, false).rotation.x = 0.35;
-  scene.add(new THREE.AmbientLight(SHIP_INTERIOR_PALETTE.ambient, 1.05),
-    new THREE.HemisphereLight(0xb9d5e9, 0x1b2a36, 1.35));
-
-  const player = createPlayer({ camera, physicsWorld: physics.world, spawnPosition: { x: 0, y: PHYSICS.playerRadius, z: 4 } });
-  teleportPlayer(player, { x: 0, y: player.radius, z: 4 }, 0, options.entryState);
-  const playable = new Set<Phase>(['approach', 'chase', 'maze', 'guard', 'surveillance']);
-  let phase: Phase = 'intro', phaseTime = 0, elapsed = 0, active = false, disposed = false, menuPaused = false;
-  let lastDelta = 0, captionTime = 0, fastClimb = false, scanning = false, guardGrace = 3;
+  const start = ventPoint(VENT_START.column, VENT_START.row, STAGE_TWO.ventHeight + PHYSICS.playerRadius);
+  const player = createPlayer({ camera, physicsWorld: physics.world, spawnPosition: start });
+  teleportPlayer(player, start, -Math.PI / 2, options.entryState);
+  const playable = new Set<Phase>(['maze', 'guard', 'surveillance', 'lift-button']);
+  let phase: Phase = 'maze', phaseTime = 0, elapsed = 0, active = !options.deferActivation, disposed = false, menuPaused = false;
+  let lastDelta = 0, captionTime = 0, sensorGrace = 2, guardGrace = 2.5, guardAlert = -1, guardAlertReason = '';
+  let transferTarget: CameraRoomId | null = null, transferPending = false, loadError: 'hub' | 'boss' = 'hub';
+  let swipeDone = false, swipeResult: 'missing' | 'rejected' | 'accepted' = 'missing';
+  let objectiveShown = '', objectiveTime = 0, liftStomp = 0, lastStomp = -10, liftPressed = false, liftArrived = false;
   let checkpointState = player.captureTransition({ x: 0, y: 0, z: 0 });
-  let ventSafe = ventPoint(1, 1, 4 + player.radius), sensorGrace = 0;
-  let transferTarget: CameraRoomId | null = null, transferPending = false, liftStomp = 0, lastStomp = -10;
-  let nextChatter = 0, chattingBot = 0, guardAlert = -1, guardAlertReason = '', objectiveShown = '', objectiveTime = 0;
-  let introLine = false;
-  const liftStart = new THREE.Vector3(), liftCues = { press: false, depart: false, line: false, arrive: false };
+  const ventSafe = start.clone(), liftStart = new THREE.Vector3(), swipeStart = new THREE.Vector3(), projected = new THREE.Vector3();
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const ui = document.createElement('section'); ui.className = 'stage-two-ui hidden';
+  const ui = document.createElement('section'); ui.className = 'stage-two-ui'; ui.classList.toggle('hidden', !active);
   const objective = document.createElement('div'); objective.className = 'stage-two-objective faded';
   const objectiveText = document.createElement('span'); objective.append(objectiveText);
   const caption = document.createElement('div'); caption.className = 'stage-two-dialogue hidden'; caption.setAttribute('role', 'status');
@@ -269,50 +230,111 @@ export function createScene(options: StageTwoOptions) {
   const fade = document.createElement('div'); fade.className = 'stage-two-transition'; fade.setAttribute('aria-hidden', 'true');
   ui.append(objective, caption, failure, fade); document.body.append(ui);
   const prompt = document.getElementById('interact-prompt');
-  function tell(text: string, seconds = 4) { caption.textContent = text; captionTime = seconds; caption.classList.remove('hidden'); }
+  function tell(text: string, seconds = 3) { caption.textContent = text; captionTime = seconds; caption.classList.remove('hidden'); }
   function syncBodyClass() {
     if (!active) return;
     document.body.classList.toggle('stage-two-maze', phase === 'maze');
-    document.body.classList.toggle('quarters-cinematic', !playable.has(phase) || !!inspection.active);
+    document.body.classList.toggle('quarters-cinematic', !playable.has(phase));
   }
   function setPhase(next: Phase) {
-    phase = next; phaseTime = 0; fastClimb = false; player.clearInput(); prompt?.classList.add('hidden');
-    if (playable.has(next)) { player.setClimbing(false); player.setInputLocked(false); player.enable(); }
-    else { options.holsterWeapons(); player.disable(); player.setClimbing(true); }
-    failure.classList.toggle('hidden', next !== 'failed' && next !== 'load-error');
-    syncBodyClass();
+    phase = next; phaseTime = 0; player.clearInput(); prompt?.classList.add('hidden');
+    player.setClimbing(!playable.has(next)); player.setInputLocked(!playable.has(next));
+    if (playable.has(next) && active) player.enable();
+    else { options.holsterWeapons(); player.disable(); }
+    failure.classList.toggle('hidden', next !== 'failed' && next !== 'load-error'); syncBodyClass();
   }
-  const inspection = createInspectionView(scene, camera, ui, () => {
-    if (!disposed) { player.setClimbing(false); player.enable(); player.clearInput(); syncBodyClass(); }
+
+  const monitors: ReturnType<typeof createCorridorMonitor>[] = [];
+  const desksReady = Promise.all([-48, -53, -58].flatMap((z, row) => [22, 25, 31, 34].map(async (x, index) => {
+    const [desk, chair] = await Promise.all([modelLoader('Prop_Desk_Small'), modelLoader('Prop_Chair')]);
+    if (disposed) { disposeRoom(desk.scene); disposeRoom(chair.scene); return; }
+    const size = fitCabinProp(desk.scene, 0.86, 2.55, 1.25);
+    desk.scene.name = `SurveillanceDesk-${x}-${z}`; desk.scene.position.add(new THREE.Vector3(x, 0, z)); surveillance.add(desk.scene);
+    physics.addBox(size, { x, y: size.y / 2, z });
+    const chairSize = fitCabinProp(chair.scene, 1.05, 0.68, 0.8, Math.PI);
+    chair.scene.name = `SurveillanceChair-${x}-${z}`;
+    chair.scene.position.add(new THREE.Vector3(x, 0, z - 1.3)); surveillance.add(chair.scene);
+    physics.addBox(chairSize, { x, y: chairSize.y / 2, z: z - 1.3 });
+    const monitor = monitorFactory(row * 4 + index); monitors.push(monitor); await monitor.ready;
+    if (disposed) { monitor.dispose(); return; }
+    const terminal = createShipTerminal(monitor.texture);
+    terminal.root.name = `SurveillanceComputer-${x}-${z}`; terminal.root.position.set(x, 0.9, z); surveillance.add(terminal.root);
+    box(surveillance, [0.55, 0.025, 0.21], [x, 0.92, z - 0.32], materials.dark, false);
+    if (index === 0 || index === 3) box(surveillance, [0.28, 0.52, 0.5], [x + 0.8, 0.26, z], materials.dark);
+  })));
+  const heldCard = new THREE.Group(); heldCard.name = 'SwipedKeycard'; heldCard.visible = false; surveillance.add(heldCard);
+  const cardReady = modelLoader('Prop_KeyCard').then(gltf => {
+    if (disposed) { disposeRoom(gltf.scene); return; }
+    fitCabinProp(gltf.scene, 0.3, 0.4, 0.12); heldCard.add(gltf.scene);
   });
-  const keypad = createKeypad({ code: SURVEILLANCE_CODE, title: 'SERVICE LIFT', isUnlocked: () => progress.elevatorUnlocked,
-    validate: () => !progress.lightsaberCollected ? 'RETRIEVE LIGHTSABER' : !progress.codeRead ? 'READ ARCHIVE FILE' : null,
-    onUnlock: () => {
-      progress.elevatorUnlocked = true; playSound('clang');
-      tell('Prime: The lift is open.', 3);
-    } });
-  const hiddenPanel = new THREE.Group(); hiddenPanel.name = 'GogglesOnlyServiceKeypad'; surveillance.add(hiddenPanel);
-  const panelBacking = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.92, 0.08), materials.dark);
-  panelBacking.position.set(21.08, 1.42, -9.44); hiddenPanel.add(panelBacking);
-  const keypadScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.49, 0.76),
-    new THREE.MeshBasicMaterial({ map: keypad.texture, toneMapped: false }));
-  keypadScreen.position.set(21.08, 1.42, -9.39); hiddenPanel.add(keypadScreen); hiddenPanel.visible = false;
-  const panelPoint = keypadScreen.position.clone(), projected = new THREE.Vector3();
-  function panelFocused() {
-    if (!hiddenPanel.visible || Math.hypot(player.body.position.x - panelPoint.x, player.body.position.z - panelPoint.z) > 2.4) return false;
-    projected.copy(panelPoint).project(camera);
-    return projected.z > -1 && projected.z < 1 && Math.hypot(projected.x, projected.y) < 0.27;
+  const guardRoot = new THREE.Group(); guardRoot.name = 'SurveillanceDoorGuard';
+  guardRoot.position.set(STAGE_TWO.guard.x, 0, STAGE_TWO.guard.z); guardRoot.rotation.y = Math.PI; surveillance.add(guardRoot);
+  const guardBody = new CANNON.Body({ mass: 0, type: CANNON.Body.KINEMATIC, shape: new CANNON.Sphere(0.48) });
+  guardBody.position.set(STAGE_TWO.guard.x, 0.64, STAGE_TWO.guard.z); physics.world.addBody(guardBody);
+  let guardMixer: THREE.AnimationMixer | null = null, guardDead = false, guardDeathTime = 0;
+  let guardIdle: THREE.AnimationAction | null = null, guardDeath: THREE.AnimationAction | null = null;
+  const guardReady = modelLoader('Enemy_Trilobite').then(gltf => {
+    if (disposed) { disposeRoom(gltf.scene); return; }
+    const bounds = new THREE.Box3().setFromObject(gltf.scene), size = bounds.getSize(new THREE.Vector3());
+    const scale = 1.7 / Math.max(size.x, size.y, size.z);
+    if (!Number.isFinite(scale) || scale <= 0) { disposeRoom(gltf.scene); throw new Error('Invalid surveillance guard bounds'); }
+    const center = bounds.getCenter(new THREE.Vector3()); gltf.scene.scale.multiplyScalar(scale);
+    gltf.scene.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale); guardRoot.add(gltf.scene);
+    guardMixer = new THREE.AnimationMixer(gltf.scene);
+    const idle = gltf.animations.find(clip => /idle/i.test(clip.name)), death = gltf.animations.find(clip => /death|destroy|dead|die/i.test(clip.name));
+    if (idle) { guardIdle = guardMixer.clipAction(idle); guardIdle.play(); }
+    if (death) { guardDeath = guardMixer.clipAction(death).setLoop(THREE.LoopOnce, 1); guardDeath.clampWhenFinished = true; }
+    if (!gltf.animations.length) console.warn('[StageTwo] Guard model has no animation clips; using scripted shutdown motion');
+  });
+  const exitCover = box(maze.root, [1.25, 0.16, 1.25], [STAGE_TWO.drop.x, 3.92, STAGE_TWO.drop.z], materials.trim, false);
+  exitCover.name = 'VentExitGrate'; exitCover.visible = !progress.remoteRooms['stage2-vents'].rewardCollected;
+  let exitCoverBody = exitCover.visible ? physics.addBox({ x: 1.25, y: 0.16, z: 1.25 }, exitCover.position) : null;
+  const ventChest = createRewardChest({ scene, world: physics.world, player,
+    position: new THREE.Vector3(STAGE_TWO.ventChest.x, 4, STAGE_TWO.ventChest.z), yaw: Math.PI,
+    reward: 'keycard', style: 'crew', initialCollected: progress.remoteRooms['stage2-vents'].rewardCollected,
+    unlocked: () => true, canInteract: () => active && !menuPaused && phase === 'maze',
+    onCollect: () => {
+      collectStageTwoKeycard(progress, 'stage2-vents'); exitCover.visible = false;
+      if (exitCoverBody) { physics.world.removeBody(exitCoverBody); exitCoverBody = null; }
+      tell('Keycard recovered.'); return true;
+    } }, modelLoader);
+  maze.root.add(ventChest.root);
+  const crowbarChest = createRewardChest({ scene, world: physics.world, player,
+    position: new THREE.Vector3(STAGE_TWO.crowbarChest.x, 0, STAGE_TWO.crowbarChest.z), yaw: 0,
+    reward: 'crowbar', style: 'crew', initialCollected: progress.crowbarCollected,
+    unlocked: () => progress.guardDown, lockedPrompt: 'Take down the door guard first',
+    canInteract: () => active && !menuPaused && phase === 'surveillance',
+    onCollect: () => { progress.crowbarCollected = true; options.onCrowbarCollected(); tell('Crowbar recovered.'); return true; } }, modelLoader);
+  surveillance.add(crowbarChest.root);
+  const ready = Promise.all([desksReady, cardReady, guardReady, ventChest.ready, crowbarChest.ready]).then(() => undefined);
+  const guardEye = new THREE.PointLight(0xff3a24, 0, 6); surveillance.add(guardEye);
+  const guardBeamMaterial = new THREE.MeshBasicMaterial({ color: 0xff5a3a, toneMapped: false, transparent: true, opacity: 0, depthWrite: false });
+  const guardBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 1, 6), guardBeamMaterial);
+  guardBeam.name = 'GuardShot'; guardBeam.userData.minimap = false; surveillance.add(guardBeam);
+  function hideGuardShot() { guardBeamMaterial.opacity = 0; guardEye.intensity = 0; }
+  function downGuard() {
+    if (guardDead) return;
+    guardDead = true; guardDeathTime = 0; guardMixer?.stopAllAction(); guardDeath?.reset().play();
+    if (guardBody.world === physics.world) physics.world.removeBody(guardBody);
+  }
+  function resetGuard() {
+    guardDead = false; guardDeathTime = 0; guardRoot.visible = true; guardRoot.scale.setScalar(1);
+    guardRoot.position.set(STAGE_TWO.guard.x, 0, STAGE_TWO.guard.z); guardRoot.rotation.set(0, Math.PI, 0);
+    if (guardBody.world !== physics.world) physics.world.addBody(guardBody);
+    guardMixer?.stopAllAction();
+    guardIdle?.reset().play();
+    hideGuardShot();
   }
 
   let audioContext: AudioContext | null = null, audioMaster: GainNode | null = null, audioUnavailable = false;
   let rumble: OscillatorNode | null = null, rumbleGain: GainNode | null = null;
   function syncAudio() {
-    if (!audioContext || audioContext.state === 'closed') return;
-    const settings = getAudioSettings(); audioMaster!.gain.setTargetAtTime(settings.sfx, audioContext.currentTime, 0.03);
+    if (!audioContext || !audioMaster || audioContext.state === 'closed') return;
+    const settings = getAudioSettings(); audioMaster.gain.setTargetAtTime(settings.sfx, audioContext.currentTime, 0.03);
     const paused = settings.paused || menuPaused || document.hidden;
     if (paused && audioContext.state === 'running') void audioContext.suspend().catch(error => console.warn('[StageTwo] Sound could not be paused:', error));
     else if (!paused && audioContext.state === 'suspended') void audioContext.resume().catch(error => {
-      console.warn('[StageTwo] Sound could not be resumed:', error); tell('Sound effects could not start. Click the game again to enable ship audio.');
+      console.warn('[StageTwo] Sound could not be resumed:', error); tell('Click the game to enable ship audio.');
     });
   }
   const unsubscribeAudio = subscribeAudioSettings(syncAudio);
@@ -320,511 +342,295 @@ export function createScene(options: StageTwoOptions) {
     if (!audioContext && !audioUnavailable) {
       try {
         if (typeof window.AudioContext !== 'function') throw new Error('Web Audio is unavailable');
-        audioContext = new AudioContext(); audioMaster = audioContext.createGain(); audioMaster.connect(audioContext.destination);
-      } catch (error) {
-        audioUnavailable = true; console.warn('[StageTwo] Ship audio is unavailable:', error);
-        tell('Ship sound effects are unavailable in this browser. Visual alarms and stomp captions remain active.');
-      }
+        audioContext = new window.AudioContext(); audioMaster = audioContext.createGain(); audioMaster.connect(audioContext.destination);
+      } catch (error) { audioUnavailable = true; console.warn('[StageTwo] Ship audio is unavailable:', error); tell('Ship audio unavailable; visual alerts remain active.'); }
     }
     syncAudio();
   }
-  function playSound(kind: 'alarm' | 'clang' | 'sensor' | 'stomp') {
+  function playSound(kind: 'alarm' | 'clang' | 'sensor' | 'stomp' | 'accept' | 'reject') {
     if (!audioContext || !audioMaster || menuPaused || document.hidden) return;
-    const context = audioContext, start = context.currentTime, duration = kind === 'stomp' ? 0.7 : 0.32;
+    const context = audioContext, startTime = context.currentTime, duration = kind === 'stomp' ? 0.7 : 0.28;
     const oscillator = context.createOscillator(), gain = context.createGain();
-    oscillator.type = kind === 'alarm' ? 'square' : kind === 'stomp' ? 'sine' : 'triangle';
-    const frequency = kind === 'stomp' ? 62 : kind === 'alarm' ? 420 : kind === 'sensor' ? 760 : 230;
-    oscillator.frequency.setValueAtTime(frequency, start);
-    oscillator.frequency.exponentialRampToValueAtTime(kind === 'stomp' ? 25 : frequency * 0.45, start + duration);
-    gain.gain.setValueAtTime(kind === 'stomp' ? 0.65 : 0.075, start);
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
-    oscillator.connect(gain); gain.connect(audioMaster); oscillator.start(); oscillator.stop(start + duration);
+    const frequency = kind === 'stomp' ? 62 : kind === 'alarm' ? 420 : kind === 'sensor' ? 760 : kind === 'accept' ? 880 : kind === 'reject' ? 150 : 230;
+    oscillator.type = kind === 'alarm' || kind === 'reject' ? 'square' : kind === 'stomp' ? 'sine' : 'triangle';
+    oscillator.frequency.setValueAtTime(frequency, startTime); oscillator.frequency.exponentialRampToValueAtTime(frequency * 0.45, startTime + duration);
+    gain.gain.setValueAtTime(kind === 'stomp' ? 0.6 : 0.07, startTime); gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+    oscillator.connect(gain); gain.connect(audioMaster); oscillator.start(); oscillator.stop(startTime + duration);
     oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
-    if (kind === 'stomp') {
-      const buffer = context.createBuffer(1, Math.ceil(context.sampleRate * 0.45), context.sampleRate), samples = buffer.getChannelData(0);
-      for (let i = 0; i < samples.length; i++) samples[i] = (Math.random() * 2 - 1) * Math.exp(-i / context.sampleRate * 10);
-      const noise = context.createBufferSource(), filter = context.createBiquadFilter(), noiseGain = context.createGain();
-      noise.buffer = buffer; filter.type = 'lowpass'; filter.frequency.value = 420; noiseGain.gain.value = 0.32;
-      noise.connect(filter); filter.connect(noiseGain); noiseGain.connect(audioMaster); noise.start();
-      noise.onended = () => { noise.disconnect(); filter.disconnect(); noiseGain.disconnect(); };
-    }
-  }
-  function playRobotChatter(index: number) {
-    if (!audioContext || !audioMaster || audioContext.state !== 'running') return;
-    const context = audioContext, bot = patrol[index], position = bot.root.position;
-    const dx = position.x - camera.position.x, dz = position.z - camera.position.z;
-    const distance = Math.hypot(dx, dz), right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-    const pan = context.createStereoPanner();
-    pan.pan.value = THREE.MathUtils.clamp((dx * right.x + dz * right.z) / Math.max(1, distance), -0.85, 0.85);
-    pan.connect(audioMaster);
-    const notes = index === 0 ? [830, 510, 970] : [610, 1060, 690, 460];
-    notes.forEach((frequency, note) => {
-      const start = context.currentTime + note * 0.14, oscillator = context.createOscillator(), gain = context.createGain();
-      oscillator.type = note % 2 ? 'triangle' : 'square'; oscillator.frequency.setValueAtTime(frequency, start);
-      oscillator.frequency.exponentialRampToValueAtTime(frequency * 0.78, start + 0.09);
-      gain.gain.setValueAtTime(0, start);
-      gain.gain.linearRampToValueAtTime(0.045 / (1 + distance * 0.12), start + 0.008);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.1);
-      oscillator.connect(gain); gain.connect(pan); oscillator.start(start); oscillator.stop(start + 0.11);
-      oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); if (note === notes.length - 1) pan.disconnect(); };
-    });
   }
   function stopRumble() { rumble?.stop(); rumble?.disconnect(); rumbleGain?.disconnect(); rumble = null; rumbleGain = null; }
   function startRumble() {
     if (!audioContext || !audioMaster) return;
     stopRumble(); rumble = audioContext.createOscillator(); rumbleGain = audioContext.createGain();
-    rumble.type = 'triangle'; rumble.frequency.value = 33; rumbleGain.gain.value = 0.045;
+    rumble.type = 'triangle'; rumble.frequency.value = 33; rumbleGain.gain.value = 0.04;
     rumble.connect(rumbleGain); rumbleGain.connect(audioMaster); rumble.start();
   }
-
-  function makeBot(name: 'Enemy_Trilobite' | 'Enemy_QuadShell', x: number, z: number, yaw: number, parent: THREE.Group) {
-    const root = new THREE.Group(); root.position.set(x, 0, z); root.rotation.y = yaw; parent.add(root);
-    const body = new CANNON.Body({ mass: 0, type: CANNON.Body.KINEMATIC, shape: new CANNON.Sphere(0.48) });
-    body.position.set(x, 0.64, z); physics.world.addBody(body);
-    const actions = new Map<string, THREE.AnimationAction>();
-    let mixer: THREE.AnimationMixer | null = null, current = '', dead = false, deadTime = 0, vanishTime = -1;
-    const ready = loadToolModel(name).then(gltf => {
-      if (disposed) { disposeRoom(gltf.scene); return; }
-      const bounds = new THREE.Box3().setFromObject(gltf.scene), size = bounds.getSize(new THREE.Vector3());
-      const scale = 1.7 / Math.max(size.x, size.y, size.z);
-      if (!Number.isFinite(scale) || scale <= 0) { disposeRoom(gltf.scene); throw new Error(`Invalid ${name} model bounds`); }
-      const center = bounds.getCenter(new THREE.Vector3()); gltf.scene.scale.multiplyScalar(scale);
-      gltf.scene.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale);
-      gltf.scene.traverse(node => { if (node instanceof THREE.Mesh) node.castShadow = node.receiveShadow = true; });
-      root.add(gltf.scene); mixer = new THREE.AnimationMixer(gltf.scene);
-      for (const clip of gltf.animations) actions.set(clip.name, mixer.clipAction(clip));
-      if (!actions.size) console.warn(`[StageTwo] ${name} has no clips; using scripted robot motion`);
-      animate(dead ? 'dead' : 'idle');
-    });
-    function animate(kind: 'idle' | 'run' | 'dead') {
-      const pattern = kind === 'run' ? /run|walk/i : kind === 'dead' ? /death|destroy|dead|die/i : /idle/i;
-      const clip = [...actions.keys()].find(key => pattern.test(key));
-      if (!clip || current === clip) return;
-      actions.get(current)?.fadeOut(0.18); const action = actions.get(clip)!; action.reset().fadeIn(0.18).play(); current = clip;
-      if (kind === 'dead') { action.setLoop(THREE.LoopOnce, 1); action.clampWhenFinished = true; }
-    }
-    return {
-      root, body, ready,
-      reset(atX: number, atZ: number, facing: number) {
-        dead = false; deadTime = 0; vanishTime = -1; root.visible = true; root.scale.setScalar(1);
-        root.position.set(atX, 0, atZ); root.rotation.set(0, facing, 0);
-        body.position.set(atX, 0.64, atZ); body.aabbNeedsUpdate = true; current = ''; mixer?.stopAllAction();
-        if (body.world !== physics.world) physics.world.addBody(body); animate('idle');
-      },
-      down() { dead = true; deadTime = 0; animate('dead'); if (body.world === physics.world) physics.world.removeBody(body); },
-      /** Shrinks the downed body out of the room; `immediate` is used when restoring a cleared room. */
-      vanish(immediate = false) {
-        if (immediate) { vanishTime = 1; root.visible = false; } else if (vanishTime < 0) vanishTime = 0;
-      },
-      update(dt: number, running: boolean) {
-        if (dead) {
-          deadTime += dt;
-          if (![...actions.keys()].some(key => /death|destroy|dead|die/i.test(key))) {
-            root.rotation.z = Math.min(1.3, deadTime * 1.8); root.position.y = 0.32;
-          }
-          if (vanishTime >= 0 && root.visible) {
-            vanishTime += dt;
-            root.scale.setScalar(Math.max(0.001, 1 - THREE.MathUtils.smoothstep(vanishTime, 0, 0.45)));
-            if (vanishTime >= 0.45) root.visible = false;
-          }
-        } else animate(running ? 'run' : 'idle');
-        if (root.visible) mixer?.update(dt);
-        body.position.set(root.position.x, 0.64, root.position.z); body.aabbNeedsUpdate = true;
-      },
-      dispose() { mixer?.stopAllAction(); if (body.world === physics.world) physics.world.removeBody(body); },
-    };
-  }
-  // Both robot models face +Z: the patrol pair face each other and the guard faces the monitor wall.
-  const patrol = [makeBot('Enemy_Trilobite', -0.8, -24.5, Math.PI / 2, passage),
-    makeBot('Enemy_QuadShell', 0.8, -25.3, -Math.PI / 2, passage)];
-  const guard = makeBot('Enemy_Trilobite', 18, -6.2, Math.PI, surveillance);
-  // The eye light and shot stay in the scene graph so an alert never changes the compiled light set mid-shot.
-  const guardEye = new THREE.PointLight(0xff3a24, 0, 6); surveillance.add(guardEye);
-  const guardBeamMaterial = new THREE.MeshBasicMaterial({ color: 0xff5a3a, toneMapped: false, transparent: true, opacity: 0, depthWrite: false });
-  const guardBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 1, 6), guardBeamMaterial);
-  guardBeam.name = 'GuardShot'; guardBeam.userData.minimap = false; surveillance.add(guardBeam);
-  function hideGuardShot() {
-    guardBeamMaterial.opacity = 0; guardBeam.position.set(18, -4, -6.2); guardBeam.scale.setScalar(1);
-    guardEye.intensity = 0; guardEye.position.set(18, 1.05, -6.75);
-  }
-  hideGuardShot();
-  let breakables = createBreakables(scene, physics.world);
-  function addEscapeCrate(): Breakable {
-    const item = breakables.add('StoreroomLadderCrate', 'crowbar', new THREE.Vector3(8, 0.65, -9.5), new THREE.Vector3(1.65, 1.3, 1.4),
-      () => {
-        progress.crateBroken = true;
-        if (phase === 'approach') beginAlarm();
-        else { playSound('clang'); tell('Brondon: Ladder is clear.', 3); }
-      });
-    storage.add(item.root);
-    if (progress.crateBroken) breakables.restoreBroken(new Set([item.id]));
-    return item;
-  }
-  let crate = addEscapeCrate();
-  const chest = createRewardChest({ scene, world: physics.world, player, position: new THREE.Vector3(4.45, 0, -10.25), yaw: Math.PI,
-    reward: 'crowbar', style: 'crew', initialCollected: progress.crowbarCollected, unlocked: () => true,
-    canInteract: () => active && !menuPaused && (phase === 'approach' || phase === 'chase'),
-    onCollect: () => {
-      progress.crowbarCollected = true; options.onCrowbarCollected();
-      tell('Brondon: Crowbar. That crate is hiding the ladder.'); return true;
-    } }); storage.add(chest.root);
-  const ready = Promise.all([chest.ready, chairsReady, guard.ready, ...patrol.map(bot => bot.ready)]).then(() => undefined);
-
   function checkpoint() { checkpointState = player.captureTransition({ x: 0, y: 0, z: 0 }); }
+  function enterMaze() {
+    player.setPosition(start.x, start.y, start.z); player.setRotation(-Math.PI / 2, 0);
+    progress.checkpoint = 'vent'; setPhase('maze'); player.setVentMode(true); player.setOverheadMovement(true);
+    ventSafe.copy(start); sensorGrace = 2; checkpoint();
+  }
+  function enterGuardRoom() {
+    player.setVentMode(false); player.setOverheadMovement(false);
+    player.setPosition(options.fromAirlock ? room.minX + 1.15 : STAGE_TWO.drop.x, player.radius,
+      options.fromAirlock ? -46 : STAGE_TWO.drop.z); player.setRotation(options.fromAirlock ? -Math.PI / 2 : 0, 0);
+    progress.checkpoint = 'surveillance'; guardGrace = 2.5; guardAlert = -1; hideGuardShot();
+    if (progress.guardDown) { downGuard(); guardRoot.visible = false; }
+    player.setForcedCrouch(!progress.guardDown); setPhase(progress.guardDown ? 'surveillance' : 'guard'); checkpoint();
+  }
   function fail(reason: string) {
     if (phase === 'failed' || disposed) return;
-    player.takeDamage(player.getHealth() + player.getShield() + 1, true);
-    setPhase('failed'); failureTitle.textContent = 'CAUGHT'; failureText.textContent = reason;
-    retry.textContent = `R / Retry ${progress.checkpoint === 'surveillance' ? 'silent takedown' : 'storeroom escape'}`;
-    caption.classList.add('hidden'); stopRumble(); guardBeamMaterial.opacity = 0;
+    player.takeDamage(player.getHealth() + player.getShield() + 1, true); setPhase('failed');
+    failureTitle.textContent = 'CAUGHT'; failureText.textContent = reason; retry.textContent = 'R / Retry silent takedown';
+    caption.classList.add('hidden'); stopRumble(); hideGuardShot();
   }
-  /** The guard turns, locks on and fires before the failure screen; any detection in the camera room ends here. */
+  function restoreCheckpoint() {
+    failure.classList.add('hidden'); fade.style.opacity = '0'; captionTime = 0; heldCard.visible = false;
+    player.setVentMode(false); player.setForcedCrouch(false); player.setClimbing(false);
+    teleportPlayer(player, progress.checkpoint === 'surveillance' ? { ...STAGE_TWO.drop, y: player.radius } : start, 0,
+      { ...checkpointState, health: checkpointState.health ?? PLAYER_MAX_HEALTH });
+    if (progress.checkpoint === 'surveillance') { resetGuard(); enterGuardRoom(); }
+    else enterMaze();
+  }
+  async function loadHub() {
+    if (transferPending || disposed) return;
+    transferPending = true; setPhase('hub-loading'); loadError = 'hub';
+    try { await options.onVentDrop(); if (!disposed) enterGuardRoom(); }
+    catch (error) {
+      if (!disposed) {
+        console.error('[StageTwo] Surveillance preparation failed:', error); setPhase('load-error');
+        failureTitle.textContent = 'CAMERA ROOM LOAD INTERRUPTED';
+        failureText.textContent = 'The vent maze is cleared. Retry loading the camera room.'; retry.textContent = 'R / Retry Phase Two';
+      }
+    } finally { transferPending = false; }
+  }
   function alertGuard(reason: string) {
     if (phase !== 'guard' || guardAlert >= 0 || disposed) return;
     guardAlert = 0; guardAlertReason = reason; player.clearInput(); player.setInputLocked(true);
     prompt?.classList.add('hidden'); ensureAudio(); playSound('alarm');
   }
   const shotFrom = new THREE.Vector3(), shotTo = new THREE.Vector3(), shotAxis = new THREE.Vector3(0, 1, 0);
-  function updateGuardAlert(dt: number) {
-    guardAlert += dt;
-    const root = guard.root, dx = player.body.position.x - root.position.x, dz = player.body.position.z - root.position.z;
-    let turn = Math.atan2(dx, dz) - root.rotation.y; turn = Math.atan2(Math.sin(turn), Math.cos(turn));
-    root.rotation.y += turn * (1 - Math.exp(-dt * 12));
-    guardEye.position.set(root.position.x + Math.sin(root.rotation.y) * 0.55, 1.05, root.position.z + Math.cos(root.rotation.y) * 0.55);
-    guardEye.intensity = THREE.MathUtils.smoothstep(guardAlert, 0, 0.45) * 9 * (0.75 + Math.sin(guardAlert * 40) * 0.25);
-    if (guardAlert >= 0.75 && guardAlert < 0.95) {
-      shotFrom.copy(guardEye.position);
-      shotTo.set(player.body.position.x, player.body.position.y + 0.35, player.body.position.z).sub(shotFrom);
-      const length = Math.max(0.01, shotTo.length());
-      guardBeam.position.copy(shotFrom).addScaledVector(shotTo, 0.5); guardBeam.scale.set(1, length, 1);
-      guardBeam.quaternion.setFromUnitVectors(shotAxis, shotTo.normalize());
-      if (guardBeamMaterial.opacity === 0) playSound('clang');
-      guardBeamMaterial.opacity = 0.9;
+  function updateGuard(dt: number) {
+    if (guardAlert >= 0) {
+      guardAlert += dt;
+      const dx = player.body.position.x - guardRoot.position.x, dz = player.body.position.z - guardRoot.position.z;
+      const turn = Math.atan2(Math.sin(Math.atan2(dx, dz) - guardRoot.rotation.y), Math.cos(Math.atan2(dx, dz) - guardRoot.rotation.y));
+      guardRoot.rotation.y += turn * (1 - Math.exp(-dt * 12));
+      guardEye.position.set(guardRoot.position.x + Math.sin(guardRoot.rotation.y) * 0.55, 1.05,
+        guardRoot.position.z + Math.cos(guardRoot.rotation.y) * 0.55);
+      guardEye.intensity = 9 * THREE.MathUtils.smoothstep(guardAlert, 0, 0.45);
+      if (guardAlert >= 0.75 && guardAlert < 0.95) {
+        shotFrom.copy(guardEye.position); shotTo.set(player.body.position.x, player.body.position.y + 0.35, player.body.position.z).sub(shotFrom);
+        guardBeam.position.copy(shotFrom).addScaledVector(shotTo, 0.5); guardBeam.scale.set(1, Math.max(0.01, shotTo.length()), 1);
+        guardBeam.quaternion.setFromUnitVectors(shotAxis, shotTo.normalize()); guardBeamMaterial.opacity = 0.9;
+      }
+      if (guardAlert >= 0.95) fail(guardAlertReason);
+      return;
     }
-    if (guardAlert >= 0.95) fail(guardAlertReason);
+    guardGrace = Math.max(0, guardGrace - dt); if (guardGrace > 0) return;
+    const dx = player.body.position.x - STAGE_TWO.guard.x, dz = player.body.position.z - STAGE_TWO.guard.z;
+    const distance = Math.hypot(dx, dz), front = dx * Math.sin(guardRoot.rotation.y) + dz * Math.cos(guardRoot.rotation.y);
+    if (distance < 7 && front > distance * 0.55) alertGuard('Approach the guard from behind, crouched.');
+    else if (distance < 3 && player.getState().isMoving && !player.getState().crouching) alertGuard('The guard heard you. Stay crouched.');
   }
-  function beginAlarm() {
-    setPhase('alarm'); playSound('clang'); playSound('alarm');
-    tell('Brondon: They heard that! Up the ladder - hold Space!', 4);
+  function tryTakedown() {
+    if (guardAlert >= 0) return;
+    const dx = player.body.position.x - STAGE_TWO.guard.x, dz = player.body.position.z - STAGE_TWO.guard.z;
+    if (!player.getState().crouching || dz < 0.35 || Math.abs(dx) > 1.5) { alertGuard('Use E from behind the guard while crouched.'); return; }
+    setPhase('takedown'); player.setPosition(STAGE_TWO.guard.x, player.radius, STAGE_TWO.guard.z + 1.05); player.setRotation(0, 0);
   }
-  function climb() {
-    if (!progress.crateBroken) { tell('Brondon: The crate is blocking the ladder.', 3); return; }
-    setPhase('climb'); player.setPosition(8, player.radius, -9.5); player.setRotation(0, 0);
+  function readerFocused() {
+    if (Math.hypot(player.body.position.x - readerPoint.x, player.body.position.z - readerPoint.z) > 2.6) return false;
+    projected.copy(readerPoint).project(camera);
+    return projected.z > -1 && projected.z < 1 && Math.hypot(projected.x, projected.y) < 0.4;
   }
-  function enterMaze() {
-    closeHatch(); player.setPosition(8, 4 + player.radius, -9.5); player.setRotation(-Math.PI / 2, 0);
-    progress.checkpoint = 'vent'; setPhase('maze'); player.setVentMode(true); player.setOverheadMovement(true);
-    ventSafe = ventPoint(1, 1, 4 + player.radius); sensorGrace = 2; checkpoint();
-    tell('Brondon: Only cross the green sensors.', 4);
+  function nearLiftDoor() { return frontDoor.near(player) && Math.abs(player.body.position.x - liftX) < 2.6; }
+  function nearLiftButton() { return Math.hypot(player.body.position.x - liftButtonPoint.x, player.body.position.z - liftButtonPoint.z) < 2.1; }
+  function startSwipe() {
+    if (!progress.keycards.length) { tell('Find a keycard in a minigame chest.'); playSound('reject'); return; }
+    swipeStart.copy(player.body.position); swipeDone = false; setPhase('swipe');
   }
-  function enterGuardRoom() {
-    player.setVentMode(false); player.setForcedCrouch(false); player.setPosition(20, player.radius, -1.5); player.setRotation(0, 0);
-    progress.checkpoint = 'surveillance'; guardGrace = 3; guardAlert = -1; hideGuardShot();
-    setPhase(progress.guardDown ? 'surveillance' : 'guard'); checkpoint();
-    if (!progress.guardDown) {
-      player.setForcedCrouch(true);
-      tell('Brondon: One guard. Stay low and take him from behind.', 4);
+  function updateSwipe() {
+    const u = THREE.MathUtils.smoothstep(phaseTime, 0, 0.4);
+    player.setPosition(THREE.MathUtils.lerp(swipeStart.x, readerPoint.x - 0.15, u), player.radius,
+      THREE.MathUtils.lerp(swipeStart.z, readerPoint.z + 0.9, u)); player.setRotation(0, 0);
+    heldCard.visible = phaseTime > 0.35 && phaseTime < 1.2;
+    heldCard.position.set(readerPoint.x, readerPoint.y + THREE.MathUtils.lerp(0.25, -0.2, THREE.MathUtils.smoothstep(phaseTime, 0.45, 1.1)), readerPoint.z + 0.14);
+    if (!swipeDone && phaseTime >= 0.85) {
+      swipeDone = true; swipeResult = swipeStageTwoKeycard(progress);
+      playSound(swipeResult === 'accepted' ? 'accept' : 'reject'); tell(swipeResult === 'accepted' ? 'Access granted.' : 'Keycard rejected. Try another room.');
     }
-  }
-  function restoreCheckpoint() {
-    failure.classList.add('hidden'); fade.style.opacity = '0'; captionTime = 0; sensorGrace = 2;
-    player.setVentMode(false); player.setForcedCrouch(false); player.setClimbing(false);
-    const state = { ...checkpointState, health: checkpointState.health ?? PLAYER_MAX_HEALTH };
-    if (progress.checkpoint === 'surveillance') {
-      teleportPlayer(player, { x: 20, y: player.radius, z: -1.5 }, 0, state);
-      guard.reset(18, -6.2, Math.PI); if (progress.guardDown) { guard.down(); guard.vanish(true); }
-      enterGuardRoom();
-    } else if (progress.checkpoint === 'vent') {
-      teleportPlayer(player, { x: 8, y: 4 + player.radius, z: -9.5 }, -Math.PI / 2, state); enterMaze();
-    } else {
-      progress.crateBroken = false; progress.checkpoint = 'storeroom';
-      breakables.dispose(); breakables = createBreakables(scene, physics.world); crate = addEscapeCrate(); breakables.setHighlighted(scanning);
-      patrol[0].reset(-0.8, -24.5, Math.PI / 2); patrol[1].reset(0.8, -25.3, -Math.PI / 2);
-      teleportPlayer(player, { x: 5.65, y: player.radius, z: -7.9 }, 0, state);
-      setPhase('approach'); tell('Checkpoint: storeroom.', 3);
-    }
+    if (phaseTime >= 1.45) { heldCard.visible = false; setPhase('surveillance'); }
   }
   function startLift() {
-    if (phase !== 'surveillance' || menuPaused || disposed) return;
-    ensureAudio(); liftStomp = 0; lastStomp = -10; liftStart.set(player.body.position.x, 0, player.body.position.z);
-    Object.assign(liftCues, { press: false, depart: false, line: false, arrive: false });
-    setPhase('lift'); caption.classList.add('hidden'); captionTime = 0;
+    ensureAudio(); liftStart.copy(player.body.position); liftStomp = 0; lastStomp = -10; liftPressed = liftArrived = false; setPhase('lift');
     void options.prepareBay13().catch(error => {
-      console.error('[StageTwo] Bay 13 preparation failed:', error);
-      if (!disposed) tell('Bay 13 loading was interrupted. The elevator will offer a retry if the connection fails.');
+      console.error('[StageTwo] Bay 13 preparation failed:', error); if (!disposed) tell('Boss stage loading interrupted. Retry is available at the elevator.');
     });
-  }
-  function turnPlayerTowards(yaw: number, frame: number) {
-    const current = player.getState().yaw, delta = Math.atan2(Math.sin(yaw - current), Math.cos(yaw - current));
-    player.setRotation(current + delta * (1 - Math.exp(-frame * 9)), 0);
-  }
-  const LIFT_PANEL = { x: 21.75, z: -12.25 }, LIFT_CENTRE = { x: 23, z: -12.6 };
-  /** Scripted ride: press the Bay 13 button, ride down while the warden stomps, then walk out into the dark. */
-  function updateLift(frame: number) {
-    const r = player.radius;
-    if (phaseTime < 1.6) {
-      const u = THREE.MathUtils.smoothstep(phaseTime, 0, 1.6);
-      player.setPosition(THREE.MathUtils.lerp(liftStart.x, LIFT_PANEL.x, u), r, THREE.MathUtils.lerp(liftStart.z, LIFT_PANEL.z, u));
-      turnPlayerTowards(phaseTime < 1.1 ? Math.atan2(liftStart.x - LIFT_PANEL.x, liftStart.z - LIFT_PANEL.z) : Math.PI / 2, frame);
-    } else if (phaseTime < 2.6) {
-      player.setPosition(LIFT_PANEL.x, r, LIFT_PANEL.z); turnPlayerTowards(Math.PI / 2, frame);
-    } else if (phaseTime < 3.6) {
-      const u = THREE.MathUtils.smoothstep(phaseTime, 2.6, 3.6);
-      player.setPosition(THREE.MathUtils.lerp(LIFT_PANEL.x, LIFT_CENTRE.x, u), r, THREE.MathUtils.lerp(LIFT_PANEL.z, LIFT_CENTRE.z, u));
-      turnPlayerTowards(phaseTime < 3.2 ? Math.atan2(LIFT_PANEL.x - LIFT_CENTRE.x, LIFT_PANEL.z - LIFT_CENTRE.z) : 0, frame);
-    } else if (phaseTime < 10.4) {
-      player.setPosition(LIFT_CENTRE.x, r, LIFT_CENTRE.z); turnPlayerTowards(0, frame);
-    } else {
-      player.setPosition(LIFT_CENTRE.x, r, THREE.MathUtils.lerp(LIFT_CENTRE.z, -15.3, Math.min(1, (phaseTime - 10.4) / 1.5)));
-      turnPlayerTowards(0, frame);
-    }
-    if (!liftCues.press && phaseTime >= 2) { liftCues.press = true; playSound('clang'); }
-    workingButtonMaterial.color.setHex(phaseTime >= 2 && phaseTime < 2.4 ? 0xffffff : 0x72eeaa);
-    if (!liftCues.depart && phaseTime >= 2.4) { liftCues.depart = true; startRumble(); }
-    if (!liftCues.line && phaseTime >= 3.4) { liftCues.line = true; tell('Prime: Bay 14 is offline. Bay 13 it is.', 3); }
-    if (!liftCues.arrive && phaseTime >= 9) { liftCues.arrive = true; stopRumble(); playSound('clang'); }
-    const stomps = [6.5, 7.7, 8.7, 9.4];
-    if (liftStomp < stomps.length && phaseTime >= stomps[liftStomp]) { playSound('stomp'); lastStomp = phaseTime; liftStomp++; }
-    const stompDip = Math.max(0, 1 - (phaseTime - lastStomp) / 0.35);
-    const flicker = reducedMotion ? 1 : phaseTime > 3 && phaseTime < 9 && phaseTime % 2.3 < 0.18 ? 0.25 : 1;
-    liftLamp.intensity = 13 * flicker * (1 - stompDip * 0.55);
-    liftStripMaterial.color.setHex(flicker < 1 || stompDip > 0.5 ? 0x345366 : 0x6ad9e8);
-    fade.style.opacity = String(THREE.MathUtils.smoothstep(phaseTime, 11.3, 11.9));
-    if (phaseTime >= 11.9) void exitToBay13();
   }
   async function exitToBay13() {
     if (transferPending || disposed) return;
-    transferPending = true; setPhase('handoff'); stopRumble(); fade.style.opacity = '1';
-    try {
-      if (!await options.onExitToBay13(player.captureTransition({ x: 0, y: 0, z: 0 }))) throw new Error('Bay 13 handoff was not completed');
-    } catch (error) {
-      if (disposed) return;
-      console.error('[StageTwo] Service elevator handoff failed:', error);
-      setPhase('load-error'); failureTitle.textContent = 'ELEVATOR LINK INTERRUPTED';
-      failureText.textContent = 'Bay 13 could not be loaded. Your equipment and elevator checkpoint are safe.';
-      retry.textContent = 'R / Retry Bay 13 connection'; fade.style.opacity = '0.65';
+    transferPending = true; loadError = 'boss'; setPhase('handoff'); stopRumble(); fade.style.opacity = '1';
+    try { if (!await options.onExitToBay13(player.captureTransition({ x: 0, y: 0, z: 0 }))) throw new Error('Bay 13 handoff was not completed'); }
+    catch (error) {
+      if (!disposed) {
+        console.error('[StageTwo] Elevator handoff failed:', error); setPhase('load-error');
+        failureTitle.textContent = 'ELEVATOR LINK INTERRUPTED'; failureText.textContent = 'Your keycards and equipment are safe.';
+        retry.textContent = 'R / Retry boss connection'; fade.style.opacity = '0.5';
+      }
     } finally { transferPending = false; }
+  }
+  function updateLift() {
+    const panelX = liftX - 1.25;
+    if (phaseTime < 1.6) {
+      const u = THREE.MathUtils.smoothstep(phaseTime, 0, 1.6);
+      player.setPosition(THREE.MathUtils.lerp(liftStart.x, panelX, u), player.radius, THREE.MathUtils.lerp(liftStart.z, liftZ, u));
+      player.setRotation(Math.PI / 2, 0);
+    } else if (phaseTime < 2.6) { player.setPosition(panelX, player.radius, liftZ); player.setRotation(Math.PI / 2, 0); }
+    else if (phaseTime < 3.6) {
+      const u = THREE.MathUtils.smoothstep(phaseTime, 2.6, 3.6);
+      player.setPosition(THREE.MathUtils.lerp(panelX, liftX, u), player.radius, liftZ); player.setRotation(0, 0);
+    } else {
+      player.setPosition(liftX, player.radius, phaseTime < 10.4 ? liftZ
+        : THREE.MathUtils.lerp(liftZ, rearZ - 0.8, THREE.MathUtils.smoothstep(phaseTime, 10.4, 11.9)));
+      player.setRotation(0, 0);
+    }
+    liftButtonMaterial.color.setHex(phaseTime >= 2 && phaseTime < 2.4 ? 0xffffff : 0x72eeaa);
+    if (!liftPressed && phaseTime >= 2) { liftPressed = true; playSound('clang'); }
+    if (phaseTime > 2.4 && phaseTime <= 9 && !rumble) startRumble();
+    const stomps = [6.5, 7.7, 8.7, 9.4];
+    if (liftStomp < stomps.length && phaseTime >= stomps[liftStomp]) { playSound('stomp'); lastStomp = phaseTime; liftStomp++; }
+    if (!liftArrived && phaseTime > 9) { liftArrived = true; stopRumble(); playSound('clang'); }
+    const flicker = !reducedMotion && phaseTime > 3 && phaseTime < 9 && phaseTime % 2.3 < 0.18 ? 0.25 : 1;
+    liftLamp.intensity = 16 * flicker; liftStrip.color.setHex(flicker < 1 ? 0x345366 : 0x6ad9e8);
+    fade.style.opacity = String(THREE.MathUtils.smoothstep(phaseTime, 11.3, 11.9));
+    if (phaseTime >= 11.9) void exitToBay13();
   }
   async function teleportToFeed() {
     if (transferPending || !transferTarget || disposed) return;
     transferPending = true;
-    try {
-      if (!await options.onCameraTeleport(transferTarget, player.captureTransition({ x: 0, y: 0, z: 0 }))) throw new Error('Camera transfer was not completed');
-    } catch (error) {
-      if (!disposed) {
-        console.error('[StageTwo] Camera teleport failed:', error); setPhase('surveillance');
-        tell('Prime: Link failed. Try that feed again.', 3);
-      }
+    try { if (!await options.onCameraTeleport(transferTarget, player.captureTransition({ x: 0, y: 0, z: 0 }))) throw new Error('Camera transfer was not completed'); }
+    catch (error) {
+      if (!disposed) { console.error('[StageTwo] Camera teleport failed:', error); setPhase('surveillance'); tell('Camera link interrupted. Try again.'); }
     } finally { transferPending = false; }
   }
-  retry.addEventListener('click', () => { if (!menuPaused) { if (phase === 'load-error') void exitToBay13(); else restoreCheckpoint(); } });
-
-  const chasePoint = new THREE.Vector3();
-  function updatePatrol(dt: number) {
-    const pursuing = phase === 'alarm' || phase === 'chase' || phase === 'climb';
-    if ((phase === 'intro' || phase === 'approach') && elapsed >= nextChatter) {
-      playRobotChatter(chattingBot); chattingBot = 1 - chattingBot; nextChatter = elapsed + 1.8;
-    }
-    for (const [index, bot] of patrol.entries()) {
-      if (pursuing) {
-        const point = bot.root.position;
-        if (point.z < -8.5) chasePoint.set(index === 0 ? -0.55 : 0.55, 0, -8);
-        else if (point.x < 3.4) chasePoint.set(3.8, 0, -8);
-        else chasePoint.set(player.body.position.x, 0, player.body.position.z);
-        const dx = chasePoint.x - point.x, dz = chasePoint.z - point.z, distance = Math.hypot(dx, dz);
-        if (distance > 0.03) {
-          const step = Math.min(distance, dt * STAGE_TWO.chaseSpeed);
-          point.x += dx / distance * step; point.z += dz / distance * step; bot.root.rotation.y = Math.atan2(dx, dz);
-        }
-        if (phase !== 'alarm' && player.body.position.y < 1.8
-          && Math.hypot(point.x - player.body.position.x, point.z - player.body.position.z) < 1.08) fail('The patrol caught you. Hold Space to climb faster.');
-      }
-      bot.update(dt, pursuing);
-    }
+  function retryCheckpoint() {
+    if (menuPaused) return;
+    if (phase === 'load-error') { if (loadError === 'hub') void loadHub(); else void exitToBay13(); }
+    else restoreCheckpoint();
   }
-  function updateMaze(dt: number) {
-    sensorGrace = Math.max(0, sensorGrace - dt);
-    for (const cell of VENT_SAFE_CELLS) {
-      const point = ventPoint(cell.column, cell.row, 4 + player.radius);
-      if (Math.hypot(player.body.position.x - point.x, player.body.position.z - point.z) < 0.55) ventSafe.copy(point);
-    }
-    for (const [index, sensor] of sensors.entries()) {
-      const state = ventSensorState(index, elapsed); sensor.position.copy(state.position);
-      sensor.material.color.setHex(state.active ? 0xff795e : 0x72eeaa);
-      sensor.material.emissive.setHex(state.active ? 0xc32d18 : 0x248549);
-      sensorRings[index].material.color.copy(sensor.material.color);
-      sensorRings[index].material.opacity = state.active ? 0.24 + Math.sin(elapsed * 4) * 0.07 : 0.14;
-      if (state.active && !sensorGrace && Math.hypot(player.body.position.x - sensor.position.x, player.body.position.z - sensor.position.z) < 0.48) {
-        teleportPlayer(player, ventSafe, -Math.PI / 2); player.setVentMode(true); player.setOverheadMovement(true);
-        sensorGrace = 2.5; playSound('sensor'); tell('Brondon: Spotted. Back to the last pad.', 3);
-      }
-    }
-    if (Math.hypot(player.body.position.x - 20, player.body.position.z + 1.5) < 0.83) {
-      setPhase('drop'); player.setVentMode(false); player.setPosition(20, 4 + player.radius, -1.5); player.setRotation(0, 0);
-      tell('Brondon: Quietly...', 2.5);
-    }
-    if (player.body.position.y < 3.2) {
-      teleportPlayer(player, ventSafe, -Math.PI / 2); player.setVentMode(true); player.setOverheadMovement(true); sensorGrace = 2.5;
-    }
-  }
-  function updateGuard(dt: number) {
-    if (guardAlert >= 0) { updateGuardAlert(dt); return; }
-    guardGrace = Math.max(0, guardGrace - dt);
-    const dx = player.body.position.x - 18, dz = player.body.position.z + 6.2, distance = Math.hypot(dx, dz);
-    if (guardGrace > 0) return;
-    if (distance < 5.6 && dz < -0.4 && Math.abs(dx) < -dz * 0.85) alertGuard('The guard saw you. Approach from behind, crouched.');
-    else if (distance < 2.7 && player.getState().isMoving && !player.getState().crouching)
-      alertGuard('The guard heard you. Crouch before closing in.');
-    else if (phaseTime > 45) alertGuard('The guard turned around. Take him down before he looks back.');
-  }
-  function tryTakedown() {
-    if (guardAlert >= 0) return;
-    if (!player.getState().crouching || player.body.position.z < -5.75 || Math.abs(player.body.position.x - 18) > 1.5) {
-      alertGuard('The guard saw you. Approach from behind, crouched.'); return;
-    }
-    setPhase('takedown'); player.setPosition(18, player.radius, -5.15); player.setRotation(0, 0);
-  }
+  retry.addEventListener('click', retryCheckpoint);
   function onKey(event: KeyboardEvent) {
     if (!active || disposed || menuPaused || document.hidden || event.repeat || event.defaultPrevented
       || event.ctrlKey || event.altKey || event.metaKey || document.body.classList.contains('quick-menu-open')) return;
     if (event.target instanceof HTMLElement && event.target.closest('button, dialog, input, textarea, select, [contenteditable="true"]')) return;
     ensureAudio();
-    if (inspection.active) return;
-    if (event.code === 'KeyR' && (phase === 'failed' || phase === 'load-error')) {
-      event.preventDefault(); if (phase === 'load-error') void exitToBay13(); else restoreCheckpoint(); return;
-    }
-    if (phase === 'climb' && event.code === 'Space') { event.preventDefault(); fastClimb = true; return; }
+    if (event.code === 'KeyR' && (phase === 'failed' || phase === 'load-error')) { event.preventDefault(); retryCheckpoint(); return; }
     if (event.code !== 'KeyE') return;
-    if (phase === 'brief') { event.preventDefault(); phaseTime = Math.max(phaseTime, 3.6); return; }
-    if ((phase === 'approach' || phase === 'chase') && Math.hypot(player.body.position.x - 8, player.body.position.z + 9.5) < 1.8) {
-      event.preventDefault(); event.stopImmediatePropagation(); climb(); return;
+    if (phase === 'lift-button') {
+      event.preventDefault(); event.stopImmediatePropagation();
+      if (nearLiftButton()) startLift(); else tell('Move to the Bay 13 button.');
+      return;
     }
-    if (phase === 'guard' && Math.hypot(player.body.position.x - 18, player.body.position.z + 6.2) < 2.1) {
+    if (phase === 'guard' && Math.hypot(player.body.position.x - STAGE_TWO.guard.x, player.body.position.z - STAGE_TWO.guard.z) < 2.1) {
       event.preventDefault(); event.stopImmediatePropagation(); tryTakedown(); return;
     }
     if (phase !== 'surveillance') return;
-    if (panelFocused()) {
-      event.preventDefault(); player.disable(); options.holsterWeapons();
-      inspection.open({ screen: keypadScreen, display: keypad, width: 0.49, height: 0.76,
-        title: 'Hidden service elevator keypad', pointer: 'hand', onAction: () => {} });
-      syncBodyClass(); return;
+    if (returnAirlock.near(player)) {
+      event.preventDefault(); event.stopImmediatePropagation();
+      if (transferPending) return;
+      transferPending = true; setPhase('handoff');
+      void options.onAirlockReturn(player.captureTransition({ x: 0, y: 0, z: 0 })).then(entered => {
+        if (!entered) throw new Error('The hangar airlock transfer did not complete');
+      }).catch(error => {
+        if (!disposed) { console.error('[StageTwo] Hangar return failed:', error); setPhase('surveillance'); tell('Airlock connection interrupted. Try again.'); }
+      }).finally(() => { transferPending = false; });
+      return;
     }
-    const target = options.getCameraTarget();
-    if (!target) return;
+    if (readerFocused() || nearLiftDoor()) {
+      event.preventDefault(); event.stopImmediatePropagation(); if (!progress.elevatorUnlocked) startSwipe(); return;
+    }
+    const target = options.getCameraTarget(); if (!target) return;
     event.preventDefault(); event.stopImmediatePropagation();
-    if (target.status === 'error') { options.onRetryFeed(target.id); tell(`Prime: Reconnecting ${target.label}.`, 2.5); return; }
-    if (target.status !== 'ready') { tell('Prime: Camera still connecting.', 2.5); return; }
-    if (!options.hasReturnMarker()) { tell('Prime: Press Q to set a return marker first.', 3); return; }
-    transferTarget = target.id; setPhase('teleport'); tell(`Prime: Linking ${target.label}.`, 2);
+    if (target.id === 'stage2-vents' || target.id === 'stage2-prison') { tell('Already cleared.'); return; }
+    if (target.status === 'error') { options.onRetryFeed(target.id); tell('Reconnecting camera.'); return; }
+    if (target.status !== 'ready') { tell('Camera connecting.'); return; }
+    if (!options.hasReturnMarker()) { tell(inputHint('Q: set a return marker here first.')); return; }
+    transferTarget = target.id; setPhase('teleport');
   }
-  function onKeyUp(event: KeyboardEvent) { if (event.code === 'Space') fastClimb = false; }
   function onPointer(event: MouseEvent) {
     if (!active || disposed || menuPaused || document.hidden || document.body.classList.contains('quick-menu-open')) return;
     if (event.target instanceof HTMLElement && event.target.closest('button, dialog, input, .stage-two-ui, #touch-controls')) return;
     ensureAudio();
     if (event.button === 0 && phase === 'guard' && player.isEnabled() && options.getEquippedWeapon() !== 'unarmed') {
-      event.preventDefault(); alertGuard('That was not silent. Holster your weapon and use E from behind.');
+      event.preventDefault(); alertGuard('That was not silent. Use E from behind the guard.');
     }
   }
-  function onVisibility() { fastClimb = false; player.clearInput(); syncAudio(); }
-  window.addEventListener('keydown', onKey); window.addEventListener('keyup', onKeyUp);
-  window.addEventListener('mousedown', onPointer, true); window.addEventListener('visibilitychange', onVisibility);
-  window.addEventListener('blur', onVisibility);
-
-  function initializeCheckpoint() {
-    if (progress.checkpoint === 'surveillance') {
-      closeHatch(); if (progress.guardDown) { guard.down(); guard.vanish(true); } enterGuardRoom();
-    } else if (progress.checkpoint === 'vent') enterMaze();
-    else if (progress.checkpoint === 'storeroom') {
-      player.setPosition(5.65, player.radius, -7.9); setPhase('approach'); checkpoint();
-    } else { player.setPosition(0, player.radius, 4); player.setRotation(0, 0); setPhase('intro'); fade.style.opacity = '1'; }
-    if (!active) player.disable();
+  function onVisibility() { player.clearInput(); syncAudio(); }
+  window.addEventListener('keydown', onKey); window.addEventListener('mousedown', onPointer, true);
+  window.addEventListener('visibilitychange', onVisibility); window.addEventListener('blur', onVisibility);
+  function objectiveFor() {
+    if (phase === 'maze') return progress.remoteRooms['stage2-vents'].rewardCollected
+      ? 'Find the camera-room exit. Green sensors are safe.'
+      : 'Find the first keycard chest. Green sensors are safe; blue pads save your progress.';
+    if (phase === 'guard') return 'Stay low. E behind the door guard: silent takedown.';
+    if (phase === 'lift-button') return 'E: press the Bay 13 button.';
+    if (phase !== 'surveillance') return '';
+    if (progress.elevatorUnlocked) return 'Elevator unlocked. Walk inside.';
+    if (progress.acceptedKeycard) return 'Try the last keycard at the elevator.';
+    if (!options.hasReturnMarker()) return 'Q: set a return marker. E on a camera: visit its room.';
+    if (!progress.crowbarCollected) return 'Open the camera-room crowbar chest (E).';
+    return `Chest keycards: ${progress.keycards.length}/${STAGE_TWO_KEYCARD_ROOMS.length}. T: return to the camera room.`;
   }
-  function objectiveFor(): string {
-    if (phase === 'maze') return 'Reach the camera room. Green sensors are safe.';
-    if (phase === 'alarm' || phase === 'chase' || phase === 'climb') return 'Climb the ladder! Hold Space.';
-    if (phase === 'guard') return 'Sneak up behind the guard. E: silent takedown.';
-    if (phase === 'surveillance') {
-      if (progress.elevatorUnlocked) return 'Take the service lift.';
-      if (!options.hasReturnMarker()) return 'Q: set a return marker here.';
-      if (!progress.lightsaberCollected) return 'Use the camera feeds to teleport. Find a way out.';
-      if (!progress.codeRead) return 'Read the archive computer for the lift code.';
-      return `Goggles (N) reveal the lift keypad. Code ${SURVEILLANCE_CODE}`;
-    }
-    if (phase !== 'approach') return '';
-    return progress.crowbarCollected ? 'Break the crate. The ladder is behind it.'
-      : progress.checkpoint === 'storeroom' ? 'Open the tool chest (E).' : 'Slip into the storeroom on the right.';
-  }
-  /** Objectives appear briefly when they change and then fade, except urgent or code-bearing ones. */
   function updateObjective(frame = 0) {
     const text = objectiveFor();
-    if (text !== objectiveShown) { objectiveShown = text; objectiveTime = 0; objectiveText.textContent = text; }
-    else objectiveTime += frame;
-    const urgent = phase === 'alarm' || phase === 'chase' || phase === 'climb' || text.includes(SURVEILLANCE_CODE);
-    const visible = !!text && !inspection.active && (playable.has(phase) || phase === 'climb' || phase === 'alarm');
-    objective.classList.toggle('faded', !visible || (!urgent && objectiveTime > 7));
+    if (text !== objectiveShown) { objectiveShown = text; objectiveTime = 0; objectiveText.textContent = text; } else objectiveTime += frame;
+    objective.classList.toggle('faded', !text || objectiveTime > 8);
   }
-  function liftWalking() {
-    return phase === 'lift' && (phaseTime < 1.6 || phaseTime >= 2.6 && phaseTime < 3.6 || phaseTime >= 10.4);
-  }
+  function liftWalking() { return phase === 'lift' && (phaseTime < 1.6 || phaseTime >= 2.6 && phaseTime < 3.6 || phaseTime >= 10.4); }
   function cinematicState(): PlayerState | null {
-    if (!inspection.active && playable.has(phase)) return null;
-    return { ...player.getState(), isMoving: phase === 'intro' && phaseTime > 0.2 && phaseTime < 2.6 || liftWalking(),
-      isOnGround: phase !== 'climb' && phase !== 'drop', climbing: phase === 'climb', jumping: false,
-      crouching: phase === 'takedown', sprinting: false,
-      actionRequest: null, boxHandling: false, sliding: false };
+    if (playable.has(phase)) return null;
+    return { ...player.getState(), isMoving: liftWalking(), isOnGround: phase !== 'drop', climbing: false, jumping: false,
+      crouching: phase === 'takedown', sprinting: false, actionRequest: null, boxHandling: false, sliding: false };
   }
   function cinematicPose(): CinematicPose | null {
-    if (inspection.active) return { clip: 'Idle_Loop', time: elapsed, loop: true };
     if (phase === 'failed') return { clip: 'Death01', time: phaseTime };
-    if (phase === 'climb') return { clip: 'Ladder_Climb_Loop', time: (player.body.position.y - player.radius) * 1.1, loop: true };
-    if (phase === 'drop') return { clip: phaseTime < 1.4 ? 'Jump_Loop' : 'Jump_Land', time: phaseTime < 1.4 ? phaseTime : phaseTime - 1.4 };
-    if (phase === 'takedown') return { clip: 'Interact', time: phaseTime };
-    if (phase === 'intro' && phaseTime > 0.2) return { clip: 'Walk_Loop', time: phaseTime - 0.2, loop: true };
-    if (phase === 'lift' && phaseTime >= 1.6 && phaseTime < 2.6) return { clip: 'Interact', time: phaseTime - 1.6 };
+    if (phase === 'drop') return { clip: phaseTime < 1.2 ? 'Jump_Loop' : 'Jump_Land', time: phaseTime < 1.2 ? phaseTime : phaseTime - 1.2 };
+    if (phase === 'takedown') return { clip: 'Silent_Takedown', time: phaseTime };
+    if (phase === 'lift' && phaseTime >= 1.6 && phaseTime < 2.6) return { clip: 'Interact', time: phaseTime - 1.6,
+      handTargets: { left: new THREE.Vector3(liftX - 1, 0.95, liftZ), right: liftButtonPoint, weight: 0.9 } };
+    if (phase === 'swipe') return { clip: 'Interact', time: Math.max(0, phaseTime - 0.3),
+      handTargets: { left: new THREE.Vector3(player.body.position.x - 0.3, 0.9, player.body.position.z),
+        right: readerPoint, weight: 0.9 } };
     if (liftWalking()) return { clip: 'Walk_Loop', time: phaseTime, loop: true };
     return !playable.has(phase) ? { clip: 'Idle_Loop', time: elapsed, loop: true } : null;
   }
   function applyCinematicCamera() {
-    if (inspection.active) { inspection.applyCamera(); return; }
-    camera.fov = 64;
-    const p = player.body.position;
-    if (phase === 'intro') {
-      // Settles onto the gameplay shoulder framing so control hands over without a cut.
-      const settle = THREE.MathUtils.smootherstep(phaseTime, 0.3, 2.6);
-      camera.position.set(p.x + THREE.MathUtils.lerp(0.2, 0.7, settle), THREE.MathUtils.lerp(2.35, 1.7, settle), Math.min(p.z + 1.5, 5.5));
-      camera.lookAt(p.x + THREE.MathUtils.lerp(0, 0.7, settle), THREE.MathUtils.lerp(0.95, 1.7, settle), p.z - 8);
-    }
-    else if (phase === 'alarm') { camera.position.set(2.1, 2, -11.3); camera.lookAt(patrol[0].root.position.clone().add(new THREE.Vector3(0, 0.75, 0))); }
-    else if (phase === 'climb') {
-      const close = THREE.MathUtils.smootherstep(player.body.position.y, 0.5, 1.5);
-      camera.position.set(THREE.MathUtils.lerp(6.2, 8.3, close), Math.min(5.12, player.body.position.y + 0.8),
-        THREE.MathUtils.lerp(-7.6, -9, close)); camera.lookAt(8, player.body.position.y + 0.6, -10.18);
-    }
-    else if (phase === 'drop') { camera.position.set(22.1, Math.min(2.5, player.body.position.y + 1), -0.9); camera.lookAt(20, player.body.position.y + 0.5, -1.5); }
-    else if (phase === 'takedown') { camera.position.set(20.2, 1.7, -4.25); camera.lookAt(18, 0.9, -5.8); }
-    else if (phase === 'brief' || phase === 'teleport') { camera.position.set(20.3, 1.7, -3.4); camera.lookAt(18.7, 1.55, -9.5); }
-    else if (phase === 'failed') { camera.position.set(p.x + 2.7, p.y + 2.1, p.z + 2.7); camera.lookAt(p.x, p.y + 0.5, p.z); }
-    else {
-      const t = phase === 'lift' ? phaseTime : 99;
-      const stomp = reducedMotion ? 0 : Math.max(0, 1 - (phaseTime - lastStomp) / 0.6) * 0.09;
-      const ride = reducedMotion || t < 2.4 || t > 9 ? 0 : 0.01;
-      const sx = Math.sin(elapsed * 43) * (stomp + ride), sy = Math.sin(elapsed * 57 + 1.3) * (stomp + ride);
-      if (t < 2.4) { camera.position.set(24.35 + sx, 1.95 + sy, -14.1); camera.lookAt(21.9, 1.15, -11); }
-      else if (t < 6.2) { camera.position.set(22.1 + sx, 1.55 + sy, -14.15); camera.lookAt(23.1, 1.45, -12.4); }
-      else if (t < 9.7) { camera.position.set(23.05 + sx, 1.58 + sy, -13.75); camera.lookAt(23, 1.5, -12.5); }
-      else { camera.position.set(23.65 + sx, 1.85 + sy, -10.5); camera.lookAt(23, 1.1, -15.2); }
+    const p = player.body.position; camera.fov = 64;
+    if (phase === 'drop') { camera.position.set(STAGE_TWO.drop.x + 2.1, Math.min(3.1, p.y + 1), STAGE_TWO.drop.z + 1); camera.lookAt(p.x, p.y + 0.5, p.z); }
+    else if (phase === 'takedown') { camera.position.set(STAGE_TWO.guard.x + 2.2, 1.7, STAGE_TWO.guard.z + 2); camera.lookAt(STAGE_TWO.guard.x, 0.95, STAGE_TWO.guard.z + 0.5); }
+    else if (phase === 'swipe') { camera.position.set(readerPoint.x + 1.25, 1.85, readerPoint.z + 2.2); camera.lookAt(readerPoint); }
+    else if (phase === 'teleport' || phase === 'hub-loading') { camera.position.set(28, 1.8, -51); camera.lookAt(STAGE_TWO.cameraWall.x, 1.95, STAGE_TWO.cameraWall.z); }
+    else if (phase === 'failed') { camera.position.set(p.x + 2.2, p.y + 1.7, p.z + 2.2); camera.lookAt(p.x, p.y + 0.5, p.z); }
+    else if (phase === 'lift') {
+      const shake = reducedMotion ? 0 : Math.max(0, 1 - (phaseTime - lastStomp) / 0.6) * 0.06;
+      const sway = reducedMotion || phaseTime < 2.4 || phaseTime > 9 ? 0 : 0.01;
+      const sx = Math.sin(elapsed * 43) * (shake + sway), sy = Math.sin(elapsed * 57) * (shake + sway);
+      if (phaseTime < 2.6) { camera.position.set(liftX + 1.35 + sx, 1.95 + sy, liftZ - 1.5); camera.lookAt(liftButtonPoint); }
+      else if (phaseTime < 9.7) { camera.position.set(liftX - 0.6 + sx, 1.65 + sy, liftZ - 1.3); camera.lookAt(liftX, 1.45, liftZ + 1.1); }
+      else { camera.position.set(liftX + 0.65 + sx, 1.85 + sy, room.minZ - 0.5); camera.lookAt(liftX, 1.1, rearZ - 0.5); }
+    } else {
+      camera.position.set(p.x + 0.7, 1.75, p.z + 1.4); camera.lookAt(p.x, 1.4, p.z - 3);
     }
     camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
   }
   const ventRay = new THREE.Raycaster(), ventFocus = new THREE.Vector3(), ventBack = new THREE.Vector3();
-  const mazeOccluders = maze.children.filter((child): child is THREE.Mesh => child instanceof THREE.Mesh && child !== hatch);
   function applyVentCamera() {
-    const yaw = player.getState().yaw;
-    ventFocus.set(player.body.position.x, 4.65, player.body.position.z);
-    ventBack.set(Math.sin(yaw) * 1.5, 0.45, Math.cos(yaw) * 1.5);
-    maze.updateWorldMatrix(true, true); ventRay.set(ventFocus, ventBack.clone().normalize()); ventRay.far = ventBack.length();
-    const hit = ventRay.intersectObjects(mazeOccluders, false)[0];
+    const yaw = player.getState().yaw; ventFocus.set(player.body.position.x, 4.65, player.body.position.z);
+    ventBack.set(Math.sin(yaw) * 1.5, 0.4, Math.cos(yaw) * 1.5);
+    maze.root.updateWorldMatrix(true, true); ventRay.set(ventFocus, ventBack.clone().normalize()); ventRay.far = ventBack.length();
+    const hit = ventRay.intersectObjects(maze.root.children, false)[0];
     if (hit) ventBack.setLength(Math.max(0.22, hit.distance - 0.15));
     camera.position.copy(ventFocus).add(ventBack); camera.lookAt(ventFocus); camera.fov = 75; camera.updateProjectionMatrix();
   }
@@ -833,154 +639,142 @@ export function createScene(options: StageTwoOptions) {
     return () => groups.forEach((group, index) => { group.visible = previous[index]; });
   }
   function getMinimapState(): MinimapSettings & { position: CANNON.Vec3; yaw: number } {
-    if (phase === 'maze') return {
-      position: player.body.position, yaw: player.getState().yaw, floor: 4, expanded: true,
-      bounds: { minX: 5, maxX: 23, minZ: -12.5, maxZ: 1.5 }, deckLabel: '',
-      route: VENT_ROUTE.map(cell => ventPoint(cell.column, cell.row)), goal: { x: 20, z: -1.5, label: '' },
-      safePads: VENT_SAFE_CELLS.map(cell => ventPoint(cell.column, cell.row)),
-      enemies: sensors.map((sensor, index) => ({ id: VENT_SENSORS[index].id, position: sensor.position,
-        kind: 'sensor', alerted: ventSensorState(index, elapsed).active })),
-      prepare: () => mapVisibility([maze]),
+    if (phase === 'maze' || progress.checkpoint === 'vent') return {
+      position: player.body.position, yaw: player.getState().yaw, floor: 4, expanded: true, bounds: VENT_BOUNDS, deckLabel: '',
+      goal: progress.remoteRooms['stage2-vents'].rewardCollected ? { ...STAGE_TWO.drop, label: 'EXIT' }
+        : { ...STAGE_TWO.ventChest, label: 'CHEST' }, safePads: VENT_SAFE_CELLS.map(cell => ventPoint(cell.column, cell.row)),
+      enemies: maze.sensors.map(({ mesh }, index) => ({ id: VENT_SENSORS[index].id, position: mesh.position,
+        kind: 'sensor', alerted: ventSensorState(index, elapsed).active })), prepare: () => mapVisibility([maze.root]),
     };
-    const cameraRoom = progress.checkpoint === 'surveillance';
     return { position: player.body.position, yaw: player.getState().yaw, floor: 0,
-      bounds: cameraRoom ? { minX: 14.5, maxX: 25.5, minZ: -15, maxZ: 0.5 } : { minX: -2.6, maxX: 9.6, minZ: -28.1, maxZ: 6.1 },
-      stairs: cameraRoom ? [] : [{ x: 8, z: -9.5 }],
-      enemies: cameraRoom ? progress.guardDown ? [] : [{ id: 'surveillance-guard', position: guard.root.position, yaw: guard.root.rotation.y + Math.PI, range: 5.6 }]
-        : patrol.map((bot, index) => ({ id: `passage-patrol-${index}`, position: bot.root.position, yaw: bot.root.rotation.y + Math.PI, alerted: progress.crateBroken })),
-      prepare: () => mapVisibility(cameraRoom ? [surveillance, lift] : [passage, storage]),
-    };
+      bounds: { minX: 18.5, maxX: 37.5, minZ: -70, maxZ: -41.5 }, goal: { x: liftX, z: room.minZ, label: 'ELEVATOR' },
+      enemies: progress.guardDown ? [] : [{ id: 'surveillance-guard', position: guardRoot.position, yaw: guardRoot.rotation.y + Math.PI, range: 7 }],
+      prepare: () => mapVisibility([surveillance, lift]) };
   }
-  initializeCheckpoint(); updateObjective();
+  if (progress.checkpoint === 'surveillance') enterGuardRoom(); else enterMaze();
+  updateObjective();
   return {
     roomId: 'stage-two', scene, camera, player, physicsWorld: physics.world, ready, cutsceneManager: null,
     requiresRecoveredPistol: true, handlesPlayerDeath: true,
-    activate() {
-      active = true; ui.classList.remove('hidden'); syncBodyClass();
-      if (playable.has(phase)) player.enable();
-    },
+    activate() { active = true; ui.classList.remove('hidden'); syncBodyClass(); if (playable.has(phase)) player.enable(); },
     getSceneId: () => 'scene1.2',
-    getMapSceneId: () => `scene${phase === 'maze' ? 34 : progress.checkpoint === 'surveillance'
-      ? player.body.position.z < -9.8 ? 36 : 35 : player.body.position.x > 2.5 ? 33 : 32}`,
+    getMapSceneId: () => `scene${progress.checkpoint === 'vent' ? 34 : player.body.position.z < room.minZ ? 36 : 35}`,
     getMapLayout: () => STAGE_TWO_MAP, getMinimapState,
-    getMusicTrack: () => phase === 'alarm' || phase === 'chase' || phase === 'climb' ? 'stealth-alert' as const
+    getMusicTrack: () => guardAlert >= 0 ? 'stealth-alert' as const
       : phase === 'lift' || phase === 'handoff' ? 'ship' as const : 'stealth-2' as const,
-    getCctvEnabled: () => progress.guardDown && (phase === 'brief' || phase === 'surveillance' || phase === 'teleport'),
+    getCctvEnabled: () => progress.checkpoint === 'surveillance',
+    getCctvPaused: () => phase === 'takedown',
     isMazeActive: () => phase === 'maze',
-    controlsReady: () => active && !menuPaused && playable.has(phase) && !inspection.active,
-    isCinematic: () => !playable.has(phase) || !!inspection.active,
-    get ownsWeaponInput() { return !active || !playable.has(phase) || phase === 'maze' || !!inspection.active; },
+    controlsReady: () => active && !menuPaused && playable.has(phase),
+    isCinematic: () => !playable.has(phase),
+    get ownsWeaponInput() { return !active || !playable.has(phase) || phase === 'maze'; },
     getCinematicState: cinematicState, getCinematicPose: cinematicPose, getCinematicDelta: () => lastDelta,
     getCinematicWeapon: () => 'unarmed' as const,
-    hideCharacter: () => !!inspection.active,
-    hideMinimap: () => !playable.has(phase) || !!inspection.active,
-    applyCinematicCamera, applyVentCamera,
+    hideMinimap: () => !playable.has(phase), applyCinematicCamera, applyVentCamera,
     getHologramTransition: () => phase === 'teleport' ? hologramTransitionAt(Math.min(phaseTime, HOLOGRAM_TRANSFER_DURATION)) : null,
     showTeleportMessage: tell,
-    setGogglesActive(value: boolean) {
-      scanning = value; breakables.setHighlighted(value);
-      hiddenPanel.visible = progress.guardDown && (value || !!inspection.active);
-    },
-    setMenuPaused(value: boolean) { menuPaused = value; fastClimb = false; player.clearInput(); syncAudio(); },
+    setMenuPaused(value: boolean) { menuPaused = value; player.clearInput(); syncAudio(); },
+    getStageState: () => ({ phase, elapsed, ventSafe: ventSafe.clone(), keycards: progress.keycards.length, swipeResult }),
+    ventChest, crowbarChest,
+    getMonitorFrames: () => monitors.map(monitor => monitor.getFrameIndex()),
     getDamageTargets(): DamageTarget[] {
-      if (phase === 'guard') return [{ root: guard.root, body: guard.body, damage: () => {
-        alertGuard('That was not silent. Holster your weapon and use E from behind.'); return false;
-      } }];
-      if (phase !== 'approach' && phase !== 'chase') return [];
-      return crate.broken ? [] : [{ root: crate.root, body: crate.body, damage: (amount, weapon) => {
-        if (weapon !== 'crowbar') { tell('Brondon: I need the crowbar for this.', 2.5); return false; }
-        return crate.damage(amount, weapon);
-      } }];
+      return phase === 'guard' ? [{ root: guardRoot, body: guardBody,
+        damage: () => { alertGuard('That was not silent. Use E from behind the guard.'); return false; } }] : [];
     },
-    onPistolShot() {
-      if (phase === 'guard') alertGuard('That was not silent. Holster your weapon and use E from behind.');
-      else if (phase === 'approach') beginAlarm();
-    },
+    onPistolShot() { if (phase === 'guard') alertGuard('That was not silent. Use E from behind the guard.'); },
     updateInteractionFocus() {
-      if (!active || menuPaused || inspection.active || !player.isEnabled() || chest.isPromptVisible() || !prompt) return;
+      if (!active || menuPaused || !player.isEnabled() || !prompt || ventChest.isPromptVisible() || crowbarChest.isPromptVisible()) return;
       let text = '';
-      if ((phase === 'approach' || phase === 'chase') && Math.hypot(player.body.position.x - 8, player.body.position.z + 9.5) < 1.8)
-        text = progress.crateBroken ? 'E / Climb - hold Space' : 'The crate is blocking the ladder';
-      else if (phase === 'guard' && guardAlert < 0 && Math.hypot(player.body.position.x - 18, player.body.position.z + 6.2) < 2.1)
-        text = player.getState().crouching ? 'E / Silent takedown' : 'C / Crouch';
+      if (phase === 'guard' && guardAlert < 0 && Math.hypot(player.body.position.x - STAGE_TWO.guard.x, player.body.position.z - STAGE_TWO.guard.z) < 2.1)
+        text = 'E / Silent takedown';
+      else if (phase === 'lift-button') text = nearLiftButton() ? 'E / Press Bay 13 button' : 'Move to the Bay 13 button';
       else if (phase === 'surveillance') {
-        if (panelFocused()) text = 'E / Keypad';
+        if (returnAirlock.near(player)) text = 'E / Return through hangar airlock';
+        else if (readerFocused() || nearLiftDoor()) text = progress.elevatorUnlocked ? 'Walk into the elevator' : 'E / Swipe keycard';
         else {
           const target = options.getCameraTarget();
-          if (target) text = target.status === 'error' ? `E / Retry ${target.label}`
-            : target.status !== 'ready' ? `${target.label} / connecting`
-              : options.hasReturnMarker() ? `E / Teleport to ${target.label}` : 'Q / Set a return marker first';
+          if (target) text = target.id === 'stage2-vents' || target.id === 'stage2-prison' ? `${target.label} / Cleared` : target.status === 'error' ? `E / Retry ${target.label}`
+            : target.status !== 'ready' ? `${target.label} / connecting` : options.hasReturnMarker() ? `E / Visit ${target.label}` : 'Q / Set a return marker first';
         }
       }
-      prompt.textContent = text; prompt.classList.toggle('hidden', !text);
+      prompt.textContent = inputHint(text); prompt.classList.toggle('hidden', !text);
     },
     updatePhysics(dt: number, thirdPerson = true) {
       if (disposed || !active || menuPaused) return;
       const frame = Number.isFinite(dt) ? THREE.MathUtils.clamp(dt, 0, PHYSICS.maxFrameTime) : 0;
-      lastDelta = frame; elapsed += frame; phaseTime += frame;
+      lastDelta = frame; elapsed += frame; phaseTime += frame; physics.step(frame, player, thirdPerson); maze.update(elapsed);
+      ventChest.update(frame); crowbarChest.update(frame);
+      if (phase !== 'takedown') monitors.forEach(monitor => monitor.update(frame));
       captionTime = Math.max(0, captionTime - frame); if (!captionTime) caption.classList.add('hidden');
-      if (inspection.active) inspection.update(frame);
-      else physics.step(frame, player, thirdPerson);
-      breakables.update(frame); chest.update(frame); updatePatrol(frame); guard.update(frame, false); keypad.update(frame);
-      hiddenPanel.visible = progress.guardDown && (scanning || !!inspection.active);
-      alarmMaterial.emissive.setHex(phase === 'alarm' || phase === 'chase' || phase === 'climb' ? 0xff3920 : 0x000000);
-      storeDoor.update(frame, player, phase === 'approach' && storeDoor.near(player)
-        || phase === 'alarm' || phase === 'chase' || phase === 'climb');
-      frontDoor.update(frame, player, progress.elevatorUnlocked && phase !== 'handoff' && (phase !== 'lift' || phaseTime < 2.1));
-      rearDoor.update(frame, player, phase === 'lift' && phaseTime > 9.8 || phase === 'handoff' || phase === 'load-error');
-      if (inspection.active) { updateObjective(frame); return; }
+      guardMixer?.update(frame);
+      if (guardDead && guardRoot.visible) {
+        guardDeathTime += frame;
+        if (!guardDeath) { guardRoot.rotation.z = Math.min(1.3, guardDeathTime * 1.8); guardRoot.position.y = 0.32; }
+        if (guardDeathTime > 0.75) guardRoot.scale.setScalar(Math.max(0.001, 1 - THREE.MathUtils.smoothstep(guardDeathTime, 0.75, 1.25)));
+        if (guardDeathTime > 1.25) guardRoot.visible = false;
+      }
+      returnAirlock.update(frame, player, progress.guardDown && returnAirlock.near(player) && phase === 'surveillance');
+      frontDoor.update(frame, player, progress.elevatorUnlocked && (phase !== 'lift' || phaseTime < 2.1) && phase !== 'handoff');
+      rearDoor.update(frame, player, phase === 'lift' && phaseTime > 9.8 || phase === 'handoff' || phase === 'load-error' && loadError === 'boss');
+      readerMaterial.color.setHex(progress.elevatorUnlocked ? 0x72eeaa : 0xff785e);
+      readerMaterial.emissive.setHex(progress.elevatorUnlocked ? 0x248549 : 0x8d2019);
       switch (phase) {
-        case 'intro':
-          fade.style.opacity = String(1 - THREE.MathUtils.smoothstep(phaseTime, 0.1, 1.0));
-          player.setRotation(0, 0);
-          player.setPosition(0, player.radius, THREE.MathUtils.lerp(4, 1, THREE.MathUtils.clamp((phaseTime - 0.2) / 2.4, 0, 1)));
-          if (!introLine && phaseTime >= 1.1) { introLine = true; tell('Brondon: Patrol ahead. Slip into the storeroom on the right.', 4.5); }
-          if (phaseTime >= 2.6) { fade.style.opacity = '0'; setPhase('approach'); }
+        case 'maze':
+          sensorGrace = Math.max(0, sensorGrace - frame);
+          for (const cell of VENT_SAFE_CELLS) {
+            const point = ventPoint(cell.column, cell.row, 4 + player.radius);
+            if (Math.hypot(player.body.position.x - point.x, player.body.position.z - point.z) < 0.55) ventSafe.copy(point);
+          }
+          if (!sensorGrace && maze.sensors.some(({ mesh }, index) => ventSensorState(index, elapsed).active
+            && Math.hypot(player.body.position.x - mesh.position.x, player.body.position.z - mesh.position.z) < 0.48)) {
+            teleportPlayer(player, ventSafe, -Math.PI / 2); player.setVentMode(true); player.setOverheadMovement(true);
+            sensorGrace = 2.5; playSound('sensor'); tell('Detected. Back to the last checkpoint.');
+          }
+          if (Math.hypot(player.body.position.x - STAGE_TWO.drop.x, player.body.position.z - STAGE_TWO.drop.z) < 0.55) {
+            if (!progress.remoteRooms['stage2-vents'].rewardCollected) {
+              teleportPlayer(player, { x: STAGE_TWO.drop.x, y: 4 + player.radius, z: STAGE_TWO.drop.z + 0.85 }, 0);
+              player.setVentMode(true); player.setOverheadMovement(true); tell('Find the keycard chest before leaving the vents.'); break;
+            }
+            setPhase('drop'); player.setVentMode(false); player.setOverheadMovement(false);
+            player.setPosition(STAGE_TWO.drop.x, 4 + player.radius, STAGE_TWO.drop.z); player.setRotation(0, 0);
+          } else if (player.body.position.y < 3.2) {
+            teleportPlayer(player, ventSafe, -Math.PI / 2); player.setVentMode(true); player.setOverheadMovement(true); sensorGrace = 2.5;
+          }
           break;
-        case 'approach':
-          if (player.body.position.x > 2.8 && progress.checkpoint === 'passage') { progress.checkpoint = 'storeroom'; checkpoint(); }
-          if (player.body.position.z < -20.8 && player.body.position.x < 2.5) fail('The patrol spotted you. Slip into the storeroom on the right.');
-          break;
-        case 'alarm': if (phaseTime >= 1.65) setPhase('chase'); break;
-        case 'climb':
-          player.setPosition(8, Math.min(4 + player.radius, player.body.position.y + frame * (fastClimb ? STAGE_TWO.fastClimbSpeed : STAGE_TWO.climbSpeed)), -9.5);
-          if (player.body.position.y >= 4 + player.radius - 0.001) enterMaze();
-          break;
-        case 'maze': updateMaze(frame); break;
         case 'drop':
-          player.setPosition(20, THREE.MathUtils.lerp(4 + player.radius, player.radius, THREE.MathUtils.smootherstep(phaseTime, 0, 1.4)), -1.5);
-          if (phaseTime >= 1.8) enterGuardRoom();
+          player.setPosition(STAGE_TWO.drop.x, THREE.MathUtils.lerp(4 + player.radius, player.radius,
+            THREE.MathUtils.smootherstep(phaseTime, 0, 1.2)), STAGE_TWO.drop.z);
+          if (phaseTime >= 1.5) { progress.ventCleared = true; progress.checkpoint = 'surveillance'; void loadHub(); }
           break;
         case 'guard': updateGuard(frame); break;
         case 'takedown':
-          if (phaseTime >= 0.9 && !progress.guardDown) { progress.guardDown = true; guard.down(); }
-          if (phaseTime >= 1.5) guard.vanish();
-          if (phaseTime >= 2.1) {
-            player.setForcedCrouch(false); checkpoint(); setPhase('brief');
-            tell('Prime: Use your teleporter. Find a way out of this room.', 4);
-          }
+          if (phaseTime >= 0.8 && !progress.guardDown) { progress.guardDown = true; downGuard(); }
+          if (phaseTime >= 2) { player.setForcedCrouch(false); setPhase('surveillance'); checkpoint(); }
           break;
-        case 'brief': if (phaseTime >= 3.2) setPhase('surveillance'); break;
         case 'surveillance':
-          if (progress.elevatorUnlocked && player.body.position.x > 21.4 && player.body.position.z < -10.1) startLift();
+          if (progress.elevatorUnlocked && frontDoor.open > 0.9 && Math.abs(player.body.position.x - liftX) < 1.55
+            && player.body.position.z < room.minZ - 0.35) setPhase('lift-button');
           break;
+        case 'lift-button':
+          if (player.body.position.z > room.minZ + 0.35) setPhase('surveillance');
+          break;
+        case 'swipe': updateSwipe(); break;
         case 'teleport': if (phaseTime >= HOLOGRAM_TRANSFER_DURATION) void teleportToFeed(); break;
-        case 'lift': updateLift(frame); break;
+        case 'lift': updateLift(); break;
       }
-      if (playable.has(phase) && phase !== 'maze' && player.body.position.y < -3) fail('You fell out of the service deck. Your last local checkpoint is saved.');
+      if (playable.has(phase) && phase !== 'maze' && player.body.position.y < -3) fail('You fell off the deck. Retry your camera-room checkpoint.');
       updateObjective(frame);
     },
     dispose() {
       if (disposed) return; disposed = true; active = false;
-      window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKeyUp);
-      window.removeEventListener('mousedown', onPointer, true); window.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('blur', onVisibility);
-      unsubscribeAudio(); stopRumble();
+      window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onPointer, true);
+      window.removeEventListener('visibilitychange', onVisibility); window.removeEventListener('blur', onVisibility);
+      unsubscribeAudio(); stopRumble(); guardMixer?.stopAllAction();
+      ventChest.dispose(); crowbarChest.dispose(); monitors.forEach(monitor => monitor.dispose());
+      if (guardBody.world === physics.world) physics.world.removeBody(guardBody);
       if (audioContext && audioContext.state !== 'closed') void audioContext.close().catch(error => console.warn('[StageTwo] Audio cleanup failed:', error));
-      inspection.dispose(); chest.dispose(); breakables.dispose(); patrol.forEach(bot => bot.dispose()); guard.dispose();
-      ui.remove(); prompt?.classList.add('hidden');
-      document.body.classList.remove('stage-two-maze', 'quarters-cinematic');
-      player.dispose(); physics.dispose(); disposeRoom(scene); sensorMaterial.dispose();
+      ui.remove(); prompt?.classList.add('hidden'); document.body.classList.remove('stage-two-maze', 'quarters-cinematic');
+      player.dispose(); physics.dispose(); disposeRoom(scene);
     },
   };
 }

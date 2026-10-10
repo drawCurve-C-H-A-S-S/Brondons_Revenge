@@ -31,7 +31,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     entries: ['index.html', 'finale-preview.html'],
-    include: ['three', ...THREE_ADDONS, 'cannon-es', 'pathfinding', 'three-bvh-csg'],
+    include: ['three', ...THREE_ADDONS, 'cannon-es', 'pathfinding', 'three-bvh-csg', 'gifuct-js'],
   },
   build: {
     outDir: '../dist',

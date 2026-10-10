@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BufferedMusic, supportsBufferedMusic, resumeMusicContext } from './bufferedMusic.js';
+import { cachedAssetUrl } from '../../core/assetCache.js';
 
 const clamp = (value, minimum, maximum) => Math.min(Math.max(value, minimum), maximum);
 const volumes = { bgm: 1, sfx: 1 };
@@ -13,7 +14,7 @@ const preparedAudio = new Map();
 
 export function preloadAudio(source) {
   if (!source || preparedAudio.has(source) || typeof Audio === 'undefined') return;
-  const audio = new Audio(source);
+  const audio = new Audio(cachedAssetUrl(source));
   audio.preload = 'auto';
   audio.load();
   preparedAudio.set(source, audio);
@@ -90,7 +91,7 @@ export class AudioManager {
   createAudio(path, { loop = false } = {}) {
     const source = this.resolveSource(path);
     if (!source) throw new Error(`Audio file not found: ${path}`);
-    const audio = preparedAudio.get(source) || new Audio(source);
+    const audio = preparedAudio.get(source) || new Audio(cachedAssetUrl(source));
     const prepared = preparedAudio.delete(source);
     audio.loop = loop;
     // Force a full buffer up front so the first play() call is instant once the user unlocks audio.
@@ -100,9 +101,9 @@ export class AudioManager {
   }
 
   createBgmAudio(path, loop) {
-    if (!supportsBufferedMusic()) return this.createAudio(path, { loop });
     const source = this.resolveSource(path);
     if (!source) throw new Error(`Audio file not found: ${path}`);
+    if (!supportsBufferedMusic(source)) return this.createAudio(path, { loop });
     return new BufferedMusic(source, loop);
   }
 

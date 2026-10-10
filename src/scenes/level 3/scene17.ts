@@ -1,31 +1,28 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { createScenePhysics, createGroundMotor, PHYSICS, registerPhysicsActor } from '../../helpers/physics/scenePhysics.js';
-import { createRescueSite, RESCUE_SITE, JUNGLE_PATH, JUNGLE_ROUTE, RETURN_PATH, JUNGLE_ENTRY_YAW, type RescueArrival } from '../../helpers/scene/rescueSite.js';
+import { createRescueSite, RESCUE_SITE, JUNGLE_PATH, JUNGLE_ROUTE, JUNGLE_ENTRY_YAW, type RescueArrival } from '../../helpers/scene/rescueSite.js';
 import { createPlayer } from '../../scripts/player.js';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
-import { loadToolModel, loadDinoModel } from '../../core/loader.js';
+import { loadToolModel, loadDinoModel, loadSharkModel } from '../../core/loader.js';
 import { disposeRoom } from '../../helpers/scene/shipRoom.js';
 import { emitComicEffect } from '../../helpers/scene/comicEffects.js';
 import type { DamageTarget, DamageWeapon } from '../../scripts/pistol.js';
 import type { CinematicPose } from '../../scripts/characterManager.js';
 import { PARRY_DAMAGE, type ParryableBolt } from '../../scripts/lightsaber.js';
 import { createRiverAmbushers } from '../../scripts/riverAmbusher.js';
-import { createJungleScrambler, createJungleScramblerPulse, PLATFORM_COURSE } from '../../helpers/scene/junglePlatformCourse.js';
+import { createWaterfallMiniboss } from '../../scripts/waterfallMiniboss.js';
 
-/** Shared jungle encounters, with distinct bridge and downstream/facility checkpoints. */
-export function createScene({ entryState, onRespawn, onPlatformer, onFinished, section = 'approach', loadModel = loadToolModel, loadDinosaur = loadDinoModel }: {
-  entryState?: RescueArrival; onRespawn: () => void; onPlatformer?: (state: RescueArrival) => void;
-  onFinished?: (state: RescueArrival) => void; section?: 'approach' | 'return';
-  loadModel?: typeof loadToolModel; loadDinosaur?: typeof loadDinoModel;
+/** One uninterrupted landing-site, bridge, waterfall and facility exterior. */
+export function createScene({ entryState, onRespawn, onFinished, loadModel = loadToolModel, loadDinosaur = loadDinoModel, loadShark = loadSharkModel }: {
+  entryState?: RescueArrival; onRespawn: (state: RescueArrival) => void;
+  onFinished?: (state: RescueArrival) => void;
+  loadModel?: typeof loadToolModel; loadDinosaur?: typeof loadDinoModel; loadShark?: typeof loadSharkModel;
 }) {
-  const returning = section === 'return';
-  const spawn = returning ? RESCUE_SITE.downstream : RESCUE_SITE.player;
-  const spawnYaw = returning ? 0 : JUNGLE_ENTRY_YAW;
+  const spawn = RESCUE_SITE.player;
+  const spawnYaw = JUNGLE_ENTRY_YAW;
   const physics = createScenePhysics(), physicsWorld = physics.world;
-  const site = createRescueSite(physics, { culling: true, platformer: true, ascendingPillars: true, bridgeBrokenAtStart: returning,
-    activatedRelays: entryState?.platformProgress?.activatedRelays ?? (returning ? ['relay1', 'relay2', 'relay3'] : []),
-  }), { scene, door, ship, pod, boy } = site;
+  const site = createRescueSite(physics, { culling: true }), { scene, door, ship, pod, boy } = site;
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 650);
   const player = createPlayer({ camera, physicsWorld, spawnPosition: spawn });
   if (entryState?.pilotState) player.restoreTransition({
@@ -65,36 +62,48 @@ export function createScene({ entryState, onRespawn, onPlatformer, onFinished, s
   document.body.classList.remove('space-cinematic');
   status?.classList.remove('hidden', 'restored'); caption?.classList.add('hidden'); prompt?.classList.add('hidden');
   let disposed = false, alerted = false, doorLatched = false, completed = false, deathClock = 0;
-  let elapsed = 0, arrivalClock = 0, bridgeClock = -1, paused = false, animationDelta = 0;
-  const bridgeRunEnd = 1.8, launchStart = bridgeRunEnd + 3.3, bridgeImpact = launchStart + 1.5, cutsceneEnd = bridgeImpact + 1;
-  const rockLandingY = PLATFORM_COURSE.checkpoints.bridge.top + player.radius;
-  const bridgeFallDuration = Math.sqrt(2 * (0.53 - rockLandingY) / -PHYSICS.gravity);
-  const bridgeStart = new THREE.Vector3(), bridgeCamera = new THREE.Vector3(), bridgeRotation = new THREE.Quaternion();
-  const scrambler = returning ? null : createJungleScrambler(scene);
-  const scramblerPulse = returning ? null : createJungleScramblerPulse();
-  const launcher = site.scramblerLauncher!;
-  if (scrambler) { scrambler.root.position.copy(launcher.chamber); scrambler.root.visible = false; }
-  let bridgeYaw = 0, bridgeFov = 75;
-  const launchArc = new THREE.CubicBezierCurve3(launcher.muzzle.clone(), new THREE.Vector3(-10, 43, -30),
-    new THREE.Vector3(-42, 28, 12), new THREE.Vector3(-42, 5, PLATFORM_COURSE.depth));
-  const launchTrail = returning ? null : new THREE.Mesh(new THREE.ConeGeometry(0.6, 4.5, 10),
-    new THREE.MeshBasicMaterial({ color: 0x99ffbf, transparent: true, opacity: 0.55, depthWrite: false }));
-  if (launchTrail) { launchTrail.name = 'ScramblerLaunchTrail'; launchTrail.visible = false; scene.add(launchTrail); }
-  const landSquad = returning ? createRiverAmbushers(scene, [125, 125, 125]) : null;
-  const sentries = (landSquad?.actors ?? []).map((actor, index) => {
-    const home = RETURN_PATH.getPointAt([0.22, 0.53, 0.83][index]);
+  let elapsed = 0, arrivalClock = 0, paused = false, animationDelta = 0, entryClock = -1;
+  const entryStart = new THREE.Vector3(), entryView = new THREE.Vector3(), entryRotation = new THREE.Quaternion();
+  let sharkClock = -1, sharkLoadError = false;
+  const sharkDeathAt = 4.2;
+  const riverEntry = new THREE.Vector3(), riverCamera = new THREE.Vector3(), riverRotation = new THREE.Quaternion();
+  const miniboss = createWaterfallMiniboss({ scene, world: physicsWorld, player, camera, arena: site.waterfall,
+    defeated: entryState?.waterfallDefeated, collected: entryState?.bossImmunityCollected, loadModel });
+  const landSquad = createRiverAmbushers(scene, [125, 125, 125], loadModel);
+  const sentries = landSquad.actors.map((actor, index) => {
+    const home = JUNGLE_PATH.getPointAt([0.63, 0.74, 0.84][index]);
+    actor.root.name = `PostBridgeSpiderBot${index + 1}`;
     const body = new CANNON.Body({ mass: 25, shape: new CANNON.Sphere(0.85), fixedRotation: true, allowSleep: false, linearDamping: 0,
       material: new CANNON.Material({ friction: 0, restitution: 0 }) });
     actor.root.visible = false;
     return { actor, body, home, motor: createGroundMotor(body, 0.85), active: false, spent: false,
       aim: new THREE.Vector3(), steering: new THREE.Vector3(), steeringClock: 0, cooldown: 2 + index * 0.7, charge: -1 };
   });
-  // The bridge remains solid; the facility now redirects the player onto its maintenance route.
   const onBlur = () => { paused = true; }, onFocus = () => { paused = false; };
   window.addEventListener('blur', onBlur); window.addEventListener('focus', onFocus);
   let spawnClock = 3, dinoSpawnClock = 0, patrolLoaded = false, patrolLoadError = false, dinoLoadError = false, defeatedPatrols = 0;
   let dinoReady: Promise<void> | null = null;
   let playerRoute = site.nearestPathPoint(player.body.position.x, player.body.position.z);
+  const sharks: Array<{ root: THREE.Group; mixer: THREE.AnimationMixer; homeX: number; baseY: number; phase: number;
+    start: THREE.Vector3; attackIndex: number }> = [];
+  const sharkReady = loadShark().then(asset => {
+    if (disposed) { releaseTemplate(asset.scene); return; }
+    const bounds = new THREE.Box3().setFromObject(asset.scene), size = bounds.getSize(new THREE.Vector3());
+    const length = Math.max(size.x, size.z);
+    if (!Number.isFinite(length) || length <= 0) { releaseTemplate(asset.scene); throw new Error('River shark has empty geometry'); }
+    const center = bounds.getCenter(new THREE.Vector3()), scale = 4.4 / length;
+    asset.scene.scale.multiplyScalar(scale); asset.scene.position.add(center.multiplyScalar(-scale));
+    bounds.setFromObject(asset.scene); const finHeight = bounds.max.y;
+    asset.scene.visible = false; scene.add(asset.scene);
+    for (const [index, x] of [-70, -57, -36, -17, 4, 27, 51].entries()) {
+      const root = new THREE.Group(), model = clone(asset.scene); model.visible = true;
+      const baseY = RESCUE_SITE.riverY - finHeight + 0.1;
+      root.name = `RiverShark${index + 1}`; root.add(model); root.position.set(x, baseY, RESCUE_SITE.riverZ + (index % 2 ? 4 : -4)); scene.add(root);
+      const mixer = new THREE.AnimationMixer(model);
+      if (asset.animations[0]) mixer.clipAction(asset.animations[0]).play();
+      sharks.push({ root, mixer, homeX: x, baseY, phase: index * 1.7, start: new THREE.Vector3(), attackIndex: -1 });
+    }
+  }).catch(error => { if (!disposed) { sharkLoadError = true; console.error('[Scene 17] Could not load river sharks:', error); } });
   type JungleEnemy = {
     root: THREE.Group; body: CANNON.Body; motor: ReturnType<typeof createGroundMotor>; mixer: THREE.AnimationMixer;
     actions: Map<string, THREE.AnimationAction>; action: string; ring: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
@@ -136,6 +145,7 @@ export function createScene({ entryState, onRespawn, onPlatformer, onFinished, s
     } else {
       for (const clip of clips) actions.set(clip.name, mixer.clipAction(clip));
       if (!actions.has('Idle') && actions.has('Walk')) actions.set('Idle', actions.get('Walk')!);
+      if (!actions.has('Run') && actions.has('Walk')) actions.set('Run', actions.get('Walk')!);
     }
     const ring = new THREE.Mesh(spawnGeometry, spawnMaterial); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.07; ring.visible = false; root.add(ring);
     enemies.push({ root, body, motor: createGroundMotor(body, radius), mixer, actions, action: '', ring, kind, radius, maxHealth,
@@ -182,7 +192,6 @@ export function createScene({ entryState, onRespawn, onPlatformer, onFinished, s
   }
   function inDinoTerritory(x: number, z: number) {
     return site.distanceToSafePath(x, z) > 7 && Math.hypot(x - RESCUE_SITE.clearing.x, z - RESCUE_SITE.clearing.z) > 28
-      && Math.hypot(x - RESCUE_SITE.downstream.x, z - RESCUE_SITE.downstream.z) > 15
       && Math.hypot(x, z - RESCUE_SITE.doorZ) > 22 && (z < 10 || z > 24);
   }
   function spawnDinosaur(enemy: JungleEnemy) {
@@ -218,7 +227,7 @@ export function createScene({ entryState, onRespawn, onPlatformer, onFinished, s
       const t = index / (JUNGLE_ROUTE.length - 1), point = JUNGLE_ROUTE[index].clone(), tangent = JUNGLE_PATH.getTangentAt(t);
       point.addScaledVector(new THREE.Vector3(tangent.z, 0, -tangent.x), (Math.random() < 0.5 ? -1 : 1) * (2.6 + Math.random() * 1.2));
       const distance = Math.hypot(point.x - p.x, point.z - p.z);
-      if ((returning ? point.z > 7 : point.z < 28) || distance < 12 || distance > 30 || point.distanceTo(RESCUE_SITE.clearing) < 29 || Math.hypot(point.x, point.z - RESCUE_SITE.doorZ) < 20
+      if (point.z < 28 || distance < 12 || distance > 30 || point.distanceTo(RESCUE_SITE.clearing) < 29 || Math.hypot(point.x, point.z - RESCUE_SITE.doorZ) < 20
         || !site.isWalkable(point.x, point.z, Math.max(0.85, enemy.radius + 0.35))
         || enemies.some(r => r.phase !== 'dormant' && Math.hypot(r.body.position.x - point.x, r.body.position.z - point.z) < r.radius + enemy.radius + 1.2)) continue;
       enemy.body.type = CANNON.Body.DYNAMIC; enemy.body.updateMassProperties();
@@ -252,7 +261,7 @@ export function createScene({ entryState, onRespawn, onPlatformer, onFinished, s
     enemy.root.visible = false; enemy.ring.visible = false; enemy.phase = 'dormant'; enemy.mixer.stopAllAction(); enemy.action = '';
   }
   function updatePatrols(dt: number) {
-    if (disposed || completed || bridgeClock >= 0 || deathClock > 0 || !player.isEnabled() || player.getHealth() <= 0) return;
+    if (disposed || completed || entryClock >= 0 || sharkClock >= 0 || miniboss.isCinematic() || site.waterfall.locked || deathClock > 0 || !player.isEnabled() || player.getHealth() <= 0) return;
     const p = player.body.position;
     const nearLanding = Math.hypot(p.x - RESCUE_SITE.clearing.x, p.z - RESCUE_SITE.clearing.z) < 27;
     const nearFacility = Math.hypot(p.x, p.z - RESCUE_SITE.doorZ) < 21;
@@ -363,13 +372,13 @@ export function createScene({ entryState, onRespawn, onPlatformer, onFinished, s
   const beams = new THREE.Group(); beams.name = 'FacilityDefenseLasers'; scene.add(beams);
   const bolts = Array.from({ length: 32 }, () => {
     const mesh = new THREE.Mesh(boltGeometry, boltMaterial); mesh.visible = false; beams.add(mesh);
-    return { mesh, velocity: new THREE.Vector3(), life: 0, parried: false, owner: 'boss' as 'boss' | 'player' };
+    return { mesh, velocity: new THREE.Vector3(), life: 0, parried: false, returned: false, owner: 'boss' as 'boss' | 'player' };
   });
   const turrets = site.turrets.map((turret, index) => {
     const material = new THREE.MeshBasicMaterial({ color: 0xff4234, transparent: true, opacity: 0.28, depthWrite: false });
     const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 1, 6), material);
     mesh.visible = false; scene.add(mesh);
-    return { ...turret, telegraph: mesh, aim: new THREE.Vector3(), clock: 1.2 + index * 0.65, delay: 0.9 + index * 0.65, charging: false };
+    return { ...turret, telegraph: mesh, aim: new THREE.Vector3(), health: 100, clock: 1.2 + index * 0.65, delay: 0.9 + index * 0.65, charging: false };
   });
   const up = new THREE.Vector3(0, 1, 0), origin = new THREE.Vector3(), direction = new THREE.Vector3();
   const playerBounds = new THREE.Box3(), ray = new THREE.Ray(), intersection = new THREE.Vector3();
@@ -392,7 +401,7 @@ export function createScene({ entryState, onRespawn, onPlatformer, onFinished, s
     direction.copy(turret.aim).sub(origin).normalize();
     bolt.mesh.position.copy(origin); bolt.mesh.quaternion.setFromUnitVectors(up, direction);
     bolt.velocity.copy(direction).multiplyScalar(speed); bolt.life = 3; bolt.mesh.visible = true;
-    bolt.parried = false; bolt.owner = 'boss';
+    bolt.parried = false; bolt.returned = false; bolt.owner = 'boss';
     site.activatePhysicsNear(origin);
   }
   function damageSentry(sentry: typeof sentries[number], amount: number, weapon?: DamageWeapon) {
@@ -405,14 +414,34 @@ export function createScene({ entryState, onRespawn, onPlatformer, onFinished, s
     }
     return true;
   }
+  function damageTurret(turret: typeof turrets[number], amount: number, weapon?: DamageWeapon) {
+    if (!Number.isFinite(amount) || amount <= 0) throw new RangeError('Facility sentinel damage must be positive and finite');
+    if (disposed || completed || deathClock > 0 || turret.health <= 0 || !player.isEnabled()
+      || player.getHealth() <= 0 || (weapon !== 'pistol' && weapon !== 'lightsaber')) return false;
+    turret.health = Math.max(0, turret.health - amount);
+    emitComicEffect(scene, turret.health === 0 ? 'boom' : 'hit', { source: turret.root, weapon, size: 2 });
+    if (!turret.health) { turret.charging = false; turret.telegraph.visible = false; turret.root.visible = false; }
+    return true;
+  }
+  function damageTargets(): DamageTarget[] {
+    return [
+      ...enemies.filter(enemy => enemy.kind !== 'dino' && enemy.phase !== 'dormant' && enemy.phase !== 'dying')
+        .map((enemy): DamageTarget => ({ root: enemy.root, body: enemy.body, damage: (amount, weapon) => damageJungleEnemy(enemy, amount, weapon) })),
+      ...sentries.filter(sentry => sentry.active && sentry.actor.health > 0)
+        .map((sentry): DamageTarget => ({ root: sentry.actor.root, body: sentry.body, damage: (amount, weapon) => damageSentry(sentry, amount, weapon) })),
+      ...turrets.filter(turret => turret.health > 0)
+        .map((turret): DamageTarget => ({ root: turret.root, damage: (amount, weapon) => damageTurret(turret, amount, weapon) })),
+      ...miniboss.getDamageTargets(),
+    ];
+  }
   function updateSentries(dt: number) {
-    if (!returning || disposed || completed || deathClock > 0 || !player.isEnabled() || player.getHealth() <= 0) return;
+    if (disposed || completed || site.waterfall.locked || entryClock >= 0 || deathClock > 0 || !player.isEnabled() || player.getHealth() <= 0) return;
     const p = new THREE.Vector3().copy(player.body.position), target = p.clone().add(new THREE.Vector3(0, 0.8, 0));
     for (const [index, sentry] of sentries.entries()) {
       const { actor, body, home } = sentry;
       if (sentry.spent || !actor.loaded) continue;
       if (!sentry.active) {
-        if (arrivalClock < 2 || home.distanceTo(p) > 34) continue;
+        if (arrivalClock < 2 || p.z > RESCUE_SITE.riverZ - RESCUE_SITE.riverHalfWidth || home.distanceTo(p) > 34) continue;
         let spawnPoint: THREE.Vector3 | null = null;
         for (const dz of [-2.5, 2.5, 0, -4, 4]) {
           const candidate = home.clone().add(new THREE.Vector3(0, 0, dz));
@@ -471,13 +500,13 @@ export function createScene({ entryState, onRespawn, onPlatformer, onFinished, s
     }
   }
   function updateDefense(dt: number) {
-    if (disposed || completed || bridgeClock >= 0 || deathClock > 0 || !player.isEnabled() || player.getHealth() <= 0) return;
+    if (disposed || completed || entryClock >= 0 || sharkClock >= 0 || site.waterfall.locked || deathClock > 0 || !player.isEnabled() || player.getHealth() <= 0) return;
     elapsed += dt;
-    if (!returning) return;
     const p = player.body.position, distance = Math.hypot(p.x, p.z - RESCUE_SITE.doorZ);
     if (!alerted && distance < 34 && p.z > RESCUE_SITE.doorZ) alerted = true;
     const exposed = alerted && distance < 65 && p.z > RESCUE_SITE.doorZ + 0.1;
     for (const turret of turrets) {
+      if (turret.health <= 0) continue;
       if (!exposed) { turret.charging = false; turret.clock = turret.delay; turret.telegraph.visible = false; turret.muzzle.scale.setScalar(1); continue; }
       turret.clock -= dt;
       if (!turret.charging && turret.clock <= 0) { turret.charging = true; turret.clock = 0.85; }
@@ -499,46 +528,31 @@ export function createScene({ entryState, onRespawn, onPlatformer, onFinished, s
     const height = player.getState().crouching ? 0.95 : 1.65;
     playerBounds.min.set(p.x - 0.32, p.y - player.radius, p.z - 0.32);
     playerBounds.max.set(p.x + 0.32, p.y - player.radius + height, p.z + 0.32);
-    const sentryBounds = new THREE.Box3();
+    const targetBounds = new THREE.Box3();
     for (const bolt of bolts) {
       if (bolt.life <= 0) continue;
+      if (bolt.parried && !bolt.returned) { bolt.returned = true; bolt.life = Math.max(bolt.life, 3); }
       const from = bolt.mesh.position, to = from.clone().addScaledVector(bolt.velocity, dt), travel = from.distanceTo(to);
       ray.set(from, direction.copy(bolt.velocity).normalize());
       // Keep the cylinder aligned with its (possibly deflected) travel direction.
       if (bolt.parried) bolt.mesh.quaternion.setFromUnitVectors(up, direction);
       let obstruction = Infinity;
+      const targets = bolt.parried && bolt.owner === 'player' ? damageTargets() : [];
       rayFrom.set(from.x, from.y, from.z); rayTo.set(to.x, to.y, to.z);
       physicsWorld.raycastAll(rayFrom, rayTo, { skipBackfaces: false, checkCollisionResponse: true }, hit => {
-        if (hit.body !== player.body && hit.body?.collisionResponse) obstruction = Math.min(obstruction, hit.distance);
+        if (hit.body !== player.body && hit.body?.collisionResponse && !targets.some(target => target.body === hit.body)) obstruction = Math.min(obstruction, hit.distance);
       });
       bolt.life -= dt;
       if (bolt.parried && bolt.owner === 'player') {
-        let sentryHitDistance = Infinity;
-        let sentryHit: typeof sentries[number] | null = null;
-        for (const sentry of sentries) {
-          if (!sentry.active || sentry.actor.health <= 0) continue;
-          sentryBounds.setFromCenterAndSize(
-            new THREE.Vector3(sentry.body.position.x, sentry.body.position.y, sentry.body.position.z),
-            new THREE.Vector3(1.4, 2.0, 1.4));
-          const point = ray.intersectBox(sentryBounds, intersection);
-          const d = sentryBounds.containsPoint(from) ? 0 : point ? from.distanceTo(point) : Infinity;
-          if (d <= travel && d < sentryHitDistance) { sentryHitDistance = d; sentryHit = sentry; }
+        let distance = Infinity, hit: DamageTarget | null = null;
+        for (const target of targets) {
+          targetBounds.setFromObject(target.root);
+          const point = ray.intersectBox(targetBounds, intersection);
+          const contact = targetBounds.containsPoint(from) ? 0 : point ? from.distanceTo(point) : Infinity;
+          if (contact <= travel && contact < distance) { distance = contact; hit = target; }
         }
-        let enemyHitDistance = Infinity;
-        let enemyHit: typeof enemies[number] | null = null;
-        for (const enemy of enemies) {
-          if (enemy.phase === 'dormant' || enemy.phase === 'dying' || enemy.kind === 'dino') continue;
-          sentryBounds.setFromCenterAndSize(
-            new THREE.Vector3(enemy.body.position.x, enemy.body.position.y, enemy.body.position.z),
-            new THREE.Vector3(1.2, 1.8, 1.2));
-          const point = ray.intersectBox(sentryBounds, intersection);
-          const d = sentryBounds.containsPoint(from) ? 0 : point ? from.distanceTo(point) : Infinity;
-          if (d <= travel && d < enemyHitDistance) { enemyHitDistance = d; enemyHit = enemy; }
-        }
-        if (sentryHit && sentryHitDistance <= enemyHitDistance && sentryHitDistance < obstruction) {
-          damageSentry(sentryHit, PARRY_DAMAGE, 'lightsaber'); bolt.life = 0;
-        } else if (enemyHit && enemyHitDistance < obstruction) {
-          damageJungleEnemy(enemyHit, PARRY_DAMAGE, 'lightsaber'); bolt.life = 0;
+        if (hit && distance < obstruction) {
+          hit.damage(PARRY_DAMAGE, 'lightsaber'); bolt.life = 0;
         } else if (obstruction !== Infinity) bolt.life = 0;
       } else {
         const contact = ray.intersectBox(playerBounds, intersection);
@@ -555,12 +569,14 @@ export function createScene({ entryState, onRespawn, onPlatformer, onFinished, s
     for (const enemy of enemies) if (enemy.phase !== 'dormant') physicsFocus.push(enemy.body.position);
     for (const sentry of sentries) if (sentry.active) physicsFocus.push(sentry.body.position);
     for (const bolt of bolts) if (bolt.life > 0) physicsFocus.push(bolt.mesh.position);
+    if (miniboss.body.world === physicsWorld) physicsFocus.push(miniboss.body.position);
     site.updateActivePhysics(physicsFocus);
   }
   const unregister = registerPhysicsActor(physicsWorld, {
     body: player.body,
-    beforePhysicsStep(dt: number) { updateSentries(dt); updateDefense(dt); updatePatrols(dt); },
+    beforePhysicsStep(dt: number) { updateSentries(dt); updateDefense(dt); updatePatrols(dt); miniboss.beforePhysicsStep(dt); },
     afterPhysicsStep() {
+      miniboss.afterPhysicsStep();
       for (const sentry of sentries) if (sentry.active) {
         if (sentry.actor.health > 0) sentry.motor.readSupport();
         sentry.actor.root.position.set(sentry.body.position.x, sentry.body.position.y - 0.85, sentry.body.position.z);
@@ -572,109 +588,122 @@ export function createScene({ entryState, onRespawn, onPlatformer, onFinished, s
     },
   });
   function updateHud() {
-    if (completed || deathClock > 0 || bridgeClock >= 0) return;
-    const nearBoy = !returning && arrivalClock < 7 && Math.hypot(player.body.position.x - boy.position.x, player.body.position.z - boy.position.z) < 12;
+    if (completed || deathClock > 0 || entryClock >= 0 || sharkClock >= 0) return;
+    const nearBoy = arrivalClock < 7 && Math.hypot(player.body.position.x - boy.position.x, player.body.position.z - boy.position.z) < 12;
     caption?.classList.toggle('hidden', !nearBoy);
-    if (nearBoy && caption) caption.textContent = '"I will stay with the ships. Follow the stone path. Watch for robots — and something much bigger in the trees."';
+    if (nearBoy && caption) caption.textContent = '"I will stay with the ships. The facility is ahead. Follow the stone path; the waterfall may hide something."';
+    if (status) status.textContent = patrolLoadError || dinoLoadError || sharkLoadError ? 'JUNGLE ASSETS COULD NOT LOAD / RESTART THIS CHECKPOINT'
+      : site.waterfall.locked ? 'WATERFALL WARDEN / DEFEAT IT TO UNSEAL THE ARENA'
+        : miniboss.getStatus().collected ? 'AEGIS CORE ACQUIRED / ONE 30-SECOND BOSS IMMUNITY'
+          : 'FACILITY APPROACH / FOLLOW THE STONE PATH\nWaterfall detour optional. Spider bots patrol beyond the bridge.';
+  }
+  function captureArrival(): RescueArrival {
+    const reward = miniboss.getStatus();
+    return { ...entryState, waterfallDefeated: reward.defeated, bossImmunityCollected: reward.collected,
+      pilotState: player.captureTransition({ x: 0, y: 0, z: 0 }) };
   }
   function finish() {
     completed = true; stopDefense(); freezePlayer(); status?.classList.add('hidden'); prompt?.classList.add('hidden');
-    if (caption) { caption.textContent = 'FACILITY REACHED / END OF SCENE 19'; caption.classList.remove('hidden'); }
-    if (document.pointerLockElement) document.exitPointerLock();
-    if (returning) onFinished?.({ ...entryState, pilotState: player.captureTransition({ x: 0, y: 0, z: 0 }) });
+    caption?.classList.add('hidden');
+    onFinished?.({ ...captureArrival(), cameraPosition: camera.position.clone(), cameraQuaternion: camera.quaternion.clone(), cameraFov: camera.fov });
   }
-  function bridgeView() {
-    if (bridgeClock < 0 || !scrambler) return;
-    const reveal = THREE.MathUtils.smootherstep(bridgeClock, bridgeRunEnd, bridgeRunEnd + 1.7);
-    const chase = THREE.MathUtils.smootherstep(bridgeClock, launchStart, launchStart + 0.9);
-    const orbit = THREE.MathUtils.smootherstep(bridgeClock, bridgeImpact, cutsceneEnd);
-    const facilityCamera = launcher.muzzle.clone().add(new THREE.Vector3(8, 4, Math.max(17, 10 / camera.aspect)));
-    const chaseCamera = scrambler.root.position.clone().add(new THREE.Vector3(10, 5, Math.max(14, 9 / camera.aspect)));
-    const runCamera = bridgeCamera.clone().add(new THREE.Vector3().copy(player.body.position).sub(bridgeStart));
-    camera.position.lerpVectors(runCamera, facilityCamera, reveal).lerp(chaseCamera, chase);
-    const sideFocus = new THREE.Vector3(player.body.position.x - 3, player.body.position.y - player.radius + 1.2, PLATFORM_COURSE.depth);
-    const sidePosition = sideFocus.clone().add(new THREE.Vector3(0, 3.7, -Math.max(16, 10 / Math.max(0.25, camera.aspect))));
-    camera.position.lerp(sidePosition, orbit);
-    const target = launcher.muzzle.clone().lerp(scrambler.root.position, chase).lerp(sideFocus, orbit);
-    camera.lookAt(target);
-    camera.quaternion.slerpQuaternions(bridgeRotation, camera.quaternion.clone(), reveal);
-    camera.fov = THREE.MathUtils.lerp(THREE.MathUtils.lerp(bridgeFov, 48, reveal), 50, orbit);
-    camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
+  function entryViewCamera() {
+    if (sharkClock >= 0) return sharkViewCamera();
+    if (entryClock < 0) return miniboss.applyCinematicCamera();
+    const progress = THREE.MathUtils.smootherstep(entryClock, 0, 0.9);
+    camera.position.lerpVectors(entryView, new THREE.Vector3().copy(player.body.position).add(new THREE.Vector3(0, 1.2, 0)), progress);
+    const target = camera.clone(); target.position.copy(camera.position); target.lookAt(new THREE.Vector3(0, 1.5, -70));
+    camera.quaternion.slerpQuaternions(entryRotation, target.quaternion, progress); camera.updateMatrixWorld(true);
+    return true;
   }
-  function updateBridge(dt: number) {
-    bridgeClock += dt;
-    const run = THREE.MathUtils.clamp(bridgeClock / bridgeRunEnd, 0, 1);
-    const p = bridgeStart.clone().lerp(new THREE.Vector3(RESCUE_SITE.bridge.x, 0.53, PLATFORM_COURSE.depth), run);
-    p.y = 0.3 + 0.23 * THREE.MathUtils.clamp((28.2 - p.z) / 2.6, 0, 1);
-    if (bridgeClock >= bridgeImpact) p.y = Math.max(rockLandingY, 0.53 + 0.5 * PHYSICS.gravity * (bridgeClock - bridgeImpact) ** 2);
-    player.setPosition(p.x, p.y, p.z);
-    const runYaw = Math.atan2(bridgeStart.x - RESCUE_SITE.bridge.x, bridgeStart.z - PLATFORM_COURSE.depth);
-    const runTurn = Math.atan2(Math.sin(runYaw - bridgeYaw), Math.cos(runYaw - bridgeYaw));
-    player.setRotation(bridgeClock < bridgeRunEnd
-      ? bridgeYaw + runTurn * THREE.MathUtils.smootherstep(bridgeClock, 0, 0.25)
-      : THREE.MathUtils.lerp(runYaw, Math.PI / 2, THREE.MathUtils.smootherstep(bridgeClock, bridgeRunEnd, launchStart + 0.9)));
-    launcher.setOpen(THREE.MathUtils.smootherstep(bridgeClock, bridgeRunEnd + 1.7, launchStart - 0.6));
-    launcher.setCharge(bridgeClock < launchStart ? THREE.MathUtils.smootherstep(bridgeClock, bridgeRunEnd + 1.7, launchStart - 0.2)
-      : 1 - THREE.MathUtils.smootherstep(bridgeClock, launchStart, launchStart + 0.6));
-    launcher.setBurst(bridgeClock - launchStart);
-    if (scrambler) {
-      scrambler.root.visible = bridgeClock >= bridgeRunEnd + 1.7;
-        if (bridgeClock < launchStart) scrambler.root.position.lerpVectors(launcher.chamber, launcher.muzzle, THREE.MathUtils.smootherstep(bridgeClock, launchStart - 0.6, launchStart));
-        else scrambler.root.position.copy(launchArc.getPoint(THREE.MathUtils.smootherstep(bridgeClock, launchStart, bridgeImpact)));
-      scrambler.update(dt);
-      if (launchTrail) {
-          launchTrail.visible = bridgeClock >= launchStart && bridgeClock < bridgeImpact;
-          const tangent = launchArc.getTangent(THREE.MathUtils.smootherstep(bridgeClock, launchStart, bridgeImpact));
-        launchTrail.position.copy(scrambler.root.position).addScaledVector(tangent, -2.25);
-        launchTrail.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent);
-      }
+  function updateEntry(dt: number) {
+    entryClock += dt;
+    const progress = THREE.MathUtils.smootherstep(entryClock, 0, 0.9);
+    const p = entryStart.clone().lerp(new THREE.Vector3(0, player.radius, RESCUE_SITE.doorZ - 6), progress);
+    player.setPosition(p.x, p.y, p.z); door.update(dt, player, true); entryViewCamera();
+    if (entryClock >= 0.9) finish();
+  }
+  function updateSharks(dt: number) {
+    for (const shark of sharks) {
+      const t = elapsed * 0.55 + shark.phase;
+      shark.root.position.set(shark.homeX + Math.sin(t) * 5, shark.baseY + Math.sin(t * 1.8) * 0.04, shark.root.position.z);
+      shark.root.rotation.y = Math.cos(t) > 0 ? Math.PI / 2 : -Math.PI / 2;
+      shark.mixer.update(dt);
     }
-    if (bridgeClock >= bridgeImpact - 0.6 && bridgeClock < bridgeImpact) site.damageBridge(bridgeClock - (bridgeImpact - 0.6));
-    if (bridgeClock >= bridgeImpact) site.breakBridge(bridgeClock - bridgeImpact);
-    scramblerPulse?.update(bridgeClock - bridgeImpact);
-    if (caption) {
-      caption.classList.remove('hidden');
-      caption.textContent = bridgeClock < bridgeRunEnd ? 'CROSSING TO THE MIDDLE OF THE BRIDGE'
-        : bridgeClock < bridgeRunEnd + 1.7 ? 'FACILITY DEFENSE SYSTEM / LAUNCH BAY ACTIVATING'
-        : bridgeClock < launchStart ? 'SCRAMBLER CHARGING / LAUNCH SHUTTERS OPEN'
-        : bridgeClock < bridgeImpact ? 'SCRAMBLER LAUNCHED / INBOUND TO THE BRIDGE'
-        : 'SPACE HAS SHIFTED / KEEP UP WITH THE CAMERA';
+  }
+  function beginSharkSwarm() {
+    sharkClock = 0; riverEntry.copy(player.body.position); riverCamera.copy(camera.position); riverRotation.copy(camera.quaternion);
+    const closest = [...sharks].sort((a, b) => a.root.position.distanceToSquared(riverEntry) - b.root.position.distanceToSquared(riverEntry)).slice(0, 4);
+    sharks.forEach(shark => { shark.start.copy(shark.root.position); shark.attackIndex = closest.indexOf(shark); });
+    stopDefense(); freezePlayer(); player.body.collisionResponse = false;
+    status?.classList.add('hidden'); prompt?.classList.add('hidden');
+    if (caption) { caption.textContent = 'THE SHARKS ARE CLOSING IN'; caption.classList.remove('hidden'); }
+    updateSharkSwarm(0);
+  }
+  function sharkViewCamera() {
+    if (sharkClock < 0) return false;
+    const progress = THREE.MathUtils.smootherstep(sharkClock, 0, 1.4);
+    const focus = new THREE.Vector3().copy(player.body.position).add(new THREE.Vector3(0, 0.85, 0));
+    const angle = sharkClock * 0.12;
+    const view = new THREE.Vector3(focus.x + Math.sin(angle) * 5.8, RESCUE_SITE.riverY + 4.2, focus.z + Math.cos(angle) * 5.8);
+    camera.position.lerpVectors(riverCamera, view, progress);
+    const target = camera.clone(); target.position.copy(camera.position); target.lookAt(focus);
+    camera.quaternion.slerpQuaternions(riverRotation, target.quaternion, progress); camera.updateMatrixWorld(true);
+    return true;
+  }
+  function updateSharkSwarm(dt: number) {
+    sharkClock += dt;
+    const afloat = THREE.MathUtils.smootherstep(sharkClock, 0, 0.65);
+    const sink = THREE.MathUtils.smoothstep(sharkClock, sharkDeathAt + 0.4, sharkDeathAt + 2.5);
+    const y = THREE.MathUtils.lerp(riverEntry.y, RESCUE_SITE.riverY - 0.65, afloat) - sink * 1.4;
+    player.setPosition(riverEntry.x, y, riverEntry.z);
+    for (const shark of sharks) {
+      if (shark.attackIndex < 0) { shark.mixer.update(dt); continue; }
+      const index = shark.attackIndex, approach = THREE.MathUtils.smootherstep(sharkClock, 0.15 + index * 0.2, 3 + index * 0.25);
+      const angle = index / 4 * Math.PI * 2 + Math.max(0, sharkClock - 2.2) * 0.45;
+      const radius = 1.15 + index % 2 * 0.5;
+      const target = new THREE.Vector3(riverEntry.x + Math.cos(angle) * radius, shark.baseY, riverEntry.z + Math.sin(angle) * radius);
+      shark.root.position.lerpVectors(shark.start, target, approach);
+      const bite = Math.sin(THREE.MathUtils.clamp((sharkClock - (2.8 + index * 0.2)) / 1.1, 0, 1) * Math.PI);
+      shark.root.position.y += bite * 1.35;
+      shark.root.rotation.y = Math.atan2(riverEntry.x - shark.root.position.x, riverEntry.z - shark.root.position.z);
+      shark.mixer.update(dt * (1 + approach));
     }
-    bridgeView();
-    if (bridgeClock >= cutsceneEnd && !completed) {
-      completed = true;
-      onPlatformer?.({ ...entryState, pilotState: player.captureTransition({ x: 0, y: 0, z: 0 }),
-        platformProgress: { checkpoint: 'bridge', activatedRelays: [], defeatedRobots: [] },
-        scramblerPosition: scrambler?.root.position.clone(), scramblerQuaternion: scrambler?.root.quaternion.clone(),
-        cameraPosition: camera.position.clone(), cameraQuaternion: camera.quaternion.clone(), cameraFov: camera.fov });
+    if (sharkClock >= sharkDeathAt && player.getHealth() > 0) {
+      player.takeDamage(player.getHealth() + player.getShield(), true); deathClock = 2.5;
+      if (caption) caption.textContent = 'THE RIVER CLAIMED YOU / RETURNING TO THE LANDING SITE';
     }
+    sharkViewCamera();
   }
   syncNearbyPhysics(); site.updateVisibility(camera, player.body.position); updateHud();
   return {
-    roomId: returning ? 'scene19' : 'scene17', scene, camera, physics, physicsWorld, player, ship, pod, boy, door, enemies, ready: Promise.all([site.ready, patrolReady, landSquad?.ready]), cutsceneManager: null,
+    roomId: 'scene17', scene, camera, physics, physicsWorld, player, ship, pod, boy, door, enemies, site, sharks, miniboss, turrets,
+    ready: Promise.all([site.ready, patrolReady, landSquad.ready, sharkReady, miniboss.ready]), cutsceneManager: null,
     minimap: { radius: 48, floor: 0, prepare: site.prepareMinimap },
     get robots() { return enemies.filter(enemy => enemy.kind === 'robot'); },
     get dinosaurs() { return enemies.filter(enemy => enemy.kind === 'dino'); },
-    getDamageTargets: (): DamageTarget[] => completed || bridgeClock >= 0 || deathClock > 0 ? [] : [
-      ...enemies.filter(r => r.kind !== 'dino' && r.phase !== 'dormant' && r.phase !== 'dying')
-        .map((enemy): DamageTarget => ({ root: enemy.root, body: enemy.body, damage: (amount, weapon) => damageJungleEnemy(enemy, amount, weapon) })),
-      ...sentries.filter(s => s.active && s.actor.health > 0)
-        .map((sentry): DamageTarget => ({ root: sentry.actor.root, body: sentry.body, damage: (amount, weapon) => damageSentry(sentry, amount, weapon) })),
-    ],
+    getDamageTargets: (): DamageTarget[] => completed || entryClock >= 0 || sharkClock >= 0 || miniboss.isCinematic() || deathClock > 0 ? [] : damageTargets(),
     getParryableBolts: (): ParryableBolt[] =>
-      completed || bridgeClock >= 0 || deathClock > 0 ? [] : bolts.filter(bolt => bolt.life > 0),
-    isCinematic: () => completed || bridgeClock >= 0 || deathClock > 0,
+      completed || entryClock >= 0 || sharkClock >= 0 || deathClock > 0 ? [] : bolts.filter(bolt => bolt.life > 0),
+    isCinematic: () => completed || entryClock >= 0 || sharkClock >= 0 || miniboss.isCinematic() || deathClock > 0,
+    isArenaLocked: () => site.waterfall.locked,
+    getRiverStatus: () => ({ swarming: sharkClock >= 0, time: sharkClock, sharks: sharks.filter(shark => shark.attackIndex >= 0).length }),
     getCinematicDelta: () => animationDelta,
-    getCinematicState: () => completed || bridgeClock >= 0 || deathClock > 0 ? { ...player.getState(),
-      isMoving: bridgeClock >= 0 && bridgeClock < bridgeRunEnd, sprinting: bridgeClock >= 0 && bridgeClock < bridgeRunEnd,
-      isOnGround: bridgeClock < bridgeImpact || bridgeClock >= bridgeImpact + bridgeFallDuration,
-      jumping: bridgeClock >= bridgeImpact && bridgeClock < bridgeImpact + bridgeFallDuration, climbing: false } : null,
+    getCinematicState: () => completed || entryClock >= 0 || sharkClock >= 0 || miniboss.isCinematic() || deathClock > 0 ? { ...player.getState(),
+      isMoving: entryClock >= 0 && !completed, sprinting: false, isOnGround: sharkClock < 0, floating: sharkClock >= 0, jumping: false, climbing: false } : null,
     getCinematicPose(): CinematicPose | null {
-      if (bridgeClock < 0) return null;
-      return { clip: bridgeClock < bridgeRunEnd ? 'Sprint_Loop'
-        : bridgeClock >= bridgeImpact && bridgeClock < bridgeImpact + bridgeFallDuration ? 'Jump_Loop' : 'Idle_Loop', time: bridgeClock, loop: true };
+      if (sharkClock >= 0) {
+        const death = sharkClock - sharkDeathAt;
+        return death >= 0 ? { clip: death < 0.3 ? 'Hit_Chest' : 'Death01', time: Math.max(0, death - 0.3) }
+          : { clip: 'Float_Loop', time: sharkClock, loop: true, swimming: true };
+      }
+      if (deathClock > 0) return { clip: 'Death01', time: 2.5 - deathClock };
+      if (entryClock >= 0) return { clip: 'Walk_Loop', time: entryClock, loop: true };
+      return miniboss.getCinematicPose();
     },
-    applyCinematicCamera: bridgeView,
+    applyCinematicCamera: entryViewCamera,
+    updateCinematicCharacter(character: { model: THREE.Object3D } | null) { if (character) miniboss.captureCharacter(character.model); },
+    renderCinematicOverlay(renderer: THREE.WebGLRenderer) { miniboss.renderOverlay(renderer); },
     applyEntryCamera() {
       if (entryState?.cameraPosition && entryState.cameraQuaternion && arrivalClock < 1.1) {
         const t = THREE.MathUtils.smootherstep(arrivalClock, 0, 1.1);
@@ -686,7 +715,7 @@ export function createScene({ entryState, onRespawn, onPlatformer, onFinished, s
     onPlayerDeath() {
       if (!deathClock && !completed) {
         deathClock = 2.5; stopDefense(); freezePlayer(); status?.classList.add('hidden');
-        if (caption) { caption.textContent = returning ? 'RETURNING TO THE DOWNSTREAM BANK' : 'RETURNING TO THE LANDING SITE'; caption.classList.remove('hidden'); }
+        if (caption) { caption.textContent = 'RETURNING TO THE LANDING SITE'; caption.classList.remove('hidden'); }
       }
       return true;
     },
@@ -695,20 +724,24 @@ export function createScene({ entryState, onRespawn, onPlatformer, onFinished, s
       if (disposed || paused || document.hidden || document.body.classList.contains('quick-menu-open')) return;
       dt = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, PHYSICS.maxFrameTime)); animationDelta = dt;
       site.update(dt);
-      if (deathClock > 0) { deathClock = Math.max(0, deathClock - dt); if (!deathClock) onRespawn(); return; }
+      if (deathClock > 0) {
+        if (sharkClock >= 0) updateSharkSwarm(dt);
+        deathClock = Math.max(0, deathClock - dt);
+        if (!deathClock) { completed = true; onRespawn(captureArrival()); } return;
+      }
       if (completed) { door.update(dt, player, false); return; }
-      if (bridgeClock >= 0) { updateBridge(dt); return; }
+      if (sharkClock >= 0) { updateSharkSwarm(dt); return; }
+      if (entryClock >= 0) { updateEntry(dt); return; }
       arrivalClock += dt;
+      miniboss.update(dt);
+      updateSharks(dt);
       const p = player.body.position;
       playerRoute = site.nearestPathPoint(p.x, p.z);
-      if (!returning && player.getState().isOnGround && p.z < 28.3 && p.z > 10 && Math.abs(p.x - RESCUE_SITE.bridge.x) < 2.1) {
-        bridgeStart.copy(p); bridgeCamera.copy(camera.position); bridgeRotation.copy(camera.quaternion);
-        bridgeYaw = player.getState().yaw; bridgeFov = camera.fov;
-        bridgeClock = 0; stopDefense(); freezePlayer(); player.body.collisionResponse = false; status?.classList.add('hidden');
-        updateBridge(0); return;
+      if (p.y - player.radius < RESCUE_SITE.riverY + 0.05 && Math.abs(p.z - RESCUE_SITE.riverZ) < RESCUE_SITE.riverHalfWidth
+        && p.x > -79.5 && player.getHealth() > 0) {
+        beginSharkSwarm(); return;
       }
-      if (p.y < RESCUE_SITE.riverY - 0.5) { player.takeDamage(player.getHealth()); return; }
-      if (returning && Math.abs(p.x) < 4 && Math.abs(p.z - RESCUE_SITE.doorZ) < 6.5) doorLatched = true;
+      if (Math.abs(p.x) < 5 && Math.abs(p.z - RESCUE_SITE.doorZ) < 10) doorLatched = true;
       door.update(dt, player, doorLatched);
       syncNearbyPhysics();
       physics.step(dt, player, thirdPerson);
@@ -733,11 +766,15 @@ export function createScene({ entryState, onRespawn, onPlatformer, onFinished, s
           }
         }
       }
-      if (player.getHealth() > 0 && doorLatched && Math.abs(p.x) < 4.5 && p.z < RESCUE_SITE.doorZ - 4) { finish(); return; }
+      if (player.getHealth() > 0 && doorLatched && Math.abs(p.x) < 3.8 && p.z < RESCUE_SITE.doorZ - 0.5 && p.z > RESCUE_SITE.doorZ - 7) {
+        entryStart.copy(p); entryView.copy(camera.position); entryRotation.copy(camera.quaternion);
+        entryClock = 0; stopDefense(); freezePlayer(); status?.classList.add('hidden'); prompt?.classList.add('hidden');
+        updateEntry(0); return;
+      }
       updateHud();
     },
     dispose() {
-      if (disposed) return; disposed = true; unregister(); stopDefense(); scramblerPulse?.dispose(); landSquad?.dispose();
+      if (disposed) return; disposed = true; unregister(); stopDefense(); miniboss.dispose(); landSquad.dispose();
       window.removeEventListener('blur', onBlur); window.removeEventListener('focus', onFocus);
       scene.onBeforeRender = () => {}; physicsFocus.length = 0;
       status?.classList.add('hidden'); caption?.classList.add('hidden'); prompt?.classList.add('hidden');
@@ -746,6 +783,7 @@ export function createScene({ entryState, onRespawn, onPlatformer, onFinished, s
         enemy.root.traverse(node => { if (node instanceof THREE.SkinnedMesh) node.skeleton.dispose(); });
       }
       for (const template of templates) template.traverse(node => { if (node instanceof THREE.SkinnedMesh) node.skeleton.dispose(); });
+      for (const shark of sharks) { shark.mixer.stopAllAction(); shark.mixer.uncacheRoot(shark.mixer.getRoot()); }
       player.dispose(); physics.dispose(); site.dispose();
       spawnGeometry.dispose(); spawnMaterial.dispose();
     },

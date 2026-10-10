@@ -5,7 +5,7 @@ import {
   isMeleeStrike, cinematicProgress, sampleRifleSequence,
 } from './finaleChoreography.js';
 
-export type MechPoseName = MechMove | 'transform' | 'clash' | 'victory' | 'dance' | 'evade' | 'boost' | 'reactor' | 'bomb' | 'skyCharge' | 'afterCut';
+export type MechPoseName = MechMove | 'transform' | 'clash' | 'victory' | 'dance' | 'evade' | 'boost' | 'hover' | 'flight' | 'reactor' | 'bomb' | 'skyCharge' | 'afterCut';
 const SLOTS = ['hips', 'spine', 'spineUpper', 'head', 'leftShoulder', 'rightShoulder', 'leftArm', 'rightArm',
   'leftElbow', 'rightElbow', 'leftHand', 'rightHand', 'leftLeg', 'rightLeg', 'leftKnee', 'rightKnee', 'leftFoot', 'rightFoot'] as const;
 export type MechSlot = typeof SLOTS[number];
@@ -104,8 +104,14 @@ function mechPose(move: MechPoseName, p: number, secondSlash = false): RigPose {
     pose.leftArm = [-0.1, -0.12 - twist * 0.2, -1.28 + wind * (heavy ? 0.95 : 0.3) * recovery];
     pose.leftElbow = [0, 0.15, -0.3 - wind * (heavy ? 0.7 : 0.25) * recovery];
     pose.head = [0.02 + strike * 0.08 * recovery, -twist * 0.2, 0];
-  } else if (move === 'guard' || move === 'clash') {
-    const strain = move === 'clash' ? Math.sin(p * 37) * 0.035 : 0;
+  } else if (move === 'guard') {
+    pose.hips = [0.03, -0.1, 0]; pose.spine = [0.06, -0.12, 0]; pose.head = [-0.04, 0.12, 0];
+    pose.leftArm = [-0.15, -0.3, -0.65]; pose.leftElbow = [0, 0.1, -0.18];
+    pose.rightArm = [0, 0.3, 1.2]; pose.rightElbow = [0, -0.1, 0.6];
+    pose.leftLeg = [-0.2, 0, 0.18]; pose.rightLeg = [-0.14, 0, -0.18];
+    pose.leftKnee = [0.32, 0, 0]; pose.rightKnee = [0.24, 0, 0];
+  } else if (move === 'clash') {
+    const strain = Math.sin(p * 37) * 0.035;
     pose.spine = [0.17, -0.28 + strain, 0];
     pose.leftArm = [0, -0.7, -0.65]; pose.rightArm = [0, 1.1, 0.35];
     pose.leftElbow = [0, -0.15, -1.1]; pose.rightElbow = [0, 0.2, 0.8]; pose.head = [-0.1, 0.2, 0];
@@ -159,6 +165,14 @@ function mechPose(move: MechPoseName, p: number, secondSlash = false): RigPose {
     pose.leftArm = [0.1, -0.2, -1.3]; pose.rightArm = [0, 0.7, 0.9];
     pose.leftLeg = [-0.35, 0, 0.1]; pose.rightLeg = [0.18, 0, -0.1];
     pose.leftKnee = [0.65, 0, 0]; pose.rightKnee = [0.4, 0, 0];
+  } else if (move === 'hover' || move === 'flight') {
+    const drive = move === 'flight' ? p : 0;
+    pose.hips = [0.04 + drive * 0.06, -0.04, 0];
+    pose.spine = [0.08 + drive * 0.24, -0.12, 0]; pose.head = [-0.06 - drive * 0.12, 0.12, 0];
+    pose.leftArm = [0.08 + drive * 0.16, -0.15, -1.3]; pose.rightArm = [0.05, 0.26, 1.18];
+    pose.leftLeg = [-0.2 - drive * 0.35, 0, 0.14]; pose.rightLeg = [0.04 + drive * 0.2, 0, -0.14];
+    pose.leftKnee = [0.42 + drive * 0.4, 0, 0]; pose.rightKnee = [0.25 + drive * 0.25, 0, 0];
+    pose.leftFoot = [-0.12 - drive * 0.14, 0, 0]; pose.rightFoot = [-0.06, 0, 0];
   } else if (move === 'reactor' || move === 'skyCharge') {
     const charge = smooth(p, 0, 0.6);
     pose.spine = [-0.16 * charge, -0.2, 0]; pose.head = [-0.12, 0.2, 0];
@@ -196,9 +210,9 @@ function mechPose(move: MechPoseName, p: number, secondSlash = false): RigPose {
 
 export function createMechAnimator(model: THREE.Object3D, aliases: MechBoneMap = {}) {
   const sampler = rigSampler(model, aliases), mixer = new THREE.AnimationMixer(model);
-  const moves: MechPoseName[] = ['idle', 'walk', 'slash', 'sideSlash', 'cleave', 'thrust', 'reap', 'verdict',
+  const moves: MechPoseName[] = ['idle', 'walk', 'slash', 'sideSlash', 'cleave', 'thrust', 'reap', 'verdict', 'orbitalCut',
     'missiles', 'guard', 'dash', 'stagger', 'overdrive', 'defeat', 'transform', 'clash', 'victory',
-    'evade', 'boost', 'reactor', 'bomb', 'skyCharge', 'afterCut', 'dance'];
+    'evade', 'boost', 'hover', 'flight', 'reactor', 'bomb', 'skyCharge', 'afterCut', 'dance'];
   const clips = new Map<string, THREE.AnimationClip>();
   for (const move of moves) {
     clips.set(move, bakeClip(sampler, `Mech_${move}`, move === 'idle' ? 4 : move === 'walk' ? 1.1 : 1, p => mechPose(move, p), true));
@@ -217,14 +231,15 @@ export function createMechAnimator(model: THREE.Object3D, aliases: MechBoneMap =
   }
   return {
     slots: sampler.slots, animations: [...clips.values()],
-    perform(move: MechPoseName, time: number, weight: number) {
+    perform(move: MechPoseName, time: number, weight: number, forward = 0, lift = 0) {
       const breath = Math.sin(time * 2.4), effort = move === 'clash' || move === 'guard'
         || move === 'reactor' || move === 'skyCharge' || move === 'verdict';
       const strain = effort ? Math.sin(time * 23) * Math.sin(time * 7.1) * 0.012 : 0;
+      const flying = move === 'flight' || move === 'hover';
       const offsets: RigPose = {
-        spine: [breath * 0.017 + strain, Math.sin(time * 1.3) * 0.012, strain * 0.45],
+        spine: [breath * 0.017 + strain + (flying ? forward * 0.09 : 0), Math.sin(time * 1.3) * 0.012, strain * 0.45],
         spineUpper: [-breath * 0.009, strain * 0.7, 0],
-        head: [-breath * 0.009, Math.sin(time * 0.85) * 0.024, -strain],
+        head: [-breath * 0.009 - (flying ? lift * 0.06 : 0), Math.sin(time * 0.85) * 0.024, -strain],
         leftShoulder: [breath * 0.008, 0, strain],
         rightShoulder: [breath * 0.008, 0, -strain],
       };
@@ -238,13 +253,19 @@ export function createMechAnimator(model: THREE.Object3D, aliases: MechBoneMap =
       }
       model.updateMatrixWorld(true);
     },
-    pose(move: MechPoseName, time: number, duration = 1, airborne = false, combo = 0) {
-      const stableAirPose = airborne && (move === 'walk' || move === 'dash') ? 'idle' : move;
-      const key = stableAirPose === 'slash' && combo % 2 === 1 ? 'slash-reverse' : stableAirPose;
-      const clip = clips.get(key)!;
+    pose(move: MechPoseName, time: number, duration = 1, airborne = false, combo = 0, fullBody = false) {
+      const stableAirPose = !fullBody && airborne && (move === 'walk' || move === 'dash') ? 'idle' : move;
+      const reverse = stableAirPose === 'slash' && combo % 2 === 1;
+      const key = `${reverse ? 'slash-reverse' : stableAirPose}${fullBody ? '-full-body' : ''}`;
+      let clip = clips.get(key);
+      if (!clip) {
+        clip = bakeClip(sampler, `Mech_${key}`, stableAirPose === 'idle' || stableAirPose === 'hover' ? 4
+          : stableAirPose === 'walk' ? 1.1 : 1, p => mechPose(stableAirPose, p, reverse), !fullBody);
+        clips.set(key, clip);
+      }
       if (key !== current) { mixer.stopAllAction(); current = key; action = mixer.clipAction(clip).reset().play(); }
       if (!action) return;
-      action.time = stableAirPose === 'idle' || stableAirPose === 'walk' || stableAirPose === 'dance' ? Math.max(0, time) % clip.duration
+      action.time = stableAirPose === 'idle' || stableAirPose === 'hover' || stableAirPose === 'walk' || stableAirPose === 'dance' ? Math.max(0, time) % clip.duration
         : clamp(time / Math.max(0.01, duration), 0, 1) * clip.duration;
       action.paused = true; mixer.update(0);
       model.updateMatrixWorld(true);

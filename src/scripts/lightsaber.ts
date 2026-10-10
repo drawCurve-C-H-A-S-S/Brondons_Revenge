@@ -6,6 +6,7 @@ import { MeleeSwing, getAttackSegment, getWeaponSegment } from './melee.js';
 import type { Player } from './player.js';
 import { LightsaberAudio } from './lightsaberAudio.js';
 import { registerTouchAttackCallback, refreshTouchAttackButton } from './touchControls.js';
+import { isControllerEvent } from './gamepadInput.js';
 
 /** Projectile that the lightsaber can deflect during a well-timed swing. */
 export interface ParryableBolt {
@@ -96,7 +97,7 @@ export class LightsaberController {
   private onMouseDown = (event: MouseEvent) => {
     if (event.target instanceof HTMLElement && event.target.closest('button, dialog, input, textarea')) return;
     const touchActive = (window as any).__touchActive === true;
-    if (event.button === 0 && (document.pointerLockElement || touchActive)) this.swing();
+    if (event.button === 0 && (document.pointerLockElement || touchActive || isControllerEvent(event))) this.swing();
   };
 
   private swing() {

@@ -41,24 +41,109 @@ Always test the production build locally before deploying. The LAMP server serve
 - **[STARTHERE.md](./STARTHERE.md)** -- how the project is structured, how to create scenes, wire up managers, and what to watch out for.
 - **[MANAGERS.md](./MANAGERS.md)** -- reference for every manager in `src/helpers/` (animation, audio, physics, triggers, scene) with usage examples.
 
+## Keyboard and controller input
+
+Keyboard and mouse are the default on every page load. Plug in a two-stick
+Switch / NES-themed, Xbox or PlayStation controller, press any controller button,
+then open **M > Controls > Controller** and **pick your controller type**.
+Selecting a type enables controller input when its browser layout is ready.
+Connecting a controller alone never changes the input mode. The two Controls
+tabs select the input and show the matching bindings.
+The menu is available during the opening as well as gameplay.
+
+Browsers may not expose a USB controller until its first button press. Use a
+current Chrome, Edge or Firefox browser on HTTPS or localhost. Standard-mapped
+pads use the browser's physical button positions, with the selected family's
+printed names. Gameplay uses equivalent positions across families; menus use
+the conventional confirm/back buttons for each family.
+For adapters that reverse the face buttons, use **Swap A/B** or
+**Swap Cross/Circle** under Controller.
+
+**Calibrate game controls** is available only inside the **Controller** tab,
+never under Keyboard & Mouse. Calibration asks for only the **14 buttons used
+by the game**: four face buttons, both shoulders and triggers, four D-pad
+directions, and the menu/skip buttons. Both sticks' directions are calibrated
+too, for **18 steps total**. Stick clicks, Home/Guide/PS, Capture/Share/touchpad
+press and unused extra buttons are not requested.
+Follow the labels for your chosen family; release every button and center both
+sticks before starting. Axis-based triggers and D-pads are supported.
+Calibration and face-button swaps are retained separately for each device and
+controller family for this page session, including reconnects.
+
+| On-foot action | Switch | Xbox | PlayStation |
+| --- | --- | --- | --- |
+| Move / look (yaw and pitch) | Left / right stick | Left / right stick | Left / right stick |
+| Jump | B | A | Cross |
+| Toggle crouch / forward slide tackle | Y | X | Square |
+| Sprint | Hold ZL | Hold LT | Hold L2 |
+| Shoot / swing / slash | A | B | Circle |
+| Interact / use / collect | R | RB | R1 |
+| Weapon wheel (right stick selects; release to equip) | Hold L | Hold LB | Hold L1 |
+| Cancel weapon selection / menu back | B | B | Circle |
+| Menu confirm | A | A | Cross |
+| Place teleport anchor / return to it | D-pad Down / Up | D-pad Down / Up | D-pad Down / Up |
+| Dance (keyboard 9) | D-pad Right | D-pad Right | D-pad Right |
+| Scanner goggles | ZR | RT | R2 |
+| Change camera view | X | Y | Triangle |
+| Pause menu | + | Menu | Options |
+| Skip an available cinematic | Hold - | Hold View | Hold Create / Share |
+| Retry an on-foot checkpoint / hide at the storage door | D-pad Left | D-pad Left | D-pad Left |
+
+Sticks have a radial **18% dead zone** and proportional movement speed. Controller
+look does not require mouse pointer lock. Keyboard/mouse gameplay input is
+inactive in controller mode, but mouse and keyboard can still operate menus.
+Movement, look and held sprint are polled continuously. Releasing L / LB / L1 resumes
+movement **immediately, even if the left stick never returns to center**, and
+holding ZL / LT / L2 through weapon selection resumes sprinting. Menus/cinematics freeze
+gameplay, then resume the current held movement. One-shot actions still require
+a fresh press, so selecting a menu item does not also shoot, jump or interact.
+Focus loss pauses input until the page is focused again. Unplugging
+the active controller releases all inputs, cancels the wheel without equipping,
+and restores keyboard/mouse; click the world to recapture the mouse if needed.
+
+The opening **PLAY** screen and pause submenus show a highlighted selection:
+use the left stick or D-pad to navigate and the family's confirm/back buttons.
+PLAY is selected automatically when it appears. Sound sliders are adjusted
+left/right; checkboxes use the confirm button. Keyboard/mouse menu use still works.
+M and Escape remain keyboard menu fallbacks in controller mode.
+
+The following combat examples use Switch labels. Xbox and PlayStation use the
+equivalent positions from the table above, and in-game prompts change to match.
+In **flight**, use left stick to steer, right stick to aim, hold A to fire,
+B to evade, R to activate a collected shield, X to change view and + for the menu.
+The arcade flight phases retain their directional dodges with left stick + B.
+During the **hangar escape QTE**, the displayed controls are A (shoot),
+X (crowbar), B (dodge), Y (saber spin), and R (launch).
+
+The **final boss** uses left stick for movement and space altitude, A for the
+sword chain, X for the rifle salvo, hold ZL for shield/parry, B for dodge boost,
+and R for Last Light (the existing 18-second recharge). The mech has fixed
+weapons rather than an inventory wheel. Hold - to skip the intro;
+D-pad Left retries after defeat. Final QTEs display controller labels: D-pad Left to evade
+the execution shot, A for sword cuts, X for return fire, B for boost,
+**mash Y** for the blade lock, D-pad Up to ascend, and **hold R** to charge.
+Real button taps are required for mash prompts; holding a button does not auto-mash.
+
 ## Background music
 
 The shared [soundtrack controller](./src/helpers/audio/gameMusic.ts) owns music
 across scene changes. The **BGM** volume control applies to every music cue,
-including the pause menu and victory track.
+including the pause menu.
 
 | Area or event | Track |
 | --- | --- |
 | Scene 1 opening | Loading |
-| Prison prologue | Emotional |
+| Prison prologue | Emotional, decoded before the scene begins and started at full gain |
+| Prime breaks the prison chains | BrokenChainsBGm, switches at the chain-break frame |
 | Living quarters | Living quarters |
 | Stage One, first half | Stealth1 |
 | Stage One, second half | Stealth1 2 |
 | Stage One, caught or hangar alarm | Stealth1 3 |
 | Level 2 flight and scrambler phases | DonRevLevel2 |
 | After destroying the red scrambler, including the crash handoff | DonRevLevel2Boss |
+| Planet jungle, bridge and secret waterfall | Planetbfm |
 | **M** pause menu and its submenus | Menu |
-| Boss defeated | Victory boss 1, once without looping |
+| Boss defeated | Existing area music continues without a victory-song override |
 | Final boss introduction and transformations | Loading |
 | Playable final boss duel | Three-second crossfade into DonRevBGM1 |
 | Final credits | Level 2 |
@@ -66,17 +151,19 @@ including the pause menu and victory track.
 The Stage One music trigger spans the hangar at the center of the **second cargo
 row**, including the floor and container roofs. Crossing it latches the second
 track for that attempt: walking back does not undo it, and hints need not be
-enabled. Being caught selects the alert track immediately; retrying starts a
+enabled. Being caught selects the preloaded alert track immediately at full
+gain, without a fade-in; retrying starts a
 fresh attempt. The alert song supplies the siren, so there is no additional
 synthesized siren; short interaction and combat effects remain.
 
 Opening **M** suspends gameplay audio and plays Menu without restarting it when
 switching submenus. Closing the menu resumes the previous music position.
-Victory music overrides the background and survives ordinary scene transitions;
-when it finishes, the current area's background resumes. The credits cue takes
-over when the final credits begin. Weapon-wheel pauses do not start Menu.
+Boss victories never pause or restart the current soundtrack. The credits cue
+takes over when the final credits begin. Weapon-wheel pauses do not start Menu.
 
-Existing ship/hangar and jungle music remain in their original areas. The final
+Existing ship/hangar music remains in its original areas. Planetbfm replaces
+DonRevJungleLoop on the planet. Skipping the prison release selects Broken Chains
+when the prologue hands back control. The final
 battle track continues through the ground duel, planet rupture, space duel and
 finisher without restarting between phases.
 Music uses decoded Web Audio buffers rather than streaming-element loop restarts.
@@ -84,6 +171,46 @@ Loop padding is trimmed and the seam is blended over **0.65 seconds**. Ordinary
 soundtrack changes use a **0.9-second equal-power crossfade**; the final boss
 entrance keeps its **3-second** transition. Outgoing music stays audible while
 the next track loads, and rapid cue changes retain the music already in the mix.
+
+## Loading and caching
+
+The opening requests **Loading.m4a first**, before model loading. The mothership's
+compatible static surfaces and edge lines are batched, and its first GPU render
+is prepared before the opening camera starts. Character animation preparation
+and later-chapter downloads no longer compete with that visible opening.
+
+Pressing **PLAY** immediately opens a randomized, six-second screenshot slideshow
+with chapter-specific hints. It includes the prologue, living quarters, Level 1
+stealth/minigames/boss/escape, every Level 2 phase, the Level 3 jungle, secret
+waterfall, facility and final boss. Screenshots are captured from the game's
+actual scenes. The progress bar counts completed download/preparation jobs, not
+an estimated timer; the prison's cutscenes and first-render shaders are prepared
+before the game starts. Failed preparation stays on the loading screen with
+**TRY AGAIN**, retaining successfully cached files.
+
+All runtime models, their external texture/buffer dependencies, music, surveillance
+footage, screenshots and chapter code are loaded up front. Unused authoring assets
+and obsolete scenes are excluded. Planet texture generation is incremental so
+the slideshow can continue during that CPU-heavy work.
+
+Compressed assets stay cached for the play session. Production builds also reuse
+a versioned browser cache across visits when storage is available; development
+avoids persistent caching to keep edited assets fresh. An unavailable browser
+cache is explicitly reported, and the current session still uses its in-memory
+cache. Models share decoded templates with independently disposable scene copies.
+Decoded music has a **128 MiB** budget (**64 MiB** on devices reporting at most
+4 GiB); evicted tracks retain their compressed data and prepare again before their
+chapter. Low-memory/touch devices decode fewer distant models up front.
+
+Whole levels are not kept alive simultaneously. Chapter transitions cover scene
+construction, texture uploads and shader warm-up, preserving memory and avoiding
+visible first-render stalls. Caching removes download waits, not every possible
+rendering or device-related frame drop. A browser without usable AAC/M4A decoding
+shows an audio-support warning rather than making the loading screen hang.
+
+The developer menu uses descriptive level/stage names in story order, including
+the capital-ship shield and exposed-reactor phases; internal scene numbers are
+not shown as misleading level numbers.
 
 ## On-foot HUD
 
@@ -201,50 +328,90 @@ retry/cancel controls instead of allowing the player into an unfinished room.
 The student cabins belong to **Caleb, Husain, Andre', Sibusiso and Sohrab**.
 Their roster is maintained in [layout.ts](./src/scenes/living%20quarters/layout.ts). In development,
 `?living-quarters` opens the area directly; the scene selector also has a
-**Living quarters - crew cabins** entry.
+**Level 1 - Living quarters** entry.
 
 ## Level 1 Stage Two: surveillance route
 
-Stage One's airlock now leads to the service passage, storeroom, vent maze and
-surveillance room, then the service elevator to **Bay 13**.
+The route is **hangar ladder -> vent maze -> camera hub -> keycard elevator ->
+Bay 13**. The old service-passage/storeroom entrance and hidden lift codepad
+are no longer part of Stage Two.
 
-- The two distracted patrol robots exchange spatial **beep-boop sounds**, not
-  speech or dialogue bubbles. Brondon slips through the storeroom's sliding door.
-  Its stocked metal shelves match the Stage One storage interior.
-- Open the crew-style tool chest with **E**, select the **crowbar with Tab**, and
-  swing at the crate blocking the ladder. It breaks on one crowbar hit and its
-  collider is removed. The noise triggers the patrol response cutscene.
-  **E** mounts the ladder; **hold Space** to climb quickly before the bots arrive.
-- The vent maze becomes the fullscreen map, with the live vent camera in a small
-  inset. The easy route is **RIGHT across the top corridor, then DOWN the right
-  edge to CAMERA ROOM**. The dotted line shows it. Wait for moving sensors to
-  turn green; blue pads are checkpoints. Detection returns you to the last pad.
-- Drop behind the single surveillance guard, stay crouched and press **E** from
-  close behind for a silent takedown. A failed or noisy attack is fatal, with a
-  local **R** checkpoint retry.
-- The surveillance room uses a prologue-style monitor bank, pale console
-  worktops, server racks and auxiliary terminals. Leave your home marker here
-  with **Q**, look at a live feed, and press **E** to visit the cargo hold, target
-  range or sealed equipment archive. **T** returns to surveillance.
-  Placing **Q** elsewhere replaces that marker and loses the safe return link;
-  **R** can restart a stranded visit at the surveillance checkpoint.
-- The archive has no doors, one inward-facing lightsaber footlocker and a
-  maintenance computer. Read its file using the reused screen-zoom interaction.
-  It reveals the goggles-only keypad beside the surveillance camera wall and
-  code **7314**. Return with **T**, wear the goggles with **N**, inspect the
-  keypad with **E**, then enter the code.
-- The Bay 14 selector is broken. Choose **Bay 13** for the flickering-light
-  descent and heavy stomps, followed by the automatic walk through the elevator
-  door into the existing Bay Warden introduction. Health, shield and inventory
-  carry across.
+- The main hangar airlock stays locked and is marked as a target on both maps.
+  Its alternative is the **ceiling vent ladder at the far end**, on the opposite
+  wall from the door.
+  **E** mounts it and climbs directly into the vents. Rungs, climb travel and
+  alternating hand/foot animation share the same ladder spacing and speed.
+  The ladder goes straight up through a real opening in the hangar ceiling.
+  Climbing always starts upright, even after crouching; **hold Space** to climb
+  or descend twice as fast. The airlock reports **Door locked**, then Prime's
+  short **We must find another way** line. Looking at the door is not required
+  before using the ladder.
+- The **34 x 50 m vent maze** has branching corridors, dead ends, six moving
+  sensors and six checkpoint pads. Use **WASD / arrows** on the fullscreen map;
+  the live vent view remains in a small inset. Find the exit without a displayed
+  solution line. Green sensors are safe; detection returns you to the last
+  blue pad. **Hold Shift** (or **SPRINT** on touch) to crawl twice as fast without
+  standing up. Vent walls use the same flat metal panels, deck finish, straight
+  trim and cyan strips as the ship rooms; there are no arch-shaped braces.
+- The **bottom-right vent chest** contains the first keycard. Recover it before
+  dropping into the camera hub; the exit grate opens after collection.
+- Dropping out of the maze clears the vent minigame and presents the **Phase 2**
+  loading screen. Its artwork is an actual camera-wall screenshot, captured
+  without HUD, browser chrome or scrollbars. Camera feeds are prepared before
+  the room becomes playable.
+- The larger surveillance room has **12 wall screens, 12 furnished desks,
+  computers and chairs**, plus server racks. Five wall feeds are active: cargo,
+  target range, equipment archive, the **already-cleared vents**, and the
+  **already-cleared prologue prison**. The other
+  wall screens stay off. There are no decorative wall-text plaques.
+- Desk monitors play randomly chosen **looping GIF recordings of corridor bots**,
+  not live 3D scenes or teleport targets. Only the camera wall's three unfinished
+  minigame feeds allow travel. The prison and vent feeds are view-only.
+- A guard waits at the centrally placed elevator. Stay crouched, approach from
+  behind and press **E** for a silent takedown before using any camera links.
+  Open the separate **camera-room crowbar chest** afterward. A noisy attack is fatal; **R** retries
+  this local checkpoint without replaying the vents.
+- Leave a home marker in the hub with **Q**. Look at a feed and press **E** to
+  visit its minigame; **T** returns to the hub. The other decks are under
+  surveillance and have **no walking route** from this room. The vent feed is
+  view-only and marked cleared. Replacing the home marker elsewhere loses the
+  return link; **R** can restart a stranded visit at the surveillance checkpoint.
+- Each existing minigame awards an **asset-backed keycard from its chest**:
+  clear the cargo stack with the crowbar, shoot every range target, or recover
+  the archive footlocker. Cargo healing, range shielding and the archive
+  lightsaber are retained as bonus equipment, never prerequisites for collecting
+  a card at full health/shield.
+- Try the latest card at the elevator with **E**. Earlier cards are rejected;
+  the **last of the four collected cards** is valid, regardless of minigame order.
+  Revisited rooms do not generate duplicate cards. Swipe the final card, then
+  **walk into the elevator and press E on the Bay 13 button** for the intense
+  button-press, flickering-light descent, heavy stomps and existing boss intro.
+  There is no password or hidden keypad.
+- The camera hub is physically connected to the hangar airlock on the **same
+  deck**. After its guard is down, this door provides a return walking link.
+  On the ship map it sits **directly below the upper vents**; the quarters,
+  passage, hangar and airlock join cleanly. Elevators show translucent shafts,
+  landing platforms and available/offline stops, rather than a plain line.
+  Camera-only minigames appear as separate surveilled-deck charts with purple
+  dashed links, **never as stops on the elevator route**.
+- Silent takedowns have a shared articulated shutdown animation. During the
+  short cutscene other bots pause. **E takedown takes priority over a nearby
+  ladder or fault relay**. There are no extra perimeter eye drones; the original
+  roof drones sweep every 14 seconds rather than every 26.
+  The hallway eye drone has a real searchlight and matching visible cone.
+  Eye drones can be shut down by a precise **pistol shot from directly behind**;
+  shooting their front armour alerts security instead.
+- The prologue's chains and cuffs use the same animated blue hologram shader as
+  its holographic figures.
 - Scenes **2, 3, 4, 7, 8, 9, 10, 11 and 12** remain as source files, but are no
   longer imported, preloaded, routed or offered in the active developer menu.
   The camera rooms use lightweight crew chests rather than the old model chest.
 
-Developer Mode includes **Level 1 stage 2 - Surveillance route** and the archive
-and camera-room previews. In development, `?stage2-infiltration` starts Stage Two
-with the earlier cabin equipment available, but leaves the crowbar and lightsaber
-to be recovered normally.
+Developer Mode includes the surveillance route, archive and camera-room previews.
+In development, `?stage2-infiltration` starts at the vent entrance;
+`?stage2-hub` starts at the uncleared camera-room guard checkpoint.
+Both provide the earlier cabin equipment; the crowbar and lightsaber are still
+recovered during Stage Two.
 
 ## Scene 13: Bay Warden
 
@@ -290,6 +457,46 @@ to be recovered normally.
 - Pausing, focus loss, restarting and changing flight phases clear pending
   presses, so input cannot carry an unintended shot into the next section.
 
+### Hangar actions and shield pickups
+
+Hangar 14 uses four timed inputs: **Y** (shoot), **U** (crowbar), **I**
+(dodge) and **O** (lightsaber spin). The running shot and skeletal animation
+continue in slow motion while a prompt is visible. A timely input smoothly
+restores motion; a missed input blends into the death shot from the current
+position. Both cinematic strikes and ordinary melee hits show comic impact
+words, including crowbar and lightsaber fights.
+
+Level 2 shield pickups have a distinct violet/cyan halo. Up to three charges
+are shown beside the hull-health bar. Activate with **Enter**, the controller
+shield button, or an icon. Each lasts **20 seconds**, with a circular countdown
+around its icon; charges are consumed from the rightmost icon to the left.
+
+### Continuous facility approach
+
+The former scenes 17-19 are one continuous ship-to-facility exterior.
+Scene 18's side-scrolling course, relay platforms and bridge-collapse sequence
+have been removed. The western half is an impassable, weathered-rock mountain.
+A waterfall feeds the river, with a flowing, lit water shader, surface ripples,
+transparent sheets, animated impact foam and spray. The stone trail stays safe
+from the dinosaurs off the route. Normal Trilobites patrol before the intact
+bridge, and spider bots patrol only beyond it.
+
+River sharks swim below the surface with their fins barely showing. Falling
+into the river starts a continuous shark-swarm scene before death and a return
+to the landing checkpoint, rather than killing the player immediately.
+
+The waterfall detour is optional. Going behind it shows a **VS** screen and
+seals the arena for the hopping **Waterfall Warden** spider miniboss. Every
+weapon remains available. Defeating it unseals the arena and reveals a chest
+with an **Aegis Core**. Collecting that core grants one automatic **30-second
+immunity** at the start of the final boss's playable combat. It survives
+exterior/interior transitions; using it is recorded in the boss checkpoint
+and cannot be refreshed by retrying.
+
+Ship-styled facility sentinels can be destroyed with pistol fire or returned
+lightsaber-parried beams. The facility door opens as the player approaches
+and blends into Scene 20, where Prime says, "I expected more security."
+
 ## Scene 21: Final boss
 
 Stage One's first Deck One entry and the initial final-boss entry use cinematic
@@ -299,7 +506,7 @@ still loading. Returning to storage, retrying a boss checkpoint and all other
 scene transitions retain their existing seamless handoffs. Entering Scenes
 13, 14, 15 and 16 shows the same short **CHECKPOINT SAVED** banner as Stage One.
 
-Scene 19's facility exit leads into the Sudoers 5 finale. The taller summit room
+Scene 20's observation-deck reveal leads into the Sudoers 5 finale. The taller summit room
 has cold, desaturated ceiling spotlights and synchronized student dialogue. The roof
 blows clear, the students enter their mech one at a time, and the shuttle recalls
 from its Scene 17 jungle parking spot to morph into Prime Frame. A comic VS
@@ -307,31 +514,47 @@ screen introduces the fight; there are no generated platforms under the mechs.
 After the transformations, dusk deepens into a moonlit, starry nighttime rooftop.
 
 Use **A / D** to move and **J** to chain a downward cut, side cut and heavy downward
-finish. Damage follows the animated blade sweep; luminous cuts remain on damaged
+finish. The original authored sword and special-move animations and their timings
+are retained. Blade afterimages fade in **0.085 seconds**, with softer, narrower
+trails and restrained charge glow and impact sparks. Damage follows the animated blade sweep; luminous cuts remain on damaged
 armor for **1.65 seconds** before fading. **F** sheaths the sword, draws the
 back-mounted rifle and fires a two-handed salvo. **Hold R** for a draining shield
-or timed parry, and **Space** for a dodge boost. **E** charges **Last Light**, then
+or timed parry, and **Space** for a dodge boost with **no energy cost or recharge**.
+Boosts can also cancel a committed move once its cinematic close-up is over.
+The rooftop fighting bounds are subtly wider. **E** charges **Last Light**, then
 releases a flying blade flash; it starts ready and recharges in **18 seconds** of
 combat time. **W / S** control altitude in space. Shielded hits are fully absorbed,
 including the hit that breaks the shield. Blocking recoils melee attackers and
 deflects projectiles; a timed parry reflects them toward Sudoers 5.
 
 Sudoers 5 jumps forward into its thrust, uses a reverse diagonal cut, and leaps
-backward before charging its sword-tip beam. The jumps move the actual combat
+backward before charging its sword-tip beam, whose deep red matches its armor glow.
+In orbit it also uses **Eclipse Rend**, a sword rush with its own cinematic tell
+and a dodge/parry window. The jumps move the actual combat
 body in both rooftop and orbital fights. Recovery reminders, adaptive exploration
 hints and introductory control cards are disabled during the finale; QTE prompts,
 attack tells and resource warnings remain. Special-move close-ups return to the
 normal camera **at least 0.55 seconds before firing**. Both fighters are protected
 from unrelated attacks during the introductory close-up; dodge or guard when
 gameplay resumes. Release R to recharge the shield.
+Shielding uses an open, extended off-hand stance instead of the pushing animation;
+the sphere follows the center of the fighter. Orbital locomotion blends a
+momentum-driven flight stance with the same original attack animations as on the roof.
 
 Before the orbital phase, the enemy poses, jumps back, raises both hands, forms
 the planet breaker, launches it skyward and commands its descent. The camera
 follows the meteor into Earth, then shows the explosion with a large **BOOM!**
 using the same starburst, halftone and ink artwork as other comic impact words.
+The final surface transmission returns to the actual `boy.glb` actor in the
+burning rescue forest, with a progressively charred appearance. A close-up inside Prime Frame's
+cockpit shows Brondon's face: **"Noooooo! You killed Brendannnnn!"**, then
+**"There is no forgiving you now. You will die."** The camera pulls back into
+the orbital duel without restarting the music.
 
 The final QTE runs on a continuous cinematic timeline, regardless of successful
-or missed inputs. Time the tap prompts as the closing ring meets the target,
+or missed inputs. Root motion carries momentum across shots; prompts and brief
+grades remain an overlay, with the blades brought into actual contact during
+the lock. Time the tap prompts as the closing ring meets the target,
 **mash D six times** to win the blade lock, and **hold E continuously** to charge
 the sword. Each prompt earns **one, two or three stars**. Up to two misses are recoverable;
 **the third wrong or late command** blends from the current shot into Brondon's
@@ -383,7 +606,7 @@ project-root/
       living quarters/      Shared habitat scene with lazy cabin interiors
       level 1/              Scenes 2–14
       level 2/              Scenes 15, 15.5 (scene15-5.ts), and 16
-      level 3/              Scenes 17–19 and final boss scene 21
+      level 3/              Continuous approach 17, facility 20 and final boss 21
     scripts/
       player.ts             Example player controller class
     helpers/                Reusable managers (see MANAGERS.md)
@@ -412,9 +635,10 @@ Important:
 
 ## Final chapter: Sudoers 5
 
-The restored route is scene 16 crash landing → scene 17 jungle approach → scene
-18 facility encounter → scene 19 summit return. Crossing the facility door in
-scene 19 starts scene 21 on the same rescue-site world, above the facility roof.
+The route is scene 16 crash landing -> scene 17 continuous facility approach ->
+scene 20 research facility -> scene 21 finale. Scenes 18 and 19 are no longer
+separate gameplay scenes. The finale reuses the rescue-site world above the
+facility roof, with its intact bridge, western mountain and waterfall.
 The reveal and each student's close-up share one dialogue timeline. After the
 roof shatters, the five students ascend one at a time and merge into the enemy's
 chest through subdued crimson beams and a dark energy aura. The actual shuttle lifts off from its jungle

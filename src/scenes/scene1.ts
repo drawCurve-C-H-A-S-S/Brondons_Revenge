@@ -174,7 +174,7 @@ export function createScene({ audioManager, loadShip = loadModel }: {
   const dirLight = new THREE.DirectionalLight(0x8899cc, 0.8);
   dirLight.position.set(-5, 15, 5);
   dirLight.castShadow = true;
-  dirLight.shadow.mapSize.set(2048, 2048);
+  dirLight.shadow.mapSize.set(1024, 1024);
   dirLight.shadow.camera.near = 0.5;
   dirLight.shadow.camera.far = 50;
   dirLight.shadow.camera.left = -15;

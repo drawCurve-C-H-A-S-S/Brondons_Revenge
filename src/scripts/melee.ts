@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { Capsule } from 'three/addons/math/Capsule.js';
+import { emitComicEffect } from '../helpers/scene/comicEffects.js';
 import type { DamageTarget, DamageWeapon } from './pistol.js';
 import type { Player } from './player.js';
 
@@ -126,7 +127,10 @@ export class MeleeSwing {
       if (!point) continue;
       this.hitTargets.add(target.root);
       if (target.body) push(target.body, point);
-      hit = target.damage(this.damage, this.weapon) || hit;
+      if (target.damage(this.damage, this.weapon)) {
+        emitComicEffect(scene, 'hit', { source: target.root, position: point, weapon: this.weapon });
+        hit = true;
+      }
     }
     for (const body of world?.bodies ?? []) {
       if (body === player.body || body.mass <= 0 || this.hitBodies.has(body)) continue;

@@ -1,6 +1,35 @@
 import * as THREE from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 
+/** Upload textures and run the first shadow/render programs without advancing the story. */
+export async function prepareSceneRendering(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) {
+  const textures = new Set<THREE.Texture>();
+  scene.traverse(node => {
+    if (!(node instanceof THREE.Mesh)) return;
+    for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
+      for (const value of Object.values(material)) if (value instanceof THREE.Texture) textures.add(value);
+      if (material instanceof THREE.ShaderMaterial)
+        for (const uniform of Object.values(material.uniforms)) if (uniform.value instanceof THREE.Texture) textures.add(uniform.value);
+    }
+  });
+  for (const texture of textures) {
+    renderer.initTexture(texture);
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+  }
+  await renderer.compileAsync(scene, camera);
+  const previousTarget = renderer.getRenderTarget(), viewport = renderer.getViewport(new THREE.Vector4());
+  const scissor = renderer.getScissor(new THREE.Vector4()), scissorTest = renderer.getScissorTest();
+  const target = new THREE.WebGLRenderTarget(64, 64);
+  target.texture.colorSpace = renderer.outputColorSpace;
+  try {
+    renderer.setRenderTarget(target); renderer.setScissorTest(false);
+    renderer.render(scene, camera);
+  } finally {
+    renderer.setRenderTarget(previousTarget); renderer.setViewport(viewport);
+    renderer.setScissor(scissor); renderer.setScissorTest(scissorTest); target.dispose();
+  }
+}
+
 /**
  * Creates and configures the WebGL renderer.
  */
@@ -302,7 +331,7 @@ export function createSceneMinimap(renderer: THREE.WebGLRenderer, element: HTMLE
       marker.dataset.alerted = String(!!enemy.alerted);
       marker.dataset.kind = enemy.kind ?? 'patrol';
     }
-    element.setAttribute('aria-label', expanded ? `Vent maze. Follow the dotted route to ${settings.goal?.label ?? 'the exit'}. Red sensors are active; green sensors are safe.`
+    element.setAttribute('aria-label', expanded ? `Vent maze. ${settings.route?.length ? 'Follow the dotted route' : 'Explore the corridors'} to ${settings.goal?.label ?? 'the exit'}. Red sensors are active; green sensors are safe.`
       : enemies.length ? `Top-down map with ${enemies.length} enemy patrol${enemies.length === 1 ? '' : 's'}` : 'Top-down map of the current scene');
     const oldTarget = renderer.getRenderTarget();
     const oldCubeFace = renderer.getActiveCubeFace(), oldMip = renderer.getActiveMipmapLevel();

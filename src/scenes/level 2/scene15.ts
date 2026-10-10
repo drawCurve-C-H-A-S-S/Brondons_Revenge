@@ -6,6 +6,7 @@ import { clearComicEffects, emitComicEffect } from '../../helpers/scene/comicEff
 import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
 import { createEscapeShip, createEscapePod, addPlanetBackdrop, animatePlanetBackdrop } from '../../scripts/items/createEscapeShip.js';
 import { consumeFlightAim, consumeFlightFirePress, isTouchFire, resetTouchInput } from '../../scripts/touchControls.js';
+import { isControllerActive, getControllerType, getControllerMovement, resetControllerInput, controllerText, inputHint } from '../../scripts/gamepadInput.js';
 import type { LaunchState } from '../level 1/scene14.js';
 import { createSidescrollPhase, SCRAMBLER_HEALTH } from './scene15-5.js';
 import { createTopdownPhase, TOPDOWN_SCRAMBLER_HEALTH } from './scene15-75.js';
@@ -16,6 +17,7 @@ import shieldPowerupUrl from '../../assets/power ups/Shield_powerup.png?url';
 import { createFlightShield } from '../../scripts/flightShield.js';
 import fireVertexShader from '../../shaders/fireExplosion.vert.glsl?raw';
 import fireFragmentShader from '../../shaders/fireExplosion.frag.glsl?raw';
+import { cachedAssetUrl } from '../../core/assetCache.js';
 
 export const FLIGHT_RULES = Object.freeze({ cruise: 200, dodgeSpeed: 52, width: 64, height: 38, planetRadius: 900 });
 export const FLIGHT_OPENING_RULES = Object.freeze({ solo: 2, carrierFade: 1.25 });
@@ -25,6 +27,7 @@ const SHOT_DAMAGE = 14, FIGHTER_HP = 42, GENERATOR_HP = 315, CORE_HP = 1400;
 const FIGHTER_EVADE_DURATION = 0.42;
 const FORWARD = new THREE.Vector3(0, 0, 1), MODEL_FORWARD = new THREE.Vector3(0, 0, -1);
 type Phase = 'opening' | 'versus' | 'combat' | 'bossArrival' | 'scrambler' | 'bossArmor' | 'topdownScrambler' | 'bossCore' | 'victory' | 'dead';
+export type FlightStartPhase = 'scrambler' | 'bossArmor' | 'topdownScrambler' | 'bossCore';
 
 export interface FlightExitState {
   shipPosition: THREE.Vector3;
@@ -164,7 +167,7 @@ function createBossMesh(): Boss {
   return { root, bow, launchBays, generators, core, shield, fireCd: 2.8, volley: 0 };
 }
 
-export function createScene({ entryState, onTransition, startAt }: { entryState?: LaunchState; onTransition: (state: FlightExitState) => void; startAt?: 'scrambler' | 'topdownScrambler' }) {
+export function createScene({ entryState, onTransition, startAt }: { entryState?: LaunchState; onTransition: (state: FlightExitState) => void; startAt?: FlightStartPhase }) {
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x01040b);
   const physics = createScenePhysics(), physicsWorld = physics.world; physicsWorld.gravity.set(0, 0, 0);
   const camera = new THREE.PerspectiveCamera(76, window.innerWidth / window.innerHeight, 0.1, 50000);
@@ -188,7 +191,12 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   let controlsMode = ''; 
   const damageOverlay = el('space-damage'), pausePanel = el('space-pause'), pauseTitle = el('space-pause-title'), pauseHint = el('space-pause-hint');
   const controls = el('flight-controls'), rollLabel = el('space-roll-status'), threatLabel = el('space-threat');
-  const shieldTexture = new THREE.TextureLoader().load(shieldPowerupUrl); shieldTexture.colorSpace = THREE.SRGBColorSpace;
+  let shieldLoaded: () => void, shieldFailed: (error: unknown) => void;
+  const shieldReady = new Promise<void>((resolve, reject) => { shieldLoaded = resolve; shieldFailed = reject; });
+  const shieldTexture = new THREE.TextureLoader().load(cachedAssetUrl(shieldPowerupUrl),
+    () => shieldLoaded(), undefined, error => shieldFailed(error));
+  shieldTexture.colorSpace = THREE.SRGBColorSpace;
+  void shieldReady.catch(error => console.error('[Flight] Shield power-up artwork could not load:', error));
   const shields = createFlightShield({ scene, ship: ship.root, camera, texture: shieldTexture, iconUrl: shieldPowerupUrl, hud: el('flight-powerups') });
   const ownedHud = [hud, controls, crosshair, bossHud, enemyCount, alert, damageOverlay, pausePanel];
   for (const node of [hud, controls, crosshair, enemyCount, alert, damageOverlay]) node?.classList.remove('hidden');
@@ -310,6 +318,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     rockets.forEach(r => { r.life = 0; r.blastAge = -1; r.mesh.visible = r.marker.visible = r.blast.visible = false; });
   }
   function clearInput() {
+    resetControllerInput();
     keys.clear(); firing = queuedShot = false; queuedShotAim.set(0, 0); velocity.set(0, 0); dash.set(0, 0); rollTime = 0;
     aim.set(0, 0); resetTouchInput(); showCrosshair();
   }
@@ -510,6 +519,12 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     phase = corePhase ? 'bossCore' : 'bossArrival'; phaseClock = 0; cockpitView = false;
     invulnerability = 2; clearBolts(); clearInput();
     announce(corePhase ? 'FINAL PHASE / EXPOSED REACTOR' : 'CAPITAL SHIP INBOUND / UNKNOWN WEAPON CHARGING', 3.5);
+  }
+  function startShieldPhase() {
+    if (!boss) throw new Error('The capital ship must be created before starting its shield phase');
+    spawned = totalKilled = TOTAL_FIGHTERS; spawnBoss();
+    phase = 'bossArmor'; phaseClock = 0;
+    boss.root.position.set(0, 4, railZ + 340); boss.root.quaternion.identity();
   }
   function updateBoss(dt: number) {
     if (!boss || (phase !== 'bossArmor' && phase !== 'bossCore')) return;
@@ -853,12 +868,18 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       bossTrack?.setAttribute('aria-valuenow', String(Math.round(percent)));
       bossTrack?.setAttribute('aria-label', 'Top-down red scrambler health');
     }
-    const nextControlsMode = phase === 'scrambler' ? 'side' : phase === 'topdownScrambler' ? 'top' : 'normal';
+    const nextControlsMode = `${phase === 'scrambler' ? 'side' : phase === 'topdownScrambler' ? 'top' : 'normal'}:${isControllerActive()}:${getControllerType()}`;
     if (controls && controlsMode !== nextControlsMode) {
       controlsMode = nextControlsMode;
-      controls.innerHTML = nextControlsMode === 'side'
+      controls.innerHTML = isControllerActive()
+        ? phase === 'scrambler'
+          ? controllerText('<div>Left stick: move | Hold {a}: fire straight</div><div>Stick up/down + {b}: vertical dodge | {plus}: menu</div>')
+          : phase === 'topdownScrambler'
+            ? controllerText('<div>Left stick: move | Hold {a}: fire upward</div><div>Stick left/right + {b}: evade | {plus}: menu</div>')
+            : controllerText('<div>Left stick: steer | Right stick: aim | Hold {a}: fire</div><div>{b}: evade | {r}: shield | {x}: view | {plus}: menu</div>')
+        : phase === 'scrambler'
         ? '<div>WASD / arrows: move | Click / hold LMB: fire straight</div><div>W/S + Space: dodge up/down | Space alone: alternate dodge</div>'
-        : nextControlsMode === 'top'
+        : phase === 'topdownScrambler'
           ? '<div>WASD / arrows: move | Click / hold LMB: fire upward</div><div>Space: evade | A/D + Space: dodge left/right | Esc: pause</div>'
           : '<div>WASD: dodge · Mouse: aim · Click / hold LMB: fire</div><div>Space: evade · V: view · Esc: pause</div>';
     }
@@ -869,7 +890,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     controls?.classList.toggle('hidden', won || dead || phase === 'opening' || phase === 'versus');
     pausePanel?.classList.toggle('hidden', !paused && !dead);
     if (pauseTitle) pauseTitle.textContent = dead ? 'SHUTTLE DESTROYED' : 'FLIGHT PAUSED';
-    if (pauseHint) pauseHint.textContent = dead ? 'Restarting sortie...' : 'Click or Escape to resume';
+    if (pauseHint) pauseHint.textContent = dead ? 'Restarting sortie...' : inputHint('Click or Escape to resume', 'flight');
     document.body.classList.toggle('space-paused', paused || dead);
   }
   function updateEffects(dt: number) {
@@ -930,8 +951,9 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     rollCd = Math.max(0, rollCd - dt); rollTime = Math.max(0, rollTime - dt);
     {
       railZ += cruiseSpeed() * dt;
-      const horizontal = Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'));
-      const vertical = Number(keys.has('KeyW') || keys.has('ArrowUp')) - Number(keys.has('KeyS') || keys.has('ArrowDown'));
+      const stick = getControllerMovement();
+      const horizontal = isControllerActive() ? stick.x : Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'));
+      const vertical = isControllerActive() ? -stick.y : Number(keys.has('KeyW') || keys.has('ArrowUp')) - Number(keys.has('KeyS') || keys.has('ArrowDown'));
       if (phase === 'scrambler' && sidescroll) {
         const wasActive = sidescroll.active;
         sidescroll.update(dt, railZ, horizontal, vertical, rollTime > 0 ? dash.y : 0);
@@ -1037,19 +1059,26 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   if (!launch) ship.root.rotation.y = Math.PI;
   cameraView();
   if (startAt === 'topdownScrambler') beginTopdownScrambler(true);
+  if (startAt === 'bossArmor') startShieldPhase();
+  if (startAt === 'bossCore') {
+    spawned = totalKilled = TOTAL_FIGHTERS; redScramblerCleared = true;
+    spawnBoss(true); phaseClock = 1.7;
+  }
   if (!startAt) clearInput();
   showCrosshair(); updateHud();
   return {
-    roomId: 'scene15', scene, camera, physicsWorld, player, ship, planet, cutsceneManager: null,
+    roomId: 'scene15', scene, camera, physicsWorld, player, ship, planet, ready: shieldReady, cutsceneManager: null,
     getMusicTrack: (): 'level-2' | 'level-2-boss' => redScramblerCleared ? 'level-2-boss' : 'level-2',
     hasBossVictory: () => phase === 'victory',
     isMusicPaused: () => paused,
     isCinematic: () => true, hideCharacter: () => true,
     toggleView, canToggleView, isThirdPersonView: () => !cockpitView,
     controlsReady: () => !paused && !inputBlocked() && combatLive(),
+    getControllerPhase: () => `${phase}:${paused}:${sidescroll?.active ?? topdown?.active ?? ''}`,
     getMinimapState: () => ({ position: ship.root.position, yaw: ship.root.rotation.y,
       object: ship.root, openSky: true, radius: arcadeView() ? 220 : 420 }),
-    getSceneId: () => phase === 'topdownScrambler' ? 'scene15.75' : phase === 'scrambler' || (startAt === 'scrambler' && phase === 'bossArrival') ? 'scene15.5' : 'scene15',
+    getSceneId: () => phase === 'bossArmor' ? 'scene15.6' : phase === 'bossCore' ? 'scene15.9'
+      : phase === 'topdownScrambler' ? 'scene15.75' : phase === 'scrambler' || (startAt === 'scrambler' && phase === 'bossArrival') ? 'scene15.5' : 'scene15',
     getPixelArtStrength: () => {
       if (phase === 'scrambler' && sidescroll) return sidescroll.pixelArtStrength;
       if (phase === 'topdownScrambler' && topdown) return topdown.pixelArtStrength;

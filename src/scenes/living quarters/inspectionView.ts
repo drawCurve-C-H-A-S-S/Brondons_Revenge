@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { createPointingHand, type PointingHand } from '../../scripts/pointingHand.js';
 import type { InteractiveDisplay, SurfaceAction } from './surfaces.js';
+import { isControllerActive, isControllerEvent, controllerMenuLabel, controllerButtonLabel, inputHint } from '../../scripts/gamepadInput.js';
 
 export interface InspectionTarget {
   screen: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
@@ -51,10 +52,15 @@ export function createInspectionView(scene: THREE.Scene, camera: THREE.Perspecti
   function ready() { return state?.target.pointer !== 'hand' || hand !== null; }
   function updateInstructions() {
     if (!state) return;
-    instructions.textContent = state.target.pointer === 'hand' && !hand
+    close.textContent = inputHint('E / Esc - Step back', 'inspection');
+    if (isControllerActive() && ready()) {
+      instructions.textContent = `Right stick: pointer / ${controllerMenuLabel('confirm')}: select on-screen buttons / ${controllerButtonLabel('r')} or ${controllerMenuLabel('back')}: step back`;
+      return;
+    }
+    instructions.textContent = inputHint(state.target.pointer === 'hand' && !hand
       ? handError ? 'Unable to load hand. R to retry / E or Esc to step back.' : 'Preparing the Interact hand pose...'
       : state.target.pointer === 'hand' ? 'Click digits or type the code / Enter: OK / Backspace: erase'
-        : state.target.instructions ?? 'Click save us to read / Enter: open file';
+        : state.target.instructions ?? 'Click save us to read / Enter: open file', 'inspection');
   }
   function applyCamera() {
     if (!state) return;
@@ -102,7 +108,7 @@ export function createInspectionView(scene: THREE.Scene, camera: THREE.Perspecti
   function pointAt(event: MouseEvent | PointerEvent) {
     if (!state) return false;
     const target = state.target, display = target.display;
-    if (document.pointerLockElement) {
+    if (document.pointerLockElement || isControllerEvent(event)) {
       cornerA.set(-target.width / 2, -target.height / 2, 0); target.screen.localToWorld(cornerA); cornerA.project(camera);
       cornerB.set(target.width / 2, target.height / 2, 0); target.screen.localToWorld(cornerB); cornerB.project(camera);
       display.point(display.cursor.x + event.movementX * display.canvas.width / Math.max(1, Math.abs(cornerB.x - cornerA.x) * window.innerWidth / 2),
@@ -121,7 +127,7 @@ export function createInspectionView(scene: THREE.Scene, camera: THREE.Perspecti
   }
   function onPointerDown(event: PointerEvent) {
     if (!canInput() || event.button !== 0 || controls.contains(event.target instanceof Node ? event.target : null)) return;
-    if (!document.pointerLockElement && !pointAt(event)) return;
+    if (!document.pointerLockElement && !isControllerEvent(event) && !pointAt(event)) return;
     event.preventDefault(); event.stopImmediatePropagation();
     state!.pressTime = 0.18;
     const action = state!.target.display.click();

@@ -144,8 +144,8 @@ test('map discovery retains quarters and joins the entire stealth section only a
   const sourcePosition = DECK_ONE_MAP.rooms[0].position.clone();
   progress.reveal(DECK_ONE_MAP);
   const map = progress.getLayout();
-  assert.equal(map.rooms.length, 12); assert.equal(map.connections.length, 11);
-  assert.deepEqual(map.rooms.slice(-3).map(room => room.id), [29, 30, 31]);
+  assert.equal(map.rooms.length, 13); assert.equal(map.connections.length, 12);
+  assert.deepEqual(map.rooms.slice(-4).map(room => room.id), [29, 30, 31, 32]);
   assert.ok(map.connections.some(pair => pair.includes(20) && pair.includes(29)));
   assert.ok(mapDoor(map, 20, 'forward').distanceTo(mapDoor(map, 29, 'quarters')) < 1e-9);
   assert.ok(mapDoor(map, 29, 'storage').distanceTo(mapDoor(map, 30, 'passage')) < 1e-9);
@@ -164,7 +164,7 @@ test('direct stealth entry can later discover quarters through the same bulkhead
   const progress = createShipMapProgress();
   progress.reveal(DECK_ONE_MAP); progress.reveal(layout.LIVING_QUARTERS_MAP);
   const map = progress.getLayout();
-  assert.equal(map.rooms.length, 12);
+  assert.equal(map.rooms.length, 13);
   assert.ok(mapDoor(map, 20, 'forward').distanceTo(mapDoor(map, 29, 'quarters')) < 1e-9);
   assert.deepEqual(map.playerPoint(29, { x: -12.6, y: 12.3, z: -2.5 }).toArray(), [-12.6, 2.2, -2.5]);
   assert.equal(map.connections.filter(pair => pair.includes(20) && pair.includes(29)).length, 1);
@@ -174,9 +174,9 @@ test('later ship blueprints retain vent paths, vertical links and prior discover
   const progress = createShipMapProgress();
   progress.reveal(layout.LIVING_QUARTERS_MAP); progress.reveal(DECK_ONE_MAP); progress.reveal(SHIP_MAP_LAYOUT);
   const map = progress.getLayout();
-  assert.equal(map.rooms.length, 12 + SHIP_MAP_LAYOUT.rooms.length);
+  assert.equal(map.rooms.length, 13 + SHIP_MAP_LAYOUT.rooms.length);
   assert.equal(map.ventPaths.length, SHIP_MAP_LAYOUT.ventPaths.length);
-  assert.equal(map.verticalLinks.length, SHIP_MAP_LAYOUT.verticalLinks.length);
+  assert.equal(map.verticalLinks.length, SHIP_MAP_LAYOUT.verticalLinks.length + 1);
   const room = map.rooms.find(room => room.id === 3);
   assert.ok(map.playerPoint(3, { x: 0, y: 0.3, z: 0 }).distanceTo(room.position.clone().add(new THREE.Vector3(0, 2.2, 0))) < 1e-9);
   progress.reset();
