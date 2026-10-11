@@ -216,13 +216,50 @@ function createSeatedPilot() {
 /** Shared pod keeps the boss ejection and planetary pursuit visually continuous. */
 export function createEscapePod() {
   const root = new THREE.Group(); root.name = 'EscapePod';
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(1.2, 2.8, 8, 12), new THREE.MeshStandardMaterial({ color: 0x8a7a6a, metalness: 0.6, roughness: 0.4 }));
-  body.rotation.x = Math.PI / 2; root.add(body);
-  const window = new THREE.Mesh(new THREE.SphereGeometry(0.6, 12, 8), new THREE.MeshBasicMaterial({ color: 0x7fe6ff }));
-  window.position.set(0, 0.8, -1); window.scale.y = 0.4; root.add(window);
+  const darkMetal = new THREE.MeshStandardMaterial({ color: 0x141d24, metalness: 0.65, roughness: 0.5 });
+  const neon = new THREE.MeshBasicMaterial({ color: 0x54ff3c });
+  const glassMat = new THREE.MeshPhysicalMaterial({
+    color: 0x9fd8b0, transparent: true, opacity: 0.14, roughness: 0.08, metalness: 0.05,
+    side: THREE.DoubleSide, depthWrite: false,
+  });
+  const fluidMat = new THREE.MeshBasicMaterial({ color: 0x54ff3c, transparent: true, opacity: 0.08, depthWrite: false, side: THREE.DoubleSide });
+  const silhouetteMat = new THREE.MeshStandardMaterial({ color: 0x0a0f14, emissive: 0x1a2a3a, emissiveIntensity: 0.6, roughness: 0.9 });
+
+  // Glass containment tube along the travel axis, with the trapped occupant inside
+  const tube = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.05, 3.2, 24, 1, true), glassMat);
+  tube.rotation.x = Math.PI / 2; root.add(tube);
+  const fluid = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 3.0, 20, 1, true), fluidMat);
+  fluid.rotation.x = Math.PI / 2; root.add(fluid);
+  const occupant = new THREE.Group();
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.8, 4, 8), silhouetteMat);
+  torso.rotation.x = Math.PI / 2; occupant.add(torso);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 10), silhouetteMat);
+  head.position.z = -0.62; occupant.add(head);
+  root.add(occupant);
+  const glow = new THREE.PointLight(0x54ff3c, 6, 6); root.add(glow);
+
+  // Longitudinal struts + neon strips on the diagonals
+  for (let i = 0; i < 4; i++) {
+    const a = Math.PI / 4 + i * Math.PI / 2;
+    const cx = Math.cos(a), cy = Math.sin(a);
+    const strut = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 3.2), darkMetal);
+    strut.position.set(cx * 1.12, cy * 1.12, 0); strut.rotation.z = a; root.add(strut);
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 2.6), neon);
+    strip.position.set(cx * 1.2, cy * 1.2, 0); strip.rotation.z = a; root.add(strip);
+  }
+
+  // Dark nose/tail caps joined by glowing rim rings
+  const nose = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.2, 1.0, 24), darkMetal);
+  nose.rotation.x = -Math.PI / 2; nose.position.z = -2.1; root.add(nose);
+  const tail = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.05, 1.0, 24), darkMetal);
+  tail.rotation.x = -Math.PI / 2; tail.position.z = 2.1; root.add(tail);
+  for (const z of [-1.6, 1.6]) {
+    const rim = new THREE.Mesh(new THREE.CylinderGeometry(1.22, 1.22, 0.12, 24, 1, true), neon);
+    rim.rotation.x = Math.PI / 2; rim.position.z = z; root.add(rim);
+  }
+
   const hatch = new THREE.Group(); hatch.name = 'PodHatch'; hatch.position.set(0.75, 0.7, 0); root.add(hatch);
-  const hatchPanel = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.1, 1.55), new THREE.MeshStandardMaterial({ color: 0xb9b4a4, metalness: 0.7, roughness: 0.55 })); hatchPanel.position.set(0.25, -0.45, 0); hatch.add(hatchPanel);
-  for (const z of [-1.6, 1.6]) { const band = new THREE.Mesh(new THREE.TorusGeometry(1.21, 0.08, 8, 24), new THREE.MeshStandardMaterial({ color: 0x29343d, metalness: 0.8 })); band.position.z = z; root.add(band); }
+  const hatchPanel = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.1, 1.55), darkMetal); hatchPanel.position.set(0.25, -0.45, 0); hatch.add(hatchPanel);
   const trail = new THREE.Mesh(new THREE.ConeGeometry(0.8, 7, 12), new THREE.MeshBasicMaterial({ color: 0xff8833, transparent: true, opacity: 0.85, depthWrite: false }));
   trail.rotation.x = -Math.PI / 2; trail.position.z = 5; trail.name = 'PodTrail'; root.add(trail);
   return root;
