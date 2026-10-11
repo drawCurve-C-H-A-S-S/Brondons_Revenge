@@ -146,8 +146,8 @@ export function createFinaleCamera(camera: THREE.PerspectiveCamera, reducedMotio
           frame(context.pilotCamera, context.pilotFace, 43 - resolve * 3);
         } else {
           id += '-orbit'; const p = cinematicProgress(t, PLANET_RUPTURE.returnToDuel, PLANET_RUPTURE.orbit + 0.4);
-          const start = hero.position.clone().add(V(8, 15, 25));
-          frame(start.lerp(combat.position, p), context.heroChest.clone().lerp(combat.center, p), 43 + p * 11);
+          const start = context.pilotCamera.clone();
+          frame(start.lerp(combat.position, p), context.pilotFace.clone().lerp(combat.center, p), 43 + p * 11);
         }
       } else if (phase === 'finisher') {
         const { beat, clock } = context.qte;
@@ -306,7 +306,9 @@ export function createFinaleCamera(camera: THREE.PerspectiveCamera, reducedMotio
         lastFov = camera.fov;
         const editorialCut = phase === 'finisher' && shotId.startsWith('finisher')
           && (id.endsWith('-behind') || id.endsWith('-empty-blade'));
-        shotId = id; transition = reducedMotion || editorialCut ? 1 : 0;
+        const locationCut = phase === 'rupture' && (id.endsWith('-brendan') || id.endsWith('-cockpit'))
+          || phase === 'heroTransform' && id.endsWith('-forest-liftoff');
+        shotId = id; transition = reducedMotion || editorialCut || locationCut ? 1 : 0;
       }
       const transitionSeconds = phase === 'defeat' || (phase === 'rupture' && t >= PLANET_RUPTURE.forest) ? 0.65
         : phase === 'finisher' ? 0.38 : phase === 'ground' || phase === 'space' ? 0.28 : 0.32;

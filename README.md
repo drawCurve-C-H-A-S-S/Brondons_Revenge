@@ -43,12 +43,15 @@ Always test the production build locally before deploying. The LAMP server serve
 
 ## Keyboard and controller input
 
-Keyboard and mouse are the default on every page load. Plug in a two-stick
-Switch / NES-themed, Xbox or PlayStation controller, press any controller button,
-then open **M > Controls > Controller** and **pick your controller type**.
-Selecting a type enables controller input when its browser layout is ready.
-Connecting a controller alone never changes the input mode. The two Controls
-tabs select the input and show the matching bindings.
+Keyboard and mouse are the initial default. Connecting a supported two-stick
+controller automatically enables controller input once the browser detects it.
+Switch / NES-themed and PlayStation devices use their detected button labels;
+other standard-mapped devices use Xbox labels. You can change the profile under
+**M > Controls > Controller**. Manual profile choices are remembered for each
+device during this play session. Selecting Keyboard & Mouse keeps that mode
+until you select Controller or reconnect the controller. Nonstandard devices
+still require calibration before their controls can be enabled.
+The two Controls tabs select the input and show the matching bindings.
 The menu is available during the opening as well as gameplay.
 
 Browsers may not expose a USB controller until its first button press. Use a
@@ -101,6 +104,14 @@ Focus loss pauses input until the page is focused again. Unplugging
 the active controller releases all inputs, cancels the wheel without equipping,
 and restores keyboard/mouse; click the world to recapture the mouse if needed.
 
+In controller mode, deaths in the stealth and surveillance stages restart their
+checkpoint automatically after the death presentation; the final boss retries
+its last checkpoint after the defeat cinematic. Existing automatic combat and
+flight retries remain active. The hangar escape always restarts in **Scene 14**
+with full health, skipping the lift arrival and introductory reveal.
+Frontal shots against the storage drone remain blocked by armour, but no longer
+instantly kill and disable Brondon; patrol detection handles the ensuing danger.
+
 The opening **PLAY** screen and pause submenus show a highlighted selection:
 use the left stick or D-pad to navigate and the family's confirm/back buttons.
 PLAY is selected automatically when it appears. Sound sliders are adjusted
@@ -115,10 +126,11 @@ The arcade flight phases retain their directional dodges with left stick + B.
 During the **hangar escape QTE**, the displayed controls are A (shoot),
 X (crowbar), B (dodge), Y (saber spin), and R (launch).
 
-The **final boss** uses left stick for movement and space altitude, A for the
-sword chain, X for the rifle salvo, hold ZL for shield/parry, B for dodge boost,
-and R for Last Light (the existing 18-second recharge). The mech has fixed
-weapons rather than an inventory wheel. Hold - to skip the intro;
+The **final boss** uses left stick for movement and space altitude, direction + A
+for sword attacks, X for the rifle salvo, hold ZL for shield/parry, B for dodge boost,
+and R for Last Light (the existing 18-second recharge). L stows/recalls the fixed
+weapons; A chains jab, cross and hook while unarmed. Y performs a grounded slide.
+There is no inventory wheel. Hold - to skip the intro;
 D-pad Left retries after defeat. Final QTEs display controller labels: D-pad Left to evade
 the execution shot, A for sword cuts, X for return fire, B for boost,
 **mash Y** for the blade lock, D-pad Up to ascend, and **hold R** to charge.
@@ -205,12 +217,32 @@ chapter. Low-memory/touch devices decode fewer distant models up front.
 Whole levels are not kept alive simultaneously. Chapter transitions cover scene
 construction, texture uploads and shader warm-up, preserving memory and avoiding
 visible first-render stalls. Caching removes download waits, not every possible
-rendering or device-related frame drop. A browser without usable AAC/M4A decoding
-shows an audio-support warning rather than making the loading screen hang.
+rendering or device-related frame drop. Warm-up includes the persistent character,
+combat billboards, shadows, minimap/post-processing and fog/non-fog variants before
+the loading cover is removed. The landing film prepares its ground-world lighting;
+the finale prepares its transformation, surface, cockpit and orbital render states.
+
+The shuttle's cockpit CSG geometry is generated once and reused. Comic artwork is
+prepared before combat. Stealth searchlights remain in the lighting layout when
+disabled: intensity becomes zero rather than changing shader light counts on a
+drone hit, alarm or hangar entry. Weapon traces skip hidden actors and the player's
+own rig before raycasting, and firing-squad searches reject occupied/blocked
+positions before allocating a navigation search.
+
+Portable **OGG copies of the supplied soundtrack** are included for browsers
+without usable AAC decoding. Music chooses OGG when the browser supports it,
+including hashed production asset URLs; the original M4A files remain available.
+Regenerate the copies after changing music with **`npm run audio:fallbacks`**.
+FFmpeg is a development-only dependency, not part of the browser bundle. If neither
+format can be decoded, the game reports an audio-support warning instead of hanging.
 
 The developer menu uses descriptive level/stage names in story order, including
 the capital-ship shield and exposed-reactor phases; internal scene numbers are
 not shown as misleading level numbers.
+Developer jumps and direct chapter entry await the same shared character-preparation
+promise as PLAY. Skipping the initial full-game preload therefore cannot enter a
+playable chapter without its persistent character. Failed character preparation
+is reported and can be retried without creating duplicate rigs.
 
 ## On-foot HUD
 
@@ -236,6 +268,11 @@ Comic bursts use thick ink outlines, halftone shading and brief pop/fade motion.
 Shot/hit callouts are throttled per enemy, pooled and capped to avoid clutter.
 Menus freeze their lifetime, scene changes clear them, and reduced-motion
 preferences disable the pop and drift.
+
+Interaction gestures use the existing upper-body animation layer. Hips and legs
+continue their walking/running animation instead of switching to a stationary
+whole-body interaction clip. Stealth takedowns use a planted, staggered stance,
+a short approach and turn, and robot shutdown synchronized with hand contact.
 
 ## Slide tackle
 
@@ -477,13 +514,38 @@ The former scenes 17-19 are one continuous ship-to-facility exterior.
 Scene 18's side-scrolling course, relay platforms and bridge-collapse sequence
 have been removed. The western half is an impassable, weathered-rock mountain.
 A waterfall feeds the river, with a flowing, lit water shader, surface ripples,
-transparent sheets, animated impact foam and spray. The stone trail stays safe
+dense aerated sheets, animated impact foam and spray. Waterfall and river share
+their colour/foam palette; the curved curtain conceals the entrance until the
+player passes through it. Faster cascading flow and impact spray retain the
+river's green-blue water colour rather than making the whole curtain white.
+Passing under the torrent bends the sheet around Brondon and sheds droplets
+from his head and shoulders. These splashes use a fixed particle pool with
+world-space flight, gravity and surface impact, including when crouched.
+The cave's tunnel is stitched to the mountain's exact opening in one mesh:
+shared vertices, normals and world-space rock shading eliminate gaps and
+separate texture seams. Its closed back, worn rock walls and stalactites replace
+the box-shaped room. The mountain has a sloping, contoured
+front and rolling ridge with a rock spillway rather than a flat extruded wall.
+Textured canopy clusters, bark, ferns and gentle GPU wind retain distance-based LOD.
+
+The stone trail extends behind the landing site and connects exploration loops
+on both riverbanks to the main route and waterfall branch. Decorative flagstones
+do not each allocate a physics body; terrain carries the player. Bridge posts and
+rails have collision bodies and are removed with the bridge if it breaks.
+The waterfall branch has a continuous solid ledge extending beneath all crossing
+stones and beyond the curtain to overlap the riverbanks. This support remains
+active independently of distance culling, so walking beneath the falls does
+not drop the player through a decorative stone into the river.
+The stone trail stays safe
 from the dinosaurs off the route. Normal Trilobites patrol before the intact
 bridge, and spider bots patrol only beyond it.
 
 River sharks swim below the surface with their fins barely showing. Falling
 into the river starts a continuous shark-swarm scene before death and a return
 to the landing checkpoint, rather than killing the player immediately.
+Sharks are fitted in their animated pose with height and length limits. Brendan's
+landing-site model has skin, clothing, hair and eye colours without the imported
+display plane. The landing film uses the same culling-aware forest as gameplay.
 
 The waterfall detour is optional. Going behind it shows a **VS** screen and
 seals the arena for the hopping **Waterfall Warden** spider miniboss. Every
@@ -492,6 +554,7 @@ with an **Aegis Core**. Collecting that core grants one automatic **30-second
 immunity** at the start of the final boss's playable combat. It survives
 exterior/interior transitions; using it is recorded in the boss checkpoint
 and cannot be refreshed by retrying.
+The reward footlocker faces back toward the cave entrance.
 
 Ship-styled facility sentinels can be destroyed with pistol fire or returned
 lightsaber-parried beams. The facility door opens as the player approaches
@@ -513,9 +576,10 @@ from its Scene 17 jungle parking spot to morph into Prime Frame. A comic VS
 screen introduces the fight; there are no generated platforms under the mechs.
 After the transformations, dusk deepens into a moonlit, starry nighttime rooftop.
 
-Use **A / D** to move and **J** to chain a downward cut, side cut and heavy downward
-finish. The original authored sword and special-move animations and their timings
-are retained. Blade afterimages fade in **0.085 seconds**, with softer, narrower
+Use **A / D** to move and **direction + J** to select an authored sword attack.
+Neutral **J** chains the classic, left and finishing cuts. The free Standard
+animations retain their complete anticipation, contact and recovery at their
+authored playback speed. Blade afterimages fade in **0.085 seconds**, with softer, narrower
 trails and restrained charge glow and impact sparks. Damage follows the animated blade sweep; luminous cuts remain on damaged
 armor for **1.65 seconds** before fading. **F** sheaths the sword, draws the
 back-mounted rifle and fires a two-handed salvo. **Hold R** for a draining shield
@@ -547,9 +611,11 @@ follows the meteor into Earth, then shows the explosion with a large **BOOM!**
 using the same starburst, halftone and ink artwork as other comic impact words.
 The final surface transmission returns to the actual `boy.glb` actor in the
 burning rescue forest, with a progressively charred appearance. A close-up inside Prime Frame's
-cockpit shows Brondon's face: **"Noooooo! You killed Brendannnnn!"**, then
-**"There is no forgiving you now. You will die."** The camera pulls back into
-the orbital duel without restarting the music.
+cockpit shows Brondon reacting to the failing surface link, then gathering resolve
+with Prime. The shorter sequence cuts between locations instead of flying the
+camera through terrain; its pullback starts at the actual cockpit camera and
+joins the orbital duel without restarting the music. The bomb begins its descent
+at the apex rather than pausing there.
 
 The final QTE runs on a continuous cinematic timeline, regardless of successful
 or missed inputs. Root motion carries momentum across shots; prompts and brief
@@ -567,8 +633,76 @@ skips the boss introduction; the same control skips the ending dialogue in
 Scenes 13 and 16 without losing their unlocks or scene handoff. Scene 1 ends
 directly on **Play / Don't Play**, with no opening credits roll.
 
+The shuttle recall preserves its parked world transform, lifts clear of the ground
+before forward flight, then follows a curved approach to Brondon. Donus returns
+along a banked, decelerating flight path rather than sliding between two points.
+Signature moves display **Starfall Salvo**, **Last Light**, **Final Verdict**,
+**Eclipse Rend** and **Planet Breaker** during their cinematic wind-ups.
+Mech clips are retained between frames instead of being stopped and restarted.
+QTE poses blend across attacks with controlled guard, weight transfer and ascent;
+damage reactions retain their sampled motion and momentum.
+
+Combat animation assets are taken from the downloaded, free **Quaternius Universal
+Animation Library 1 and 2 Standard packs**, under CC0. All seven supplied sword
+attacks are baked onto the MC and Subject bind poses; matching bone names alone
+are not treated as matching bone axes. Only animation tracks are included, not
+the packs' demo meshes or paid Source assets. The runtime caches the baked library
+before gameplay and does not retarget or bake it on each swing.
+
+The **lightsaber and final-boss sword share these direction mappings**. Attack
+means **left click** for the lightsaber, **J** in the finale, or the corresponding
+controller attack button. Directions are captured when attacking, including
+queued attacks; moving the stick afterwards does not change a queued move.
+
+| Keyboard / left stick + attack | Authored move |
+| --- | --- |
+| W / up | Sword Dash lunge |
+| A / left | Regular A left cut with its recovery |
+| D / right | Regular B right cut with its recovery |
+| S / down | Regular C finishing cut |
+| W+A / up-left | Full Regular Combo, three contact windows |
+| W+D / up-right | Full Heavy Combo, four contact windows |
+| No direction | Classic Sword Attack, then left cut, then finishing cut |
+
+Down-left selects the classic cut; down-right selects the finishing cut.
+Lightsaber first-person presentation follows the animated hand and blade, not a
+separate generic swing arc. Both camera modes use the same authored durations and
+contact windows; recovery/idle poses do not damage targets. Separate combo strokes
+can hit a target once each, and holstering cancels pending swings and parries.
+
+In the finale, **G** stows/recalls the sword and rifle on the frame's back; unarmed
+**J** chains the imported jab, cross and hook. **C** uses the imported grounded
+slide start, carry and exit, with sampled foot contact rather than sword reach.
+The final QTE recalls the weapons automatically. Sword Block supplies the guarded
+stance without making the head inherit the torso's shield rotation. Evasions and
+boosts retain restrained body silhouettes. QTE root motion is not overlaid with a
+second velocity-driven body lean.
+
+To regenerate the compact animation library from the extracted Standard GLBs:
+
+```powershell
+npm run animations:import -- "C:\path\to\quaternius-import"
+```
+
+That directory must contain `UAL1_Standard.glb` and `UAL2_Standard.glb`. Original
+sources: [Library 1](https://quaternius.com/packs/universalanimationlibrary.html),
+[Library 2](https://quaternius.com/packs/universalanimationlibrary2.html) and the
+[interactive rig viewer](https://quaternius.com/animviewer.html).
+
+Every pose restores its cached, unmodified bone sample before IK, head tracking or
+secondary motion. This prevents rotations from accumulating when Three.js skips
+an unchanged animation sample. Blade locks settle under pressure; rifle hits and
+the final cut use a controlled recoil/recovery instead of repeatedly scrubbing a
+damage clip back and forth. Breathing is subtle and does not add independent leg,
+hip or head oscillations.
+
 For local playtesting, open the pause menu, select **Developer Mode**, and click
 **Unlock**. No password is required.
+The final-boss shortcuts include **Bomb release / 50% health**, which starts at
+the exact bomb-release frame with **900 / 1800** enemy health, and **Final QTE
+start**, which starts the first QTE at time zero. Loading warm-up does not advance
+either checkpoint's timeline. Shielding keeps the mech's head facing forward;
+its normal opponent-tracking remains separate from the guard's torso/arm pose.
 
 ## Earth visuals
 

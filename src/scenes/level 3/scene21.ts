@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { prepareSceneRendering } from '../../core/renderer.js';
+import { SPECIAL_MOVE_NAMES, isNamedSpecialMove } from '../../scripts/finaleChoreography.js';
 import { finaleMusicTrack } from '../../helpers/audio/gameMusic.js';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
 import { createFinaleStudents, SUDOERS_5 } from '../../helpers/scene/finaleActors.js';
@@ -21,7 +23,7 @@ import { loadSubjectModel } from '../../core/loader.js';
 import { createRescueSite, RESCUE_SITE, type RescueArrival } from '../../helpers/scene/rescueSite.js';
 import { disposeComicEffects, emitComicEffect } from '../../helpers/scene/comicEffects.js';
 import { createFinaleDirector, FINALE_DURATION, type FinaleCheckpoint, type FinalePhase } from '../../scripts/finaleDirector.js';
-import { DUEL, sampleBladeDamageTrace, type DuelProjectileKind, type BladeDamageTrace, type FinisherBeat } from '../../scripts/mechDuel.js';
+import { DUEL, sampleBladeDamageTrace, type MechAction, type DuelProjectileKind, type BladeDamageTrace, type FinisherBeat } from '../../scripts/mechDuel.js';
 import {
   FINALE_START_X, STUDENT_TIMELINE, HERO_TRANSFORM, PLANET_RUPTURE, RIFLE_SEQUENCE,
   HERO_ULTIMATE, ENEMY_VERDICT, ENEMY_ORBITAL_CUT, MELEE_STRIKES, FINISHER_EXECUTION,
@@ -53,9 +55,10 @@ const summitPoint = (x: number, y = 0, z = 0) =>
   vector(FINALE_ROOFTOP.x + x, FINALE_DECK_Y + y, FINALE_ROOFTOP.z + z);
 const COMBAT_KEYS = new Set([
   'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyS', 'KeyR', 'Space', 'KeyJ', 'KeyF', 'KeyE',
+  'ArrowUp', 'ArrowDown', 'KeyC', 'KeyG',
 ]);
-const ACTION_KEYS: Record<string, 'slash' | 'missiles' | 'dash' | 'overdrive'> = {
-  KeyJ: 'slash', KeyF: 'missiles', Space: 'dash', KeyE: 'overdrive',
+const ACTION_KEYS: Partial<Record<string, MechAction>> = {
+  KeyJ: 'slash', KeyF: 'missiles', Space: 'dash', KeyE: 'overdrive', KeyC: 'slide', KeyG: 'toggleWeapons',
 };
 
 const LINES: Partial<Record<FinalePhase, { start: number; end: number; speaker: string; text: string }[]>> = {
@@ -95,8 +98,9 @@ const LINES: Partial<Record<FinalePhase, { start: number; end: number; speaker: 
   rupture: [
     { start: 0, end: 3.8, speaker: 'SUDOERS 5', text: 'If we cannot rule this world, no one will.' },
     { start: 3.8, end: 9, speaker: 'PRIME', text: 'That bomb will ignite the core! Boost now, Brondon!' },
-    { start: PLANET_RUPTURE.cockpit + 0.5, end: PLANET_RUPTURE.resolve, speaker: 'BRONDON', text: 'Noooooo! You killed Brendannnnn!' },
-    { start: PLANET_RUPTURE.resolve, end: PLANET_RUPTURE.returnToDuel + 0.3, speaker: 'BRONDON', text: 'There is no forgiving you now. You will die.' },
+    { start: PLANET_RUPTURE.forest + 0.6, end: PLANET_RUPTURE.cockpit, speaker: 'PRIME', text: 'The surface link is failing. Brondon... I am sorry.' },
+    { start: PLANET_RUPTURE.cockpit + 0.3, end: PLANET_RUPTURE.resolve, speaker: 'BRONDON', text: 'Brendan... no. Prime, tell me we can still reach him.' },
+    { start: PLANET_RUPTURE.resolve, end: PLANET_RUPTURE.returnToDuel + 0.3, speaker: 'BRONDON', text: 'Stay with me, Prime. We finish this together.' },
   ],
   finisher: [
     { start: 0, end: 3.2, speaker: 'PRIME', text: 'The frame is coming apart. Stay with me, Brondon!' },
@@ -192,8 +196,9 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
   const cameraRig = createFinaleCamera(camera, reducedMotion);
   const director = createFinaleDirector(checkpoint?.stage ?? 'reveal', {
     bossImmunityAvailable: entryState?.bossImmunityCollected, bossImmunityUsed: checkpoint?.bossImmunityUsed,
+    weaponsEquipped: checkpoint?.weaponsEquipped,
   });
-  const presentation = createFinalePresentation((code, pressed) => handleInput(code, pressed), () => onRetry(director.getCheckpoint()));
+  const presentation = createFinalePresentation((code, pressed) => handleInput(code, pressed), retryCheckpoint);
   let postProcessing: ReturnType<typeof createFinaleRenderer> | null = null;
   try {
     postProcessing = createFinaleRenderer(renderer, scene, camera, mobile);
@@ -279,12 +284,20 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
   }));
   const keys = new Set<string>();
   const listeners = new AbortController();
+  let retryRequested = false;
+
+  function retryCheckpoint() {
+    if (disposed || retryRequested) return;
+    retryRequested = true;
+    keys.clear(); director.clearInput();
+    onRetry(director.getCheckpoint());
+  }
 
   function updateInput() {
     if (lastPhase !== 'ground' && lastPhase !== 'space') return;
     const left = keys.has('KeyA') || keys.has('ArrowLeft');
     const right = keys.has('KeyD') || keys.has('ArrowRight');
-    const up = keys.has('KeyW'), down = keys.has('KeyS');
+    const up = keys.has('KeyW') || keys.has('ArrowUp'), down = keys.has('KeyS') || keys.has('ArrowDown');
     const stick = getControllerMovement();
     director.duel.setInput({
       move: isControllerActive() ? stick.x : Number(right) - Number(left),
@@ -296,7 +309,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
   function handleInput(code: string, pressed: boolean, repeat = false) {
     if (disposed || paused) return;
     if (pressed && code === 'KeyR' && (lastPhase === 'error' || (lastPhase === 'defeat' && director.getState().phaseTime >= 4.2))) {
-      onRetry(director.getCheckpoint()); return;
+      retryCheckpoint(); return;
     }
     if (lastPhase === 'finisher') {
       if (pressed) director.qte.press(code, repeat);
@@ -307,7 +320,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     if (!pressed) { keys.delete(code); updateInput(); return; }
     if (repeat) return;
     const action = ACTION_KEYS[code];
-    if (action) { director.duel.act(action); return; }
+    if (action) { updateInput(); director.duel.act(action); return; }
     if (COMBAT_KEYS.has(code)) { keys.add(code); updateInput(); }
   }
 
@@ -354,6 +367,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     if (disposed) return;
     director.duel.setBladePaths('hero', heroMech.sampleAttackPaths());
     director.duel.setBladePaths('enemy', enemyMech.sampleAttackPaths());
+    director.duel.setPhysicalPaths(heroMech.samplePhysicalPaths());
     if (postProcessing) await postProcessing.prepare();
     if (disposed) return;
     presentation.setCreditSprite(await createFinaleCreditSprite(renderer));
@@ -607,7 +621,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     else if (phase === 'enemyTransform') presentation.objective('FINAL VERDICT / FIVE CORES, ONE FRAME', 'Sudoers 5 is combining their power');
     else if (phase === 'heroTransform') presentation.objective('PRIME FRAME / SHUTTLE RECALL', 'The shuttle is flying in from the jungle');
     else if (phase === 'versus') presentation.objective('FINAL CHAPTER / MATCHUP', 'Prime Frame versus Final Verdict');
-    else if (phase === 'ground') presentation.objective('THE SUMMIT', 'J chains downward and side cuts. E releases Last Light. Read the enemy windup.');
+    else if (phase === 'ground') presentation.objective('THE SUMMIT', 'Direction + J selects the sword cut. G stows weapons for melee. C slides.');
     else if (phase === 'rupture') presentation.objective('PLANETARY COLLAPSE / ESCAPE', 'Boost with Prime. The fight is not over.');
     else if (phase === 'space') presentation.objective('LAST ORBIT', 'W / S rise and dive  ·  Find the opening in the Final Verdict');
     else if (phase === 'finisher') {
@@ -621,9 +635,12 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     if (phase === 'reveal' && phaseTime >= 23) presentation.title('SUDOERS 5');
     else if (phase === 'enemyTransform' && phaseTime >= 17.6) presentation.title('FINAL VERDICT');
     else if (phase === 'heroTransform' && phaseTime >= 14.2) presentation.title('PRIME FRAME');
+    else if (phase === 'rupture' && phaseTime >= PLANET_RUPTURE.raise && phaseTime < PLANET_RUPTURE.release + 0.4) presentation.title('PLANET BREAKER');
     else if (phase === 'rupture' && phaseTime >= PLANET_RUPTURE.burst && phaseTime < PLANET_RUPTURE.forest - 0.2) presentation.title('BOOM!');
-    else if ((phase === 'space' || phase === 'ground') && director.duel.getState().special?.kind === 'orbitalCut'
-      && director.duel.getState().special?.cinematic) presentation.title('ECLIPSE REND');
+    else if ((phase === 'space' || phase === 'ground') && director.duel.getState().special?.cinematic) {
+      const special = director.duel.getState().special!;
+      presentation.title(isNamedSpecialMove(special.kind) ? SPECIAL_MOVE_NAMES[special.kind] : '');
+    }
     else if (phase === 'victory' && phaseTime >= 14) presentation.title('THE END');
     else if (phase === 'credits' || phase === 'done') presentation.title('');
     else presentation.title('');
@@ -702,6 +719,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
       || phase === 'victory' || phase === 'credits' || phase === 'done';
     const duel = director.duel, hero = duel.hero, enemy = duel.enemy;
     const duelState = duel.getState();
+    heroMech.setWeaponsEquipped(duelState.weaponsEquipped);
     const baseY = FINALE_DECK_Y + (reachedSpace ? SPACE_ALTITUDE : 0);
     let heroX = hero.x, heroY = baseY + hero.y, enemyX = enemy.x, enemyY = baseY + enemy.y;
     if (phase === 'enemyTransform' || phase === 'heroTransform') {
@@ -730,8 +748,9 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
       let facing = combat ? fighter.facing : defaultFacing;
       const dodge = combat && fighter.dash ? sampleDodgeArc(fighter.time, fighter.duration, fighter.dash.crossing, fighter.dash.offset) : null;
       if (dodge) {
+        if (fighter.move === 'slide') { dodge.lift = 0; dodge.roll = 0; }
         mech.root.position.add(vector(dodge.lane * 0.2425356, dodge.lift, dodge.lane * 0.9701425));
-        if (fighter.dash?.crossing && dodge.progress > 0.5) facing = Math.sign(opponent.x - fighter.x) || facing;
+        if (fighter.move !== 'slide' && fighter.dash?.crossing && dodge.progress > 0.5) facing = Math.sign(opponent.x - fighter.x) || facing;
       }
       const yaw = FINALE_BATTLE_YAW + (facing < 0 ? Math.PI : 0);
       const turn = Math.atan2(Math.sin(yaw - mech.root.rotation.y), Math.cos(yaw - mech.root.rotation.y));
@@ -777,6 +796,8 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     }
     else if (choreography) {
       heroMove = choreography.heroPose; enemyMove = choreography.enemyPose;
+      // Root motion is already choreographed; a second velocity-driven lean fights those poses.
+      heroMech.setMotion(0, 0); enemyMech.setMotion(0, 0);
       heroMech.root.position.copy(finaleBattlePoint(choreography.hero[0], choreography.hero[1], SPACE_ALTITUDE)).add(vector(0, 0, choreography.hero[2]));
       enemyMech.root.position.copy(finaleBattlePoint(choreography.enemy[0], choreography.enemy[1], SPACE_ALTITUDE)).add(vector(0, 0, choreography.enemy[2]));
       heroMech.root.rotation.z = choreography.heroRoll; enemyMech.root.rotation.z = choreography.enemyRoll;
@@ -830,7 +851,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     if (enemyMove === 'verdict') enemyMech.pointSwordAt(enemyAim);
     if (choreography && choreography.bladeLock > 0) {
       clashContact.copy(heroChest).lerp(enemyChest, 0.5).add(vector(0, 1.6, 2.2));
-      const strain = Math.sin(qte.elapsed * 6) * 0.18;
+      const strain = Math.sin(choreography.progress * Math.PI) * 0.04;
       heroMech.lockBlade(clashContact, 1, strain, choreography.bladeLock); enemyMech.lockBlade(clashContact, -1, -strain, choreography.bladeLock);
       const spark = Math.floor(qte.elapsed * 8);
       if (choreography.bladeLock > 0.95 && spark !== lastClashSpark) {
@@ -965,7 +986,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
   }
 
   function updatePhysics(dt: number) {
-    if (disposed || paused || blurred || document.hidden || document.body.classList.contains('quick-menu-open')) return;
+    if (disposed || retryRequested || paused || blurred || document.hidden || document.body.classList.contains('quick-menu-open')) return;
     animationDelta = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, 0.1));
     if (isControllerActive()) updateInput();
     skipHold.update(animationDelta);
@@ -990,6 +1011,9 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     }
     const state = director.getState();
     lastPhase = state.phase;
+    if (state.phase === 'defeat' && state.phaseTime >= FINALE_DURATION.defeat && isControllerActive()) {
+      retryCheckpoint(); return;
+    }
     site.update(animationDelta);
     site.updateActivePhysics([player.body.position]);
     let rupture = 0;
@@ -1040,11 +1064,15 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
       || state.phase === 'credits' || state.phase === 'done';
     if (mothership.root.visible) {
       const arrival = state.phase === 'victory' ? cinematicProgress(state.phaseTime, DONUS_RETURN.appear, DONUS_RETURN.arrival) : 1;
-      mothership.root.position.copy(heroMech.root.position).add(vector(
-        THREE.MathUtils.lerp(150, 37, arrival), THREE.MathUtils.lerp(38, 9, arrival),
-        THREE.MathUtils.lerp(-180, -12, arrival)));
+      const end = heroMech.root.position.clone().add(vector(37, 9, -12));
+      const route = new THREE.CubicBezierCurve3(heroMech.root.position.clone().add(vector(180, 46, -230)),
+        heroMech.root.position.clone().add(vector(115, 48, -150)), end.clone().add(vector(42, 12, -28)), end);
+      mothership.root.position.copy(route.getPoint(arrival));
+      const heading = new THREE.Quaternion().setFromUnitVectors(vector(0, 0, 1), route.getTangent(arrival));
+      const settled = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -Math.PI / 2, 0));
+      mothership.root.quaternion.slerpQuaternions(heading, settled, cinematicProgress(arrival, 0.8, 1));
       mothership.root.position.y += Math.sin(state.time * 0.6) * 0.4 * arrival;
-      mothership.root.rotation.set(Math.sin(arrival * Math.PI) * 0.12, -Math.PI / 2, Math.sin(arrival * Math.PI) * -0.12);
+      mothership.root.rotateZ(-Math.sin(arrival * Math.PI) * 0.16);
     }
     consumeDirectorEvents();
     updateMissiles(state.phase);
@@ -1109,7 +1137,8 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
       special ? '' : duelState.feedback || (duelState.enemyGuarding ? 'SHIELD RAISED' : duelState.enemyTell === 'orbitalCut' ? 'ECLIPSE REND / DODGE OR PARRY'
         : duelState.enemyTell === 'verdict' ? 'BEAM INCOMING'
         : duelState.enemyTell === 'reap' ? 'REVERSE CUT'
-          : duelState.enemyTell === 'thrust' ? 'THRUST' : ''), duelState.shieldLock, duelState.bossImmunityRemaining);
+          : duelState.enemyTell === 'thrust' ? 'THRUST' : ''), duelState.shieldLock, duelState.bossImmunityRemaining,
+      duelState.weaponsEquipped, director.duel.hero.move);
     if (state.phase === 'finisher') {
       presentation.qte(qte);
     } else presentation.qte(null);
@@ -1126,9 +1155,39 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     else presentation.credits(-1);
   }
 
+  async function prepareRendering(activeRenderer: THREE.WebGLRenderer) {
+    await ready;
+    const original = director.getState(), previousSpace = reachedSpace, previousPaused = paused;
+    const samples: Array<[FinalePhase, number]> = [
+      ['reveal', 3], ['enemyTransform', 4], ['heroTransform', 7], ['ground', 1],
+      ['rupture', PLANET_RUPTURE.slam], ['rupture', PLANET_RUPTURE.forest + 1],
+      ['rupture', PLANET_RUPTURE.cockpit + 0.1],
+      ['rupture', PLANET_RUPTURE.cockpit + 1], ['space', 1], ['victory', 12],
+    ];
+    try {
+      for (const [phase, time] of samples) {
+        if (disposed) throw new Error('Finale preparation was interrupted');
+        reachedSpace = phase === 'space' || phase === 'victory';
+        updateActors(phase, time, time);
+        shipTransform.update(phase, time);
+        const ruptureTime = phase === 'rupture' ? time : -1;
+        world.update(time, phase === 'rupture' ? smooth(time, PLANET_RUPTURE.impact, PLANET_RUPTURE.burst + 3) : Number(reachedSpace),
+          reachedSpace, 4, phase === 'enemyTransform' ? time : 3, ruptureTime);
+        aftermath.update(ruptureTime, time, heroMech.root);
+        await prepareSceneRendering(activeRenderer, scene, camera);
+      }
+    } finally {
+      reachedSpace = previousSpace; paused = false;
+      updateActors(original.phase, original.phaseTime, original.time);
+      shipTransform.update(original.phase, original.phaseTime);
+      updatePhysics(0);
+      paused = previousPaused;
+    }
+  }
+
   return {
     scene, camera, player, ready, ownsWeaponInput: true, forceThirdPerson: true,
-    updatePhysics,
+    updatePhysics, prepareRendering,
     isCinematic: () => (lastPhase !== 'ground' && lastPhase !== 'space') || director.duel.getState().special?.cinematic === true,
     onPlayerDeath: () => true,
     hideCharacter: () => lastPhase !== 'reveal' && lastPhase !== 'enemyTransform'
@@ -1153,6 +1212,8 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
       else renderer.render(scene, camera);
     },
     getSceneId: () => 'scene21',
+    getDeveloperSceneId: () => director.getState().phase === 'rupture' ? 'scene21.5'
+      : director.getState().phase === 'finisher' ? 'scene21.9' : 'scene21',
     getControllerPhase: () => lastPhase,
     getControllerQteIndex: () => director.qte.getState().index,
     getMusicTrack: () => finaleMusicTrack(director.getState().phase),

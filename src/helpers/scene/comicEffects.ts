@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { yieldToMainThread } from '../../core/loader.js';
 
 export type ComicEffectKind = 'hit' | 'boom' | 'clank' | 'pew' | 'thud';
 interface ComicEffectOptions {
@@ -44,6 +45,12 @@ const STYLE = {
 const systems = new WeakMap<THREE.Object3D, ComicSystem>();
 const roots = new WeakMap<THREE.Object3D, ComicSystem>();
 const metrics = new WeakMap<THREE.Object3D, { center: THREE.Vector3; size: number }>();
+const artwork = new Map<string, THREE.CanvasTexture>();
+const EFFECT_WORDS: Array<[ComicEffectKind, string]> = [
+  ['hit', 'SHING!'], ['hit', 'SWOOSH!'], ['hit', 'KRAK!'], ['hit', 'ZAP!'],
+  ['hit', 'BAM!'], ['hit', 'PING!'], ['boom', 'BOOM!'], ['clank', 'CLANK!'],
+  ['pew', 'PEW!'], ['thud', 'THUD!'],
+];
 const cameraPosition = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3(), forward = new THREE.Vector3();
 const cameraRotation = new THREE.Quaternion();
 const position = new THREE.Vector3(), projected = new THREE.Vector3(), viewSize = new THREE.Vector2();
@@ -121,10 +128,45 @@ function textureFor(system: ComicSystem, effect: Effect) {
   const key = `${effect.kind}:${effect.word}`;
   let texture = system.textures.get(key);
   if (texture) return texture;
-  texture = new THREE.CanvasTexture(createComicEffectArtwork(effect.kind, effect.word));
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.minFilter = THREE.LinearFilter; texture.generateMipmaps = false;
+  texture = effectArtwork(effect.kind, effect.word).clone();
   system.textures.set(key, texture); return texture;
+}
+
+function effectArtwork(kind: ComicEffectKind, word: string) {
+  const key = `${kind}:${word}`;
+  let texture = artwork.get(key);
+  if (!texture) {
+    texture = new THREE.CanvasTexture(createComicEffectArtwork(kind, word));
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter; texture.generateMipmaps = false;
+    artwork.set(key, texture);
+  }
+  return texture;
+}
+
+export async function preloadComicEffectArtwork() {
+  for (const [kind, word] of EFFECT_WORDS) {
+    effectArtwork(kind, word);
+    await yieldToMainThread();
+  }
+}
+
+export async function prepareComicEffects(container: THREE.Object3D, renderer: THREE.WebGLRenderer) {
+  const system = systemFor(container);
+  for (const [kind, word] of EFFECT_WORDS) {
+    const key = `${kind}:${word}`;
+    if (!system.textures.has(key)) system.textures.set(key, effectArtwork(kind, word).clone());
+    renderer.initTexture(system.textures.get(key)!);
+  }
+  while (system.pool.length < 8) {
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: system.textures.get('clank:CLANK!'), transparent: true, depthTest: true, depthWrite: false, toneMapped: false,
+    }));
+    sprite.name = 'ComicCombatWord'; sprite.userData.minimap = false; sprite.userData.comicEffect = true;
+    sprite.visible = false; sprite.raycast = () => {};
+    system.root.add(sprite); system.sprites.add(sprite); system.pool.push(sprite);
+  }
+  await yieldToMainThread();
 }
 
 export function createComicEffectArtwork(kind: ComicEffectKind, word = `${kind.toUpperCase()}!`) {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { after, before, test } from 'node:test';
 import { createServer } from 'vite';
+import { mockCombatAnimationFetch } from './combatAnimationFixtures.mjs';
 
 let server, THREE, GLTFLoader, createHangar, loadCharacter;
 before(async () => {
@@ -20,6 +21,7 @@ before(async () => {
 after(async () => server?.close());
 
 function browser(t) {
+  mockCombatAnimationFetch(t);
   const old = { window: globalThis.window, document: globalThis.document, HTMLElement: globalThis.HTMLElement, ProgressEvent: globalThis.ProgressEvent, self: globalThis.self };
   class Element extends EventTarget {
     style = { setProperty(name, value) { this[name] = value; } }; dataset = {}; textContent = ''; classes = new Set(['hidden']);

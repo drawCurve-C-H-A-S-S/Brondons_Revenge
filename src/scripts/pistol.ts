@@ -32,22 +32,22 @@ function belongsTo(object: THREE.Object3D, root: THREE.Object3D) {
   for (let node: THREE.Object3D | null = object; node; node = node.parent) if (node === root) return true;
   return false;
 }
-function visible(object: THREE.Object3D) {
-  for (let node: THREE.Object3D | null = object; node; node = node.parent) if (!node.visible) return false;
-  return true;
-}
-
 /** Nearest surface wins. Damage is dispatched only to explicitly registered NPCs. */
 export function traceShot(scene: THREE.Scene, world: CANNON.World | null, ray: THREE.Ray,
   targets: DamageTarget[], ignored: THREE.Object3D[] = [], range = 100) {
   scene.updateMatrixWorld(true);
   const raycaster = new THREE.Raycaster(ray.origin, ray.direction, 0, range);
-  const hits = raycaster.intersectObjects(scene.children, true).filter(hit => {
-    if (!visible(hit.object) || hit.object.name === 'BreakableDebris' || ignored.some(root => belongsTo(hit.object, root))) return false;
-    if (!(hit.object instanceof THREE.Mesh)) return false;
-    const materials = Array.isArray(hit.object.material) ? hit.object.material : [hit.object.material];
-    return materials.some(material => material.visible && (!material.transparent || material.opacity >= 0.5));
-  });
+  const surfaces: THREE.Mesh[] = [], excluded = new Set(ignored);
+  function collect(object: THREE.Object3D) {
+    if (!object.visible || excluded.has(object) || object.name === 'BreakableDebris') return;
+    if (object instanceof THREE.Mesh) {
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      if (materials.some(material => material.visible && (!material.transparent || material.opacity >= 0.5))) surfaces.push(object);
+    }
+    for (const child of object.children) collect(child);
+  }
+  collect(scene);
+  const hits = raycaster.intersectObjects(surfaces, false);
   const first = hits[0];
   let distance = first?.distance ?? range;
   let target = first && targets.find(candidate => belongsTo(first.object, candidate.root));

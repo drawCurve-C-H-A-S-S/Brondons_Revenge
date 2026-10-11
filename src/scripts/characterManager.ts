@@ -10,8 +10,9 @@
 import * as THREE from 'three';
 import type { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { loadPlayerModel, yieldToMainThread } from '../core/loader.js';
+import { loadCombatAnimationsForRig } from '../core/combatAnimations.js';
 import { createCrowbar } from './items/createCrowbar.js';
-import { createLightsaber, disposeLightsaber, fitLightsaberToHand, fitWeaponToHand, getLightsaberAttackClips, LIGHTSABER_SWING_DURATION, type LightsaberAttackName } from './items/createLightsaber.js';
+import { createLightsaber, disposeLightsaber, fitLightsaberToHand, fitWeaponToHand, getLightsaberAttackClips } from './items/createLightsaber.js';
 import { LADDER } from '../utils/constants.js';
 import { createGoggles } from './rewardChest.js';
 import { SLIDE_TACKLE, slideTackleMotion } from '../helpers/animation/slideTackle.js';
@@ -60,7 +61,7 @@ const CLIP_NAMES = [
   'Float_Loop', 'Box_Push_Loop', 'Box_Pull_Loop',
   'Slide_Tackle', 'Silent_Takedown',
 ] as const;
-type ClipName = typeof CLIP_NAMES[number] | LightsaberAttackName;
+type ClipName = typeof CLIP_NAMES[number] | `Sword_${string}`;
 
 // One-shot action clips. They play once per key press, then the normal
 // locomotion state machine resumes (idle or walk, mixer-driven completion).
@@ -244,7 +245,9 @@ export async function loadCharacter(loader?: GLTFLoader) {
 
   // ---- Animation setup ----
   const mixer = new THREE.AnimationMixer(model);
-  const clips = gltf.animations || [];
+  const combatClips = (await loadCombatAnimationsForRig(model)).filter(clip => clip.name.startsWith('Sword_'));
+  const combatNames = new Set(combatClips.map(clip => clip.name));
+  const clips = [...(gltf.animations ?? []).filter(clip => !combatNames.has(clip.name)), ...combatClips];
 
   // Bake two-bone IK once at load time. The actual UAL leg names are thigh/calf.
   // Targets are model-local (+Z forward), independent of each bone's rest axes.
@@ -415,22 +418,22 @@ export async function loadCharacter(loader?: GLTFLoader) {
     }
   }
   clips.push(await bakeRigClip('Silent_Takedown', 1.65, 35, time => {
-    const reach = THREE.MathUtils.smootherstep(time, 0, 0.4);
-    const disable = THREE.MathUtils.smootherstep(time, 0.45, 0.9);
-    const recover = THREE.MathUtils.smootherstep(time, 1.1, 1.65);
+    const reach = THREE.MathUtils.smootherstep(time, 0.1, 0.48);
+    const disable = THREE.MathUtils.smootherstep(time, 0.55, 1.03);
+    const recover = THREE.MathUtils.smootherstep(time, 1.12, 1.65);
     const weight = reach * (1 - recover), twist = Math.sin(disable * Math.PI) * weight;
-    const hips = hipRest.clone(); hips.y -= weight * 0.13; hips.z += weight * 0.08;
+    const hips = hipRest.clone(); hips.y -= weight * 0.22; hips.z += weight * 0.12;
     pelvis.position.copy(pelvis.parent!.worldToLocal(hips)); model.updateMatrixWorld(true);
-    rotateAnatomically(spine[0], weight * 0.12, -twist * 0.2);
-    rotateAnatomically(spine[1], weight * 0.1, -twist * 0.15);
+    rotateAnatomically(spine[0], weight * 0.18, -twist * 0.3);
+    rotateAnatomically(spine[1], weight * 0.14, -twist * 0.2);
     rotateAnatomically(neck, -weight * 0.1);
     for (const suffix of ['l', 'r']) {
       const side = suffix === 'l' ? 1 : -1;
       solveLimb(`thigh_${suffix}`, `calf_${suffix}`, `foot_${suffix}`,
-        new THREE.Vector3(side * 0.17, floor + ankleHeight, side * weight * 0.16), new THREE.Vector3(side * 0.2, 0, 1));
-      const hand = new THREE.Vector3(side * (0.29 - weight * 0.09),
-        1.08 + weight * (suffix === 'l' ? 0.2 : 0.08) - disable * weight * 0.16,
-        0.08 + weight * 0.61 - (suffix === 'r' ? twist * 0.18 : 0));
+        new THREE.Vector3(side * 0.21, floor + ankleHeight, side * weight * 0.24), new THREE.Vector3(side * 0.2, 0, 1));
+      const hand = new THREE.Vector3(side * (0.29 - weight * 0.12),
+        1.08 + weight * (suffix === 'l' ? 0.24 : 0.04) - disable * weight * 0.18,
+        0.08 + weight * (suffix === 'l' ? 0.63 : 0.52) - (suffix === 'r' ? twist * 0.2 : 0));
       solveLimb(`upperarm_${suffix}`, `lowerarm_${suffix}`, `hand_${suffix}`, hand, new THREE.Vector3(side, -0.2, -0.15));
       orientHand(suffix, false, weight > 0.2);
     }
@@ -493,12 +496,12 @@ export async function loadCharacter(loader?: GLTFLoader) {
     actions.set(name, action);
   }
 
-  const lightsaberAttackClips = getLightsaberAttackClips(clips);
+  const lightsaberAttackClips = getLightsaberAttackClips(clips, combatClips.length > 0);
   const lightsaberAttacks = lightsaberAttackClips.map(clip => clip.name);
   const actionClips = new Set([...ACTION_CLIPS, ...lightsaberAttacks]);
   const swordIdle = THREE.AnimationClip.findByName(clips, 'Sword_Idle');
   for (const clip of [...lightsaberAttackClips, ...(swordIdle ? [swordIdle] : [])]) {
-    const name = clip.name as LightsaberAttackName;
+    const name = clip.name as `Sword_${string}`;
     if (actions.has(name)) continue;
     const action = mixer.clipAction(clip);
     const oneShot = actionClips.has(name);
@@ -529,6 +532,9 @@ export async function loadCharacter(loader?: GLTFLoader) {
   const upperClip = (clip: THREE.AnimationClip) => new THREE.AnimationClip(`${clip.name}_UpperBody`, clip.duration,
     clip.tracks.filter(track => upperBones.has(THREE.PropertyBinding.parseTrackName(track.name).nodeName)).map(track => track.clone()));
   const readyClip = aimClip ?? holdClip;
+  const interactClip = THREE.AnimationClip.findByName(clips, 'Interact');
+  const interactAction = interactClip ? upperMixer.clipAction(upperClip(interactClip)).setLoop(THREE.LoopOnce, 1) : null;
+  let interactionTime = -1;
   const holdAction = readyClip ? upperMixer.clipAction(upperClip(readyClip)) : null;
   const shootAction = shootClip ? upperMixer.clipAction(upperClip(shootClip)) : null;
   const reloadAction = reloadClip ? upperMixer.clipAction(upperClip(reloadClip)) : null;
@@ -639,12 +645,12 @@ export async function loadCharacter(loader?: GLTFLoader) {
   function fadeTo(name: ClipName, restart = false, immediate = false) {
     const next = actions.get(name);
     if (!next || (next === currentAction && !restart && !immediate)) return;
-    const saberAttack = lightsaberEquipped && lightsaberAttacks.includes(name as LightsaberAttackName);
+    const saberAttack = lightsaberEquipped && lightsaberAttackClips.some(clip => clip.name === name);
     const blend = name === 'Slide_Tackle' ? 0.08 : currentAction.getClip().name === 'Slide_Tackle' ? 0.14 : saberAttack ? 0.045 : 0.2;
     const sameAction = next === currentAction;
     if (immediate) mixer.stopAllAction();
     else if (!sameAction) currentAction.fadeOut(blend);
-    const speed = saberAttack ? next.getClip().duration / LIGHTSABER_SWING_DURATION : name === 'Sword_Attack' ? 2.8 : 1;
+    const speed = name === 'Sword_Attack' && !saberAttack ? 2.8 : 1;
     next.reset().setEffectiveTimeScale(speed).setEffectiveWeight(1);
     if (!immediate && !sameAction) next.fadeIn(blend);
     next.play();
@@ -770,7 +776,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
       // One-shot action requests (keys 6-9) play once, then locomotion resumes.
       // While one plays, idle/walk/land transitions wait for mixer completion.
       const actionPlaying = actionClips.has(name) && !currentAction.paused;
-      if (freshActionRequest && actions.has(freshActionRequest) && !pistolRequest) {
+      if (freshActionRequest && freshActionRequest !== 'Interact' && actions.has(freshActionRequest) && !pistolRequest) {
         fadeTo(freshActionRequest, true);
       } else if (!actionPlaying) {
         // Crouch animations take priority when crouching
@@ -817,10 +823,29 @@ export async function loadCharacter(loader?: GLTFLoader) {
     const slideAction = actions.get('Slide_Tackle');
     const slideBlending = playerState.sliding || !!(slideAction?.isScheduled() && slideAction.getEffectiveWeight() > 0.01);
     const handsFree = !slideBlending && !climbing && !playerState.ventMode && !boxHandling;
+    if (freshActionRequest === 'Interact' && handsFree && !cinematic && interactAction) {
+      interactionTime = 0; interactAction.reset().play();
+    }
+    if (interactionTime >= 0) {
+      interactionTime += dt;
+      if (!handsFree || cinematic || !interactAction || interactionTime >= interactAction.getClip().duration) {
+        interactAction?.stop(); interactionTime = -1;
+      }
+    }
     socket.visible = handsFree;
     crowbar.visible = crowbarEquipped && handsFree;
     lightsaber.visible = lightsaberEquipped && handsFree;
-    if (cinematic?.upperBody && handsFree) {
+    if (interactionTime >= 0 && interactAction && handsFree) {
+      interactAction.time = interactionTime; interactAction.paused = true;
+      upperMixer.update(0);
+      const duration = interactAction.getClip().duration;
+      const blend = THREE.MathUtils.smoothstep(interactionTime, 0, 0.12)
+        * (1 - THREE.MathUtils.smoothstep(interactionTime, duration - 0.18, duration));
+      for (const base of layerBones) {
+        base.bone.position.lerp(base.pose.position, blend);
+        base.bone.quaternion.slerp(base.pose.quaternion, blend);
+      }
+    } else if (cinematic?.upperBody && handsFree) {
       const layer = cinematic.upperBody;
       let next = cinematicUpperActions.get(layer.clip);
       if (!next) {
@@ -1007,7 +1032,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
   }
 
   return {
-    model, mixer, update, setFacing, setHologramTransition, weapon, crowbar, lightsaberAttacks,
+    model, mixer, update, setFacing, setHologramTransition, weapon, crowbar, lightsaberAttackClips,
     setCrowbarEquipped: (equipped: boolean) => { crowbarEquipped = equipped; crowbar.visible = equipped; },
     setLightsaberEquipped: (equipped: boolean) => { lightsaberEquipped = equipped; lightsaber.visible = equipped; },
     setGogglesEquipped: (equipped: boolean) => { goggles.visible = equipped; },

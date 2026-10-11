@@ -47,6 +47,12 @@ export function isControllerType(value: string): value is ControllerType {
   return CONTROLLER_TYPES.some(type => type === value);
 }
 
+function detectedControllerType(id: string): ControllerType {
+  if (/playstation|dualshock|dualsense|sony|054c|wireless controller/i.test(id)) return 'playstation';
+  if (/nintendo|switch|joy-con|pro controller|nes/i.test(id)) return 'switch';
+  return 'xbox';
+}
+
 const directionalLabels = { up: 'D-pad Up', down: 'D-pad Down', left: 'D-pad Left', right: 'D-pad Right' };
 const profiles: Record<ControllerType, {
   name: string; labels: Record<ControllerButton, string>; confirm: ControllerButton; cancel: ControllerButton;
@@ -102,10 +108,11 @@ const contextKeys: Record<ControllerContext, Partial<Record<ControllerButton, st
   inspection: { r: 'KeyE', b: 'Escape', left: 'KeyR' },
   cinematic: { r: 'KeyE', b: 'Space', left: 'KeyR', minus: 'Enter' },
   flight: { b: 'Space', r: 'Enter', x: 'KeyV', minus: 'Enter' },
-  finale: { a: 'KeyJ', x: 'KeyF', zl: 'KeyR', b: 'Space', r: 'KeyE', minus: 'Enter' },
+  finale: { a: 'KeyJ', x: 'KeyF', zl: 'KeyR', b: 'Space', r: 'KeyE', y: 'KeyC', l: 'KeyG',
+    left: 'KeyR', minus: 'Enter' },
   'finale-qte': { a: 'KeyJ', x: 'KeyF', zl: 'KeyR', b: 'Space', r: 'KeyE', y: 'KeyD',
     left: 'KeyA', up: 'KeyW', minus: 'Enter' },
-  escape: { a: 'KeyY', x: 'KeyU', b: 'KeyI', y: 'KeyO', r: 'KeyE', minus: 'Enter' },
+  escape: { a: 'KeyY', x: 'KeyU', b: 'KeyI', y: 'KeyO', r: 'KeyE', left: 'KeyR', minus: 'Enter' },
 };
 const labels: Record<string, string> = {
   KeyW: 'Left stick up', KeyS: 'Left stick down', KeyA: 'Left stick left', KeyD: 'Left stick right',
@@ -122,6 +129,7 @@ export function controllerLabel(code: string, context: ControllerContext = 'foot
     if (code === 'KeyJ') return controllerButtonLabel('a');
     if (code === 'KeyF') return controllerButtonLabel('x');
     if (code === 'KeyR') return controllerButtonLabel('zl');
+    if (context === 'finale' && code === 'KeyG') return controllerButtonLabel('l');
     if (context === 'finale-qte') {
       if (code === 'KeyD') return controllerButtonLabel('y');
       if (code === 'KeyA') return controllerButtonLabel('left');
@@ -138,7 +146,7 @@ export function controllerLabel(code: string, context: ControllerContext = 'foot
 /** Use only for input hints, not dialogue or arbitrary prose. */
 export function inputHint(text: string, context: ControllerContext = 'foot') {
   if (!isControllerActive()) return text;
-  return text.replace(/\b(WASD(?:\s*\/\s*arrows)?|[Ll]eft click|LMB|[Mm]ouse|[Cc]lick|Shift|Space|Tab|Enter|Esc(?:ape)?|[ACDEFIJMNQRTUVWY]|9)\b(?!-pad)/g, token => {
+  return text.replace(/\b(WASD(?:\s*\/\s*arrows)?|[Ll]eft click|LMB|[Mm]ouse|[Cc]lick|Shift|Space|Tab|Enter|Esc(?:ape)?|[ACDEFGIJMNQRSTUVWY]|9)\b(?!-pad)/g, token => {
     if (token.startsWith('WASD')) return 'Left stick';
     if (/mouse/i.test(token)) return 'Right stick';
     if (/click|LMB/i.test(token)) return controllerLabel('MouseLeft', context);
@@ -160,7 +168,9 @@ export const CONTROLLER_LESSONS: Record<string, string[]> = {
     '{zr} - goggles / D-pad Right - dance / {x} - view / {plus} - pause / Hold {minus} to skip cinematics'],
   pistol: ['Hold {l}, select pistol with the right stick, release {l} to equip', 'Select Unarmed to holster / {a} - shoot at your crosshair'],
   crowbar: ['Hold {l}, select crowbar with the right stick, release {l} to equip', 'Select Unarmed to holster / {a} - swing'],
-  lightsaber: ['Hold {l}, select lightsaber with the right stick, release {l} to equip', 'Select Unarmed to holster / {a} - slash'],
+  lightsaber: ['Hold {l}, select lightsaber with the right stick, release {l} to equip', 'Select Unarmed to holster / {a} - slash',
+    'Left stick up + {a} - sword lunge / left or right + {a} - directional cut / down + {a} - finishing cut',
+    'Up-left + {a} - regular combo / up-right + {a} - heavy combo / neutral {a} - three-cut chain'],
   teleport: ['D-pad Down - place purple anchor', 'D-pad Up - teleport to your anchor'],
   goggles: ['{zr} - wear / remove scanner goggles'],
   vent: ['Left stick - move / Hold {zl} - faster crawl', 'Explore the branches to find the camera-room exit', 'Wait for green sensors / Blue pads are checkpoints'],
@@ -175,7 +185,9 @@ export const CONTROLLER_LESSONS: Record<string, string[]> = {
   platformer: ['Left stick - move / {b} - jump / Hold {zl} - sprint / {y} - crouch',
     'Right stick - aim / Hold {l} + right stick - weapons / {a} - attack / D-pad Left - retry'],
   finale: ['Left stick - move (up / down changes altitude in space)',
-    '{a} - sword chain / {x} - rifle salvo / Hold {zl} - shield and parry',
+    'Direction + {a} - sword cut / up-left + {a} - regular combo / up-right + {a} - heavy combo',
+    '{l} - stow / recall weapons / {a} while unarmed - jab, cross, hook / {y} - grounded slide',
+    '{x} - rifle salvo / Hold {zl} - shield and parry',
     '{b} - dodge boost / {r} - Last Light (18-second recharge) / {plus} - pause / Hold {minus} - skip intro',
     'QTE: press the displayed controller control; mash {y} for blade lock and hold {r} to charge',
     'D-pad Left - execution-shot evade / retry after defeat / D-pad Up - ascend'],
@@ -206,6 +218,7 @@ function keyEvent(code: string, pressed: boolean) {
 export function createGamepadInput(options: GamepadInputOptions) {
   const listeners = new AbortController();
   const layouts = new Map<string, ControllerLayout>();
+  const deviceTypes = new Map<string, ControllerType>();
   const swappedButtons = new Map<string, boolean>();
   const heldKeys = new Set<string>(), blockedButtons = new Set<ControllerButton>();
   let pad: Gamepad | null = null, layout: ControllerLayout | null = null;
@@ -240,7 +253,7 @@ export function createGamepadInput(options: GamepadInputOptions) {
         : !capable ? 'Controller detected, but this layout needs two sticks and the game action buttons.'
           : setup ? `Controller setup: follow each prompt using the physical ${profiles[controllerType].name} button labels.`
             : !layout ? 'Controller detected without a standard browser mapping. Center both sticks, release all buttons, then choose Calibrate game controls.'
-              : `${profiles[controllerType].name} profile selected. ${mode === 'controller' ? 'Controller input is active.' : 'Keyboard & mouse remain active until you select Controller.'}`),
+              : `${profiles[controllerType].name} profile selected. ${mode === 'controller' ? 'Controller input is active.' : 'Keyboard & mouse selected. Reconnect the controller or select Controller to switch.'}`),
       setupStep: setup ? `${setup.index + 1} / ${setup.steps.length}: ${setup.error || (setup.wait ? 'Release the control and center both sticks' : instruction)}` : null };
   }
   function notifyStatus() {
@@ -301,10 +314,16 @@ export function createGamepadInput(options: GamepadInputOptions) {
       options.onNotice('Controller disconnected. Keyboard & mouse restored.');
     }
     pad = retained ?? connected.find(item => item.mapping === 'standard' && item.axes.length >= 4 && item.buttons.length >= 16) ?? connected[0] ?? null;
+    const newlyConnected = !!pad && (pad.id !== previous?.id || pad.index !== previous?.index);
+    if (newlyConnected && pad) controllerType = deviceTypes.get(pad.id) ?? detectedControllerType(pad.id);
     refreshLayout();
-    if (pad && (pad.id !== previous?.id || pad.index !== previous?.index)) {
-      previousButtons.clear(); currentButtons.clear(); blockedButtons.clear(); reset();
-      options.onNotice('Controller detected. Open M > Controls, pick Switch, Xbox or PlayStation, then select Controller.');
+    if (newlyConnected && pad) {
+      currentButtons = layout ? new Set(BUTTONS.filter(button => buttonDown(pad!, layout!.buttons[button]))) : new Set();
+      previousButtons = new Set(currentButtons); blockedButtons.clear(); reset();
+      if (status().ready) {
+        setMode('controller');
+        options.onNotice(`${profiles[controllerType!].name} controller connected. Controller input enabled automatically.`);
+      } else options.onNotice(status().message);
     }
     notifyStatus();
   }
@@ -317,6 +336,7 @@ export function createGamepadInput(options: GamepadInputOptions) {
   }
   function layoutKey() { return pad && controllerType ? `${controllerType}:${pad.id}` : null; }
   function setControllerType(type: ControllerType) {
+    if (pad) deviceTypes.set(pad.id, type);
     if (type === controllerType) return;
     reset(); setup = null; controllerType = type; refreshLayout();
     currentButtons = pad && layout ? new Set(BUTTONS.filter(button => buttonDown(pad!, layout!.buttons[button]))) : new Set();

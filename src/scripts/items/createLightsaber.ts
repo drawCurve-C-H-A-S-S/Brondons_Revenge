@@ -1,17 +1,19 @@
 import * as THREE from 'three';
 import saberGlowVertex from '../../shaders/saberGlow.vert.glsl?raw';
 import saberGlowFragment from '../../shaders/saberGlow.frag.glsl?raw';
+import { MELEE_STRIKES, SWORD_ATTACK_CLIPS } from '../finaleChoreography.js';
 
-export type LightsaberAttackName = `Sword_${string}`;
-export const LIGHTSABER_SWING_DURATION = 0.35;
+export type LightsaberAttackName = typeof SWORD_ATTACK_CLIPS[keyof typeof SWORD_ATTACK_CLIPS];
+export const LIGHTSABER_SWING_DURATION = MELEE_STRIKES.slash.duration;
 
 /** Discover the rig's authored strikes without treating blocks or idles as attacks. */
-export function getLightsaberAttackClips(clips: readonly THREE.AnimationClip[]) {
-  return clips.filter((clip): clip is THREE.AnimationClip & { name: LightsaberAttackName } =>
-    clip.name.startsWith('Sword_') && /attack|slash|stab|thrust|combo|swing|chop|spin/i.test(clip.name)
-    && !/block|parry|react|hit|death|(?:^|_)RM(?:_|$)|root.?motion/i.test(clip.name)
-    && Number.isFinite(clip.duration) && clip.duration > 0
-  ).sort((a, b) => a.name.localeCompare(b.name));
+export function getLightsaberAttackClips(clips: readonly THREE.AnimationClip[], requireComplete = true) {
+  const names = new Set<string>(Object.values(SWORD_ATTACK_CLIPS));
+  const attacks = clips.filter((clip): clip is THREE.AnimationClip & { name: LightsaberAttackName } =>
+    names.has(clip.name) && Number.isFinite(clip.duration) && clip.duration > 0);
+  const missing = [...names].filter(name => !attacks.some(clip => clip.name === name));
+  if (requireComplete && missing.length) throw new Error(`Required lightsaber animations are missing: ${missing.join(', ')}`);
+  return attacks;
 }
 
 export function fitWeaponToHand(weapon: THREE.Object3D, hand: THREE.Object3D, gripHeight: number) {

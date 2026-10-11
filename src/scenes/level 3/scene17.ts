@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { createScenePhysics, createGroundMotor, PHYSICS, registerPhysicsActor } from '../../helpers/physics/scenePhysics.js';
-import { createRescueSite, RESCUE_SITE, JUNGLE_PATH, JUNGLE_ROUTE, JUNGLE_ENTRY_YAW, type RescueArrival } from '../../helpers/scene/rescueSite.js';
+import { createRescueSite, RESCUE_SITE, JUNGLE_PATH, JUNGLE_ROUTE, JUNGLE_ENTRY_YAW,
+  type RescueArrival, type WaterfallCharacterContact } from '../../helpers/scene/rescueSite.js';
 import { createPlayer } from '../../scripts/player.js';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { loadToolModel, loadDinoModel, loadSharkModel } from '../../core/loader.js';
@@ -25,6 +26,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   const site = createRescueSite(physics, { culling: true }), { scene, door, ship, pod, boy } = site;
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 650);
   const player = createPlayer({ camera, physicsWorld, spawnPosition: spawn });
+  const waterfallContact: WaterfallCharacterContact = { position: player.body.position, headY: player.getHeadY(), radius: player.radius };
   if (entryState?.pilotState) player.restoreTransition({
     ...entryState.pilotState, position: spawn, velocity: { x: 0, y: 0, z: 0 },
     yaw: spawnYaw, pitch: 0, heldKeys: [], blockedKeys: [], crouching: false, sprinting: false,
@@ -88,15 +90,20 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
     start: THREE.Vector3; attackIndex: number }> = [];
   const sharkReady = loadShark().then(asset => {
     if (disposed) { releaseTemplate(asset.scene); return; }
-    const bounds = new THREE.Box3().setFromObject(asset.scene), size = bounds.getSize(new THREE.Vector3());
+    const normalized = new THREE.Group(); normalized.add(asset.scene);
+    const sampler = new THREE.AnimationMixer(asset.scene);
+    if (asset.animations[0]) { sampler.clipAction(asset.animations[0]).play(); sampler.update(0); }
+    const bounds = new THREE.Box3().setFromObject(normalized), size = bounds.getSize(new THREE.Vector3());
+    if (size.y > Math.max(size.x, size.z)) { normalized.rotation.x = -Math.PI / 2; bounds.setFromObject(normalized); bounds.getSize(size); }
+    sampler.stopAllAction(); sampler.uncacheRoot(asset.scene);
     const length = Math.max(size.x, size.z);
     if (!Number.isFinite(length) || length <= 0) { releaseTemplate(asset.scene); throw new Error('River shark has empty geometry'); }
-    const center = bounds.getCenter(new THREE.Vector3()), scale = 4.4 / length;
-    asset.scene.scale.multiplyScalar(scale); asset.scene.position.add(center.multiplyScalar(-scale));
-    bounds.setFromObject(asset.scene); const finHeight = bounds.max.y;
-    asset.scene.visible = false; scene.add(asset.scene);
+    const center = bounds.getCenter(new THREE.Vector3()), scale = Math.min(2.7 / length, 1.15 / Math.max(size.y, 0.01));
+    normalized.scale.setScalar(scale); normalized.position.copy(center).multiplyScalar(-scale);
+    bounds.setFromObject(normalized); const finHeight = bounds.max.y;
+    normalized.visible = false; scene.add(normalized);
     for (const [index, x] of [-70, -57, -36, -17, 4, 27, 51].entries()) {
-      const root = new THREE.Group(), model = clone(asset.scene); model.visible = true;
+      const root = new THREE.Group(), model = clone(normalized); model.visible = true;
       const baseY = RESCUE_SITE.riverY - finHeight + 0.1;
       root.name = `RiverShark${index + 1}`; root.add(model); root.position.set(x, baseY, RESCUE_SITE.riverZ + (index % 2 ? 4 : -4)); scene.add(root);
       const mixer = new THREE.AnimationMixer(model);
@@ -723,7 +730,8 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
       animationDelta = 0;
       if (disposed || paused || document.hidden || document.body.classList.contains('quick-menu-open')) return;
       dt = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, PHYSICS.maxFrameTime)); animationDelta = dt;
-      site.update(dt);
+      waterfallContact.headY = player.getHeadY();
+      site.update(dt, waterfallContact);
       if (deathClock > 0) {
         if (sharkClock >= 0) updateSharkSwarm(dt);
         deathClock = Math.max(0, deathClock - dt);

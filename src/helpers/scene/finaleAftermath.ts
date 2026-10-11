@@ -172,6 +172,9 @@ export function createFinaleAftermath(scene: THREE.Scene, boy: THREE.Group, fore
       if (cockpit.visible) {
         cockpit.position.copy(hero.position).add(V(0, 10.6, 0));
         cockpit.rotation.y = hero.rotation.y;
+        const impact = 1 - cinematicProgress(phaseTime, PLANET_RUPTURE.cockpit, PLANET_RUPTURE.cockpit + 0.8);
+        pilot.position.y = -state.grief * 0.055 + (reducedMotion ? 0 : Math.sin(time * 2.8) * 0.006);
+        cockpit.rotation.z = reducedMotion ? 0 : Math.sin(time * 5.5) * 0.008 * impact;
         if (pilotMixer && sitting && talking) {
           const speaking = cinematicProgress(phaseTime, PLANET_RUPTURE.cockpit + 0.4, PLANET_RUPTURE.cockpit + 1.1);
           sitting.setEffectiveWeight(1 - speaking * 0.85); talking.setEffectiveWeight(speaking * 0.85);

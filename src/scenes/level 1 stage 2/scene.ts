@@ -15,7 +15,7 @@ import { hologramTransitionAt, HOLOGRAM_TRANSFER_DURATION, type CinematicPose } 
 import type { DamageTarget } from '../../scripts/pistol.js';
 import type { CctvTarget } from '../../scripts/cctv.js';
 import type { WeaponId } from '../../scripts/weaponWheel.js';
-import { inputHint } from '../../scripts/gamepadInput.js';
+import { inputHint, isControllerActive } from '../../scripts/gamepadInput.js';
 import { fitCabinProp } from '../living quarters/furnishings.js';
 import { STAGE_TWO, STAGE_TWO_MAP, STAGE_TWO_KEYCARD_ROOMS, VENT_MAZE, VENT_BOUNDS, VENT_START,
   VENT_EXIT, VENT_CENTER, VENT_SENSORS, VENT_SAFE_CELLS, ventPoint, ventSensorState, swipeStageTwoKeycard, collectStageTwoKeycard,
@@ -382,7 +382,8 @@ export function createScene(options: StageTwoOptions) {
   function fail(reason: string) {
     if (phase === 'failed' || disposed) return;
     player.takeDamage(player.getHealth() + player.getShield() + 1, true); setPhase('failed');
-    failureTitle.textContent = 'CAUGHT'; failureText.textContent = reason; retry.textContent = 'R / Retry silent takedown';
+    failureTitle.textContent = 'CAUGHT'; failureText.textContent = reason;
+    retry.textContent = isControllerActive() ? 'Restarting surveillance checkpoint...' : 'R / Retry silent takedown';
     caption.classList.add('hidden'); stopRumble(); hideGuardShot();
   }
   function restoreCheckpoint() {
@@ -719,6 +720,9 @@ export function createScene(options: StageTwoOptions) {
       readerMaterial.color.setHex(progress.elevatorUnlocked ? 0x72eeaa : 0xff785e);
       readerMaterial.emissive.setHex(progress.elevatorUnlocked ? 0x248549 : 0x8d2019);
       switch (phase) {
+        case 'failed':
+          if (isControllerActive() && phaseTime >= 2.5) restoreCheckpoint();
+          break;
         case 'maze':
           sensorGrace = Math.max(0, sensorGrace - frame);
           for (const cell of VENT_SAFE_CELLS) {

@@ -1,6 +1,7 @@
 uniform float uTime;
 uniform float uMode;
 uniform vec3 uOrigin;
+uniform vec3 uDeepColor;
 uniform vec3 uWaterColor;
 uniform vec3 uFoamColor;
 uniform vec3 uSkyColor;
@@ -21,10 +22,10 @@ varying float vSprayFade;
 void main() {
   vec3 color;
   float alpha;
-  #ifdef WATERFALL_SPRAY
+  #if defined(WATERFALL_SPRAY) || defined(WATERFALL_CHARACTER_SPLASH)
     float radius = length(gl_PointCoord - 0.5) * 2.0;
     alpha = (1.0 - smoothstep(0.18, 1.0, radius)) * vSprayFade * 0.48;
-    color = uFoamColor;
+    color = mix(uWaterColor, uFoamColor, 0.72);
   #else
     if (uMode > 0.5) {
       vec2 pool = vWaterPosition.xz - uOrigin.xz;
@@ -53,19 +54,21 @@ void main() {
       vec3 reflected = reflect(-viewDirection, normal);
       float sky = smoothstep(-0.1, 0.55, reflected.y);
       vec3 reflection = mix(uForestColor, uSkyColor, sky);
-      float thickness = 0.1 + broad * 0.45;
-      vec3 transmission = exp(-vec3(1.8, 0.45, 0.24) * thickness);
-      vec3 scattering = uWaterColor * (0.5 + max(dot(normal, uSunDirection), 0.0) * 0.5);
-      color = scattering * (vec3(1.0) - transmission) + reflection * (fresnel * 0.7 + 0.1);
+      float thickness = 0.75 + broad * 1.3;
+      vec3 transmission = exp(-vec3(0.8, 0.33, 0.24) * thickness);
+      vec3 waterColor = mix(uDeepColor, uWaterColor, transmission) * (0.85 + broad * 0.25);
+      color = mix(waterColor, reflection, fresnel * 0.72 + 0.1);
       float veins = smoothstep(0.56, 0.79, broad + detailA.x * 0.18);
       float impact = 1.0 - smoothstep(0.0, 0.085, vWaterUv.y);
-      float foam = clamp(veins * 0.38 + impact * (0.45 + detailA.x * 0.5), 0.0, 0.9);
+      float streaks = smoothstep(0.28, 0.78, broad + detailA.x * 0.24);
+      float foam = clamp(0.05 + streaks * 0.28 + veins * 0.14 + impact * 0.4, 0.0, 0.82);
       color = mix(color, uFoamColor, foam);
       vec3 halfDirection = normalize(viewDirection + uSunDirection);
       float sparkle = pow(max(dot(normal, halfDirection), 0.0), 92.0);
       color += uSunColor * sparkle * (0.15 + fresnel * 0.8) * detail;
       float feather = smoothstep(0.0, 0.045, vWaterUv.x) * (1.0 - smoothstep(0.955, 1.0, vWaterUv.x));
-      alpha = clamp(0.2 + (1.0 - transmission.g) * 0.5 + fresnel * 0.4 + foam * 0.45, 0.18, 0.86) * feather;
+      if (feather < 0.03) discard;
+      alpha = 1.0;
     }
   #endif
   gl_FragColor = vec4(max(color, vec3(0.0)), alpha);

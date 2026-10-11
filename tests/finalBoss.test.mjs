@@ -234,7 +234,7 @@ test('the finisher animates sword-beam dodges and a mash D blade lock on a fixed
   assert.equal(prompt.enemyPose, 'verdict');
   assert.equal(dodging.heroPose, 'evade');
   assert.ok(dodging.hero[2] > prompt.hero[2] + 5);
-  assert.ok(dodging.heroRoll < -0.3);
+  assert.ok(dodging.heroRoll < 0 && Math.abs(dodging.heroRoll) <= 0.16, 'Evasion has controlled banking, not a whole-body tumble');
   const clash = FINISHER_BEATS.find(beat => beat.shot === 'clash');
   assert.equal(clash.key, 'KeyD');
   assert.equal(clash.mode, 'mash');
@@ -260,6 +260,17 @@ test('custom mech clips do not rotate hips, legs, knees, or feet', () => {
       for (const bone of lower) assert.deepEqual(bone.quaternion.toArray(), [0, 0, 0, 1]);
     }
   } finally { animator.dispose(); }
+});
+
+test('QTE rifle damage advances through one recoil rather than rapidly reversing the sampled hit pose', () => {
+  const beat = FINISHER_BEATS.find(beat => beat.shot === 'countershot');
+  let previous = 0;
+  for (let time = choreography.RIFLE_SEQUENCE.fire + 0.4; time <= choreography.RIFLE_SEQUENCE.lastShot + 0.65; time += 1 / 60) {
+    const pose = choreography.sampleFinisher(beat, time);
+    assert.ok(pose.enemyPoseProgress >= previous, 'Recoil time cannot scrub back to the start of the damage clip');
+    assert.ok(Math.abs(pose.enemyRoll) <= 0.06);
+    previous = pose.enemyPoseProgress;
+  }
 });
 
 test('the world has no generated mech pads and the ship flight is wired into Scene 21', async () => {

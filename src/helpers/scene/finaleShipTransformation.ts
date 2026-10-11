@@ -7,9 +7,9 @@ import { FINALE_BATTLE_YAW } from './finaleWorld.js';
 
 export function createFinaleShipTransformation(scene: THREE.Scene, ship: ReturnType<typeof createEscapeShip>, destination: THREE.Vector3) {
   const root = new THREE.Group(); root.name = 'ShuttleToPrimeFrame';
-  const parked = ship.root.position.clone(), parkedRotation = ship.root.quaternion.clone();
   const resources = captureFinaleResources(ship.root);
-  root.add(ship.root); scene.add(root);
+  scene.add(root); root.attach(ship.root);
+  const parked = ship.root.position.clone(), parkedRotation = ship.root.quaternion.clone();
   const parts = ship.root.children.map(node => ({
     node, position: node.position.clone(), rotation: node.quaternion.clone(), scale: node.scale.clone(), visible: node.visible,
   }));
@@ -17,14 +17,13 @@ export function createFinaleShipTransformation(scene: THREE.Scene, ship: ReturnT
   ship.root.traverse(node => {
     if (node instanceof THREE.Mesh) for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
       materials.set(material, { opacity: material.opacity, transparent: material.transparent, depthWrite: material.depthWrite });
+      if (!material.transparent) { material.transparent = true; material.needsUpdate = true; }
     }
   });
   const arrival = destination.clone().add(new THREE.Vector3(0, 12, 0));
-  const route = new THREE.CatmullRomCurve3([
-    parked, parked.clone().add(new THREE.Vector3(0, 15, -3)),
-    new THREE.Vector3(-62, 37, 43), new THREE.Vector3(-35, 49, -25),
-    arrival.clone().add(new THREE.Vector3(-3, 3, 12)), arrival,
-  ], false, 'centripetal');
+  const liftEnd = parked.clone().add(new THREE.Vector3(0, 16, -2));
+  const route = new THREE.CubicBezierCurve3(liftEnd, parked.clone().add(new THREE.Vector3(0, 43, -34)),
+    arrival.clone().add(new THREE.Vector3(-24, 15, 40)), arrival);
   const forward = new THREE.Vector3(0, 0, -1), point = new THREE.Vector3(), orbit = new THREE.Vector3();
   const arrivalRotation = new THREE.Quaternion().setFromUnitVectors(forward, route.getTangentAt(1));
   const frameRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), FINALE_BATTLE_YAW);
@@ -42,16 +41,14 @@ export function createFinaleShipTransformation(scene: THREE.Scene, ship: ReturnT
         part.node.position.copy(part.position); part.node.quaternion.copy(part.rotation); part.node.scale.copy(part.scale);
         part.node.visible = part.visible;
       }
-      ship.setFlying(flight > 0, true);
+      ship.setFlying(flight > 0);
       ship.setThrust(flight > 0 ? 1.4 : 0);
       ship.setCanopyOpen(transforming ? 1 - cinematicProgress(time, 0.25, HERO_TRANSFORM.launch) : 1);
       ship.setPilotVisible(false);
+      ship.update(0);
       const morph = transforming ? cinematicProgress(time, HERO_TRANSFORM.disassemble, HERO_TRANSFORM.assembled) : 0;
       for (const [material, original] of materials) {
         const fading = morph > 0.35;
-        if (material.transparent !== (original.transparent || fading)) {
-          material.transparent = original.transparent || fading; material.needsUpdate = true;
-        }
         material.opacity = original.opacity * (1 - cinematicProgress(morph, 0.4, 0.96));
         material.depthWrite = fading ? false : original.depthWrite;
       }
@@ -59,9 +56,17 @@ export function createFinaleShipTransformation(scene: THREE.Scene, ship: ReturnT
         ship.root.position.copy(parked); ship.root.quaternion.copy(parkedRotation);
         return;
       }
-      ship.root.position.copy(route.getPointAt(flight));
-      ship.root.quaternion.setFromUnitVectors(forward, route.getTangentAt(flight));
-      ship.root.rotateZ(-Math.sin(flight * Math.PI) * 0.19);
+      if (flight < 0.24) {
+        const lift = cinematicProgress(flight, 0, 0.24);
+        ship.root.position.lerpVectors(parked, liftEnd, lift);
+        const launchRotation = new THREE.Quaternion().setFromUnitVectors(forward, route.getTangent(0));
+        ship.root.quaternion.slerpQuaternions(parkedRotation, launchRotation, lift);
+      } else {
+        const travel = cinematicProgress(flight, 0.24, 1);
+        ship.root.position.copy(route.getPoint(travel));
+        ship.root.quaternion.setFromUnitVectors(forward, route.getTangent(travel));
+        ship.root.rotateZ(-Math.sin(travel * Math.PI) * 0.16);
+      }
       if (morph <= 0) return;
       ship.root.position.copy(arrival); ship.root.quaternion.copy(arrivalRotation);
       ship.root.updateMatrixWorld(true);

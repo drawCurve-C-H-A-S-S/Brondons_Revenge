@@ -233,7 +233,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   }
 
   function requestAction(action: PlayerActionName) {
-    if (!enabled || inputLocked || sliding || !isOnGround || boxHandling || ventMode || actionRequest || (sideScrollDepth !== null && action !== 'Sword_Attack')) return false;
+    if (!enabled || inputLocked || sliding || !isOnGround || boxHandling || ventMode || actionRequest || (sideScrollDepth !== null && !action.startsWith('Sword_'))) return false;
     actionRequest = action;
     actionRequestLife = 3;
     return true;
@@ -739,6 +739,10 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     getHealth: () => health,
     getDamageFlash: () => Math.max(0, 0.72 - (performance.now() - lastDamageAt) / 650),
     requestAction,
+    getAttackDirection: () => isControllerActive()
+      ? { x: getControllerMovement().x, y: -getControllerMovement().y }
+      : { x: Number(!!(keys.KeyD || keys.ArrowRight)) - Number(!!(keys.KeyA || keys.ArrowLeft)),
+        y: Number(!!(keys.KeyW || keys.ArrowUp)) - Number(!!(keys.KeyS || keys.ArrowDown)) },
     getState: (): PlayerState => ({
       isMoving: enabled && !climbing && (sliding || (floating ? playerBody.velocity.lengthSquared() > 0.04
         : sideScrollDepth !== null ? getMoveDirection() !== null && Math.abs(playerBody.velocity.x) > 0.05 : getMoveDirection() !== null)),

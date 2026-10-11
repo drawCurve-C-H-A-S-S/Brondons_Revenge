@@ -4,6 +4,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { prepareSceneRendering } from '../../core/renderer.js';
 
 export function createFinaleRenderer(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera, mobile: boolean) {
   const pmrem = new THREE.PMREMGenerator(renderer), room = new RoomEnvironment();
@@ -24,7 +25,10 @@ export function createFinaleRenderer(renderer: THREE.WebGLRenderer, scene: THREE
       }
       composer.render(0);
     },
-    prepare: () => renderer.compileAsync(scene, camera),
+    async prepare() {
+      await prepareSceneRendering(renderer, scene, camera);
+      composer.render(0);
+    },
     dispose() {
       if (disposed) return; disposed = true;
       scene.environment = null; environment.dispose(); render.dispose(); bloom.dispose(); output.dispose(); composer.dispose();

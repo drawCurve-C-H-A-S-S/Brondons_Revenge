@@ -1,0 +1,13 @@
+Quaternius Universal Animation Library [Standard]
+Quaternius Universal Animation Library 2 [Standard]
+
+CC0 1.0 Universal (CC0 1.0) Public Domain Dedication
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Models and animations by Quaternius.
+https://quaternius.com/packs/universalanimationlibrary.html
+https://quaternius.com/packs/universalanimationlibrary2.html
+
+Animation tracks are extracted from the free, downloaded Standard GLB packs,
+retargeted to this game's MC and Subject rigs, and baked at 30 samples/second.
+Demo meshes, textures and paid Source assets are not included.

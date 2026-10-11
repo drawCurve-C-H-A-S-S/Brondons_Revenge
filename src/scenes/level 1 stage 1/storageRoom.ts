@@ -193,7 +193,10 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   droneBeam.name = 'HallwayDroneLightCone'; droneBeam.userData.minimap = false; scene.add(droneBeam);
   const beamFrom = new THREE.Vector3(), beamTo = new THREE.Vector3(), beamUp = new THREE.Vector3(0, 1, 0);
   function updateHallwayLight() {
-    droneLight.visible = droneBeam.visible = !droneDown;
+    // A changing light count recompiles every lit material on the first hit.
+    droneLight.intensity = droneDown ? 0 : 25;
+    droneLight.shadow.autoUpdate = !droneDown;
+    droneBeam.visible = !droneDown;
     if (droneDown) return;
     beamFrom.copy(drone.position).addScaledVector(droneFacing, 0.45);
     beamTo.copy(drone.position).addScaledVector(droneFacing, 5.5); beamTo.y = deckY + 0.04;
@@ -280,6 +283,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   let doorAngle = 0;
   let suspicion = 0;
   let caught = false;
+  let caughtTime = 0;
   let lastDelta = 0;
   let checkpoint = restoreCheckpoint, introSeen = restoreCheckpoint, entranceRequested = false, complete = false;
   let secondHalfReached = false;
@@ -443,10 +447,8 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
       && Math.abs(position.z - (elevated ? ladder.topZ : ladder.z + ladder.side * LADDER.bodyOffset)) < 1.1);
   }
   function beginTakedown(actor: StealthActor) {
-    if (!director.completeTakedown(actor.id)) return;
     actorDirection.set(0, 0, 1).applyQuaternion(actor.root.quaternion);
-    player.setRotation(Math.atan2(-actorDirection.x, -actorDirection.z), 0);
-    startCinematic('takedown', actor); ping(120, 0.18);
+    startCinematic('takedown', actor);
   }
 
   function syncDoor() {
@@ -540,6 +542,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     droneDown = false; droneDownTime = droneCaptionTime = 0; drone.visible = true;
     if (droneBody.world !== physics.world) physics.world.addBody(droneBody);
     caught = complete = false; cinematic = climbing = null; doorwayTransfer = null; blockedTransfer = null;
+    caughtTime = 0;
     secondHalfReached = false;
     quartersRequested = false; passageCaptionTime = 0;
     corridorDeathAt = -1;
@@ -882,7 +885,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
       }
     }
     hangar.updateAlarm(frame, alarmAge > 0);
-    hangar.fillLight.visible = checkpoint || cinematic?.kind === 'reveal' || player.body.position.x > 13.5;
+    hangar.fillLight.intensity = checkpoint || cinematic?.kind === 'reveal' || player.body.position.x > 13.5 ? 1.8 : 0;
     if (cinematic) {
       cinematic.time += frame;
       if (cinematic.kind === 'reveal' && cinematic.time >= 11.8) endCinematic();
@@ -890,10 +893,15 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
       else if (cinematic.kind === 'takedown') {
         if (cinematic.actor) {
           actorDirection.copy(cinematic.facing!);
-          const reach = cinematic.actor.root.position.clone().addScaledVector(actorDirection, -0.65); reach.y = deckY + player.radius;
+          const reach = cinematic.actor.root.position.clone().addScaledVector(actorDirection, -0.85); reach.y = deckY + player.radius;
           const blend = THREE.MathUtils.smoothstep(cinematic.time, 0, 0.35);
           player.body.position.set(THREE.MathUtils.lerp(cinematic.start.x, reach.x, blend), reach.y,
             THREE.MathUtils.lerp(cinematic.start.z, reach.z, blend)); player.body.aabbNeedsUpdate = true;
+          const yaw = Math.atan2(-actorDirection.x, -actorDirection.z);
+          const turn = Math.atan2(Math.sin(yaw - cinematic.startYaw), Math.cos(yaw - cinematic.startYaw));
+          player.setRotation(cinematic.startYaw + turn * THREE.MathUtils.smoothstep(cinematic.time, 0, 0.45), 0);
+          if (cinematic.time >= 0.55 && cinematic.actor.mode !== 'down'
+            && director.completeTakedown(cinematic.actor.id)) ping(120, 0.18);
         }
         if (cinematic.time >= 1.65) endCinematic();
       } else if (cinematic.kind === 'capture' && alarmAge >= ALARM_SEQUENCE.retry && !caught) {
@@ -902,6 +910,11 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     }
     skip.classList.toggle('hidden', !canSkipCinematic()); skipHold.update(frame);
     if (complete) return;
+    if (caught && isControllerActive()) {
+      caughtTime += frame;
+      retryButton.textContent = 'Restarting checkpoint automatically...';
+      if (caughtTime >= 2.5) { resetEncounter(); return; }
+    } else caughtTime = 0;
     updateHints(frame);
     const safe = director.isProtected(player.body.position) || peeking || inStorage();
     status.dataset.state = caught || alarmAge > 0 ? 'caught' : suspicion > 0 ? 'suspicious' : safe ? 'safe' : 'unseen';
@@ -990,12 +1003,12 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
         if (weapon !== 'pistol' || !isBehindDrone(drone.position, droneFacing, player.body.position)) {
           droneCaptionTime = 3;
           if (subtitle) { subtitle.textContent = 'Eye-drone armour. Shoot directly from behind.'; subtitle.classList.remove('hidden'); }
-          if (!checkpoint) eliminateInCorridor();
+          corridorEngaged = true;
           return false;
         }
         droneDown = true; droneDownTime = 0; corridorRearShot = true; suspicion = 0;
-        physics.world.removeBody(droneBody); droneLight.visible = droneBeam.visible = false;
-        emitComicEffect(scene, 'clank', { source: drone }); return true;
+        physics.world.removeBody(droneBody); droneLight.intensity = 0; droneLight.shadow.autoUpdate = false; droneBeam.visible = false;
+        emitComicEffect(scene, 'clank', { source: drone, position: drone.position.clone(), size: 0.8 }); return true;
       },
     }]],
     getParryableBolts: () => [],

@@ -79,7 +79,43 @@ export async function preloadBossModels() {
 }
 
 export async function loadBossModel() { return cloneModel(await modelTemplate(bossModelUrl)); }
-export async function loadBoyModel() { return cloneModel(await modelTemplate(boyModelUrl)); }
+export async function loadBoyModel() {
+  const gltf = cloneModel(await modelTemplate(boyModelUrl));
+  const palette = {
+    boots: new THREE.Color(0x202630), trousers: new THREE.Color(0x344554), shirt: new THREE.Color(0x7d9fb1),
+    skin: new THREE.Color(0xb47d58), hair: new THREE.Color(0x33251e),
+  };
+  const color = new THREE.Color();
+  const replacedMaterials = new Set<THREE.Material>();
+  gltf.scene.traverse(node => {
+    if (!(node instanceof THREE.Mesh)) return;
+    if (node.name === 'Plane' && !(node instanceof THREE.SkinnedMesh)) { node.visible = false; return; }
+    if (node.name === 'body') {
+      for (const material of Array.isArray(node.material) ? node.material : [node.material]) replacedMaterials.add(material);
+      node.geometry.computeBoundingBox();
+      const bounds = node.geometry.boundingBox!, positions = node.geometry.getAttribute('position');
+      const colors = new Float32Array(positions.count * 3), height = bounds.max.y - bounds.min.y;
+      if (!Number.isFinite(height) || height <= 0) throw new Error('Brendan model has invalid body bounds');
+      for (let index = 0; index < positions.count; index++) {
+        const y = (positions.getY(index) - bounds.min.y) / height;
+        const hand = Math.abs(positions.getX(index)) > (bounds.max.x - bounds.min.x) * 0.31 && y > 0.42;
+        color.copy(y > 0.94 ? palette.hair : y > 0.79 || hand ? palette.skin
+          : y > 0.47 ? palette.shirt : y > 0.08 ? palette.trousers : palette.boots);
+        color.toArray(colors, index * 3);
+      }
+      node.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      node.material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0.02 });
+    } else if (/^Sphere/.test(node.name)) {
+      for (const material of Array.isArray(node.material) ? node.material : [node.material]) replacedMaterials.add(material);
+      node.material = new THREE.MeshStandardMaterial({ color: 0x30291f, roughness: 0.5 });
+    }
+  });
+  gltf.scene.traverse(node => {
+    if (node instanceof THREE.Mesh) for (const material of Array.isArray(node.material) ? node.material : [node.material]) replacedMaterials.delete(material);
+  });
+  replacedMaterials.forEach(material => material.dispose());
+  return gltf;
+}
 export async function loadMCModel() { return cloneModel(await modelTemplate(mcModelUrl)); }
 export async function loadSubjectModel() { return cloneModel(await modelTemplate(subjectModelUrl)); }
 export async function preloadToolModel(name: ToolModelName) { await toolTemplate(name); }

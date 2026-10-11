@@ -1,6 +1,6 @@
 import { getAudioSettings, subscribeAudioSettings } from '../audio/AudioManager.js';
-import { DUEL, type FinaleQteState } from '../../scripts/mechDuel.js';
-import { finisherActionTime } from '../../scripts/finaleChoreography.js';
+import { DUEL, type FinaleQteState, type MechMove } from '../../scripts/mechDuel.js';
+import { finisherActionTime, SWORD_ATTACK_LABELS } from '../../scripts/finaleChoreography.js';
 import { FINALE_DURATION } from '../../scripts/finaleDirector.js';
 import { createComicEffectArtwork } from './comicEffects.js';
 import { isControllerActive, controllerLabel, inputHint } from '../../scripts/gamepadInput.js';
@@ -8,6 +8,7 @@ import { isControllerActive, controllerLabel, inputHint } from '../../scripts/ga
 const KEY_LABELS: Record<string, string> = {
   KeyA: 'A', KeyD: 'D', KeyW: 'W', KeyS: 'S', KeyJ: 'J', KeyF: 'F', KeyE: 'E', KeyR: 'R',
   Space: 'SPACE',
+  KeyC: 'C', KeyG: 'G',
 };
 
 export function createFinalePresentation(onInput: (code: string, pressed: boolean) => void, onRetry: () => void) {
@@ -30,9 +31,12 @@ export function createFinalePresentation(onInput: (code: string, pressed: boolea
         <meter min="0" max="18" value="18" aria-label="Ultimate recharge"></meter></div>
     </aside>
     <nav class="finale-controls" aria-label="Combat controls">
-      <span><kbd data-input-key="KeyA">A</kbd><kbd data-input-key="KeyD">D</kbd> MOVE</span><span><kbd data-input-key="KeyJ">J</kbd> SWORD</span>
+      <span><kbd data-input-key="KeyA">A</kbd><kbd data-input-key="KeyD">D</kbd> MOVE</span>
+      <span title="Up: lunge; left/right: cuts; down: finishing cut; up-left: regular combo; up-right: heavy combo">
+        <kbd data-input-key="KeyJ">J</kbd> <b class="finale-attack-mode">DIRECTION + SWORD</b></span>
       <span><kbd data-input-key="KeyF">F</kbd> RIFLE</span><span><kbd data-input-key="KeyR">R</kbd> GUARD</span><span title="Boost has no energy cost or recharge"><kbd data-input-key="Space">SPACE</kbd> BOOST / ALWAYS READY</span>
       <span class="finale-orbit-controls"><kbd data-input-key="KeyW">W</kbd><kbd data-input-key="KeyS">S</kbd> ALTITUDE</span>
+      <span><kbd data-input-key="KeyC">C</kbd> SLIDE</span><span><kbd data-input-key="KeyG">G</kbd> <b class="finale-weapon-mode">STOW</b></span>
     </nav>
     <div class="finale-tell" role="status" aria-live="polite"></div><div class="finale-title" aria-live="polite"></div>
     <section class="finale-dialogue" aria-live="polite"><b></b><p></p></section>
@@ -56,12 +60,15 @@ export function createFinalePresentation(onInput: (code: string, pressed: boolea
     <nav class="finale-touch" aria-label="Mech controls">
       <div class="finale-touch-movement">
         <button data-key="KeyA" aria-label="Move left">LEFT</button><button data-key="KeyD" aria-label="Move right">RIGHT</button>
-        <button data-key="KeyW" aria-label="Rise">UP</button><button data-key="KeyS" aria-label="Dive">DOWN</button>
+        <button data-key="KeyW" aria-label="Up attack direction; rise in space">UP</button>
+        <button data-key="KeyS" aria-label="Down attack direction; dive in space">DOWN</button>
       </div>
       <div class="finale-touch-actions">
         <button data-key="Space" aria-label="Boost">BOOST</button><button data-key="KeyJ" aria-label="Sword attack">SWORD</button>
         <button data-key="KeyR" aria-label="Hold to raise the shield">SHIELD</button><button data-key="KeyF" aria-label="Draw the rifle and fire a salvo">RIFLE</button>
         <button data-key="KeyE" aria-label="Blade-wave ultimate">ULTIMATE</button>
+        <button data-key="KeyC" aria-label="Grounded slide tackle">SLIDE</button>
+        <button data-key="KeyG" aria-label="Stow or recall weapons">STOW</button>
       </div>
     </nav>`;
   document.body.appendChild(root);
@@ -85,6 +92,11 @@ export function createFinalePresentation(onInput: (code: string, pressed: boolea
   const ultimateState = get('.finale-ultimate-state');
   const ultimateBar = get<HTMLMeterElement>('.finale-ultimate meter');
   const controls = get('.finale-controls');
+  const attackMode = get('.finale-attack-mode'), weaponMode = get('.finale-weapon-mode');
+  const attackButton = get<HTMLButtonElement>('.finale-touch [data-key="KeyJ"]');
+  const weaponButton = get<HTMLButtonElement>('.finale-touch [data-key="KeyG"]');
+  const rifleButton = get<HTMLButtonElement>('.finale-touch [data-key="KeyF"]');
+  const ultimateButton = get<HTMLButtonElement>('.finale-touch [data-key="KeyE"]');
   let objectiveHint = '';
   function updateInputLabels() {
     for (const key of root.querySelectorAll<HTMLElement>('kbd[data-input-key]')) {
@@ -211,7 +223,8 @@ export function createFinalePresentation(onInput: (code: string, pressed: boolea
       dialogue.dataset.speaker = name;
       dialogue.hidden = !text;
     },
-    stats(hp: number, enemyHp: number, power: number, shield: number, cooldown: number, warning: string, shieldLock = 0, immunityRemaining = 0) {
+    stats(hp: number, enemyHp: number, power: number, shield: number, cooldown: number, warning: string, shieldLock = 0,
+      immunityRemaining = 0, weaponsEquipped = true, move: MechMove = 'idle') {
       heroBar.value = Math.max(0, Math.min(1000, hp));
       playerStatus.dataset.health = hp <= DUEL.heroHealth * 0.25 ? 'low' : hp <= DUEL.heroHealth * 0.5 ? 'mid' : 'high';
       shieldBar.value = Math.max(0, Math.min(100, shield));
@@ -219,12 +232,18 @@ export function createFinalePresentation(onInput: (code: string, pressed: boolea
       bossFill.setAttribute('aria-valuenow', String(Math.max(0, Math.min(DUEL.health, enemyHp))));
       healthValue.textContent = `${Math.ceil(hp)} / ${DUEL.heroHealth}`;
       energyBar.value = power;
-      energy.textContent = `RIFLE ${Math.ceil(power)}%`;
+      energy.textContent = weaponsEquipped ? `RIFLE ${Math.ceil(power)}%` : 'UNARMED / JAB-CROSS-HOOK';
+      attackMode.textContent = !weaponsEquipped ? 'MELEE' : move in SWORD_ATTACK_LABELS
+        ? SWORD_ATTACK_LABELS[move as keyof typeof SWORD_ATTACK_LABELS] : 'DIRECTION + SWORD';
+      weaponMode.textContent = weaponButton.textContent = weaponsEquipped ? 'STOW' : 'RECALL';
+      attackButton.textContent = weaponsEquipped ? 'SWORD' : 'MELEE';
+      attackButton.setAttribute('aria-label', weaponsEquipped ? 'Directional sword attack' : 'Unarmed jab, cross or hook');
+      rifleButton.disabled = ultimateButton.disabled = !weaponsEquipped;
       shieldValue.textContent = immunityRemaining > 0 ? `AEGIS / IMMUNE ${Math.ceil(immunityRemaining)}s` : shieldLock > 0 ? 'SHIELD BROKEN'
         : shield <= 0 ? inputHint('RELEASE R', 'finale') : `SHIELD ${Math.ceil(shield)}%`;
-      ultimateState.textContent = cooldown > 0 ? `${Math.ceil(cooldown)}s` : 'READY';
+      ultimateState.textContent = !weaponsEquipped ? 'WEAPONS STOWED' : cooldown > 0 ? `${Math.ceil(cooldown)}s` : 'READY';
       ultimateBar.max = DUEL.ultimateCooldown; ultimateBar.value = DUEL.ultimateCooldown - cooldown;
-      ultimate.classList.toggle('ready', cooldown <= 0);
+      ultimate.classList.toggle('ready', weaponsEquipped && cooldown <= 0);
       tell.textContent = warning;
       tell.hidden = !warning;
     },

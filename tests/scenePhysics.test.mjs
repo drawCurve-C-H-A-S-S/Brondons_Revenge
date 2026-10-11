@@ -5,6 +5,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { createServer } from 'vite';
+import { mockCombatAnimationFetch } from './combatAnimationFixtures.mjs';
 
 let server;
 let createScene2;
@@ -224,6 +225,7 @@ test('real character stays in Walk_Loop climbing Scene 2 and returns to idle ups
     return this.parseAsync(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength), '');
   });
   t.mock.method(console, 'log', () => {});
+  mockCombatAnimationFetch(t);
   const character = await loadCharacter(loader);
   assert.ok(character);
   t.after(() => character.dispose());

@@ -1,11 +1,41 @@
 import * as THREE from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { prepareComicEffects } from '../helpers/scene/comicEffects.js';
+import { yieldToMainThread } from './loader.js';
 
 /** Upload textures and run the first shadow/render programs without advancing the story. */
 export async function prepareSceneRendering(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) {
+  await prepareComicEffects(scene, renderer);
   const textures = new Set<THREE.Texture>();
+  const visibility = new Map<THREE.Object3D, boolean>(), culling = new Map<THREE.Object3D, boolean>();
+  const lights = new Map<THREE.Light, { visible: boolean; effective: boolean }>();
   scene.traverse(node => {
-    if (!(node instanceof THREE.Mesh)) return;
+    if (node instanceof THREE.Light) {
+      let effective = node.visible;
+      for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) effective &&= ancestor.visible;
+      lights.set(node, { visible: node.visible, effective });
+    }
+    if (!(node instanceof THREE.Mesh || node instanceof THREE.Points || node instanceof THREE.Line || node instanceof THREE.Sprite)) return;
+    if (!(node instanceof THREE.Sprite)) {
+      const geometry: THREE.BufferGeometry = node.geometry;
+      if (!geometry.boundingBox) geometry.computeBoundingBox();
+      if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+    }
+    if (node instanceof THREE.InstancedMesh) {
+      if (!node.boundingBox) node.computeBoundingBox();
+      if (!node.boundingSphere) node.computeBoundingSphere();
+    }
+    if (node instanceof THREE.SkinnedMesh) {
+      node.updateWorldMatrix(true, false);
+      node.skeleton.update();
+      if (!node.boundingBox) node.computeBoundingBox();
+      if (!node.boundingSphere) node.computeBoundingSphere();
+      if (!node.skeleton.boneTexture) node.skeleton.computeBoneTexture();
+      if (node.skeleton.boneTexture) textures.add(node.skeleton.boneTexture);
+    }
+    culling.set(node, node.frustumCulled);
+    for (let ancestor: THREE.Object3D | null = node; ancestor && ancestor !== scene; ancestor = ancestor.parent)
+      if (!visibility.has(ancestor)) visibility.set(ancestor, ancestor.visible);
     for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
       for (const value of Object.values(material)) if (value instanceof THREE.Texture) textures.add(value);
       if (material instanceof THREE.ShaderMaterial)
@@ -14,20 +44,37 @@ export async function prepareSceneRendering(renderer: THREE.WebGLRenderer, scene
   });
   for (const texture of textures) {
     renderer.initTexture(texture);
-    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    if (textures.size > 8) await yieldToMainThread();
   }
-  await renderer.compileAsync(scene, camera);
   const previousTarget = renderer.getRenderTarget(), viewport = renderer.getViewport(new THREE.Vector4());
   const scissor = renderer.getScissor(new THREE.Vector4()), scissorTest = renderer.getScissorTest();
-  const target = new THREE.WebGLRenderTarget(64, 64);
+  const beforeRender = scene.onBeforeRender;
+  const fog = scene.fog;
+  const target = new THREE.WebGLRenderTarget(128, 128);
   target.texture.colorSpace = renderer.outputColorSpace;
   try {
+    for (const node of visibility.keys()) node.visible = true;
+    for (const node of culling.keys()) node.frustumCulled = false;
+    for (const [light, state] of lights) light.visible = state.effective;
+    scene.onBeforeRender = () => {};
+    await renderer.compileAsync(scene, camera);
     renderer.setRenderTarget(target); renderer.setScissorTest(false);
     renderer.render(scene, camera);
+    if (fog) {
+      scene.fog = null;
+      await renderer.compileAsync(scene, camera);
+      renderer.render(scene, camera);
+    }
   } finally {
+    scene.fog = fog;
+    scene.onBeforeRender = beforeRender;
+    for (const [node, visible] of visibility) node.visible = visible;
+    for (const [node, frustumCulled] of culling) node.frustumCulled = frustumCulled;
+    for (const [light, state] of lights) light.visible = state.visible;
     renderer.setRenderTarget(previousTarget); renderer.setViewport(viewport);
     renderer.setScissor(scissor); renderer.setScissorTest(scissorTest); target.dispose();
   }
+  await yieldToMainThread();
 }
 
 /**

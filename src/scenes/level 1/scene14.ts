@@ -37,8 +37,9 @@ const ACTION_BEATS = {
 const BOARDING = { run: 1.05, takeoff: 1.4, land: 2.15, settle: 2.6, seated: 3.9, end: 4.5 } as const;
 
 /** A continuous hangar escape cinematic, timed actions, cockpit boarding and launch. */
-export function createScene({ entryState, onFailure, onLaunch, loadModel = loadToolModel }: {
+export function createScene({ entryState, checkpoint = false, onFailure, onLaunch, loadModel = loadToolModel }: {
   entryState?: PlayerTransitionState; onFailure: () => void; onLaunch: (state: LaunchState) => void;
+  checkpoint?: boolean;
   loadModel?: typeof loadToolModel;
 }) {
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x020611);
@@ -203,7 +204,15 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
       loaded = true;
     } catch (error) { if (!disposed) { assetError = true; console.error('[Scene 14] Robot crowd could not load:', error); } }
   }
-  const ready = loadCrowd();
+  const ready = loadCrowd().then(() => {
+    if (checkpoint && loaded && !disposed) {
+      lift.position.y = -0.155;
+      player.setPosition(0, 0.32, -29);
+      camera.position.copy(player.body.position).add(new THREE.Vector3(4, 3, -5));
+      camera.lookAt(player.body.position.x, player.getHeadY(), player.body.position.z);
+      beginEscape(); shot = ''; updateShot(0); cameraView();
+    }
+  });
   const gunReady = loadModel('Gun_Revolver').then(gltf => { if (disposed) { disposeRoom(gltf.scene as unknown as THREE.Scene); return; } gun = gltf.scene; gun.rotation.y = -Math.PI / 2; }).catch(error => { if (!disposed) console.error('[Scene 14] Cinematic pistol could not load:', error); });
   function freeze() { player.disable(); player.body.velocity.set(0, 0, 0); player.body.type = CANNON.Body.KINEMATIC; player.body.collisionResponse = false; player.body.updateMassProperties(); }
   function updatePromptLabels() {
@@ -252,7 +261,7 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
     if (shipFailure) { shipBlast.visible = true; shipBlast.position.copy(ship.root.position).add(new THREE.Vector3(0, 1.5, 0)); }
     player.takeDamage(player.getHealth() + player.getShield(), true); freeze(); phase = 'failed'; clock = 0; beam.visible = flash.visible = false;
     qte?.classList.add('hidden'); prompt?.classList.add('hidden'); spinTrail.visible = false;
-    if (subtitles) { subtitles.textContent = `${reason} / ${shipFailure ? 'SHUTTLE DESTROYED WITH PILOT ABOARD' : 'THE SWARM OVERRAN YOU'}\nReturning to the cleared loading bay...`; subtitles.classList.remove('hidden'); }
+    if (subtitles) { subtitles.textContent = `${reason} / ${shipFailure ? 'SHUTTLE DESTROYED WITH PILOT ABOARD' : 'THE SWARM OVERRAN YOU'}\nRestarting the hangar escape...`; subtitles.classList.remove('hidden'); }
   }
   function onKeyDown(event: KeyboardEvent) {
     if (disposed || event.repeat || pressed.has(event.code) || paused || document.hidden || document.body.classList.contains('quick-menu-open')) return;

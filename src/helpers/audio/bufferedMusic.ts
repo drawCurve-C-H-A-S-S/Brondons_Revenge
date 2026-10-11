@@ -6,7 +6,17 @@ type PreparedMusic = { buffer: AudioBuffer; loopStart: number };
 const prepared = new Map<string, Promise<PreparedMusic>>();
 const preparedSizes = new Map<string, number>();
 const unsupportedSources = new Set<string>();
+const fallbackAssets = import.meta.glob<string>('../../assets/bgm/*.ogg', { eager: true, query: '?url', import: 'default' });
+const originalAssets = import.meta.glob<string>('../../assets/bgm/*.m4a', { eager: true, query: '?url', import: 'default' });
+export const MUSIC_FALLBACK_URLS = Object.values(fallbackAssets);
+const portableSources = new Map(Object.entries(originalAssets).map(([path, source]) => [source, fallbackAssets[path.replace(/\.m4a$/, '.ogg')]]));
 let context: AudioContext | null = null;
+
+export function playableMusicSource(source: string) {
+  const portable = portableSources.get(source);
+  return portable && typeof document !== 'undefined'
+    && document.createElement('audio').canPlayType?.('audio/ogg; codecs="vorbis"') ? portable : source;
+}
 
 export function supportsBufferedMusic(source?: string) {
   return typeof window.AudioContext === 'function' && (!source || !unsupportedSources.has(source));
@@ -52,9 +62,16 @@ function loadMusic(source: string, loop: boolean) {
   let pending = prepared.get(key);
   if (pending) { prepared.delete(key); prepared.set(key, pending); return pending; }
   const audioContext = musicContext();
-  pending = fetchAsset(source).then(async response => {
+  pending = fetchAsset(playableMusicSource(source)).then(async response => {
     if (!response.ok) throw new Error(`Music request failed (${response.status}): ${source}`);
-    const buffer = await audioContext.decodeAudioData(await response.arrayBuffer());
+    let buffer: AudioBuffer;
+    try { buffer = await audioContext.decodeAudioData(await response.arrayBuffer()); }
+    catch (error) {
+      if (!(error instanceof Error) || error.name !== 'EncodingError' || playableMusicSource(source) === source) throw error;
+      console.warn('[Audio] Portable decoding failed; trying the original soundtrack:', source, error);
+      const original = await fetchAsset(source);
+      buffer = await audioContext.decodeAudioData(await original.arrayBuffer());
+    }
     const music = loop ? prepareMusicLoop(audioContext, buffer) : { buffer, loopStart: 0 };
     preparedSizes.set(key, music.buffer.length * music.buffer.numberOfChannels * Float32Array.BYTES_PER_ELEMENT);
     const memory = (globalThis.navigator as Navigator & { deviceMemory?: number } | undefined)?.deviceMemory;
@@ -70,7 +87,7 @@ function loadMusic(source: string, loop: boolean) {
   }).catch(error => {
     if (error instanceof Error && error.name === 'EncodingError' && !unsupportedSources.has(source)) {
       unsupportedSources.add(source);
-      const message = 'This browser cannot decode the M4A soundtrack. Use a browser with AAC audio support.';
+      const message = 'The soundtrack could not be decoded. Use a browser with OGG or AAC audio support.';
       console.warn('[Audio]', message, source, error);
       window.dispatchEvent(new CustomEvent('music-unavailable', { detail: { message } }));
     }

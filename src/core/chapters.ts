@@ -124,6 +124,8 @@ export const SCENE_CHOICES = [
   [15.9, 'Level 2 Phase 5 - Exposed reactor'], [16, 'Level 2 Phase 6 - Crash landing'],
   [17, 'Level 3 Jungle Stage - Bridge and secret waterfall'],
   [20, 'Level 3 Facility Stage - AI research facility'], [21, 'Level 3 Final Boss - Sudoers 5'],
+  [21.5, 'Level 3 Final Boss - Bomb release / 50% health'],
+  [21.9, 'Level 3 Final Boss - Final QTE start'],
 ] as const;
 
 export function createLoadingSlideDeck(destination: LoadingDestination, random = Math.random) {

@@ -524,11 +524,12 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   function droneTargets(): DamageTarget[] {
     return drones.filter(drone => drone.active).map(drone => ({ root: drone.root, body: drone.body, damage(amount: number, weapon?: string) {
       if (disposed || phase !== 'gravity' || !player.isEnabled() || (weapon !== 'pistol' && weapon !== 'lightsaber') || !Number.isFinite(amount) || amount <= 0 || !drone.active) return false;
-      emitComicEffect(scene, 'boom', { source: drone.root });
+      const position = drone.root.getWorldPosition(new THREE.Vector3());
+      emitComicEffect(scene, 'boom', { source: drone.root, position, size: BOSS_RULES.droneSize });
       drone.active = false; drone.root.visible = false;
       if (drone.body.world === world) world.removeBody(drone.body);
-      const mesh = drone.root.getObjectByProperty('isMesh', true) as THREE.Mesh | undefined;
-      if (mesh) burst(mesh.getWorldPosition(new THREE.Vector3()));
+      drone.body.velocity.setZero(); drone.body.force.setZero();
+      burst(position);
       checkArmorCleared();
       return true;
     } }));
@@ -869,6 +870,8 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
           if (closest.distanceTo(sphere.center) <= sphere.radius + 0.3) {
             target.damage(BOSS_RULES.parryDamage, 'lightsaber');
             burst(bolt.mesh.position.clone());
+            // The final target's damage callback can clear the entire projectile array.
+            if (!bolts.includes(bolt)) return;
             hitTarget = true; break;
           }
         }

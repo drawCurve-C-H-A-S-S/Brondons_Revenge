@@ -176,7 +176,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
       scanning: false, scanRoof: null, scanTarget: null };
     root.visible = beam.visible = footprint.visible = !reserve;
     body.collisionResponse = !reserve;
-    if (light) light.visible = !reserve;
+    if (light) light.intensity = reserve ? 0 : 16;
     actors.push(actor);
     loading.push(modelLoader(kind === 'eye' ? 'Enemy_EyeDrone' : kind === 'quad' ? 'Enemy_QuadShell' : 'Enemy_Trilobite').then(gltf => {
       if (disposed) { disposeRoom(gltf.scene); return; }
@@ -246,7 +246,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
     for (const actor of actors) if (actor.mode !== 'down') {
       actor.mode = 'charge'; actor.suspicion = 1; actor.path = []; actor.target = null; actor.repath = 0;
       actor.root.visible = actor.beam.visible = actor.footprint.visible = true; actor.body.collisionResponse = true;
-      if (actor.light) actor.light.visible = true;
+      if (actor.light) actor.light.intensity = 16;
       animation(actor, 'run');
     }
     callbacks.onAlarm(culprit);
@@ -261,6 +261,9 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
         const angle = index / active.length * Math.PI * 2 + attempt * 0.37;
         const radius = (actor.kind === 'eye' ? 8.5 : 5.5) + attempt % 3 * 1.4;
         const candidate = { x: position.x + Math.sin(angle) * radius, z: position.z + Math.cos(angle) * radius };
+        if (occupied.some(point => distance(point, candidate) < 1.7)) continue;
+        const eyePosition = { x: candidate.x, y: hangar.deckY + (actor.kind === 'eye' ? 3.8 : eyeHeight(actor)), z: candidate.z };
+        if (best.length && !hasSight(eyePosition, { x: position.x, y: position.y + 0.8, z: position.z })) continue;
         const path = navigation.findPath(actor.root.position, candidate, { center: position, radius: 3 }), endpoint = path[path.length - 1];
         if (!endpoint || distance(endpoint, position) < 3.5 || occupied.some(point => distance(point, endpoint) < 2.1)) continue;
         best = path;
@@ -369,7 +372,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
   function updateBeam(actor: StealthActor) {
     const active = actor.mode !== 'down' && actor.mode !== 'reserve';
     actor.beam.visible = actor.footprint.visible = active;
-    if (actor.light) actor.light.visible = active;
+    if (actor.light) { actor.light.intensity = active ? 16 : 0; actor.light.shadow.autoUpdate = active; }
     if (!active) return;
     const forward = actorFacing(actor).clone();
     eye.copy(actor.root.position).addScaledVector(forward, 0.48); eye.y += eyeHeight(actor);
@@ -518,7 +521,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
       actor.body.position.set(start.x, actor.root.position.y + (actor.kind === 'eye' ? 0 : 0.45), start.z);
       actor.body.aabbNeedsUpdate = true; actor.body.collisionResponse = !reserve;
       actor.root.visible = actor.beam.visible = actor.footprint.visible = !reserve;
-      if (actor.light) actor.light.visible = !reserve;
+      if (actor.light) { actor.light.intensity = reserve ? 0 : 16; actor.light.shadow.autoUpdate = !reserve; }
       actor.animation = ''; animation(actor, 'walk');
     });
   }

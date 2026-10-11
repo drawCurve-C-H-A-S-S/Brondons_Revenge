@@ -111,7 +111,7 @@ function mechPose(move: MechPoseName, p: number, secondSlash = false): RigPose {
     pose.leftLeg = [-0.2, 0, 0.18]; pose.rightLeg = [-0.14, 0, -0.18];
     pose.leftKnee = [0.32, 0, 0]; pose.rightKnee = [0.24, 0, 0];
   } else if (move === 'clash') {
-    const strain = Math.sin(p * 37) * 0.035;
+    const strain = Math.sin(p * Math.PI) * 0.012;
     pose.spine = [0.17, -0.28 + strain, 0];
     pose.leftArm = [0, -0.7, -0.65]; pose.rightArm = [0, 1.1, 0.35];
     pose.leftElbow = [0, -0.15, -1.1]; pose.rightElbow = [0, 0.2, 0.8]; pose.head = [-0.1, 0.2, 0];
@@ -143,7 +143,7 @@ function mechPose(move: MechPoseName, p: number, secondSlash = false): RigPose {
     pose.head = [-0.2 * weight, 0, 0];
   } else if (move === 'stagger') {
     const recoil = Math.sin(p * Math.PI);
-    pose.spine = [-0.58 * recoil, -0.08, 0.13 * recoil]; pose.head = [-0.28 * recoil, 0.15, 0];
+    pose.spine = [-0.22 * recoil, -0.04, 0.06 * recoil]; pose.head = [-0.08 * recoil, 0.04, 0];
     pose.leftArm = [-0.3 - recoil * 0.4, -0.1, -1.28 + recoil * 0.25]; pose.rightKnee = [0.15 + recoil * 0.45, 0, 0];
   } else if (move === 'defeat') {
     const fall = smooth(p, 0, 0.85);
@@ -153,18 +153,18 @@ function mechPose(move: MechPoseName, p: number, secondSlash = false): RigPose {
     pose.leftKnee = [1.8 * fall, 0, 0]; pose.rightKnee = [1.65 * fall, 0, 0];
   } else if (move === 'evade') {
     const duck = Math.sin(p * Math.PI);
-    pose.hips = [0, duck * -0.3, duck * 0.2];
-    pose.spine = [0.45 * duck, -0.2, duck * -0.36];
-    pose.head = [-0.2 * duck, 0.25, 0];
+    pose.hips = [0, duck * -0.1, duck * 0.06];
+    pose.spine = [0.2 * duck, -0.08, duck * -0.1];
+    pose.head = [-0.08 * duck, 0.08, 0];
     pose.rightArm = [0, 0.3, 1.1]; pose.leftArm = [0.2, -0.3, -0.8 - duck * 0.45];
-    pose.leftLeg = [-0.25 - duck * 0.3, 0, 0.15]; pose.rightLeg = [0.1 + duck * 0.25, 0, -0.1];
-    pose.leftKnee = [0.2 + duck * 0.65, 0, 0]; pose.rightKnee = [0.15 + duck * 0.4, 0, 0];
+    pose.leftLeg = [-0.2 - duck * 0.15, 0, 0.1]; pose.rightLeg = [-0.08, 0, -0.1];
+    pose.leftKnee = [0.25 + duck * 0.22, 0, 0]; pose.rightKnee = [0.2 + duck * 0.16, 0, 0];
   } else if (move === 'boost') {
     const drive = smooth(p, 0, 0.3) * (1 - smooth(p, 0.78, 1));
-    pose.spine = [0.3 * drive, -0.12, 0]; pose.head = [-0.16 * drive, 0.1, 0];
+    pose.spine = [0.14 * drive, -0.06, 0]; pose.head = [-0.06 * drive, 0.06, 0];
     pose.leftArm = [0.1, -0.2, -1.3]; pose.rightArm = [0, 0.7, 0.9];
-    pose.leftLeg = [-0.35, 0, 0.1]; pose.rightLeg = [0.18, 0, -0.1];
-    pose.leftKnee = [0.65, 0, 0]; pose.rightKnee = [0.4, 0, 0];
+    pose.leftLeg = [-0.2, 0, 0.08]; pose.rightLeg = [-0.12, 0, -0.08];
+    pose.leftKnee = [0.34, 0, 0]; pose.rightKnee = [0.26, 0, 0];
   } else if (move === 'hover' || move === 'flight') {
     const drive = move === 'flight' ? p : 0;
     pose.hips = [0.04 + drive * 0.06, -0.04, 0];
@@ -234,14 +234,12 @@ export function createMechAnimator(model: THREE.Object3D, aliases: MechBoneMap =
     perform(move: MechPoseName, time: number, weight: number, forward = 0, lift = 0) {
       const breath = Math.sin(time * 2.4), effort = move === 'clash' || move === 'guard'
         || move === 'reactor' || move === 'skyCharge' || move === 'verdict';
-      const strain = effort ? Math.sin(time * 23) * Math.sin(time * 7.1) * 0.012 : 0;
-      const flying = move === 'flight' || move === 'hover';
+      const strain = effort ? Math.sin(time * 2.1) * 0.002 : 0;
+      const flying = move === 'flight' || move === 'hover' || move === 'boost' || move === 'evade' || move === 'dash';
       const offsets: RigPose = {
-        spine: [breath * 0.017 + strain + (flying ? forward * 0.09 : 0), Math.sin(time * 1.3) * 0.012, strain * 0.45],
-        spineUpper: [-breath * 0.009, strain * 0.7, 0],
-        head: [-breath * 0.009 - (flying ? lift * 0.06 : 0), Math.sin(time * 0.85) * 0.024, -strain],
-        leftShoulder: [breath * 0.008, 0, strain],
-        rightShoulder: [breath * 0.008, 0, -strain],
+        spine: [breath * 0.004 + strain + (flying ? forward * 0.025 : 0), 0, 0],
+        spineUpper: [-breath * 0.002, 0, 0],
+        head: [-breath * 0.002 - (flying ? lift * 0.012 : 0), 0, 0],
       };
       for (const entry of sampler.entries) {
         const angles = offsets[entry.slot];

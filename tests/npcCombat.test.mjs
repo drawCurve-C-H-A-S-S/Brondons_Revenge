@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'vite';
+import { mockCombatAnimationFetch } from './combatAnimationFixtures.mjs';
 
 let server, THREE, GLTFLoader, OBJLoader, NPCEnemyManager, PistolController, traceShot, createScenePhysics, loadCharacter;
 const factories = {};
@@ -147,6 +148,7 @@ test('production Subject rig supplies the pistol clips and grip bones', async t 
 async function characterFixture(t) {
   const gltf = await subjectModel();
   t.mock.method(console, 'log', () => {});
+  mockCombatAnimationFetch(t);
   const character = await loadCharacter({ loadAsync: async () => gltf });
   assert.ok(character);
   t.cleanup(() => character.dispose());

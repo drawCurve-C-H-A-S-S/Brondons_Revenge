@@ -4,6 +4,7 @@ import { after, before, test } from 'node:test';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createServer } from 'vite';
+import { mockCombatAnimationFetch } from './combatAnimationFixtures.mjs';
 
 let server;
 let loadCharacter;
@@ -43,6 +44,7 @@ async function fixture(t, asset) {
     return this.parseAsync(data.slice(0), '');
   });
   t.mock.method(console, 'log', () => {});
+  mockCombatAnimationFetch(t);
   const character = await loadCharacter(loader);
   assert.ok(character, 'Real model must load');
   const oldWindow = globalThis.window;

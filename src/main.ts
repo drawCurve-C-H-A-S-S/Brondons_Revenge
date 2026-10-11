@@ -154,6 +154,9 @@ function beginCinematicLoading(destination: LoadingDestination, minimum?: number
 // The main loop neither updates nor renders behind the loading screen, so run the first frames of
 // the new scene here; texture uploads, shadow programs and setup states stay hidden.
 async function warmBehindLoading(request: number, frames = 3) {
+  if (request !== sceneRequestVersion || !activeScene || !activeCamera) return false;
+  updatePlayerView(0);
+  await prepareSceneRendering(renderer, currentSceneData?.getRenderScene?.() ?? activeScene, activeCamera);
   for (let frame = 0; frame < frames; frame++) {
     if (request !== sceneRequestVersion || !activeScene || !activeCamera) return false;
     updatePhysics?.(1 / 60, isThirdPerson);
@@ -161,6 +164,8 @@ async function warmBehindLoading(request: number, frames = 3) {
     const scene = currentSceneData?.getRenderScene?.() ?? activeScene;
     updateComicEffects(scene, activeCamera, 1 / 60, renderer);
     renderGameplayFrame(scene, activeCamera);
+    renderMinimap(true);
+    if (currentSceneData?.hideMinimap?.()) minimap.hide();
     await new Promise(resolve => requestAnimationFrame(resolve));
   }
   return request === sceneRequestVersion;
@@ -214,6 +219,7 @@ let bayBossDefeated = false;
 
 // --- Global Character (persists across scenes) ---
 let globalCharacter: Awaited<ReturnType<typeof loadCharacter>> = null;
+let characterPreparation: Promise<void> | null = null;
 let currentPlayer: Player | null = null;
 
 // --- Session inventory ---
@@ -285,7 +291,7 @@ const lightsaber = new LightsaberController(() => ({
   character: globalCharacter?.model ?? null,
   thirdPerson: isGameplayThirdPerson(),
   hasLightsaber,
-  attackClips: globalCharacter?.lightsaberAttacks,
+  attackClips: globalCharacter?.lightsaberAttackClips,
   targets: currentSceneData?.getDamageTargets?.() ?? [],
   setCharacterEquipped: equipped => globalCharacter?.setLightsaberEquipped(equipped),
   openDoor: () => { currentSceneData?.hitForwardDoor?.(); currentSceneData?.hitCargoDoor?.(); },
@@ -469,11 +475,19 @@ async function initializeApp() {
 }
 
 async function prepareGlobalCharacter() {
-  if (!globalCharacter) {
-    const { loadCharacter } = await import('./scripts/characterManager.js');
-    globalCharacter = await loadCharacter();
-    if (!globalCharacter) throw new Error('The player character could not be prepared');
+  if (globalCharacter) return;
+  if (!characterPreparation) {
+    characterPreparation = import('./scripts/characterManager.js').then(async ({ loadCharacter }) => {
+      const character = await loadCharacter();
+      if (!character) throw new Error('The player character could not be prepared');
+      globalCharacter = character;
+    }).catch(error => {
+      characterPreparation = null;
+      console.error('[Character] Preparation failed:', error);
+      throw error;
+    });
   }
+  await characterPreparation;
 }
 
 function prepareEntireGame(loading: ReturnType<typeof beginCinematicLoading>) {
@@ -508,7 +522,11 @@ const lessons: Record<string, Omit<ControlCard, 'key' | 'scene'>> = {
   basics: { title: 'You’re awake', lines: ['WASD — walk · Shift — sprint', 'C while moving forward — slide tackle; otherwise crouch', 'Mouse — look · Click the world to capture the mouse', 'Space — jump · E — interact', 'Hold Tab — weapons · Aim and release to equip · Left click — shoot', 'V or the view button — switch first / third person · M — pause'], touch: ['Drag on the left to walk; drag on the right to look.', 'RUN, JUMP, CROUCH and USE are your movement controls.', 'CROUCH while moving forward performs a slide tackle.', 'PISTOL equips your gun; SHOOT fires it.', 'Tap VIEW to switch first / third person · MENU to pause.'] },
   pistol: { title: 'Pistol', lines: ['Hold Tab — select pistol; select Unarmed to holster', 'Left click — shoot at your crosshair'], touch: ['PISTOL — equip / holster', 'SHOOT — fire at your crosshair'] },
   crowbar: { title: 'Crowbar acquired', lines: ['Hold Tab — select crowbar; select Unarmed to holster', 'Left click — swing'], touch: ['CROW — equip / holster', 'SWING — attack'] },
-  lightsaber: { title: 'Lightsaber acquired', lines: ['Hold Tab — select lightsaber; select Unarmed to holster', 'Left click — slash'], touch: ['SABER — equip / holster', 'SLASH — attack'] },
+  lightsaber: { title: 'Lightsaber acquired', lines: ['Hold Tab — select lightsaber; select Unarmed to holster',
+    'W + left click — lunge / A or D + left click — left or right cut / S + left click — finishing cut',
+    'W+A + left click — regular combo / W+D + left click — heavy combo', 'Neutral left click — three-cut chain'],
+    touch: ['SABER — equip / holster', 'Direction + SLASH — lunge, left, right or finishing cut',
+      'Up-left + SLASH — regular combo / up-right + SLASH — heavy combo'] },
   teleport: { title: 'Teleportation device', lines: ['Q — place purple anchor', 'T — teleport instantly to your anchor'], touch: ['Keyboard Q — place anchor; T — teleport'] },
   goggles: { title: 'Scanner goggles acquired', lines: ['N — wear / remove goggles'], touch: ['GOGGLES — wear / remove'] },
   vent: { title: 'Vent maze', lines: ['WASD / arrows — move · Hold Shift — crouch sprint', 'Explore the branches to find the camera-room exit', 'Wait for green sensors · Blue pads save your position'], touch: ['Left stick — move · SPRINT — faster crawl', 'Find the camera-room exit through the maze', 'Green sensors are safe · Blue pads are checkpoints'] },
@@ -574,10 +592,10 @@ function renderShownControl() {
   controlCard.querySelector('footer')!.textContent = isControllerActive() ? 'Closes automatically'
     : 'H to dismiss · closes automatically';
 }
-function renderMinimap() {
+function renderMinimap(preparing = false) {
   // Level 2 (flight scene15 and crash scene16) scenes never show the map overlay.
   if (activeSceneId === 'scene1' || activeSceneId === 'scene15' || activeSceneId === 'scene16' || activeSceneId === 'scene21'
-    || currentSceneData?.hideMinimap?.() || !activeScene || !currentPlayer) { minimap.hide(); return; }
+    || (!preparing && currentSceneData?.hideMinimap?.()) || !activeScene || !currentPlayer) { minimap.hide(); return; }
   const state = currentSceneData?.getMinimapState?.();
   minimap.render(currentSceneData?.getRenderScene?.() ?? activeScene,
     state?.position ?? currentPlayer.body.position, state?.yaw ?? currentPlayer.getState().yaw,
@@ -677,6 +695,7 @@ async function loadPrologue1(alreadyCovered = false) {
     activeScene = data.scene; activeCamera = data.camera; currentPlayer = data.player;
     updatePhysics = data.updatePhysics; cutsceneManager = null;
     if (orbitControls) { orbitControls.object = activeCamera; orbitControls.enabled = false; }
+    if (!await warmBehindLoading(request)) { loading?.finish(); return; }
     loading?.finish();
   } catch (error) {
     data?.dispose();
@@ -697,7 +716,7 @@ interface PreparedOpeningScene {
 async function prepareOpeningScene(data: PreparedOpeningScene, source: unknown, request: number, presentation?: Promise<void>) {
   data.player.disable();
   try {
-    await Promise.all([data.ready, presentation]);
+    await Promise.all([data.ready, presentation, prepareGlobalCharacter()]);
     await prepareSceneRendering(renderer, data.scene, data.camera);
   } catch (error) {
     data.dispose();
@@ -708,21 +727,23 @@ async function prepareOpeningScene(data: PreparedOpeningScene, source: unknown, 
 }
 
 async function loadLivingQuarters(fromPassage = false, entryState?: PlayerTransitionState) {
+  const loading = beginCinematicLoading('quarters', 1);
+  try {
   const module = await prepareScene(0.5);
-  if (!module) return false;
+  if (!module) throw new Error('The living quarters module could not load');
   hideScene1Skip(); pistol.holster(); crowbar.holster(); lightsaber.holster();
   pistol.update(0); crowbar.update(0); lightsaber.update(0);
   const source = currentSceneData, request = sceneRequestVersion;
   const sceneData = module.createScene({
     progress: quartersProgress, fromPassage, entryState, deferActivation: true,
-    warmRoom: async (scene, camera) => { await renderer.compileAsync(scene, camera); },
+    warmRoom: async (scene, camera) => { await prepareSceneRendering(renderer, scene, camera); },
     onPistolCollected: () => { hasPistol = true; introduceControls('pistol'); },
     onCrystalCollected: () => { teleportDevice.collect(); introduceControls('teleport'); },
     onGogglesCollected: () => { goggles.collect(); introduceControls('goggles'); },
     preparePassage: async () => { await (await sceneModule(1.1)).preloadAssets(); },
     onExitToPassage: state => loadStage1Storage(true, state),
   });
-  if (!await prepareOpeningScene(sceneData, source, request)) return false;
+  if (!await prepareOpeningScene(sceneData, source, request, loading.presented)) { loading.finish(); return false; }
   retireTraversalRoom(); currentSceneData?.dispose?.();
   hasPistol = quartersProgress.pistolCollected;
   if (quartersProgress.crystalCollected) teleportDevice.collect(false);
@@ -738,11 +759,18 @@ async function loadLivingQuarters(fromPassage = false, entryState?: PlayerTransi
   }
   if (orbitControls) { orbitControls.object = activeCamera; orbitControls.enabled = false; }
   updatePlayerView(0);
+  if (!await warmBehindLoading(request)) { loading.finish(); return false; }
+  loading.finish();
   return true;
+  } catch (error) {
+    console.error('[Living quarters] Preparation failed:', error);
+    loading.fail('The crew cabins could not be prepared. Please try again.', () => { void loadLivingQuarters(fromPassage, entryState); });
+    return false;
+  }
 }
 
 async function loadStage1Storage(fromQuarters = false, entryState?: PlayerTransitionState, fromCameraRoom = false) {
-  const loading = stage1LoadingShown ? null : beginCinematicLoading('stage1');
+  const loading = beginCinematicLoading('stage1', stage1LoadingShown ? 1 : 3);
   const expectedRequest = sceneRequestVersion + 1;
   const module = await prepareScene(1.1);
   if (!module) {
@@ -787,6 +815,7 @@ async function loadStage1Storage(fromQuarters = false, entryState?: PlayerTransi
     }
     if (orbitControls) { orbitControls.object = activeCamera; orbitControls.enabled = false; }
     updatePlayerView(0);
+    if (!await warmBehindLoading(request)) { loading.finish(); return false; }
     stage1LoadingShown = true;
     loading?.finish();
     return true;
@@ -1091,7 +1120,7 @@ async function loadCameraVisit(id: CameraRoomId, entryState?: PlayerTransitionSt
 
 async function loadBay13(entryState?: PlayerTransitionState, fromServiceLift = false, checkpoint = false) {
   // The service-lift ride ends on black; the boss stage loads behind its own chapter screen.
-  const loading = fromServiceLift ? beginCinematicLoading('boss') : null;
+  const loading = beginCinematicLoading('boss', checkpoint ? 0.5 : 1);
   try {
     const module = await prepareScene(13);
     if (!module) { loading?.finish(); return false; }
@@ -1116,19 +1145,20 @@ async function loadBay13(entryState?: PlayerTransitionState, fromServiceLift = f
   }
 }
 
-async function loadHangar14(entryState?: PlayerTransitionState) {
+async function loadHangar14(entryState?: PlayerTransitionState, checkpoint = false) {
   await prepareChapter('escape', async () => {
     const module = await prepareScene(14);
     if (!module) throw new Error('The hangar escape module could not load');
     bayBossDefeated = true;
     return { id: 'scene14', data: module.createScene({
-      entryState,
+      entryState, checkpoint,
       onFailure: () => {
-        void loadBay13(undefined, false, true).catch(error => console.error('Hangar checkpoint restart failed:', error));
+        const restored = entryState ? { ...entryState, health: PLAYER_MAX_HEALTH, heldKeys: [], blockedKeys: [] } : undefined;
+        void loadHangar14(restored, true).catch(error => console.error('Hangar checkpoint restart failed:', error));
       },
       onLaunch: loadFlight15,
     }) };
-  }, () => { void loadHangar14(entryState); });
+  }, () => { void loadHangar14(entryState, checkpoint); });
 }
 
 interface ChapterScene {
@@ -1136,6 +1166,7 @@ interface ChapterScene {
   camera: THREE.PerspectiveCamera;
   ready?: Promise<unknown>;
   gunReady?: Promise<unknown>;
+  prepareRendering?(renderer: THREE.WebGLRenderer): Promise<void>;
   dispose(): void;
 }
 async function prepareChapter(destination: LoadingDestination,
@@ -1146,12 +1177,14 @@ async function prepareChapter(destination: LoadingDestination,
     await loading.presented;
     chapter = await create();
     const request = sceneRequestVersion;
-    await Promise.all([chapter.data.ready, chapter.data.gunReady]);
+    await Promise.all([chapter.data.ready, chapter.data.gunReady, prepareGlobalCharacter()]);
+    await chapter.data.prepareRendering?.(renderer);
     await prepareSceneRendering(renderer, chapter.data.scene, chapter.data.camera);
     if (request !== sceneRequestVersion) { chapter.data.dispose(); loading.finish(); return; }
     hideScene1Skip(); retireTraversalRoom();
     setTouchFlightMode(chapter.id === 'scene15');
     activateExtension(chapter.data, chapter.id);
+    if (!await warmBehindLoading(request)) { loading.finish(); return; }
     loading.finish();
   } catch (error) {
     chapter?.data.dispose();
@@ -1212,7 +1245,7 @@ async function loadFacility20(entryState?: RescueArrival) {
 }
 
 async function loadScene21(entryState?: RescueArrival, checkpoint?: FinaleCheckpoint) {
-  const loading = checkpoint ? null : beginCinematicLoading('finale');
+  const loading = beginCinematicLoading('finale', checkpoint ? 0.5 : 3);
   // Decode the finale tracks behind the loading screen so the reveal starts on its music, not seconds later.
   const musicReady = loading ? Promise.all([preloadMusic(MUSIC_URLS.loading), preloadMusic(MUSIC_URLS.ship)]) : undefined;
   const expectedRequest = sceneRequestVersion + 1;
@@ -1232,7 +1265,8 @@ async function loadScene21(entryState?: RescueArrival, checkpoint?: FinaleCheckp
     });
     if (loading) {
       sceneData.setMenuPaused(true);
-      await Promise.all([sceneData.ready, loading.presented, musicReady]);
+      await Promise.all([sceneData.ready, loading.presented, musicReady, prepareGlobalCharacter()]);
+      await sceneData.prepareRendering(renderer);
       await prepareSceneRendering(renderer, sceneData.scene, sceneData.camera);
       if (request !== sceneRequestVersion) { sceneData.dispose(); loading.finish(); return; }
     }
@@ -1241,7 +1275,8 @@ async function loadScene21(entryState?: RescueArrival, checkpoint?: FinaleCheckp
     if (loading) {
       // Lift the loading screen on Brondon's walk to the five, after the setup frames have rendered.
       sceneData.setMenuPaused(false);
-      if (!await warmBehindLoading(request, 4)) { loading.finish(); return; }
+      sceneData.updatePhysics(0);
+      if (!await warmBehindLoading(request, checkpoint ? 0 : 4)) { loading.finish(); return; }
     }
     sceneData.setMenuPaused(quickMenuOpen);
     loading?.finish();
@@ -1437,7 +1472,7 @@ function renderControllerStatus(status: ControllerStatus) {
   document.getElementById('controller-controls-settings')!.classList.toggle('hidden', controlsTab !== 'controller');
   document.getElementById('pause-controls-list')!.setAttribute('aria-labelledby',
     controlsTab === 'controller' ? 'input-controller' : 'input-keyboard');
-  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-controller-type]')) {
+  for (const button of document.querySelectorAll<HTMLButtonElement>('button[data-controller-type]')) {
     button.setAttribute('aria-pressed', String(button.dataset.controllerType === status.type));
     button.disabled = !!status.setupStep;
   }
@@ -1526,7 +1561,8 @@ function setupControllerInput() {
       return { id: `${scene}:${phase}:${kind === 'finale-qte' ? currentSceneData.getControllerQteIndex() : ''}`,
         kind, menuOpen: quickMenuOpen || titleMenu, wheelOpen: weaponWheelOpen };
     },
-    onModeChange() {
+    onModeChange(next) {
+      controlsTab = next;
       if (isControllerActive() && document.pointerLockElement) document.exitPointerLock();
       clearSceneInput(); renderShownControl();
       const status = document.getElementById('weapon-status');
@@ -1543,7 +1579,7 @@ function setupControllerInput() {
   });
   document.getElementById('input-keyboard')!.addEventListener('click', () => selectControlsTab('keyboard'));
   document.getElementById('input-controller')!.addEventListener('click', () => selectControlsTab('controller'));
-  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-controller-type]')) {
+  for (const button of document.querySelectorAll<HTMLButtonElement>('button[data-controller-type]')) {
     button.addEventListener('click', () => {
       const type = button.dataset.controllerType;
       if (!type || !isControllerType(type)) throw new Error('Invalid controller type selection');
@@ -1643,7 +1679,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
   }
   if (screen === 'scenes') {
     const buttons = quickMenu.querySelectorAll<HTMLButtonElement>('[data-scene]');
-    const currentId = currentSceneData?.getSceneId?.() ?? activeSceneId;
+    const currentId = currentSceneData?.getDeveloperSceneId?.() ?? currentSceneData?.getSceneId?.() ?? activeSceneId;
     const chapterIds: Record<string, number> = { scene1: 1, prologue1: 0, 'living-quarters': 0.5,
       'stage1-storage': 1.1, 'stage2-infiltration': 1.2, 'stage2-armory': 1.3 };
     const selectedId = chapterIds[currentId] ?? Number(currentId.replace('scene', ''));
@@ -1662,6 +1698,15 @@ function backFromMenu() {
 }
 async function jumpToScene(id: number) {
   if (menuScreen !== 'scenes' || !developerUnlocked || !SCENE_CHOICES.some(([scene]) => scene === id)) return;
+  if (id !== 1) {
+    document.getElementById('scene-menu-error')!.textContent = 'Preparing character...';
+    try { await prepareGlobalCharacter(); }
+    catch (error) {
+      document.getElementById('scene-menu-error')!.textContent = `Character could not load: ${error instanceof Error ? error.message : String(error)}`;
+      return;
+    }
+    if (menuScreen !== 'scenes') return;
+  }
   weaponWheel.close();
   teleportDevice.detachMarker();
   teleportArrivalTime = -1;
@@ -1714,6 +1759,8 @@ async function jumpToScene(id: number) {
       case 17: await loadGround17(); break;
       case 20: await loadFacility20(); break;
       case 21: await loadScene21(); break;
+      case 21.5: await loadScene21(undefined, { stage: 'rupture' }); break;
+      case 21.9: await loadScene21(undefined, { stage: 'finisher' }); break;
     }
     if (request !== sceneRequestVersion) return;
     const spawnedPlayer = currentSceneData?.player as Player | undefined;

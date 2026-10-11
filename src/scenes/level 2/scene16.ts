@@ -8,6 +8,7 @@ import { disposeRoom } from '../../helpers/scene/shipRoom.js';
 import { createHoldToSkip } from '../../helpers/animation/holdToSkip.js';
 import type { FlightExitState } from './scene15.js';
 import { createRescueSite, RESCUE_SITE, JUNGLE_ENTRY_YAW, type RescueArrival } from '../../helpers/scene/rescueSite.js';
+import { prepareSceneRendering } from '../../core/renderer.js';
 
 /** An uninterrupted handoff, then pursuit, atmospheric entry, and the crash. */
 export function createScene({ entryState, onFinished }: { entryState?: FlightExitState; onFinished: (arrival: RescueArrival) => void }) {
@@ -83,7 +84,10 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
   const beacon = new THREE.PointLight(0x88ddff, 0, 35); beacon.position.copy(crashSite).addScaledVector(surfaceNormal, 3); scene.add(beacon);
 
   const orbital = new THREE.Group(); for (const child of [...scene.children]) orbital.add(child); scene.add(orbital);
-  const site = createRescueSite(physics); site.scene.visible = false; scene.add(site.scene);
+  const site = createRescueSite(physics, { culling: true }); site.scene.visible = false; scene.add(site.scene);
+  scene.onBeforeRender = (_renderer, _scene, viewCamera) => {
+    if (site.scene.visible) site.updateVisibility(viewCamera, player.body.position);
+  };
   site.boy.visible = false; site.ship.setFlying(true, true);
   const groundPoint = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z).add(RESCUE_SITE.landingOffset);
   const groundPodStart = groundPoint(8, 100, -105);
@@ -294,6 +298,16 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
   updateVisuals(0);
   return {
     roomId: 'scene16', scene, camera, physicsWorld, player, planet, pod, shuttle, ready: site.ready, cutsceneManager: null,
+    async prepareRendering(renderer: THREE.WebGLRenderer) {
+      await site.ready;
+      const fog = scene.fog, orbitalVisible = orbital.visible, groundVisible = site.scene.visible;
+      try {
+        orbital.visible = false; site.scene.visible = true; scene.fog = site.scene.fog;
+        await prepareSceneRendering(renderer, scene, camera);
+      } finally {
+        scene.fog = fog; orbital.visible = orbitalVisible; site.scene.visible = groundVisible;
+      }
+    },
     getMusicTrack: (): 'level-2' | 'level-2-boss' => entryState ? 'level-2-boss' : 'level-2',
     isCinematic: () => true, hideCharacter: () => (clock - 11) * 1.3 < 11,
     isThirdPersonView: () => true,

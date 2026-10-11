@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BufferedMusic, supportsBufferedMusic, resumeMusicContext } from './bufferedMusic.js';
+import { BufferedMusic, supportsBufferedMusic, resumeMusicContext, playableMusicSource } from './bufferedMusic.js';
 import { cachedAssetUrl } from '../../core/assetCache.js';
 
 const clamp = (value, minimum, maximum) => Math.min(Math.max(value, minimum), maximum);
@@ -103,7 +103,11 @@ export class AudioManager {
   createBgmAudio(path, loop) {
     const source = this.resolveSource(path);
     if (!source) throw new Error(`Audio file not found: ${path}`);
-    if (!supportsBufferedMusic(source)) return this.createAudio(path, { loop });
+    if (!supportsBufferedMusic(source)) {
+      const audio = new Audio(cachedAssetUrl(playableMusicSource(source)));
+      audio.loop = loop; audio.preload = 'auto'; audio.load();
+      return audio;
+    }
     return new BufferedMusic(source, loop);
   }
 

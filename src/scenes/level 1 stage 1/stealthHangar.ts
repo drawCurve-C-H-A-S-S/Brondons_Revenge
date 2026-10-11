@@ -247,7 +247,7 @@ export function createStealthHangar(scene: THREE.Scene, physics: Physics, deckY:
   const exitLight = new THREE.PointLight(SHIP_INTERIOR_PALETTE.light, 8, 12);
   exitLight.position.set(84, deckY + 3, 20); scene.add(exitLight);
   const fillLight = new THREE.HemisphereLight(0xbbd7ed, 0x273342, 1.8);
-  fillLight.visible = false; scene.add(fillLight);
+  fillLight.intensity = 0; scene.add(fillLight);
   const beacon = new THREE.Group(); beacon.name = 'CentralRotatingAlarmBeacon';
   beacon.position.set(50, deckY + 11.1, 0); scene.add(beacon);
   const beaconBase = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.7, 0.16, 20), dark);

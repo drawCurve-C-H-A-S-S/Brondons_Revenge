@@ -50,7 +50,7 @@ export function createWaterfallMiniboss({ scene, world, player, camera, arena, d
   function spawnChest() {
     if (chest || rewardCollected || disposed) return;
     chest = createRewardChest({ scene, world, player, position: arena.center.clone().add(new THREE.Vector3(-4, 0, 0)),
-      yaw: Math.PI / 2, reward: 'aegis', style: 'crew', unlocked: () => phase === 'defeated',
+      yaw: -Math.PI / 2, reward: 'aegis', style: 'crew', unlocked: () => phase === 'defeated',
       canInteract: () => !disposed && player.getHealth() > 0 && !document.hidden && !document.body.classList.contains('quick-menu-open'),
       onCollect: () => { rewardCollected = true; return true; },
     }, loadModel);

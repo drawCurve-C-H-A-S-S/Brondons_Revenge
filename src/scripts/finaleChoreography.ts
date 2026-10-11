@@ -42,18 +42,75 @@ export function sampleDodgeArc(time: number, duration: number, crossing: boolean
     roll: arc * (crossing ? 0.22 : 0.12) + offset.roll * carry };
 }
 export const MELEE_STRIKES = Object.freeze({
-  slash: { duration: 1.04, start: 0.34, end: 0.62 },
-  sideSlash: { duration: 1.12, start: 0.25, end: 0.88 },
-  cleave: { duration: 1.4, start: 0.6, end: 0.94 },
-  thrust: { duration: 1.38, start: 0.72, end: 0.96 },
-  reap: { duration: 1.7, start: 0.78, end: 1.1 },
+  slash: { duration: 1.533333, start: 0.34, end: 0.6 },
+  sideSlash: { duration: 1.4, start: 0.17, end: 0.35 },
+  cleave: { duration: 2, start: 0.54, end: 0.82 },
+  thrust: { duration: 1.566667, start: 0.24, end: 0.44 },
+  reap: { duration: 1.566667, start: 0.17, end: 0.38 },
   orbitalCut: { duration: ENEMY_ORBITAL_CUT.duration, start: ENEMY_ORBITAL_CUT.release, end: 2.65 },
+  regularCombo: { duration: 3, start: 0.17, end: 1.73 },
+  heavyCombo: { duration: 4.333333, start: 0.34, end: 2.85 },
 });
 export type MeleeStrike = keyof typeof MELEE_STRIKES;
+export const SWORD_COMBO_WINDOWS: Partial<Record<MeleeStrike, readonly { start: number; end: number }[]>> = {
+  regularCombo: [{ start: 0.17, end: 0.35 }, { start: 0.62, end: 0.87 }, { start: 1.4, end: 1.73 }],
+  heavyCombo: [{ start: 0.34, end: 0.64 }, { start: 0.99, end: 1.33 }, { start: 1.64, end: 2.01 }, { start: 2.44, end: 2.85 }],
+};
+export function swordHitWindows(move: MeleeStrike) { return SWORD_COMBO_WINDOWS[move] ?? [MELEE_STRIKES[move]]; }
+export type PlayerSwordStrike = Exclude<MeleeStrike, 'orbitalCut'>;
+export const SWORD_ATTACK_CLIPS = {
+  slash: 'Sword_Attack', sideSlash: 'Sword_Regular_A_WithRecovery', cleave: 'Sword_Regular_C',
+  thrust: 'Sword_Dash', reap: 'Sword_Regular_B_WithRecovery', orbitalCut: 'Sword_Regular_B_WithRecovery',
+  regularCombo: 'Sword_Regular_Combo', heavyCombo: 'Sword_Heavy_Combo',
+} as const satisfies Record<MeleeStrike, string>;
+export const SWORD_ATTACK_LABELS: Record<PlayerSwordStrike, string> = {
+  slash: 'CLASSIC CUT', sideSlash: 'LEFT CUT', reap: 'RIGHT CUT', thrust: 'SWORD LUNGE',
+  cleave: 'FINISHING CUT', regularCombo: 'REGULAR COMBO', heavyCombo: 'HEAVY COMBO',
+};
+export function directionalSwordAttack(horizontal: number, vertical: number, combo: number): PlayerSwordStrike {
+  const x = Math.abs(horizontal) >= 0.35 ? Math.sign(horizontal) : 0;
+  const y = Math.abs(vertical) >= 0.35 ? Math.sign(vertical) : 0;
+  if (x < 0 && y > 0) return 'regularCombo';
+  if (x > 0 && y > 0) return 'heavyCombo';
+  if (x < 0 && y < 0) return 'slash';
+  if (x > 0 && y < 0) return 'cleave';
+  if (y > 0) return 'thrust';
+  if (y < 0) return 'cleave';
+  if (x < 0) return 'sideSlash';
+  if (x > 0) return 'reap';
+  return combo === 2 ? 'cleave' : combo === 1 ? 'sideSlash' : 'slash';
+}
+
+export function swordClipTime(time: number, clipDuration: number, source: { duration: number; start: number; end: number },
+  target: { duration: number; start: number; end: number }) {
+  const t = Math.max(0, Math.min(target.duration, time));
+  const sourceTime = t < target.start ? source.start * t / target.start
+    : t < target.end ? source.start + (source.end - source.start) * (t - target.start) / (target.end - target.start)
+      : source.end + (source.duration - source.end) * (t - target.end) / (target.duration - target.end);
+  return sourceTime / source.duration * clipDuration;
+}
+export const PHYSICAL_STRIKES = {
+  jab: { duration: 0.72, start: 0.22, end: 0.4, damage: 34 },
+  cross: { duration: 0.9, start: 0.32, end: 0.53, damage: 48 },
+  hook: { duration: 1.02, start: 0.26, end: 0.54, damage: 56 },
+  slide: { duration: 1.4, start: 0.3, end: 0.9, damage: 42 },
+} as const;
+export type PhysicalStrike = keyof typeof PHYSICAL_STRIKES;
+export function isPhysicalStrike(move: string): move is PhysicalStrike {
+  return Object.prototype.hasOwnProperty.call(PHYSICAL_STRIKES, move);
+}
 export type CinematicPoint = [number, number, number];
 
 export function isMeleeStrike(move: string): move is MeleeStrike {
   return Object.prototype.hasOwnProperty.call(MELEE_STRIKES, move);
+}
+
+/** Fit an authored clip's anticipation/contact/recovery to the simulation's damage window. */
+export function authoredStrikeTime(time: number, duration: number, strike: { duration: number; start: number; end: number }) {
+  const t = Math.max(0, Math.min(strike.duration, time));
+  if (t < strike.start) return duration * 0.3 * cinematicProgress(t, 0, strike.start);
+  if (t < strike.end) return duration * (0.3 + 0.35 * cinematicProgress(t, strike.start, strike.end));
+  return duration * (0.65 + 0.35 * cinematicProgress(t, strike.end, strike.duration));
 }
 
 const pointMix = (a: CinematicPoint, b: CinematicPoint, p: number): CinematicPoint =>
@@ -116,15 +173,21 @@ export const HERO_TRANSFORM = Object.freeze({
 });
 export const PLANET_RUPTURE = Object.freeze({
   jump: 0.85, land: 1.75, raise: 1.9, materialize: 2.45, release: 3.8, apex: 5.2,
-  slam: 5.45, escape: 6.05, wide: 7.6, impact: 8.65, burst: 10.25,
-  forest: 11.8, scorch: 13.3, forestEnd: 18.2, cockpit: 18.2, resolve: 23,
-  returnToDuel: 27.4, orbit: 31.8,
+  slam: 5.2, escape: 5.85, wide: 7.6, impact: 8.65, burst: 10.25,
+  forest: 11, scorch: 12.1, forestEnd: 15.8, cockpit: 15.4, resolve: 19,
+  returnToDuel: 21.8, orbit: 24.2,
 });
 export const FINISHER_EXECUTION = Object.freeze({
   dash: 1.65, vanish: 2.7, gone: 2.95, appear: 3.2, materialized: 3.65,
   cuts: 4.25, lastCut: 6.25, collapse: 6.6,
 });
 export const DONUS_RETURN = Object.freeze({ appear: 9.2, arrival: 14 });
+export const SPECIAL_MOVE_NAMES = {
+  missiles: 'STARFALL SALVO', overdrive: 'LAST LIGHT', verdict: 'FINAL VERDICT', orbitalCut: 'ECLIPSE REND',
+} as const;
+export function isNamedSpecialMove(move: string): move is keyof typeof SPECIAL_MOVE_NAMES {
+  return Object.prototype.hasOwnProperty.call(SPECIAL_MOVE_NAMES, move);
+}
 export const FINISHER_BEATS: readonly FinisherBeat[] = Object.freeze([
   { id: 'evade', key: 'KeyA', label: 'EVADE THE EXECUTION SHOT', mode: 'tap', lead: 0.65, window: 1.65, hold: 0, presses: 1, resolve: 1.3, shot: 'evade' },
   { id: 'missile-cut', key: 'KeyJ', label: 'CUT THROUGH THE BARRAGE', mode: 'tap', lead: 0.5, window: 1.5, hold: 0, presses: 1, resolve: 1.45, shot: 'missileCut' },
@@ -208,7 +271,7 @@ export function samplePlanetBreaker(time: number, origin: CinematicPoint, impact
   if (time < PLANET_RUPTURE.apex) return pointMix(origin, apex,
     1 - (1 - clamp((time - PLANET_RUPTURE.release) / (PLANET_RUPTURE.apex - PLANET_RUPTURE.release))) ** 2);
   const fall = clamp((time - PLANET_RUPTURE.slam) / (PLANET_RUPTURE.impact - PLANET_RUPTURE.slam));
-  return pointMix(apex, impact, fall ** 2.2);
+  return pointMix(apex, impact, fall * fall);
 }
 
 interface MotionKey { at: number; point: CinematicPoint; stop?: boolean; }
@@ -290,7 +353,7 @@ export function sampleFinisher(beat: FinisherBeat, clock: number) {
     const settle = cinematicProgress(clock, action + 0.5, duration);
     hero = pointMix(pointMix([-14, 0, 0], [-16, -3.5, 8], dodge), [-12, 0, 3], settle);
     heroPose = 'evade'; enemyPose = 'verdict';
-    heroRoll = -Math.sin(dodge * Math.PI / 2) * (1 - settle) * 0.62;
+    heroRoll = -Math.sin(dodge * Math.PI / 2) * (1 - settle) * 0.16;
     heroPoseProgress = p; enemyPoseProgress = Math.min(1, clock / 2.8);
   } else if (beat.shot === 'missileCut') {
     hero = pointMix([-12, 0, 3], [-10, 2, 2], p);
@@ -301,8 +364,7 @@ export function sampleFinisher(beat: FinisherBeat, clock: number) {
     hero = [-10, 2, 2]; enemy = pointMix([14, 2, -2], [12, 2, -2], strike);
     heroPose = 'missiles'; enemyPose = clock > RIFLE_SEQUENCE.fire + 0.4 ? 'stagger' : 'guard';
     heroPoseProgress = Math.min(1, clock / RIFLE_SEQUENCE.swordReady);
-    enemyPoseProgress = clock < RIFLE_SEQUENCE.lastShot + 0.65
-      ? clamp((clock - RIFLE_SEQUENCE.fire - 0.4) % 0.24 / 0.24) * 0.8 : cinematicProgress(clock, RIFLE_SEQUENCE.lastShot + 0.65, duration);
+    enemyPoseProgress = cinematicProgress(clock, RIFLE_SEQUENCE.fire + 0.35, RIFLE_SEQUENCE.lastShot + 0.65);
     enemy[2] -= Math.sin(strike * Math.PI) * 1.8;
     enemyRoll = Math.sin(strike * Math.PI) * 0.16;
   } else if (beat.shot === 'boost') {
@@ -319,7 +381,7 @@ export function sampleFinisher(beat: FinisherBeat, clock: number) {
     heroPoseProgress = strike; enemyPoseProgress = strike;
     const pressure = sine * (1 - strike);
     hero[0] += pressure * 0.42; enemy[0] += pressure * 0.28;
-    heroRoll = -pressure * 0.07; enemyRoll = pressure * 0.09;
+    heroRoll = -pressure * 0.035; enemyRoll = pressure * 0.045;
   } else if (beat.shot === 'armCut') {
     hero = pointMix([-6, 0, 0], [-3, 3, 1], p);
     enemy = pointMix([6.3, 0, 0], [6, 0, 0], p);
@@ -331,7 +393,7 @@ export function sampleFinisher(beat: FinisherBeat, clock: number) {
     hero = pointMix([-3, 3, 1], [-9, 16, -2], p); enemy = [6, 0, 0];
     heroPose = 'boost'; enemyPose = 'verdict';
     heroPoseProgress = p; enemyPoseProgress = 0.2 + p * 0.5;
-    heroRoll = -sine * 0.16;
+    heroRoll = -sine * 0.06;
   } else if (beat.shot === 'reactor') {
     hero = [-9, 16, -2]; enemy = [6, 0, 0];
     heroPose = 'skyCharge'; enemyPose = clock < 2.7 ? 'verdict' : 'guard';
@@ -367,16 +429,21 @@ export function sampleFinisher(beat: FinisherBeat, clock: number) {
     enemyPose = clock >= timing.collapse ? 'defeat' : clock >= timing.cuts ? 'stagger'
       : clock >= timing.dash && clock < timing.cuts - 0.25 ? 'thrust' : 'guard';
     enemyPoseProgress = clock >= timing.collapse ? cinematicProgress(clock, timing.collapse, duration)
-      : clock >= timing.cuts ? 0.45 + Math.sin((clock - timing.cuts) * 24) * 0.16 + barrage * 0.2
+      : clock >= timing.cuts ? 0.2 + barrage * 0.6
         : Math.min(0.98, counter * 0.8 + recover * 0.18);
-    const recoil = clock >= timing.cuts && clock < timing.collapse
-      ? Math.sin((clock - timing.cuts) * 24) * (0.09 + barrage * 0.05) : 0;
+    const recoil = clock >= timing.cuts && clock < timing.collapse ? barrage * 0.07 : 0;
     enemyRoll = recoil - cinematicProgress(clock, timing.collapse, duration) * 0.25;
     enemy[0] += recoil * 2; enemy[1] += barrage * 0.8; enemy[2] += recoil * 3;
   }
   if (beat.shot !== 'finalCut') {
     hero = sampleMotion(heroMotion, shot.start + clock);
     enemy = sampleMotion(enemyMotion, shot.start + clock);
+  }
+  if (beat.shot === 'countershot') {
+    const recoil = cinematicProgress(clock, RIFLE_SEQUENCE.fire + 0.35, RIFLE_SEQUENCE.lastShot + 0.55)
+      * (1 - cinematicProgress(clock, RIFLE_SEQUENCE.lastShot + 0.55, duration));
+    enemy[0] += recoil * 0.7; enemy[2] -= recoil * 0.55;
+    enemyRoll = recoil * 0.06;
   }
   const lockStart = shotTime(3, finisherBeatDuration(FINISHER_BEATS[3]) - 0.65);
   const lockEnd = shotTime(4, finisherActionTime(FINISHER_BEATS[4]) + 0.25);
