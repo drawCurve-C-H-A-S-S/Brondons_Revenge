@@ -6,6 +6,7 @@ import { createStealthHangar } from '../level 1 stage 1/stealthHangar.js';
 import hologramVertexShader from '../../shaders/hologram.vert.glsl?raw';
 import hologramFragmentShader from '../../shaders/hologram.frag.glsl?raw';
 import { createEarthTextures, createEarthGroup, updateEarthGroup } from '../../scripts/earthTexture.js';
+import { createContainmentPod, type ContainmentPod } from '../../helpers/scene/containmentPod.js';
 
 export type PrologueShot = 'present' | 'asteroid' | 'collection' | 'ingest' | 'corruption'
   | 'capture' | 'laboratory' | 'shield' | 'planet' | 'corridor' | 'patrol' | 'stealth';
@@ -296,28 +297,17 @@ export function createPrologueFlashbacks() {
   laboratoryScene.add(labRed);
   const captives = new THREE.Group();
   laboratoryScene.add(captives);
-  const labScanners: THREE.Mesh[] = [];
+  const pods: ContainmentPod[] = [];
   for (let captiveIndex = 0; captiveIndex < 7; captiveIndex++) {
     const captiveX = captiveIndex < 4 ? -2.5 : 2.5;
     const captiveZ = -4.8 + (captiveIndex < 4 ? captiveIndex : captiveIndex - 4) * 2.7;
-    const pod = new THREE.Group();
-    pod.position.set(captiveX, 0, captiveZ);
-    pod.rotation.y = captiveIndex < 4 ? Math.PI / 2 : -Math.PI / 2;
-    box(pod, [0.95, 0.17, 1], [0, 0.12, 0], paleMetal);
-    box(pod, [0.95, 0.17, 1], [0, 2.23, 0], darkMetal);
-    box(pod, [0.1, 2.1, 0.16], [-0.48, 1.18, -0.25], metal);
-    box(pod, [0.1, 2.1, 0.16], [0.48, 1.18, -0.25], metal);
-    const prisoner = figure(pod, [0, 0.23, 0], 'restrained', 1.8);
+    const capsule = createContainmentPod();
+    capsule.group.position.set(captiveX, 0, captiveZ);
+    capsule.group.rotation.y = captiveIndex < 4 ? Math.PI / 2 : -Math.PI / 2;
+    const prisoner = figure(capsule.interior, [0, 0, 0], 'restrained', 1.8);
     prisoner.rotation.z = (noise(captiveIndex + 800) - 0.5) * 0.06;
-    for (const strapY of [0.8, 1.45]) box(pod, [0.7, 0.055, 0.08], [0, strapY, 0.045], paleMetal);
-    const glass = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.94), new THREE.MeshPhysicalMaterial({
-      color: 0xa4d1d8, transparent: true, opacity: 0.1, roughness: 0.1, metalness: 0.1, side: THREE.DoubleSide, depthWrite: false,
-    }));
-    glass.position.set(0, 1.2, 0.36);
-    pod.add(glass);
-    const scanner = box(pod, [0.82, 0.012, 0.025], [0, 1.4, 0.4], redStrip);
-    labScanners.push(scanner);
-    captives.add(pod);
+    pods.push(capsule);
+    captives.add(capsule.group);
   }
   for (const toolZ of [-3.3, 2.1]) {
     box(laboratoryScene, [0.3, 1.5, 0.3], [0.1, 0.75, toolZ], metal);
@@ -596,7 +586,7 @@ export function createPrologueFlashbacks() {
     shield.rotation.y = clock * 0.16;
     shieldMaterial.opacity = 0.11 + Math.sin(clock * 3) * 0.025;
     shieldLight.intensity = 7 + Math.sin(clock * 2) * 0.45;
-    labScanners.forEach((scanner, scannerIndex) => { scanner.position.y = 1.2 + Math.sin(clock * 0.7 + scannerIndex) * 0.6; });
+    for (const capsule of pods) capsule.update(clock);
     capturedCrew.visible = shot === 'capture';
     cameraRigs.forEach((rig, rigIndex) => {
       rig.lookAt(Math.sin(clock * 0.65 + rigIndex) * 1.1, 0.9, rig.position.z + 3.2);

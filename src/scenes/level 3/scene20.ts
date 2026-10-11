@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
 import { roomBox, disposeRoom } from '../../helpers/scene/shipRoom.js';
+import { createContainmentPod, type ContainmentPod } from '../../helpers/scene/containmentPod.js';
 import { createPlayer } from '../../scripts/player.js';
 import type { RescueArrival } from '../../helpers/scene/rescueSite.js';
 
@@ -226,18 +227,22 @@ export function createScene({ entryState, onRespawn, onFinished }: {
   glass.position.set(0, MEZZ_Y + 1.8, GLASS_Z);
   scene.add(glass);
   box([W * 2, 0.3, 0.3], [0, MEZZ_Y + 3.5, GLASS_Z], dark, false);   // glass header
-  // Five student silhouettes behind the glass
+  // Five students suspended in containment capsules behind the glass
   const students: THREE.Group[] = [];
+  const pods: ContainmentPod[] = [];
   const silhouetteMat = new THREE.MeshStandardMaterial({ color: 0x0a0f14, emissive: 0x1a2a3a, emissiveIntensity: 0.6, roughness: 0.9 });
   for (let i = 0; i < 5; i++) {
-    const g = new THREE.Group();
+    const capsule = createContainmentPod();
     const x = -8 + i * 4;
-    g.position.set(x, MEZZ_Y + 0.2, -14);
+    capsule.group.position.set(x, MEZZ_Y + 0.2, -14);
+    const g = new THREE.Group();
     const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.32, 0.9, 4, 8), silhouetteMat);
     torso.position.y = 0.85; g.add(torso);
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), silhouetteMat);
     head.position.y = 1.62; g.add(head);
-    scene.add(g); students.push(g);
+    capsule.interior.add(g);
+    scene.add(capsule.group);
+    students.push(g); pods.push(capsule);
   }
   const revealLight = new THREE.PointLight(0x66aaff, 18, 16);
   revealLight.position.set(0, MEZZ_Y + 2.4, -14);
@@ -382,8 +387,9 @@ export function createScene({ entryState, onRespawn, onFinished }: {
     holoSphere.rotation.x += dt * 0.15;
     coreMat.opacity = 0.2 + Math.sin(clock * 2) * 0.15;
 
-    // Students idle sway on the deck
-    students.forEach((g, i) => { g.position.y = MEZZ_Y + 0.2 + Math.sin(clock * 0.8 + i) * 0.02; });
+    // Students idle sway inside their capsules; pods pulse their glow
+    students.forEach((g, i) => { g.position.y = Math.sin(clock * 0.8 + i) * 0.02; });
+    for (const capsule of pods) capsule.update(clock);
 
     // Reveal trigger: once unlocked and the player reaches the observation deck
     if (solved && revealTime < 0 && player.body.position.y > MEZZ_Y - 0.5 && player.body.position.z < GLASS_Z + 3) {
