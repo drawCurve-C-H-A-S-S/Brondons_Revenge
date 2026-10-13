@@ -31,7 +31,7 @@ export const MUSIC_CROSSFADE_SECONDS = 0.9;
 const sources = new Map<string, string>(Object.entries(MUSIC_URLS));
 const sceneTracks = new Map<string, BackgroundMusicTrack>([
   ['scene1', 'loading'], ['prologue1', 'emotional'], ['living-quarters', 'living-quarters'],
-  ['stage1-storage', 'stealth-1'], ['scene13', 'ship'], ['scene14', 'ship'],
+  ['stage1-storage', 'stealth-1'], ['scene5', 'stealth-2'], ['scene13', 'ship'], ['scene14', 'ship'],
   ['scene15', 'level-2'], ['scene16', 'level-2'], ['scene17', 'planet'],
   ['scene20', 'stealth-2'], ['scene21', 'loading'],
 ]);

@@ -32,11 +32,11 @@ const cabin = (id: CabinId, mapId: number, occupant: string, side: -1 | 1, slot:
 });
 
 export const CABINS: readonly CabinDefinition[] = [
-  cabin('brondon', 21, 'Brondon', -1, 0, 0x65d9e8, 'The next horizon is a question worth asking.'),
+  cabin('brondon', 21, 'Brondon', -1, 0, 0x65d9e8, 'The next horizon is a question worth asking. Wits for good.'),
   cabin('student-01', 22, 'Caleb', -1, 1, 0x9caae6, 'Small steps can cross the greatest distances.'),
   cabin('student-02', 23, 'Husain', -1, 2, 0xe5b878, 'Look beyond the charts. Discovery starts there.'),
-  cabin('branden', 24, 'Branden', -1, 3, 0xe3bf75, 'Plan the journey. Respect the unknown.'),
-  cabin('brendan', 25, 'Brendan', 1, 0, 0x83d5ae, 'Every star is a reason to keep exploring.'),
+  cabin('branden', 24, 'Branden', -1, 3, 0xe3bf75, 'Plan the journey. Terrorise with Claude.'),
+  cabin('brendan', 25, 'Brendan', 1, 0, 0x83d5ae, 'Every star is a reason to keep exploring. Gitea server was on fire, is this a sign?'),
   cabin('student-03', 26, "Andre'", 1, 1, 0xc891d9, 'Bring curiosity. Leave no crewmate behind.'),
   cabin('student-04', 27, 'Sibusiso', 1, 2, 0x86bfe3, 'A good expedition returns with better questions.'),
   cabin('student-05', 28, 'Sohrab', 1, 3, 0xd79786, 'The universe is vast. Our courage can be, too.'),

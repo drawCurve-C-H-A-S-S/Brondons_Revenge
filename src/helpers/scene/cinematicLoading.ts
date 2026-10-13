@@ -8,14 +8,14 @@ export const LOADING_SLIDE_SECONDS = 6;
 export function createCinematicLoadingScreen() {
   const root = document.createElement('section');
   root.className = 'cinematic-loading hidden';
-  root.setAttribute('aria-label', 'Preparing the game');
+  root.setAttribute('aria-label', 'Loading the game');
   root.innerHTML = `<img class="cinematic-loading-art" alt="" aria-hidden="true">
     <div class="cinematic-loading-shade" aria-hidden="true"></div>
     <div class="cinematic-loading-copy">
       <span class="cinematic-loading-chapter"></span>
       <h1></h1>
       <aside class="cinematic-loading-tip"><strong>FIELD NOTES</strong><p></p></aside>
-      <div class="cinematic-loading-status" role="status" aria-live="polite">PREPARING SCENE</div>
+      <div class="cinematic-loading-status" role="status" aria-live="polite">LOADING</div>
       <div class="cinematic-loading-track" role="progressbar" aria-label="Loading game"><span></span></div>
       <p class="cinematic-loading-note"></p>
       <button type="button" class="cinematic-loading-retry hidden">TRY AGAIN</button>
@@ -90,7 +90,7 @@ export function createCinematicLoadingScreen() {
       minimumSeconds = minimum; deck = createLoadingSlideDeck(destination);
       root.dataset.destination = destination; root.classList.remove('hidden', 'loading-failed');
       document.body.classList.add('cinematic-loading-active');
-      status.textContent = destination === 'game' ? 'PREPARING THE ENTIRE GAME' : 'PREPARING SCENE';
+      status.textContent = destination === 'game' ? 'PREPARING THE ENTIRE GAME' : 'LOADING';
       note.textContent = ''; track.classList.remove('hidden', 'determinate');
       track.removeAttribute('aria-valuenow'); bar.style.width = '';
       retry.classList.add('hidden');

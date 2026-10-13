@@ -62,7 +62,7 @@ export const LOADING_CHAPTERS = {
       'Collected shield power-ups can help you survive the next attack.'],
   },
   scrambler: {
-    chapter: 'LEVEL 2 / PHASE 2', title: 'THE BLUE SCRAMBLER', images: [image('level2-sidescroll')],
+    chapter: 'LEVEL 2 / PHASE 2', title: 'THE GREEN SCRAMBLER', images: [image('level2-sidescroll')],
     tips: ['The battle shifts to a side view. Watch the gaps in the incoming attacks.',
       'Directional dodges can carry you out of a dangerous firing lane.'],
   },
@@ -119,7 +119,7 @@ export const SCENE_CHOICES = [
   [5, 'Level 1 Minigame Stage - Cargo hold'], [6, 'Level 1 Minigame Stage - Target range'],
   [1.3, 'Level 1 Minigame Stage - Equipment archive'],
   [13, 'Level 1 Boss Stage - Bay Warden'], [14, 'Level 1 Escape Stage - Hangar escape'],
-  [15, 'Level 2 Phase 1 - Interceptors'], [15.5, 'Level 2 Phase 2 - Blue scrambler'],
+  [15, 'Level 2 Phase 1 - Interceptors'], [15.5, 'Level 2 Phase 2 - Green scrambler'],
   [15.6, 'Level 2 Phase 3 - Capital ship shields'], [15.75, 'Level 2 Phase 4 - Red scrambler'],
   [15.9, 'Level 2 Phase 5 - Exposed reactor'], [16, 'Level 2 Phase 6 - Crash landing'],
   [17, 'Level 3 Jungle Stage - Bridge and secret waterfall'],
