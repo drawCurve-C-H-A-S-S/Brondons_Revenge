@@ -14,6 +14,7 @@ export interface StageTwoProgress {
   guardDown: boolean;
   lightsaberCollected: boolean;
   elevatorUnlocked: boolean;
+  airlockUnlocked: boolean;
   keycards: KeycardRoomId[];
   acceptedKeycard: KeycardRoomId | null;
   remoteRooms: Record<KeycardRoomId, CameraRoomProgress>;
@@ -40,7 +41,7 @@ export const STAGE_TWO = {
 
 export function createStageTwoProgress(): StageTwoProgress {
   return { checkpoint: 'vent', ventCleared: false, crowbarCollected: false, guardDown: false,
-    lightsaberCollected: false, elevatorUnlocked: false, keycards: [], acceptedKeycard: null,
+    lightsaberCollected: false, elevatorUnlocked: false, airlockUnlocked: false, keycards: [], acceptedKeycard: null,
     remoteRooms: { scene5: { cleared: new Set(), rewardCollected: false },
       scene6: { cleared: new Set(), rewardCollected: false },
       'stage2-armory': { cleared: new Set(), rewardCollected: false },

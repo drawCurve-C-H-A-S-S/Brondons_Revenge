@@ -1,9 +1,10 @@
 import * as THREE from 'three';
-import { BufferedMusic, supportsBufferedMusic, resumeMusicContext, playableMusicSource } from './bufferedMusic.js';
+import { BufferedMusic, supportsBufferedMusic, resumeMusicContext, playableMusicSource, createMusicMuffleFilter } from './bufferedMusic.js';
 import { cachedAssetUrl } from '../../core/assetCache.js';
 
 const clamp = (value, minimum, maximum) => Math.min(Math.max(value, minimum), maximum);
 const volumes = { bgm: 1, sfx: 1 };
+const MUFFLED_BGM_GAIN = 0.55;
 let menuPaused = false;
 /** @type {Set<AudioManager>} */
 const managers = new Set();
@@ -64,6 +65,9 @@ export class AudioManager {
     this.bgm = null;
     /** @type {{ outgoing: { track: BgmTrack, gain: number }[], elapsed: number, duration: number } | null} */
     this.bgmFade = null;
+    this.bgmMuffled = false;
+    /** @type {Map<HTMLAudioElement, ReturnType<typeof createMusicMuffleFilter>>} */
+    this.bgmFilters = new Map();
     this.emitters = new Map();
     this.activeSfx = new Set();
     this.objectUrls = new Map();
@@ -106,9 +110,35 @@ export class AudioManager {
     if (!supportsBufferedMusic(source)) {
       const audio = new Audio(cachedAssetUrl(playableMusicSource(source)));
       audio.loop = loop; audio.preload = 'auto'; audio.load();
+      if (typeof window.AudioContext === 'function') {
+        const filter = createMusicMuffleFilter(audio);
+        filter.setMuffled(this.bgmMuffled); this.bgmFilters.set(audio, filter);
+      }
       return audio;
     }
-    return new BufferedMusic(source, loop);
+    const audio = new BufferedMusic(source, loop);
+    audio.setMuffled(this.bgmMuffled);
+    return audio;
+  }
+
+  /** @param {boolean} value */
+  setBgmMuffled(value) {
+    if (this.bgmMuffled === value) return;
+    this.bgmMuffled = value;
+    for (const audio of [this.bgm?.audio, ...(this.bgmFade?.outgoing.map(entry => entry.track.audio) ?? [])]) {
+      if (audio instanceof BufferedMusic) audio.setMuffled(value);
+      else if (audio) this.bgmFilters.get(audio)?.setMuffled(value);
+    }
+    this.update();
+  }
+
+  /** @param {MusicAudio} audio */
+  disposeBgmAudio(audio) {
+    if (audio instanceof BufferedMusic) audio.dispose();
+    else {
+      this.bgmFilters.get(audio)?.dispose();
+      this.bgmFilters.delete(audio);
+    }
   }
 
   /** @param {BgmSettings | null | undefined} settings */
@@ -116,7 +146,7 @@ export class AudioManager {
     this.stopBgm();
     if (!settings?.path) return;
     const audio = this.createBgmAudio(settings.path, settings.loop !== false);
-    audio.volume = clamp(settings.volume ?? 0.7, 0, 1) * volumes.bgm;
+    audio.volume = clamp(settings.volume ?? 0.7, 0, 1) * volumes.bgm * (this.bgmMuffled ? MUFFLED_BGM_GAIN : 1);
     this.bgm = { audio, settings: { ...settings } };
     if (settings.autoplay) this.requestAutoplay(audio);
   }
@@ -149,7 +179,7 @@ export class AudioManager {
       this.menuSuspended.delete(audio);
       audio.pause();
       audio.currentTime = 0;
-      if (audio instanceof BufferedMusic) audio.dispose();
+      this.disposeBgmAudio(audio);
     }
     this.bgmFade = null;
   }
@@ -174,7 +204,7 @@ export class AudioManager {
     this.pauseBgm();
     this.finishBgmFade();
     this.bgm.audio.currentTime = 0;
-    if (this.bgm.audio instanceof BufferedMusic) this.bgm.audio.dispose();
+    this.disposeBgmAudio(this.bgm.audio);
     this.bgm = null;
   }
 
@@ -270,10 +300,11 @@ export class AudioManager {
     }
     const progress = this.bgmFade ? this.bgmFade.elapsed / this.bgmFade.duration : 1;
     const angle = progress * Math.PI / 2;
-    if (this.bgm) this.bgm.audio.volume = clamp(this.bgm.settings.volume ?? 0.7, 0, 1) * volumes.bgm * Math.sin(angle);
+    const bgmVolume = volumes.bgm * (this.bgmMuffled ? MUFFLED_BGM_GAIN : 1);
+    if (this.bgm) this.bgm.audio.volume = clamp(this.bgm.settings.volume ?? 0.7, 0, 1) * bgmVolume * Math.sin(angle);
     if (this.bgmFade) {
       for (const { track: { audio, settings }, gain } of this.bgmFade.outgoing) {
-        audio.volume = clamp(settings.volume ?? 0.7, 0, 1) * volumes.bgm * gain * Math.cos(angle);
+        audio.volume = clamp(settings.volume ?? 0.7, 0, 1) * bgmVolume * gain * Math.cos(angle);
       }
     }
     for (const entry of this.emitters.values()) this.applySpatialVolume({

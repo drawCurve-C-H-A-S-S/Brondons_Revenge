@@ -5,11 +5,12 @@ import type { Player } from './player.js';
 import { registerTouchAttackCallback, refreshTouchAttackButton } from './touchControls.js';
 import { isControllerEvent, inputHint } from './gamepadInput.js';
 
-export type DamageWeapon = 'pistol' | 'crowbar' | 'lightsaber';
+export type DamageWeapon = 'pistol' | 'crowbar' | 'lightsaber' | 'unarmed' | 'tackle';
 export interface DamageTarget {
   root: THREE.Object3D;
   body?: CANNON.Body;
   damage(amount: number, weapon?: DamageWeapon): boolean;
+  knockDown?(): boolean;
 }
 interface WeaponContext {
   scene: THREE.Scene | null;

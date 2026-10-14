@@ -5,6 +5,7 @@ import { loadToolModel } from '../../core/loader.js';
 import { disposeRoom } from '../../helpers/scene/shipRoom.js';
 import { clearComicEffects, emitComicEffect } from '../../helpers/scene/comicEffects.js';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
+import { KNOCKDOWN_DURATION, knockdownTilt } from '../../helpers/animation/knockdown.js';
 import type { DamageTarget } from '../../scripts/pistol.js';
 import beamVertex from '../../shaders/stealthBeam.vert.glsl?raw';
 import beamFragment from '../../shaders/stealthBeam.frag.glsl?raw';
@@ -49,6 +50,7 @@ export interface StealthActor {
   footprint: THREE.Mesh;
   light: THREE.SpotLight | null;
   downTime: number;
+  knockdownTime: number;
   formation: THREE.Vector3 | null;
   scanning: boolean;
   scanRoof: string | null;
@@ -172,7 +174,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
     const actor: StealthActor = { id: root.name, kind, reserve, root, body, mode: reserve ? 'reserve' : 'patrol', suspicion: 0,
       range: kind === 'eye' ? 13 : 9, route, routeIndex: index % route.length, path: [], target: null,
       dwell: index % 3 * 0.5, searchTime: 0, repath: 0, attackTime: 0, lastNoise: null, heardAt: -Infinity,
-      health: 50, mixer: null, actions: new Map(), animation: '', beam, footprint, light, downTime: 0, formation: null,
+      health: 50, mixer: null, actions: new Map(), animation: '', beam, footprint, light, downTime: 0, knockdownTime: 0, formation: null,
       scanning: false, scanRoof: null, scanTarget: null };
     root.visible = beam.visible = footprint.visible = !reserve;
     body.collisionResponse = !reserve;
@@ -280,7 +282,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
     let fired = 0;
     const aiming = new THREE.Vector3(encirclement.x, encirclement.y + 0.78, encirclement.z);
     for (const actor of actors) {
-      if (actor.mode !== 'charge' || !actor.formation || distance(actor.root.position, actor.formation) > 2.2) continue;
+      if (actor.mode !== 'charge' || actor.knockdownTime > 0 || !actor.formation || distance(actor.root.position, actor.formation) > 2.2) continue;
       eye.copy(actor.root.position); eye.y += eyeHeight(actor);
       if (!hasSight(eye, aiming, actor.body)) continue;
       const bolt = new THREE.Mesh(volleyGeometry, volleyMaterial); bolt.name = 'FiringSquadVolley'; bolt.userData.minimap = false;
@@ -346,6 +348,12 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
       emitComicEffect(scene, actor.health <= 0 ? 'clank' : 'hit', { source: actor.root, weapon });
       if (actor.health <= 0) { actor.mode = 'down'; actor.downTime = 0; actor.body.collisionResponse = false; animation(actor, 'down'); }
       if (weapon) forceAlarm(actor.id);
+      return true;
+    },
+    knockDown() {
+      if (actor.kind === 'eye' || actor.mode === 'down' || actor.mode === 'reserve') return false;
+      actor.knockdownTime = KNOCKDOWN_DURATION; actor.attackTime = 0; actor.scanning = false;
+      actor.beam.visible = actor.footprint.visible = false; animation(actor, 'idle');
       return true;
     } }));
 
@@ -447,6 +455,12 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
         }
         updateBeam(actor); continue;
       }
+      if (actor.knockdownTime > 0) {
+        actor.knockdownTime = Math.max(0, actor.knockdownTime - dt);
+        actor.root.rotation.z = -knockdownTilt(actor.knockdownTime);
+        actor.beam.visible = actor.footprint.visible = false;
+        continue;
+      }
       updateRooftopScan(actor, dt);
       if (!alarmed) {
         const visible = canSee(actor, observation);
@@ -511,7 +525,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
     for (const volley of volleys) volley.mesh.removeFromParent(); volleys.length = 0;
     actors.forEach((actor, index) => {
       const reserve = actor.reserve, start = actor.route[index % actor.route.length];
-      actor.mode = reserve ? 'reserve' : 'patrol'; actor.suspicion = actor.downTime = 0; actor.health = 50;
+      actor.mode = reserve ? 'reserve' : 'patrol'; actor.suspicion = actor.downTime = actor.knockdownTime = 0; actor.health = 50;
       actor.root.position.set(start.x, hangar.deckY + (actor.kind === 'eye' ? 3.8 : 0), start.z);
       actor.root.rotation.set(0, index % 2 ? Math.PI : Math.PI / 2, 0);
       actor.routeIndex = index % actor.route.length; actor.path = []; actor.target = actor.lastNoise = null;

@@ -7,10 +7,11 @@ import * as CANNON from 'cannon-es';
 import { PHYSICS } from '../helpers/physics/scenePhysics.js';
 import { SLIDE_TACKLE, slideTackleMotion, slideTackleSpeed } from '../helpers/animation/slideTackle.js';
 import type { CargoTransfer } from './cargoPuzzle.js';
+import type { UnarmedAttackName } from '../core/combatAnimations.js';
 import { isControllerActive, isControllerEvent, getControllerMovement, resetControllerInput } from './gamepadInput.js';
 
 // One-shot character actions (see characterManager.ts) on number keys 6-9.
-export type PlayerActionName = `Sword_${string}` | 'Pistol_Shoot' | 'Pistol_Reload' | 'Dance_Loop' | 'Interact';
+export type PlayerActionName = `Sword_${string}` | UnarmedAttackName | 'Pistol_Shoot' | 'Pistol_Reload' | 'Dance_Loop' | 'Interact';
 
 const ACTION_KEYS: Record<string, PlayerActionName> = {
   Digit6: 'Sword_Attack',
@@ -184,8 +185,9 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     if (!sliding && !floating && !boxHandling && !crouchForced && !ventMode && e.code === 'Space' && !keys[e.code] && !e.repeat) jumpQueued = true;
     if (!floating && !boxHandling && e.code === 'KeyC' && !crouchForced && !keys[e.code] && !e.repeat) {
       const forwardSpeed = -playerBody.velocity.x * Math.sin(yaw) - playerBody.velocity.z * Math.cos(yaw);
-      const runningForward = sideScrollDepth === null && keys.KeyW && !keys.KeyS && !crouching && !ventMode;
-      if (!sliding && runningForward && isOnGround && forwardSpeed > moveSpeed * 0.45 && slideCooldown <= 0) {
+      const runningForward = sideScrollDepth === null && keys.KeyW && !keys.KeyS
+        && (keys.ShiftLeft || keys.ShiftRight) && !crouching && !ventMode;
+      if (!sliding && runningForward && isOnGround && forwardSpeed > moveSpeed * 1.05 && slideCooldown <= 0) {
         sliding = true; slideTime = 0; slideYaw = yaw; slideEntrySpeed = forwardSpeed;
         jumpQueued = false; actionRequest = null; actionRequestLife = 0;
       } else if (!sliding && !runningForward) {

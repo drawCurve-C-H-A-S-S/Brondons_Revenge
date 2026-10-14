@@ -98,9 +98,9 @@ const LINES: Partial<Record<FinalePhase, { start: number; end: number; speaker: 
   rupture: [
     { start: 0, end: 3.8, speaker: 'SUDOERS 5', text: 'If we cannot rule this world, no one will.' },
     { start: 3.8, end: 9, speaker: 'PRIME', text: 'That bomb will ignite the core! Boost now, Brondon!' },
-    { start: PLANET_RUPTURE.forest + 0.6, end: PLANET_RUPTURE.cockpit, speaker: 'PRIME', text: 'The surface link is failing. Brondon... I am sorry.' },
-    { start: PLANET_RUPTURE.cockpit + 0.3, end: PLANET_RUPTURE.resolve, speaker: 'BRONDON', text: 'Brendan... no. Prime, tell me we can still reach him.' },
-    { start: PLANET_RUPTURE.resolve, end: PLANET_RUPTURE.returnToDuel + 0.3, speaker: 'BRONDON', text: 'Stay with me, Prime. We finish this together.' },
+    { start: PLANET_RUPTURE.scorch, end: PLANET_RUPTURE.forestEnd, speaker: 'BRENDAN', text: 'Ahhhhh, it burns!' },
+    { start: PLANET_RUPTURE.forestEnd, end: PLANET_RUPTURE.resolve, speaker: 'BRONDON', text: 'Nooooo, Brendan!!' },
+    { start: PLANET_RUPTURE.resolve, end: PLANET_RUPTURE.orbit + 0.4, speaker: 'BRONDON', text: 'Sudoers, I will never forgive you. You must die. I will have my revenge!!!' },
   ],
   finisher: [
     { start: 0, end: 3.2, speaker: 'PRIME', text: 'The frame is coming apart. Stay with me, Brondon!' },
@@ -793,6 +793,10 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
       heroMove = phaseTime < PLANET_RUPTURE.escape ? 'guard' : 'boost';
       enemyMove = phaseTime < PLANET_RUPTURE.jump ? 'verdict'
         : phaseTime < PLANET_RUPTURE.land ? 'boost' : phaseTime < PLANET_RUPTURE.escape + 0.5 ? 'bomb' : 'boost';
+      if (phaseTime >= PLANET_RUPTURE.returnToDuel - 0.7) {
+        heroMove = enemyMove = 'hover';
+        heroMech.setMotion(0, 0); enemyMech.setMotion(0, 0);
+      }
     }
     else if (choreography) {
       heroMove = choreography.heroPose; enemyMove = choreography.enemyPose;
@@ -832,8 +836,11 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
           : phase === 'defeat' ? phaseTime : enemy.time;
     heroMech.setDamage(1 - hero.health / DUEL.heroHealth);
     enemyMech.setDamage(1 - enemy.health / DUEL.health);
+    const cockpitExitDissolve = phase === 'rupture' && phaseTime >= PLANET_RUPTURE.cockpit
+      ? 1 - cinematicProgress(phaseTime, PLANET_RUPTURE.returnToDuel + 0.65, PLANET_RUPTURE.orbit - 0.2) : 0;
     heroMech.setDissolve(choreography?.heroDissolve ?? (phase === 'defeat'
       ? (endingEntry?.heroDissolve ?? 0) * (1 - cinematicProgress(phaseTime, 0, 0.5)) + smooth(phaseTime, 2.1, 5.4) : 0));
+    if (phase === 'rupture') heroMech.setDissolve(cockpitExitDissolve);
     enemyMech.setDissolve(phase === 'victory' ? smooth(phaseTime, 2.8, 5.8)
       : phase === 'credits' || phase === 'done' ? 1 : 0);
     const custom = !!choreography || phase === 'rupture' || phase === 'defeat';
@@ -985,6 +992,31 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     return { clip: 'Idle_Loop', time: director.getState().time, loop: true } satisfies CinematicPose;
   }
 
+  function updateEnvironment(phase: FinalePhase, phaseTime: number, time: number) {
+    const inSpace = reachedSpace && phase !== 'rupture';
+    const aftermathState = samplePlanetAftermath(phase === 'rupture' ? phaseTime : -1);
+    const roofBlast = phase === 'enemyTransform' ? phaseTime
+      : phase === 'loading' || phase === 'error' || phase === 'reveal' ? -1 : 3;
+    terrestrial.visible = !inSpace && (!(phase === 'rupture' && phaseTime >= PLANET_RUPTURE.wide) || aftermathState.forest);
+    site.rooftopEquipment.visible = roofBlast < 0.25 && terrestrial.visible;
+    for (const light of environmentLights) if (light instanceof THREE.DirectionalLight) {
+      light.shadow.autoUpdate = terrestrial.visible;
+    }
+    const lightPower = phase === 'loading' || phase === 'error' || phase === 'reveal' ? 0.24
+      : phase === 'enemyTransform' ? 0.5 : 0.78;
+    const night = sampleRooftopNight(phase, phaseTime);
+    for (const [light, intensity] of environmentIntensity) {
+      light.intensity = intensity * lightPower * (1 - night * (light instanceof THREE.DirectionalLight ? 0.84 : 0.35));
+      light.color.copy(environmentColors.get(light)!).lerp(moonColor, night);
+    }
+    moon.intensity = night * (inSpace ? 0.65 : 1.1);
+    const rupture = phase === 'rupture' ? smooth(phaseTime, PLANET_RUPTURE.impact, PLANET_RUPTURE.burst + 3)
+      : Number(inSpace);
+    world.update(time, rupture, inSpace, phase === 'reveal' ? phaseTime : 4, roofBlast,
+      phase === 'rupture' ? phaseTime : -1, night);
+    return { inSpace, aftermathState };
+  }
+
   function updatePhysics(dt: number) {
     if (disposed || retryRequested || paused || blurred || document.hidden || document.body.classList.contains('quick-menu-open')) return;
     animationDelta = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, 0.1));
@@ -1016,32 +1048,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     }
     site.update(animationDelta);
     site.updateActivePhysics([player.body.position]);
-    let rupture = 0;
-    if (state.phase === 'rupture') {
-      rupture = smooth(state.phaseTime, PLANET_RUPTURE.impact, PLANET_RUPTURE.burst + 3);
-    } else if (state.phase === 'space' || state.phase === 'finisher' || state.phase === 'victory'
-      || (reachedSpace && state.phase === 'defeat') || state.phase === 'credits' || state.phase === 'done') {
-      rupture = 1;
-    }
-    const reveal = state.phase === 'reveal' ? state.phaseTime : 4;
-    const inSpace = reachedSpace && state.phase !== 'rupture';
-    const roofBlast = state.phase === 'enemyTransform' ? state.phaseTime
-      : state.phase === 'loading' || state.phase === 'error' || state.phase === 'reveal' ? -1 : 3;
-    const aftermathState = samplePlanetAftermath(state.phase === 'rupture' ? state.phaseTime : -1);
-    terrestrial.visible = !inSpace && (!(state.phase === 'rupture' && state.phaseTime >= PLANET_RUPTURE.wide) || aftermathState.forest);
-    site.rooftopEquipment.visible = roofBlast < 0.25 && terrestrial.visible;
-    for (const light of environmentLights) if (light instanceof THREE.DirectionalLight) {
-      light.castShadow = terrestrial.visible;
-    }
-    const lightPower = state.phase === 'loading' || state.phase === 'error' || state.phase === 'reveal' ? 0.24
-      : state.phase === 'enemyTransform' ? 0.5 : 0.78;
-    const night = sampleRooftopNight(state.phase, state.phaseTime);
-    for (const [light, intensity] of environmentIntensity) {
-      light.intensity = intensity * lightPower * (1 - night * (light instanceof THREE.DirectionalLight ? 0.84 : 0.35));
-      light.color.copy(environmentColors.get(light)!).lerp(moonColor, night);
-    }
-    moon.intensity = night * (inSpace ? 0.65 : 1.1);
-    world.update(state.time, rupture, inSpace, reveal, roofBlast, state.phase === 'rupture' ? state.phaseTime : -1, night);
+    const { inSpace, aftermathState } = updateEnvironment(state.phase, state.phaseTime, state.time);
     shipTransform.update(state.phase, state.phaseTime);
 
     if (state.phase === 'enemyTransform' && state.phaseTime >= 0.4) {
@@ -1160,9 +1167,12 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     const original = director.getState(), previousSpace = reachedSpace, previousPaused = paused;
     const samples: Array<[FinalePhase, number]> = [
       ['reveal', 3], ['enemyTransform', 4], ['heroTransform', 7], ['ground', 1],
-      ['rupture', PLANET_RUPTURE.slam], ['rupture', PLANET_RUPTURE.forest + 1],
+      ['rupture', PLANET_RUPTURE.slam], ['rupture', PLANET_RUPTURE.wide + 0.1],
+      ['rupture', PLANET_RUPTURE.burst + 0.2], ['rupture', PLANET_RUPTURE.forest + 1],
+      ['rupture', PLANET_RUPTURE.scorch + 0.5],
       ['rupture', PLANET_RUPTURE.cockpit + 0.1],
-      ['rupture', PLANET_RUPTURE.cockpit + 1], ['space', 1], ['victory', 12],
+      ['rupture', PLANET_RUPTURE.cockpit + 1], ['rupture', PLANET_RUPTURE.returnToDuel + 0.4],
+      ['rupture', PLANET_RUPTURE.orbit], ['space', 1], ['victory', 12],
     ];
     try {
       for (const [phase, time] of samples) {
@@ -1171,9 +1181,8 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
         updateActors(phase, time, time);
         shipTransform.update(phase, time);
         const ruptureTime = phase === 'rupture' ? time : -1;
-        world.update(time, phase === 'rupture' ? smooth(time, PLANET_RUPTURE.impact, PLANET_RUPTURE.burst + 3) : Number(reachedSpace),
-          reachedSpace, 4, phase === 'enemyTransform' ? time : 3, ruptureTime);
         aftermath.update(ruptureTime, time, heroMech.root);
+        updateEnvironment(phase, time, time);
         await prepareSceneRendering(activeRenderer, scene, camera);
       }
     } finally {

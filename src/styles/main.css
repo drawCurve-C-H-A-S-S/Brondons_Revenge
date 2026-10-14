@@ -181,6 +181,15 @@ body.hud-hidden :is(
   right: clamp(16px, 3vw, 40px);
   bottom: clamp(16px, 3vw, 40px);
 }
+.hangar-versus[data-layout="columns"]::before {
+  top: 0; left: 50%; bottom: 0; right: auto; width: 8px; height: auto; transform: translateX(-50%);
+}
+.hangar-versus[data-layout="columns"] .hangar-versus-name {
+  top: auto; bottom: 12vh; left: 3vw; width: 39vw; font-size: clamp(17px, 2.6vw, 38px);
+}
+.hangar-versus[data-layout="columns"] .hangar-versus-name.opponent {
+  left: auto; right: 3vw; bottom: 12vh; text-align: right;
+}
 .hangar-versus-active #hud,
 .hangar-versus-active #loading-bay-status,
 .hangar-versus-active #health-bar,
@@ -672,17 +681,28 @@ body.ship-map-open > :not(canvas):not(#pause-menu):not(script) { visibility: hid
 .ship-map-labels { position: absolute; inset: 0; pointer-events: none; }
 #pause-menu .ship-map-room-label {
   position: absolute; transform: translate(-50%, -50%); pointer-events: auto;
-  width: 30px; height: 30px; min-height: 30px; padding: 0;
+  width: 22px; height: 22px; min-height: 22px; padding: 0;
   color: var(--room-color); border: 1px solid var(--room-color); border-radius: 50%;
-  background: #080d12e6; font: 600 11px/1 monospace; cursor: pointer;
+  background: #080d12e6; font: 600 9px/1 monospace; cursor: pointer;
 }
-#pause-menu .ship-map-room-label[aria-pressed="true"] { color: #07100e; background: var(--room-color); box-shadow: 0 0 0 4px #ffffff20; }
+#pause-menu .ship-map-room-label[aria-pressed="true"] { color: #07100e; background: var(--room-color); box-shadow: 0 0 0 2px #ffffff20; }
 #pause-menu .ship-map-room-label::before {
   content: ''; position: absolute; left: 50%; top: 50%; height: 1px;
   width: var(--leader-length, 0px); background: var(--room-color); opacity: 0.65;
   transform-origin: 0 50%; transform: rotate(var(--leader-angle, 0rad)) translateX(var(--leader-start, 0px)); pointer-events: none;
 }
-#pause-menu .ship-map-room-label[data-current="true"]::after { content: ''; position: absolute; width: 5px; height: 5px; top: -4px; right: -2px; border-radius: 50%; background: #fff; }
+.ship-map-player-marker {
+  position: absolute; width: 10px; height: 10px; transform: translate(-50%, -50%);
+  border: 1px solid #ffd6d9; border-radius: 50%; background: #ff263b;
+  box-shadow: 0 0 5px 2px #ff263bcc, 0 0 14px 5px #ff263b66;
+  pointer-events: none; z-index: 3; animation: ship-map-player-glow 1.6s ease-in-out infinite;
+}
+@keyframes ship-map-player-glow {
+  50% { box-shadow: 0 0 8px 3px #ff263bee, 0 0 20px 7px #ff263b88; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ship-map-player-marker { animation: none; }
+}
 .ship-map-compass { position: absolute; top: 10px; right: 12px; width: 32px; height: 50px; text-align: center; color: #b3c6c7; font: 11px monospace; pointer-events: none; }
 .ship-map-compass::after {
   content: ''; position: absolute; top: 24px; left: 11px; width: 10px; height: 20px; background: #75d9c5;
@@ -691,11 +711,11 @@ body.ship-map-open > :not(canvas):not(#pause-menu):not(script) { visibility: hid
 }
 .ship-map-room-info {
   position: absolute; left: 12px; bottom: 44px; max-width: min(340px, calc(100% - 24px));
-  min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 10px 14px;
+  min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 8px 10px;
   border-left: 2px solid #75d9c5; background: #080d12dc; pointer-events: none;
 }
-.ship-map-room-info strong { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
-.ship-map-room-info span { color: #9ab0b3; font-size: 11px; overflow-wrap: anywhere; }
+.ship-map-room-info strong { font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.ship-map-room-info span { color: #9ab0b3; font-size: 10px; overflow-wrap: anywhere; }
 .ship-map-help { position: absolute; bottom: 10px; left: 12px; right: 12px; color: #849a9e; font: 11px/1.5 monospace; pointer-events: none; }
 .ship-map-empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: #9ab0b3; pointer-events: none; }
 @media (max-width: 700px) {
@@ -704,10 +724,10 @@ body.ship-map-open > :not(canvas):not(#pause-menu):not(script) { visibility: hid
   .ship-map-toolbar { gap: 7px; }
   .ship-map-decks { width: 100%; }
   #pause-menu .ship-map-decks button { flex: 1; min-width: 0; padding: 7px 4px; gap: 4px; font-size: 10px; }
-  .ship-map-room-info { padding: 8px 10px; bottom: 56px; }
+  .ship-map-room-info { padding: 6px 8px; bottom: 56px; }
   .ship-map-help { font-size: 10px; }
-  .ship-map-room-info strong { font-size: 12px; }
-  #pause-menu .ship-map-room-label { width: 25px; height: 25px; min-height: 25px; font-size: 10px; }
+  .ship-map-room-info strong { font-size: 11px; }
+  #pause-menu .ship-map-room-label { width: 20px; height: 20px; min-height: 20px; font-size: 9px; }
 }
 #pause-close { flex-shrink: 0; min-width: 44px; }
 #pause-controls-description { color: #9ab5c6; }
@@ -1609,14 +1629,14 @@ body.touch-device #control-card footer::after { content: 'Tap × to dismiss · c
   font-family: var(--comic-body); color: var(--comic-ink);
 }
 #pause-menu .ship-map-goal-label {
-  position: absolute; transform: translate(-50%, -100%); padding: 4px 6px;
+  position: absolute; transform: translate(-50%, -100%); padding: 2px 4px;
   width: auto; height: auto; min-width: 0; min-height: 0; box-shadow: none;
-  color: var(--comic-ink); background: var(--comic-yellow); border: 2px solid var(--comic-ink);
-  font: 800 10px/1.2 var(--comic-body); white-space: nowrap; pointer-events: auto;
+  color: var(--comic-ink); background: var(--comic-yellow); border: 1px solid var(--comic-ink);
+  font: 800 8px/1.2 var(--comic-body); white-space: nowrap; pointer-events: auto;
 }
 #pause-menu .ship-map-elevator-label {
-  position: absolute; transform: translate(18px, -50%); padding: 3px 5px;
-  color: var(--comic-cyan); background: #07121cbb; font: 700 10px/1.2 monospace; white-space: nowrap;
+  position: absolute; transform: translate(12px, -50%); padding: 2px 3px;
+  color: var(--comic-cyan); background: #07121cbb; font: 700 8px/1.2 monospace; white-space: nowrap;
 }
 #pause-menu .ship-map-elevator-label[data-locked="true"] { color: var(--comic-red); }
 .stage-two-objective.faded { opacity: 0; transition: opacity 0.4s; }
@@ -1837,12 +1857,12 @@ body.controller-mode :is(#pause-controls-list, #credits-dialog-content).controll
 #pause-menu .ship-map-room-label {
   background: var(--comic-paper);
   color: var(--comic-ink);
-  border: 3px solid var(--comic-ink);
+  border: 2px solid var(--comic-ink);
   border-radius: 50%;
-  box-shadow: 2px 2px 0 var(--comic-ink);
-  font: 800 11px/1 var(--comic-body);
+  box-shadow: 1px 1px 0 var(--comic-ink);
+  font: 800 9px/1 var(--comic-body);
 }
-#pause-menu .ship-map-room-label[aria-pressed="true"] { background: var(--room-color); color: var(--comic-ink); box-shadow: 0 0 0 3px var(--comic-paper), 2px 2px 0 4px var(--comic-ink); }
+#pause-menu .ship-map-room-label[aria-pressed="true"] { background: var(--room-color); color: var(--comic-ink); box-shadow: 0 0 0 2px var(--comic-paper), 1px 1px 0 3px var(--comic-ink); }
 .ship-map-detail { background: var(--comic-paper); color: var(--comic-ink); border-top: 4px solid var(--comic-ink); padding: 12px; }
 .ship-map-room-picker, .ship-map-room-info span { color: #424653; }
 .ship-map-compass { color: var(--comic-paper); text-shadow: 2px 2px 0 var(--comic-ink); }
@@ -1892,7 +1912,7 @@ body.controller-mode :is(#pause-controls-list, #credits-dialog-content).controll
 #view-toggle-btn .view-camera { stroke: var(--comic-ink); stroke-width: 2.3; }
 #view-toggle-btn .view-lens, #view-toggle-btn .view-num { fill: #535969; }
 #view-toggle-btn[data-view="1"] .view-num[data-mode="1"], #view-toggle-btn[data-view="3"] .view-num[data-mode="3"] { fill: var(--comic-ink); }
-#minimap { border: 4px solid var(--comic-ink); border-radius: 4px; box-shadow: 5px 5px 0 var(--comic-ink), inset 0 0 0 2px var(--comic-paper); }
+#minimap { border: 4px solid var(--comic-ink); border-radius: 50%; box-shadow: 5px 5px 0 var(--comic-ink), inset 0 0 0 2px var(--comic-paper); }
 .minimap-north, #minimap-deck { color: var(--comic-ink); background: var(--comic-yellow); font-family: var(--comic-body); font-weight: 800; }
 #minimap-deck { border-radius: 2px; border: 2px solid var(--comic-ink); }
 .touch-move-base, .touch-flight-stick { border: 4px solid var(--comic-ink); background: #f7fbff80; box-shadow: 4px 4px 0 var(--comic-ink); }
@@ -2351,10 +2371,6 @@ body.finale-active #touch-controls { display: none !important; }
 @keyframes finale-dance-sprite { to { background-position: 100% 0; } }
 .finale-hud[data-phase="versus"] { visibility: hidden; }
 .finale-versus { z-index: 1720; border: 6px solid #17130f; }
-.finale-versus::before { top: 0; left: 50%; bottom: 0; right: auto; width: 8px; height: auto; transform: translateX(-50%); }
-.finale-versus .hangar-versus-name { top: auto; bottom: 12vh; left: 3vw; width: 39vw;
-  font-size: clamp(17px, 2.6vw, 38px); }
-.finale-versus .hangar-versus-name.opponent { left: auto; right: 3vw; bottom: 12vh; text-align: right; }
 .finale-versus .hangar-versus-badge { font-size: clamp(80px, 13vw, 160px); }
 .finale-versus-chapter { position: absolute; top: 5vh; left: 50%; width: max-content; max-width: 90vw;
   transform: translateX(-50%) rotate(-1deg); padding: 8px 14px; border: 3px solid #17130f;

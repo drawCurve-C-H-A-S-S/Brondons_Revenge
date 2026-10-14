@@ -11,6 +11,7 @@ import { createCabinFurnishings, disposeQuartersObject, type CabinFurnishings, t
 import { createQuartersHull } from './hull.js';
 import { createInspectionView, type InspectionTarget } from './inspectionView.js';
 import { inputHint } from '../../scripts/gamepadInput.js';
+import { createChairSeating } from '../../scripts/chairSeating.js';
 
 interface QuartersOptions {
   progress?: QuartersProgress;
@@ -94,6 +95,11 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
     inspectionCaptionTime = 0; subtitle.classList.add('hidden');
     document.body.classList.remove('quarters-cinematic');
     player.clearInput(); player.enable();
+  });
+  const seating = createChairSeating({
+    scene, camera, player, prompt,
+    chairs: () => [...interiors.values()].map(room => ({ root: room.chair, yaw: Math.PI })),
+    canInteract: () => active && !disposed && !paused && !cinematic && !inspection.active && !passageTransferring,
   });
 
   function inspect(surface: InspectionTarget) {
@@ -304,6 +310,7 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
     }
   }
   function updateInteractionFocus() {
+    if (seating.updateInteractionFocus()) { target = null; roomName.classList.add('hidden'); return; }
     if (disposed || paused || cinematic || inspection.active || passageTransferring || noticeTime > 0 || !player.isEnabled()) {
       target = null; prompt.classList.add('hidden'); roomName.classList.add('hidden'); return;
     }
@@ -433,6 +440,7 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
     camera.fov = camera.aspect < 1 ? Math.min(88, fov + 16) : fov; camera.updateProjectionMatrix();
   }
   function applyCinematicCamera() {
+    if (seating.applyCamera()) return;
     if (inspection.active) { inspection.applyCamera(); return; }
     const shot = cinematic; if (!shot) return;
     const cabin = CABIN_BY_ID.get(shot.cabin)!, room = interiors.get(shot.cabin), t = shot.time;
@@ -471,6 +479,7 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
     if (disposed || !active || paused) return;
     const frame = Number.isFinite(dt) ? THREE.MathUtils.clamp(dt, 0, 0.1) : 0; lastDelta = frame; clock += frame;
     skipHold.update(frame);
+    seating.update(frame);
     updateCinematic(frame);
     for (const [id, door] of hull.doors) {
       const p = player.body.position, point = cabinDoorPoint(CABIN_BY_ID.get(id)!);
@@ -527,17 +536,18 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
     getMapSceneId: () => `scene${location === 'hallway' ? 20 : CABIN_BY_ID.get(location)!.mapId}`,
     getHologramTransition: () => cinematic?.kind === 'arrival' && cinematic.time < HOLOGRAM_TRANSFER_DURATION
       ? hologramTransitionAt(cinematic.time, true) : null,
-    isCinematic: () => cinematic !== null || inspection.active,
+    isCinematic: () => cinematic !== null || inspection.active || seating.active,
     hideCharacter: () => inspection.active,
-    get ownsWeaponInput() { return cinematic !== null || inspection.active || passageTransferring || !progress.pistolCollected; },
+    get ownsWeaponInput() { return cinematic !== null || inspection.active || seating.active || passageTransferring || !progress.pistolCollected; },
     getCinematicWeapon: () => null,
     getCinematicDelta: () => lastDelta,
-    getCinematicState: (): PlayerState | null => cinematic || inspection.active ? { ...player.getState(),
+    getCinematicPose: seating.getPose,
+    getCinematicState: (): PlayerState | null => seating.getState() ?? (cinematic || inspection.active ? { ...player.getState(),
       isMoving: false, isOnGround: true, jumping: false,
-      crouching: false, sprinting: false, actionRequest: null } : null,
+      crouching: false, sprinting: false, actionRequest: null } : null),
     applyCinematicCamera,
     updateInteractionFocus,
-    controlsReady: () => !cinematic && !inspection.active && !passageTransferring && !paused,
+    controlsReady: () => !cinematic && !inspection.active && !seating.active && !passageTransferring && !paused,
     hideMinimap: () => cinematic !== null || inspection.active,
     setMenuPaused(value: boolean) { paused = value; player.clearInput(); skipHold.reset(); },
     preloadCabin: prepareCabin,
@@ -552,7 +562,7 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
     },
     dispose() {
       if (disposed) return; disposed = true;
-      window.removeEventListener('keydown', onKey); skipHold.dispose(); inspection.dispose(); ui.remove();
+      window.removeEventListener('keydown', onKey); seating.dispose(); skipHold.dispose(); inspection.dispose(); ui.remove();
       if (active) document.body.classList.remove('quarters-cinematic');
       interiors.forEach(room => room.dispose()); interiors.clear(); player.dispose(); physics.dispose(); disposeQuartersObject(scene);
     },

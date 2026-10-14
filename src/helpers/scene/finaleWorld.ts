@@ -23,8 +23,9 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
   const root = new THREE.Group();
   root.name = 'RescueSiteSummitAndOrbit';
   scene.add(root);
-  const roofFog = scene.fog;
-  roofFog?.color.set(0x273138);
+  const roofFog = scene.fog instanceof THREE.Fog ? scene.fog : new THREE.Fog(0x273138, 55, 230);
+  const roofFogNear = roofFog.near, roofFogFar = roofFog.far;
+  roofFog.color.set(0x273138);
   const roofBackground = scene.background instanceof THREE.Color ? scene.background : new THREE.Color(0x698475);
   scene.background = roofBackground;
   const spaceBackground = new THREE.Color(0x030711);
@@ -127,6 +128,7 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
     side: THREE.BackSide, transparent: true, depthWrite: false,
   }));
   sky.renderOrder = -100;
+  sky.name = 'FinaleNormalSky';
   root.add(sky);
 
   const planetRoot = createEarthGroup(root, PLANET_CENTER, PLANET_RADIUS, createEarthTextures());
@@ -213,6 +215,7 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
     size: 3.2, vertexColors: true, transparent: true, opacity: 0, depthWrite: false, toneMapped: false,
   });
   const stars = new THREE.Points(starsGeometry, starsMaterial);
+  stars.name = 'FinaleSpaceSky';
   root.add(stars);
 
   const debrisGeometry = new THREE.IcosahedronGeometry(1, 1);
@@ -327,7 +330,10 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
         piece.mesh.rotation.set(piece.axis.x * elapsed * 1.3, piece.axis.y * elapsed, piece.axis.z * elapsed * 1.3);
       }
       sky.visible = !space && !planetView && rupture < 1;
-      scene.fog = forestView ? forestFog : space || planetView ? null : roofFog;
+      // Keep the fog shader variant resident; orbital distances make its contribution zero.
+      roofFog.near = space || planetView ? 1e6 : roofFogNear;
+      roofFog.far = space || planetView ? 1e6 + 1 : roofFogFar;
+      scene.fog = forestView ? forestFog : roofFog;
       if (forestView) {
         roofBackground.copy(forestFog.color);
       } else if (space || planetView) {
@@ -335,7 +341,7 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
       } else {
         roofBackground.set(0x263138).lerp(nightBackground, night).lerp(rooftopDestructionColor, smooth(rupture, 0, 1));
       }
-      roofFog?.color.copy(roofBackground);
+      roofFog.color.copy(roofBackground);
       sky.material.uniforms.uFade.value = 1 - smooth(rupture, 0.15, 0.65);
       sky.material.uniforms.uNight.value = night;
       studentLights.forEach((spot, i) => {

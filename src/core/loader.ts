@@ -8,7 +8,6 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import dinoModelUrl from '../assets/models/Dino/dino.glb';
 import sharkModelUrl from '../assets/models/Dino/Shark.glb';
 import bossModelUrl from '../assets/models/bayboss.glb';
-import boyModelUrl from '../assets/models/boy.glb';
 import mothershipModelUrl from '../assets/models/mothership.glb';
 import gundamModelUrl from '../assets/models/gundam.glb';
 import { assetUrl, cachedAssetUrl, fetchAsset, type PreloadTask } from './assetCache.js';
@@ -76,45 +75,51 @@ function cloneModel(template: GLTF): GLTF {
 }
 
 export async function preloadBossModels() {
-  await Promise.all([modelTemplate(bossModelUrl), modelTemplate(boyModelUrl), toolTemplate('Enemy_EyeDrone')]);
+  await Promise.all([modelTemplate(bossModelUrl), modelTemplate(subjectModelUrl), toolTemplate('Enemy_EyeDrone')]);
 }
 
 export async function loadBossModel() { return cloneModel(await modelTemplate(bossModelUrl)); }
 export async function loadBoyModel() {
-  const gltf = cloneModel(await modelTemplate(boyModelUrl));
+  const gltf = await loadSubjectModel();
   const palette = {
-    boots: new THREE.Color(0x202630), trousers: new THREE.Color(0x344554), shirt: new THREE.Color(0x7d9fb1),
+    boots: new THREE.Color(0x202630), shorts: new THREE.Color(0x66513d), shirt: new THREE.Color(0x528ba8),
     skin: new THREE.Color(0xb47d58), hair: new THREE.Color(0x33251e),
   };
+  const bounds = new THREE.Box3().setFromObject(gltf.scene), height = bounds.getSize(new THREE.Vector3()).y;
+  if (!Number.isFinite(height) || height <= 0) throw new Error('Brendan model has invalid body bounds');
   const color = new THREE.Color();
-  const replacedMaterials = new Set<THREE.Material>();
+  const removedMaps = new Set<THREE.Texture>();
   gltf.scene.traverse(node => {
     if (!(node instanceof THREE.Mesh)) return;
-    if (node.name === 'Plane' && !(node instanceof THREE.SkinnedMesh)) { node.visible = false; return; }
-    if (node.name === 'body') {
-      for (const material of Array.isArray(node.material) ? node.material : [node.material]) replacedMaterials.add(material);
-      node.geometry.computeBoundingBox();
-      const bounds = node.geometry.boundingBox!, positions = node.geometry.getAttribute('position');
-      const colors = new Float32Array(positions.count * 3), height = bounds.max.y - bounds.min.y;
-      if (!Number.isFinite(height) || height <= 0) throw new Error('Brendan model has invalid body bounds');
-      for (let index = 0; index < positions.count; index++) {
-        const y = (positions.getY(index) - bounds.min.y) / height;
-        const hand = Math.abs(positions.getX(index)) > (bounds.max.x - bounds.min.x) * 0.31 && y > 0.42;
-        color.copy(y > 0.94 ? palette.hair : y > 0.79 || hand ? palette.skin
-          : y > 0.47 ? palette.shirt : y > 0.08 ? palette.trousers : palette.boots);
-        color.toArray(colors, index * 3);
+    for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
+      if (!(material instanceof THREE.MeshStandardMaterial)) continue;
+      material.roughness = 0.88; material.metalness = 0;
+      if (material.name === 'SuitBase') {
+        const positions = node.geometry.getAttribute('position'), colors = new Float32Array(positions.count * 3);
+        for (let index = 0; index < positions.count; index++) {
+          const y = (positions.getY(index) - bounds.min.y) / height;
+          const bareArm = Math.abs(positions.getX(index)) > height * 0.19 && y > 0.58;
+          color.copy(bareArm ? palette.skin : y > 0.53 ? palette.shirt : y > 0.31 ? palette.shorts : palette.skin);
+          color.toArray(colors, index * 3);
+        }
+        node.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        material.color.set(0xffffff); material.vertexColors = true;
+      } else if (material.name === 'SoldierSkin' || material.name === 'SuitGloves') material.color.copy(palette.skin);
+      else if (material.name === 'SoldierHair') material.color.copy(palette.hair);
+      else if (material.name === 'SuitBoots') material.color.copy(palette.boots);
+      else if (material.name === 'SoldierGlasses') material.visible = false;
+      if (material.name === 'SuitBase' || material.name === 'SuitGloves') {
+        if (material.map) removedMaps.add(material.map);
+        material.map = null;
       }
-      node.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-      node.material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0.02 });
-    } else if (/^Sphere/.test(node.name)) {
-      for (const material of Array.isArray(node.material) ? node.material : [node.material]) replacedMaterials.add(material);
-      node.material = new THREE.MeshStandardMaterial({ color: 0x30291f, roughness: 0.5 });
     }
   });
   gltf.scene.traverse(node => {
-    if (node instanceof THREE.Mesh) for (const material of Array.isArray(node.material) ? node.material : [node.material]) replacedMaterials.delete(material);
+    if (!(node instanceof THREE.Mesh)) return;
+    for (const material of Array.isArray(node.material) ? node.material : [node.material])
+      for (const value of Object.values(material)) if (value instanceof THREE.Texture) removedMaps.delete(value);
   });
-  replacedMaterials.forEach(material => material.dispose());
+  removedMaps.forEach(texture => texture.dispose());
   return gltf;
 }
 export async function loadMCModel() { return cloneModel(await modelTemplate(mcModelUrl)); }
@@ -170,7 +175,7 @@ const toolAssets = import.meta.glob<string>([
   '../assets/textures/T_Trim_01_{Normal,BaseColor_Red,ORM}.png',
 ], { eager: true, query: '?url', import: 'default' });
 export const MODEL_ASSET_URLS = [playerModelUrl, mcModelUrl, subjectModelUrl, dinoModelUrl, sharkModelUrl,
-  bossModelUrl, boyModelUrl, mothershipModelUrl, ...Object.values(toolAssets)];
+  bossModelUrl, mothershipModelUrl, ...Object.values(toolAssets)];
 const toolUrls = new Map(Object.entries(toolAssets).map(([path, url]) => [path.split('/').pop()!, url]));
 gltfLoader.manager.setURLModifier(url => {
   const filename = decodeURIComponent(url).split(/[?#]/, 1)[0].split(/[\\/]/).pop();
@@ -233,7 +238,7 @@ export function modelPreloadTasks(): PreloadTask[] {
   const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
   const lowMemory = memory !== undefined && memory <= 4 || window.matchMedia('(pointer: coarse)').matches;
   const models = lowMemory ? [subjectModelUrl, mothershipModelUrl]
-    : [mcModelUrl, subjectModelUrl, dinoModelUrl, sharkModelUrl, bossModelUrl, boyModelUrl, mothershipModelUrl];
+    : [mcModelUrl, subjectModelUrl, dinoModelUrl, sharkModelUrl, bossModelUrl, mothershipModelUrl];
   const tools: readonly ToolModelName[] = lowMemory ? ['Enemy_Trilobite', 'Enemy_EyeDrone', 'Gun_Revolver'] : TOOL_MODEL_NAMES;
   return [
     { label: 'Preparing character animations', run: () => loadPlayerModel() },

@@ -31,7 +31,7 @@ export function createWaterfallMiniboss({ scene, world, player, camera, arena, d
     linearDamping: 0, material: new CANNON.Material({ friction: 0, restitution: 0 }) });
   body.position.set(root.position.x, radius + 0.04, root.position.z);
   const motor = createGroundMotor(body, radius);
-  const versus = createHangarVersus({ singleOpponent: true, playerName: 'BRONDON', opponentName: 'WATERFALL WARDEN', layout: 'columns' });
+  const versus = createHangarVersus({ singleOpponent: true, playerName: 'BRONDON', opponentName: 'ROGUE SPIDER BOT', layout: 'columns' });
   const hud = document.createElement('div'); hud.className = 'waterfall-boss-hud hidden';
   const label = document.createElement('strong'); label.textContent = 'WATERFALL WARDEN';
   const track = document.createElement('div'); track.className = 'waterfall-boss-track';
@@ -102,7 +102,7 @@ export function createWaterfallMiniboss({ scene, world, player, camera, arena, d
   function damage(amount: number, weapon?: DamageWeapon) {
     if (!Number.isFinite(amount) || amount <= 0) throw new RangeError('Waterfall Warden damage must be positive and finite');
     if (disposed || phase !== 'fight' || !player.isEnabled() || player.getHealth() <= 0
-      || (weapon !== 'pistol' && weapon !== 'crowbar' && weapon !== 'lightsaber')) return false;
+      || (weapon !== 'pistol' && weapon !== 'crowbar' && weapon !== 'lightsaber' && weapon !== 'unarmed' && weapon !== 'tackle')) return false;
     health = Math.max(0, health - amount); fill.style.width = `${health / WATERFALL_BOSS.health * 100}%`;
     emitComicEffect(scene, health === 0 ? 'clank' : 'hit', { source: root, weapon, size: 3.4 });
     if (!health) finish();

@@ -37,13 +37,13 @@ export function getWeaponSegment(weapon: THREE.Object3D): MeleeSegment {
   };
 }
 
-export function getAttackSegment(player: Player, progress: number, side = 1): MeleeSegment {
+export function getAttackSegment(player: Player, progress: number, side = 1, reach = 1.65): MeleeSegment {
   const state = player.getState();
   const pitch = THREE.MathUtils.clamp(state.pitch, -1.25, 1.25);
   const yaw = state.yaw + side * THREE.MathUtils.lerp(-0.85, 0.85, progress);
   const direction = new THREE.Vector3(-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
   const origin = new THREE.Vector3(player.body.position.x, player.body.position.y + 0.8, player.body.position.z);
-  return { start: origin.clone().addScaledVector(direction, 0.3), end: origin.addScaledVector(direction, 1.65) };
+  return { start: origin.clone().addScaledVector(direction, 0.3), end: origin.addScaledVector(direction, reach) };
 }
 
 export class MeleeSwing {
@@ -128,6 +128,7 @@ export class MeleeSwing {
       this.hitTargets.add(target.root);
       if (target.body) push(target.body, point);
       if (target.damage(this.damage, this.weapon)) {
+        if (this.weapon === 'tackle') target.knockDown?.();
         emitComicEffect(scene, 'hit', { source: target.root, position: point, weapon: this.weapon });
         hit = true;
       }

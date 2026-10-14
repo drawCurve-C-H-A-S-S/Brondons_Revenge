@@ -4,6 +4,8 @@ import { PLANET_RUPTURE, cinematicProgress, samplePlanetAftermath } from '../../
 import { captureFinaleResources, normalizeFinaleActor } from './finaleActors.js';
 import { RESCUE_SITE } from './rescueSite.js';
 import { disposeRoom } from './shipRoom.js';
+import fireVertexShader from '../../shaders/fireExplosion.vert.glsl?raw';
+import fireFragmentShader from '../../shaders/fireExplosion.frag.glsl?raw';
 
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 
@@ -60,6 +62,21 @@ export function createFinaleAftermath(scene: THREE.Scene, boy: THREE.Group, fore
   embers.name = 'ForestEmbers'; embers.frustumCulled = false; forest.add(embers);
   const fireLight = new THREE.PointLight(0xff6b27, 0, 34, 1.4);
   fireLight.position.copy(RESCUE_SITE.boy).add(V(-1.2, 2.1, 1)); forest.add(fireLight);
+  const headFireUniforms = {
+    uTime: fireUniforms.uTime, uProgress: { value: 0.25 }, uIntensity: { value: 1 },
+    uCameraLocal: { value: new THREE.Vector3() },
+    uColorCore: { value: new THREE.Color(0xfff2b0) }, uColorMid: { value: new THREE.Color(0xff8a1f) },
+    uColorEdge: { value: new THREE.Color(0xc41608) }, uColorSmoke: { value: new THREE.Color(0x1a1613) },
+  };
+  const headFire = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), new THREE.ShaderMaterial({
+    uniforms: headFireUniforms, vertexShader: fireVertexShader, fragmentShader: fireFragmentShader,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide, toneMapped: false,
+  }));
+  headFire.name = 'BrendanHeadFire'; headFire.visible = false; headFire.frustumCulled = false;
+  headFire.position.set(0, 0.16, 0); headFire.scale.set(0.26, 0.52, 0.26); forest.add(headFire);
+  headFire.onBeforeRender = (_renderer, _scene, viewCamera) => {
+    viewCamera.getWorldPosition(headFireUniforms.uCameraLocal.value); headFire.worldToLocal(headFireUniforms.uCameraLocal.value);
+  };
 
   const steel = new THREE.MeshStandardMaterial({ color: 0x111b26, metalness: 0.85, roughness: 0.38 });
   const padding = new THREE.MeshStandardMaterial({ color: 0x252b34, roughness: 0.88 });
@@ -95,11 +112,14 @@ export function createFinaleAftermath(scene: THREE.Scene, boy: THREE.Group, fore
   let sitting: THREE.AnimationAction | null = null, talking: THREE.AnimationAction | null = null;
   const headWorld = new THREE.Quaternion(), headParent = new THREE.Quaternion(), headTilt = new THREE.Quaternion();
   const pilot = new THREE.Group(); pilot.name = 'BrondonCockpitPilot'; cockpit.add(pilot);
+  const cockpitMaterials = new Map<THREE.Material, { opacity: number; depthWrite: boolean }>();
   const boyBones: Array<{ bone: THREE.Object3D; rest: THREE.Quaternion }> = [];
+  let boyHead: THREE.Object3D | null = null;
   const ready = Promise.all([forestReady, loadMCModel()]).then(([, asset]) => {
     pilotResources = captureFinaleResources(asset.scene);
     if (disposed) { pilotResources.dispose(); return; }
-    if (!boy.children.length) throw new Error('The final surface transmission requires the boy.glb forest actor');
+    boyHead = boy.getObjectByName('Head') ?? null;
+    if (!boyHead) throw new Error('The final surface transmission requires Brendan and his Subject.glb head bone');
     boy.traverse(node => {
       if (node instanceof THREE.Bone) boyBones.push({ bone: node, rest: node.quaternion.clone() });
       if (!(node instanceof THREE.Mesh)) return;
@@ -123,6 +143,7 @@ export function createFinaleAftermath(scene: THREE.Scene, boy: THREE.Group, fore
         material.needsUpdate = true;
       }
     });
+    boyHead.add(headFire);
     pilotModel = asset.scene; pilot.add(normalizeFinaleActor(pilotModel, 1.83)); pilot.position.z = -0.3;
     pilotModel.traverse(node => { if (/visor|lens/i.test(node.name)) node.visible = false; });
     pilotHead = pilotModel.getObjectByName('Head') ?? null;
@@ -131,30 +152,42 @@ export function createFinaleAftermath(scene: THREE.Scene, boy: THREE.Group, fore
     if (!pilotHead || !seated || !speech) throw new Error('Brondon needs his head bone and seated dialogue animations for the cockpit close-up');
     pilotMixer = new THREE.AnimationMixer(pilotModel);
     sitting = pilotMixer.clipAction(seated).play(); talking = pilotMixer.clipAction(speech).play();
+    cockpit.traverse(node => {
+      if (!(node instanceof THREE.Mesh)) return;
+      for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
+        cockpitMaterials.set(material, { opacity: material.opacity, depthWrite: material.depthWrite });
+        material.transparent = true; material.needsUpdate = true;
+      }
+    });
   });
 
   return { root, forest, cockpit, ready,
     update(phaseTime: number, time: number, hero: THREE.Object3D) {
       const state = samplePlanetAftermath(phaseTime);
-      forest.visible = state.forest; cockpit.visible = state.cockpit || (phaseTime >= PLANET_RUPTURE.returnToDuel && state.orbit < 0.3);
+      const pullingBack = phaseTime >= PLANET_RUPTURE.returnToDuel && state.orbit < 1;
+      const cockpitOpacity = 1 - cinematicProgress(phaseTime, PLANET_RUPTURE.returnToDuel + 0.15, PLANET_RUPTURE.returnToDuel + 1.1);
+      forest.visible = state.forest; cockpit.visible = state.cockpit || (pullingBack && cockpitOpacity > 0);
       boy.visible = state.forest;
+      headFire.visible = state.forest && phaseTime >= PLANET_RUPTURE.scorch - 0.25;
       if (state.forest) {
         burnUniforms.uBurn.value = state.burn; burnUniforms.uScorchTime.value = time;
         const collapse = cinematicProgress(phaseTime, PLANET_RUPTURE.scorch + 0.7, PLANET_RUPTURE.forestEnd - 1);
         boy.rotation.z = -collapse * 1.48; boy.position.y = collapse * 0.16;
         for (const { bone, rest } of boyBones) {
           bone.quaternion.copy(rest);
-          if (bone.name === 'head') bone.rotateX(0.12 + collapse * 0.2);
-          if (bone.name === 'spine') bone.rotateZ(collapse * 0.22);
-          if (bone.name === 'upper_armL') bone.rotateZ(-collapse * 0.32);
-          if (bone.name === 'upper_armR') bone.rotateZ(collapse * 0.24);
-          if (bone.name === 'thighL') bone.rotateX(-collapse * 0.35);
-          if (bone.name === 'shinL') bone.rotateX(collapse * 0.65);
-          if (bone.name === 'thighR') bone.rotateX(collapse * 0.2);
-          if (bone.name === 'shinR') bone.rotateX(collapse * 0.32);
+          if (bone.name === 'Head') bone.rotateX(0.12 + collapse * 0.2);
+          if (bone.name === 'spine_01') bone.rotateZ(collapse * 0.22);
+          if (bone.name === 'upperarm_l') bone.rotateZ(-collapse * 0.32);
+          if (bone.name === 'upperarm_r') bone.rotateZ(collapse * 0.24);
+          if (bone.name === 'thigh_l') bone.rotateX(-collapse * 0.35);
+          if (bone.name === 'calf_l') bone.rotateX(collapse * 0.65);
+          if (bone.name === 'thigh_r') bone.rotateX(collapse * 0.2);
+          if (bone.name === 'calf_r') bone.rotateX(collapse * 0.32);
         }
         fireUniforms.uTime.value = reducedMotion ? 0 : time;
         fireUniforms.uPower.value = 0.3 + state.burn * 0.7;
+        headFireUniforms.uProgress.value = 0.25 + state.burn * 0.18;
+        headFireUniforms.uIntensity.value = 0.8 + state.burn * 0.4;
         fireLight.intensity = 16 + state.burn * 25 + (reducedMotion ? 0 : Math.sin(time * 4.3) * 3);
         for (const { mesh, index } of smoke) {
           const age = ((time * 0.23 + index * 0.19) % 1);
@@ -169,7 +202,7 @@ export function createFinaleAftermath(scene: THREE.Scene, boy: THREE.Group, fore
         }
         emberGeometry.getAttribute('position').needsUpdate = true;
       }
-      if (cockpit.visible) {
+      if (state.cockpit || pullingBack) {
         cockpit.position.copy(hero.position).add(V(0, 10.6, 0));
         cockpit.rotation.y = hero.rotation.y;
         const impact = 1 - cinematicProgress(phaseTime, PLANET_RUPTURE.cockpit, PLANET_RUPTURE.cockpit + 0.8);
@@ -193,10 +226,13 @@ export function createFinaleAftermath(scene: THREE.Scene, boy: THREE.Group, fore
         cockpitRim.intensity = 2 + state.grief;
         root.updateMatrixWorld(true);
       }
+      for (const [material, original] of cockpitMaterials) {
+        material.opacity = original.opacity * cockpitOpacity;
+        material.depthWrite = original.depthWrite && cockpitOpacity >= 0.99;
+      }
     },
     getBoyFocus(out = new THREE.Vector3()) {
-      const head = boy.getObjectByName('head');
-      return head ? head.getWorldPosition(out) : boy.localToWorld(out.set(0, 1.05, 0));
+      return boyHead ? boyHead.getWorldPosition(out) : boy.localToWorld(out.set(0, 1.6, 0));
     },
     getPilotFace(out = new THREE.Vector3()) {
       if (!pilotHead) return cockpit.localToWorld(out.set(0, 1.6, -0.2));
@@ -211,6 +247,7 @@ export function createFinaleAftermath(scene: THREE.Scene, boy: THREE.Group, fore
     },
     dispose() {
       if (disposed) return; disposed = true;
+      headFire.removeFromParent(); headFire.geometry.dispose(); headFire.material.dispose();
       pilotMixer?.stopAllAction();
       if (pilotMixer && pilotModel) pilotMixer.uncacheRoot(pilotModel);
       pilotResources?.dispose(); root.removeFromParent(); disposeRoom(root);

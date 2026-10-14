@@ -31,6 +31,13 @@ export const SHIP_MAP_LAYOUT: ShipMapLayout = {
   playerPoint: shipPlayerPoint, ventPaths: SHIP_VENT_PATHS, verticalLinks: SHIP_VERTICAL_LINKS,
 };
 
+// Narrative numbering stays independent of internal IDs and blueprint discovery order.
+const SHIP_STORY_ROOM_ORDER = [
+  21, 20, 25, 24, 22, 26, 23, 27, 28,
+  29, 30, 31, 32, 34, 35,
+  5, 6, 37, 36, 13, 14,
+];
+
 export function createShipMapProgress() {
   type Section = { layout: ShipMapLayout; transform: THREE.Matrix4 };
   const sections = new Map<string, Section>(), owners = new Map<number, Section>(), rooms = new Map<number, ShipRoom>();
@@ -133,7 +140,10 @@ export function getMapRoomContents(room: ShipRoom): readonly ShipMapBlock[] {
 }
 
 export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, layout?: ShipMapLayout) {
-  const rooms = layout?.rooms ?? SHIP_ROOMS;
+  const sourceRooms = layout?.rooms ?? SHIP_ROOMS;
+  const additionalIds = sourceRooms.map(room => room.id).filter(id => !SHIP_STORY_ROOM_ORDER.includes(id)).sort((a, b) => a - b);
+  const roomNumbers = new Map([...SHIP_STORY_ROOM_ORDER, ...additionalIds].map((id, index) => [id, index + 1]));
+  const rooms = [...sourceRooms].sort((a, b) => roomNumbers.get(a.id)! - roomNumbers.get(b.id)!);
   const roomById = layout ? new Map(rooms.map(room => [room.id, room])) : SHIP_ROOM_BY_ID;
   const ventPaths = layout ? layout.ventPaths ?? [] : SHIP_VENT_PATHS;
   const verticalLinks = layout ? layout.verticalLinks ?? [] : SHIP_VERTICAL_LINKS;
@@ -260,9 +270,10 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
       }
     }
     const label = document.createElement('button'); label.type = 'button'; label.className = 'ship-map-room-label';
-    label.dataset.room = String(room.id); label.textContent = String(room.id).padStart(2, '0');
+    const number = roomNumbers.get(room.id)!;
+    label.dataset.room = String(room.id); label.textContent = String(number).padStart(2, '0');
     label.dataset.locked = String(!!room.locked);
-    label.title = `${room.name}${room.locked ? ' / Locked' : ''}`; label.setAttribute('aria-label', `${room.id}: ${room.name}, ${SHIP_DECKS[room.deck].name}${room.locked ? ', locked, interior unavailable' : ''}`);
+    label.title = `${room.name}${room.locked ? ' / Locked' : ''}`; label.setAttribute('aria-label', `${number}: ${room.name}, ${SHIP_DECKS[room.deck].name}${room.locked ? ', locked, interior unavailable' : ''}`);
     label.style.setProperty('--room-color', SHIP_DECKS[room.deck].color); labelLayer.append(label); labels.set(room.id, label);
   }
   scene.updateMatrixWorld(true);
@@ -315,9 +326,8 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
     label.textContent = goal.label; label.dataset.room = String(goal.room); label.setAttribute('aria-label', `Target: ${goal.label}`);
     labelLayer.append(label); return { goal, mesh, label };
   });
-  const markerMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false, depthTest: false });
-  const markerGeometry = new THREE.ConeGeometry(0.65, 1.7, 3); markerGeometry.rotateX(-Math.PI / 2);
-  const marker = new THREE.Mesh(markerGeometry, markerMaterial); marker.renderOrder = 100; marker.visible = false; scene.add(marker);
+  const marker = document.createElement('span'); marker.className = 'ship-map-player-marker'; marker.hidden = true;
+  marker.setAttribute('role', 'img'); marker.setAttribute('aria-label', 'Your current position'); labelLayer.append(marker);
 
   function fit() {
     const rect = view.getBoundingClientRect(); if (rect.width < 1 || rect.height < 1) return;
@@ -343,7 +353,6 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
     links.forEach(link => { link.object.visible = deck === 'all'; });
     goals.forEach(({ goal, mesh }) => { mesh.visible = deck === 'all' || roomById.get(goal.room)?.deck === deck; });
     decks.querySelectorAll<HTMLButtonElement>('button').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.deck === deck)));
-    marker.visible = playerPosition !== null && (deck === 'all' || roomById.get(current)?.deck === deck);
     if (changed) needsFit = true;
     lastRender = -Infinity;
   }
@@ -412,16 +421,15 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
   setFilter('all'); selectRoom(layout?.initialRoom ?? 3);
   return {
     get visible() { return visible; },
-    open(sceneId: string, position?: { x: number; y: number; z: number }, yaw = 0) {
+    open(sceneId: string, position?: { x: number; y: number; z: number }) {
       visible = true; controls.enabled = true; current = Number(sceneId.replace('scene', ''));
       playerPosition = position && roomById.has(current) ? (layout?.playerPoint ?? shipPlayerPoint)(current, position) : null;
-      if (playerPosition) { marker.position.copy(playerPosition); marker.rotation.y = yaw + roomById.get(current)!.yaw; }
       selectRoom(roomById.has(current) ? current : layout?.initialRoom ?? 3);
-      marker.visible = playerPosition !== null && (filter === 'all' || roomById.get(current)?.deck === filter);
+      marker.hidden = true;
       dragging = false; pointerStarts.clear(); lastRender = -Infinity;
       root.querySelector<HTMLButtonElement>('[data-map-tool="current"]')!.disabled = !playerPosition;
     },
-    hide() { visible = false; controls.enabled = false; pointerStarts.clear(); },
+    hide() { visible = false; marker.hidden = true; controls.enabled = false; pointerStarts.clear(); },
     render() {
       if (!visible) return;
       controls.update(); if (needsFit) fit();
@@ -434,6 +442,15 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
       materials.forEach(material => { material.uniforms.uTime.value = now * 0.001; });
       const spacing = rooms.length ? Number.parseFloat(getComputedStyle(labels.get(rooms[0].id)!).width) + 4 : 0;
       const placed: { x: number; y: number }[] = [];
+      marker.hidden = playerPosition === null || (filter !== 'all' && roomById.get(current)?.deck !== filter);
+      if (playerPosition && !marker.hidden) {
+        projected.copy(playerPosition).project(camera);
+        marker.hidden = Math.abs(projected.x) > 0.98 || Math.abs(projected.y) > 0.98 || Math.abs(projected.z) > 1;
+        if (!marker.hidden) {
+          const point = { x: (projected.x + 1) * rect.width / 2, y: (1 - projected.y) * rect.height / 2 };
+          marker.style.left = `${point.x}px`; marker.style.top = `${point.y}px`; placed.push(point);
+        }
+      }
       rooms.forEach(room => {
         const label = labels.get(room.id)!; projected.copy(room.position).add(new THREE.Vector3(0, 2, 0)).project(camera);
         label.hidden = !groups.get(room.id)!.visible || Math.abs(projected.x) > 0.98 || Math.abs(projected.y) > 0.98 || Math.abs(projected.z) > 1;
@@ -477,7 +494,7 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
       }
     },
     dispose() {
-      events.abort(); observer.disconnect(); controls.dispose(); boxGeometry.dispose(); edgeGeometry.dispose(); markerGeometry.dispose(); markerMaterial.dispose();
+      events.abort(); observer.disconnect(); controls.dispose(); boxGeometry.dispose(); edgeGeometry.dispose();
       materials.forEach(material => material.dispose()); outlineMaterials.forEach(material => material.dispose());
       shaftMaterial.dispose(); cameraLinkMaterial.dispose(); goalGeometry.dispose(); goalMaterial.dispose();
       elevatorMaterial.dispose(); elevatorEdges.dispose(); elevatorOffline.dispose();

@@ -164,7 +164,8 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
 
   function damageBody(amount: number, weapon?: string) {
     if (disposed || phase !== 'exposed' || !player.isEnabled() || headCooldown > 0
-      || !Number.isFinite(amount) || amount <= 0 || (weapon !== 'crowbar' && weapon !== 'pistol' && weapon !== 'lightsaber')) return false;
+      || !Number.isFinite(amount) || amount <= 0
+      || (weapon !== 'crowbar' && weapon !== 'pistol' && weapon !== 'lightsaber' && weapon !== 'unarmed' && weapon !== 'tackle')) return false;
     const previousPhase = healthPhase();
     health = Math.max(0, health - amount); headCooldown = BOSS_RULES.headCooldown;
     if (health > 0) emitComicEffect(scene, 'hit', { source: root, position: getHeadWorldPosition(), weapon });

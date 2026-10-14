@@ -31,6 +31,21 @@ export function resumeMusicContext() {
   return context && context.state !== 'running' ? context.resume() : Promise.resolve();
 }
 
+export function createMusicMuffleFilter(audio?: HTMLMediaElement) {
+  const audioContext = musicContext(), input = audioContext.createBiquadFilter();
+  input.type = 'lowpass'; input.Q.value = 0.7;
+  input.frequency.value = Math.min(20000, audioContext.sampleRate / 2);
+  const source = audio ? audioContext.createMediaElementSource(audio) : null;
+  if (source) { source.connect(input); input.connect(audioContext.destination); }
+  return {
+    input,
+    setMuffled(value: boolean) {
+      input.frequency.setTargetAtTime(value ? 850 : Math.min(20000, audioContext.sampleRate / 2), audioContext.currentTime, 0.06);
+    },
+    dispose() { source?.disconnect(); input.disconnect(); },
+  };
+}
+
 export function prepareMusicLoop(audioContext: BaseAudioContext, original: AudioBuffer): PreparedMusic {
   const channels = Array.from({ length: original.numberOfChannels }, (_, channel) => original.getChannelData(channel));
   const audible = (frame: number) => channels.some(channel => Math.abs(channel[frame]) > 0.0005);
@@ -116,6 +131,7 @@ export class BufferedMusic extends EventTarget {
   ended = false;
   private readonly context = musicContext();
   private readonly gain = this.context.createGain();
+  private readonly filter = createMusicMuffleFilter();
   private prepared: PreparedMusic | null = null;
   private source: AudioBufferSourceNode | null = null;
   private offset = 0;
@@ -126,12 +142,14 @@ export class BufferedMusic extends EventTarget {
   constructor(readonly src: string, loop: boolean) {
     super();
     this.loop = loop;
+    this.filter.input.connect(this.gain);
     this.gain.connect(this.context.destination);
     this.ready = loadMusic(src, loop).then(music => { this.prepared = music; });
     void this.ready.catch(error => console.warn('[Audio] Music preparation failed:', src, error));
   }
 
   get volume() { return this.gain.gain.value; }
+  setMuffled(value: boolean) { this.filter.setMuffled(value); }
   set volume(value: number) {
     if (!Number.isFinite(value)) throw new RangeError('Music volume must be finite');
     this.gain.gain.setTargetAtTime(Math.max(0, Math.min(1, value)), this.context.currentTime, 0.012);
@@ -169,7 +187,7 @@ export class BufferedMusic extends EventTarget {
     source.loop = this.loop;
     source.loopStart = music.loopStart;
     source.loopEnd = this.duration;
-    source.connect(this.gain);
+    source.connect(this.filter.input);
     source.onended = () => {
       if (this.source !== source) return;
       source.disconnect(); this.source = null;
@@ -191,6 +209,6 @@ export class BufferedMusic extends EventTarget {
   }
   dispose() {
     if (this.disposed) return;
-    this.pause(); this.disposed = true; this.gain.disconnect();
+    this.pause(); this.disposed = true; this.filter.dispose(); this.gain.disconnect();
   }
 }

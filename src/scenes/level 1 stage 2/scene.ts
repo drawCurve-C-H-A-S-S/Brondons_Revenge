@@ -17,6 +17,8 @@ import type { CctvTarget } from '../../scripts/cctv.js';
 import type { WeaponId } from '../../scripts/weaponWheel.js';
 import { inputHint, isControllerActive } from '../../scripts/gamepadInput.js';
 import { fitCabinProp } from '../living quarters/furnishings.js';
+import { createChairSeating, type ChairSeat } from '../../scripts/chairSeating.js';
+import { emitComicEffect } from '../../helpers/scene/comicEffects.js';
 import { STAGE_TWO, STAGE_TWO_MAP, STAGE_TWO_KEYCARD_ROOMS, VENT_MAZE, VENT_BOUNDS, VENT_START,
   VENT_EXIT, VENT_CENTER, VENT_SENSORS, VENT_SAFE_CELLS, ventPoint, ventSensorState, swipeStageTwoKeycard, collectStageTwoKeycard,
   type CameraRoomId, type StageTwoProgress } from './stageTwoLayout.js';
@@ -162,6 +164,7 @@ export function createScene(options: StageTwoOptions) {
   const returnAirlock = createSlidingPortal(scene, physics, { x: room.minX, y: 0, z: -46, yaw: Math.PI / 2 },
     4, height, 'HANGAR AIRLOCK', { doorHeight: 2.65, sign: false });
   surveillance.add(returnAirlock.group);
+  returnAirlock.setLocked(!progress.airlockUnlocked);
   box(surveillance, [2, 0.2, 3], [18, -0.1, -46], materials.deck);
   box(surveillance, [18, height, 0.18], [28, height / 2, room.maxZ]);
   for (const x of [22.5, 33.5]) box(surveillance, [7, height, 0.18], [x, height / 2, room.minZ]);
@@ -176,7 +179,7 @@ export function createScene(options: StageTwoOptions) {
     box(surveillance, [17.7, 0.1, 0.18], [28, height - 0.2, z], materials.trim, false).userData.minimap = false;
     box(surveillance, [2.8, 0.04, 0.12], [28, height - 0.12, z], materials.cyan, false);
   }
-  for (const [index, x] of [20, 36].entries()) for (const z of [-44.4, -61.5]) {
+  for (const [index, x] of [20, 36].entries()) for (const z of [-42.9, -61.5]) {
     const rack = createShipServerRack(materials); rack.name = `SurveillanceServerRack-${index}-${z}`;
     rack.position.set(x, 0, z); rack.rotation.y = x < 28 ? Math.PI / 2 : -Math.PI / 2; surveillance.add(rack);
     physics.addBox({ x: 0.8, y: 2.65, z: 0.86 }, { x, y: 1.325, z });
@@ -216,6 +219,7 @@ export function createScene(options: StageTwoOptions) {
   let transferTarget: CameraRoomId | null = null, transferPending = false, loadError: 'hub' | 'boss' = 'hub';
   let swipeDone = false, swipeResult: 'missing' | 'rejected' | 'accepted' = 'missing';
   let objectiveShown = '', objectiveTime = 0, liftStomp = 0, lastStomp = -10, liftPressed = false, liftArrived = false;
+  let arrivalRemarkPending = false;
   let checkpointState = player.captureTransition({ x: 0, y: 0, z: 0 });
   const ventSafe = start.clone(), liftStart = new THREE.Vector3(), swipeStart = new THREE.Vector3(), projected = new THREE.Vector3();
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -230,6 +234,9 @@ export function createScene(options: StageTwoOptions) {
   const fade = document.createElement('div'); fade.className = 'stage-two-transition'; fade.setAttribute('aria-hidden', 'true');
   ui.append(objective, caption, failure, fade); document.body.append(ui);
   const prompt = document.getElementById('interact-prompt');
+  const chairs: ChairSeat[] = [];
+  const seating = createChairSeating({ scene, camera, player, prompt, chairs: () => chairs,
+    canInteract: () => active && !disposed && !menuPaused && phase === 'surveillance' && !transferPending });
   function tell(text: string, seconds = 3) { caption.textContent = text; captionTime = seconds; caption.classList.remove('hidden'); }
   function syncBodyClass() {
     if (!active) return;
@@ -245,23 +252,39 @@ export function createScene(options: StageTwoOptions) {
   }
 
   const monitors: ReturnType<typeof createCorridorMonitor>[] = [];
-  const desksReady = Promise.all([-48, -53, -58].flatMap((z, row) => [22, 25, 31, 34].map(async (x, index) => {
+  const workstations = [
+    ...[-49.5, -54.5, -59.5].flatMap(z => [25, 31].map(x => ({ x, z, yaw: 0 }))),
+    ...[-51, -54.5, -58].map(z => ({ x: 20.2, z, yaw: -Math.PI / 2 })),
+    ...[-47.5, -51, -54.5, -58].map(z => ({ x: 35.8, z, yaw: Math.PI / 2 })),
+    ...[22.5, 33.5].map(x => ({ x, z: -62.9, yaw: Math.PI })),
+  ];
+  const desksReady = Promise.all(workstations.map(async ({ x, z, yaw }, index) => {
     const [desk, chair] = await Promise.all([modelLoader('Prop_Desk_Small'), modelLoader('Prop_Chair')]);
     if (disposed) { disposeRoom(desk.scene); disposeRoom(chair.scene); return; }
+    const station = new THREE.Group(); station.name = `SurveillanceWorkstation-${index}`;
+    station.position.set(x, 0, z); station.rotation.y = yaw; surveillance.add(station);
+    function collider(size: { x: number; y: number; z: number }, point: THREE.Vector3) {
+      const position = station.localToWorld(point), body = physics.addBox(size, position);
+      body.quaternion.setFromEuler(0, yaw, 0);
+    }
     const size = fitCabinProp(desk.scene, 0.86, 2.55, 1.25);
-    desk.scene.name = `SurveillanceDesk-${x}-${z}`; desk.scene.position.add(new THREE.Vector3(x, 0, z)); surveillance.add(desk.scene);
-    physics.addBox(size, { x, y: size.y / 2, z });
+    desk.scene.name = `SurveillanceDesk-${x}-${z}`; station.add(desk.scene);
+    collider(size, new THREE.Vector3(0, size.y / 2, 0));
     const chairSize = fitCabinProp(chair.scene, 1.05, 0.68, 0.8, Math.PI);
     chair.scene.name = `SurveillanceChair-${x}-${z}`;
-    chair.scene.position.add(new THREE.Vector3(x, 0, z - 1.3)); surveillance.add(chair.scene);
-    physics.addBox(chairSize, { x, y: chairSize.y / 2, z: z - 1.3 });
-    const monitor = monitorFactory(row * 4 + index); monitors.push(monitor); await monitor.ready;
+    chair.scene.position.z -= 1.3; station.add(chair.scene);
+    collider(chairSize, new THREE.Vector3(0, chairSize.y / 2, -1.3));
+    chairs.push({ root: chair.scene, yaw: yaw + Math.PI });
+    const monitor = monitorFactory(index); monitors.push(monitor); await monitor.ready;
     if (disposed) { monitor.dispose(); return; }
     const terminal = createShipTerminal(monitor.texture);
-    terminal.root.name = `SurveillanceComputer-${x}-${z}`; terminal.root.position.set(x, 0.9, z); surveillance.add(terminal.root);
-    box(surveillance, [0.55, 0.025, 0.21], [x, 0.92, z - 0.32], materials.dark, false);
-    if (index === 0 || index === 3) box(surveillance, [0.28, 0.52, 0.5], [x + 0.8, 0.26, z], materials.dark);
-  })));
+    terminal.root.name = `SurveillanceComputer-${x}-${z}`; terminal.root.position.set(0, 0.9, 0); station.add(terminal.root);
+    box(station, [0.55, 0.025, 0.21], [0, 0.92, -0.32], materials.dark, false);
+    if (index % 3 === 0) {
+      box(station, [0.28, 0.52, 0.5], [0.8, 0.26, 0], materials.dark, false);
+      collider({ x: 0.28, y: 0.52, z: 0.5 }, new THREE.Vector3(0.8, 0.26, 0));
+    }
+  }));
   const heldCard = new THREE.Group(); heldCard.name = 'SwipedKeycard'; heldCard.visible = false; surveillance.add(heldCard);
   const cardReady = modelLoader('Prop_KeyCard').then(gltf => {
     if (disposed) { disposeRoom(gltf.scene); return; }
@@ -378,6 +401,10 @@ export function createScene(options: StageTwoOptions) {
     progress.checkpoint = 'surveillance'; guardGrace = 2.5; guardAlert = -1; hideGuardShot();
     if (progress.guardDown) { downGuard(); guardRoot.visible = false; }
     player.setForcedCrouch(!progress.guardDown); setPhase(progress.guardDown ? 'surveillance' : 'guard'); checkpoint();
+    if (arrivalRemarkPending) {
+      arrivalRemarkPending = false;
+      tell("Prime: Security seems kind of lacklustre. I wonder what's going on.", 7);
+    }
   }
   function fail(reason: string) {
     if (phase === 'failed' || disposed) return;
@@ -540,6 +567,7 @@ export function createScene(options: StageTwoOptions) {
     if (phase !== 'surveillance') return;
     if (returnAirlock.near(player)) {
       event.preventDefault(); event.stopImmediatePropagation();
+      if (!progress.airlockUnlocked) { tell('The airlock is locked.'); return; }
       if (transferPending) return;
       transferPending = true; setPhase('handoff');
       void options.onAirlockReturn(player.captureTransition({ x: 0, y: 0, z: 0 })).then(entered => {
@@ -591,11 +619,13 @@ export function createScene(options: StageTwoOptions) {
   }
   function liftWalking() { return phase === 'lift' && (phaseTime < 1.6 || phaseTime >= 2.6 && phaseTime < 3.6 || phaseTime >= 10.4); }
   function cinematicState(): PlayerState | null {
+    if (seating.active) return seating.getState();
     if (playable.has(phase)) return null;
     return { ...player.getState(), isMoving: liftWalking(), isOnGround: phase !== 'drop', climbing: false, jumping: false,
       crouching: phase === 'takedown', sprinting: false, actionRequest: null, boxHandling: false, sliding: false };
   }
   function cinematicPose(): CinematicPose | null {
+    if (seating.active) return seating.getPose();
     if (phase === 'failed') return { clip: 'Death01', time: phaseTime };
     if (phase === 'drop') return { clip: phaseTime < 1.2 ? 'Jump_Loop' : 'Jump_Land', time: phaseTime < 1.2 ? phaseTime : phaseTime - 1.2 };
     if (phase === 'takedown') return { clip: 'Silent_Takedown', time: phaseTime };
@@ -608,6 +638,7 @@ export function createScene(options: StageTwoOptions) {
     return !playable.has(phase) ? { clip: 'Idle_Loop', time: elapsed, loop: true } : null;
   }
   function applyCinematicCamera() {
+    if (seating.applyCamera()) return;
     const p = player.body.position; camera.fov = 64;
     if (phase === 'drop') { camera.position.set(STAGE_TWO.drop.x + 2.1, Math.min(3.1, p.y + 1), STAGE_TWO.drop.z + 1); camera.lookAt(p.x, p.y + 0.5, p.z); }
     else if (phase === 'takedown') { camera.position.set(STAGE_TWO.guard.x + 2.2, 1.7, STAGE_TWO.guard.z + 2); camera.lookAt(STAGE_TWO.guard.x, 0.95, STAGE_TWO.guard.z + 0.5); }
@@ -666,9 +697,9 @@ export function createScene(options: StageTwoOptions) {
     getCctvEnabled: () => progress.checkpoint === 'surveillance',
     getCctvPaused: () => phase === 'takedown',
     isMazeActive: () => phase === 'maze',
-    controlsReady: () => active && !menuPaused && playable.has(phase),
-    isCinematic: () => !playable.has(phase),
-    get ownsWeaponInput() { return !active || !playable.has(phase) || phase === 'maze'; },
+    controlsReady: () => active && !menuPaused && playable.has(phase) && !seating.active,
+    isCinematic: () => !playable.has(phase) || seating.active,
+    get ownsWeaponInput() { return !active || !playable.has(phase) || phase === 'maze' || seating.active; },
     getCinematicState: cinematicState, getCinematicPose: cinematicPose, getCinematicDelta: () => lastDelta,
     getCinematicWeapon: () => 'unarmed' as const,
     hideMinimap: () => !playable.has(phase), applyCinematicCamera, applyVentCamera,
@@ -679,18 +710,28 @@ export function createScene(options: StageTwoOptions) {
     ventChest, crowbarChest,
     getMonitorFrames: () => monitors.map(monitor => monitor.getFrameIndex()),
     getDamageTargets(): DamageTarget[] {
-      return phase === 'guard' ? [{ root: guardRoot, body: guardBody,
-        damage: () => { alertGuard('That was not silent. Use E from behind the guard.'); return false; } }] : [];
+      if (phase === 'guard') return [{ root: guardRoot, body: guardBody,
+        damage: () => { alertGuard('That was not silent. Use E from behind the guard.'); return false; } }];
+      if (phase !== 'surveillance' || progress.airlockUnlocked || seating.active) return [];
+      return returnAirlock.panels.map(panel => ({ root: panel.mesh, body: panel.body ?? undefined,
+        damage(amount, weapon) {
+          if (!active || disposed || menuPaused || !player.isEnabled() || progress.airlockUnlocked
+            || !Number.isFinite(amount) || amount <= 0 || weapon !== 'crowbar' || !returnAirlock.near(player)) return false;
+          progress.airlockUnlocked = true; returnAirlock.setLocked(false); ensureAudio(); playSound('clang');
+          emitComicEffect(scene, 'clank', { source: panel.mesh, weapon });
+          return true;
+        } }));
     },
     onPistolShot() { if (phase === 'guard') alertGuard('That was not silent. Use E from behind the guard.'); },
     updateInteractionFocus() {
       if (!active || menuPaused || !player.isEnabled() || !prompt || ventChest.isPromptVisible() || crowbarChest.isPromptVisible()) return;
+      if (seating.updateInteractionFocus()) return;
       let text = '';
       if (phase === 'guard' && guardAlert < 0 && Math.hypot(player.body.position.x - STAGE_TWO.guard.x, player.body.position.z - STAGE_TWO.guard.z) < 2.1)
         text = 'E / Silent takedown';
       else if (phase === 'lift-button') text = nearLiftButton() ? 'E / Press Bay 13 button' : 'Move to the Bay 13 button';
       else if (phase === 'surveillance') {
-        if (returnAirlock.near(player)) text = 'E / Return through hangar airlock';
+        if (returnAirlock.near(player)) text = progress.airlockUnlocked ? 'E / Return through hangar airlock' : 'E / Airlock locked';
         else if (readerFocused() || nearLiftDoor()) text = progress.elevatorUnlocked ? 'Walk into the elevator' : 'E / Swipe keycard';
         else {
           const target = options.getCameraTarget();
@@ -703,7 +744,7 @@ export function createScene(options: StageTwoOptions) {
     updatePhysics(dt: number, thirdPerson = true) {
       if (disposed || !active || menuPaused) return;
       const frame = Number.isFinite(dt) ? THREE.MathUtils.clamp(dt, 0, PHYSICS.maxFrameTime) : 0;
-      lastDelta = frame; elapsed += frame; phaseTime += frame; physics.step(frame, player, thirdPerson); maze.update(elapsed);
+      lastDelta = frame; elapsed += frame; phaseTime += frame; seating.update(frame); physics.step(frame, player, thirdPerson); maze.update(elapsed);
       ventChest.update(frame); crowbarChest.update(frame);
       if (phase !== 'takedown') monitors.forEach(monitor => monitor.update(frame));
       captionTime = Math.max(0, captionTime - frame); if (!captionTime) caption.classList.add('hidden');
@@ -714,7 +755,7 @@ export function createScene(options: StageTwoOptions) {
         if (guardDeathTime > 0.75) guardRoot.scale.setScalar(Math.max(0.001, 1 - THREE.MathUtils.smoothstep(guardDeathTime, 0.75, 1.25)));
         if (guardDeathTime > 1.25) guardRoot.visible = false;
       }
-      returnAirlock.update(frame, player, progress.guardDown && returnAirlock.near(player) && phase === 'surveillance');
+      returnAirlock.update(frame, player, progress.guardDown && progress.airlockUnlocked && returnAirlock.near(player) && phase === 'surveillance');
       frontDoor.update(frame, player, progress.elevatorUnlocked && (phase !== 'lift' || phaseTime < 2.1) && phase !== 'handoff');
       rearDoor.update(frame, player, phase === 'lift' && phaseTime > 9.8 || phase === 'handoff' || phase === 'load-error' && loadError === 'boss');
       readerMaterial.color.setHex(progress.elevatorUnlocked ? 0x72eeaa : 0xff785e);
@@ -748,7 +789,7 @@ export function createScene(options: StageTwoOptions) {
         case 'drop':
           player.setPosition(STAGE_TWO.drop.x, THREE.MathUtils.lerp(4 + player.radius, player.radius,
             THREE.MathUtils.smootherstep(phaseTime, 0, 1.2)), STAGE_TWO.drop.z);
-          if (phaseTime >= 1.5) { progress.ventCleared = true; progress.checkpoint = 'surveillance'; void loadHub(); }
+          if (phaseTime >= 1.5) { arrivalRemarkPending = true; progress.ventCleared = true; progress.checkpoint = 'surveillance'; void loadHub(); }
           break;
         case 'guard': updateGuard(frame); break;
         case 'takedown':
@@ -774,7 +815,7 @@ export function createScene(options: StageTwoOptions) {
       window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onPointer, true);
       window.removeEventListener('visibilitychange', onVisibility); window.removeEventListener('blur', onVisibility);
       unsubscribeAudio(); stopRumble(); guardMixer?.stopAllAction();
-      ventChest.dispose(); crowbarChest.dispose(); monitors.forEach(monitor => monitor.dispose());
+      seating.dispose(); ventChest.dispose(); crowbarChest.dispose(); monitors.forEach(monitor => monitor.dispose());
       if (guardBody.world === physics.world) physics.world.removeBody(guardBody);
       if (audioContext && audioContext.state !== 'closed') void audioContext.close().catch(error => console.warn('[StageTwo] Audio cleanup failed:', error));
       ui.remove(); prompt?.classList.add('hidden'); document.body.classList.remove('stage-two-maze', 'quarters-cinematic');

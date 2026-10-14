@@ -138,16 +138,23 @@ export function createFinaleCamera(camera: THREE.PerspectiveCamera, reducedMotio
           frame(PLANET_CENTER.clone().add(V(600 + p * 70, 480 + p * 45, 1000 + p * 25)),
             PLANET_CENTER.clone().add(V(0, 95, 0)), 46, -0.012);
         } else if (t < PLANET_RUPTURE.forestEnd) {
-          id += '-brendan'; const push = cinematicProgress(t, PLANET_RUPTURE.forest, PLANET_RUPTURE.forestEnd);
-          frame(context.boy.clone().add(V(-3.8 + push * 1.7, 1.1 - push * 0.3, 5.5 - push * 1.8)),
-            context.boy.clone().add(V(0, -push * 0.25, 0)), 43 - push * 5, -0.012);
+          if (t < PLANET_RUPTURE.scorch) {
+            id += '-brendan';
+            frame(context.boy.clone().add(V(-2.6, 0.5, 4)), context.boy.clone().add(V(0, -0.45, 0)), 43, -0.012);
+          } else {
+            id += '-brendan-head-fire'; const push = cinematicProgress(t, PLANET_RUPTURE.scorch, PLANET_RUPTURE.forestEnd);
+            frame(context.boy.clone().add(V(-0.5 + push * 0.15, 0.18, 1.35 - push * 0.2)),
+              context.boy.clone().add(V(0, 0.08, 0)), 38 - push * 2, -0.012);
+          }
         } else if (t < PLANET_RUPTURE.returnToDuel) {
           id += '-cockpit'; const resolve = cinematicProgress(t, PLANET_RUPTURE.resolve, PLANET_RUPTURE.returnToDuel);
           frame(context.pilotCamera, context.pilotFace, 43 - resolve * 3);
         } else {
           id += '-orbit'; const p = cinematicProgress(t, PLANET_RUPTURE.returnToDuel, PLANET_RUPTURE.orbit + 0.4);
           const start = context.pilotCamera.clone();
-          frame(start.lerp(combat.position, p), context.pilotFace.clone().lerp(combat.center, p), 43 + p * 11);
+          const exit = start.clone().sub(context.pilotFace).normalize();
+          frame(start.lerp(combat.position, p).addScaledVector(exit, Math.sin(p * Math.PI) * 6),
+            context.pilotFace.clone().lerp(combat.center, p), 40 + p * 14);
         }
       } else if (phase === 'finisher') {
         const { beat, clock } = context.qte;
@@ -306,7 +313,7 @@ export function createFinaleCamera(camera: THREE.PerspectiveCamera, reducedMotio
         lastFov = camera.fov;
         const editorialCut = phase === 'finisher' && shotId.startsWith('finisher')
           && (id.endsWith('-behind') || id.endsWith('-empty-blade'));
-        const locationCut = phase === 'rupture' && (id.endsWith('-brendan') || id.endsWith('-cockpit'))
+        const locationCut = phase === 'rupture' && (id.endsWith('-brendan') || id.endsWith('-brendan-head-fire') || id.endsWith('-cockpit'))
           || phase === 'heroTransform' && id.endsWith('-forest-liftoff');
         shotId = id; transition = reducedMotion || editorialCut || locationCut ? 1 : 0;
       }

@@ -3,6 +3,7 @@ import { loadToolModel } from '../core/loader.js';
 import { disposeRoom } from '../helpers/scene/shipRoom.js';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { emitComicEffect } from '../helpers/scene/comicEffects.js';
+import { KNOCKDOWN_DURATION, knockdownTilt } from '../helpers/animation/knockdown.js';
 
 type QuadShellAsset = Awaited<ReturnType<typeof loadToolModel>>;
 function releaseAsset(asset: QuadShellAsset) {
@@ -32,6 +33,7 @@ export function createRiverAmbusher(scene: THREE.Object3D, initialHealth = 125, 
   const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6), lampMaterial); muzzle.add(lamp);
   let mixer: THREE.AnimationMixer | null = null, health = initialHealth, disposed = false, loaded = false, error = false;
   let clips: THREE.AnimationClip[] = [], current = '', shotTime = 0, deathTime = 0, chargeLevel = 0, walking = false;
+  let knockdownTime = 0;
   let model: THREE.Object3D | null = null, ownedAsset: QuadShellAsset | null = null;
   const restingClip = () => chargeLevel > 0 ? 'Charge' : walking ? 'Walk' : 'Idle';
   function clipDuration(name: string, fallback: number) { return clips.find(clip => clip.name === name)?.duration || fallback; }
@@ -57,14 +59,21 @@ export function createRiverAmbusher(scene: THREE.Object3D, initialHealth = 125, 
   return {
     root, muzzle, ready,
     get health() { return health; }, get loaded() { return loaded; }, get error() { return error; },
-    aimAt(target: THREE.Vector3) { if (health > 0) root.rotation.y = Math.atan2(target.x - root.position.x, target.z - root.position.z); },
-    walk(value: boolean) { walking = value; if (health > 0 && shotTime <= 0) play(restingClip()); },
+    get knockedDown() { return knockdownTime > 0; },
+    knockDown() {
+      if (disposed || !loaded || health <= 0) return false;
+      knockdownTime = KNOCKDOWN_DURATION; shotTime = chargeLevel = 0; walking = false;
+      lamp.scale.setScalar(1); lampMaterial.color.setHex(0xff5038); play('Idle');
+      return true;
+    },
+    aimAt(target: THREE.Vector3) { if (health > 0 && knockdownTime <= 0) root.rotation.y = Math.atan2(target.x - root.position.x, target.z - root.position.z); },
+    walk(value: boolean) { walking = value; if (health > 0 && knockdownTime <= 0 && shotTime <= 0) play(restingClip()); },
     fire() {
-      if (disposed || health <= 0) return;
+      if (disposed || health <= 0 || knockdownTime > 0) return;
       shotTime = clipDuration('Attack', 0.3); chargeLevel = 0; current = ''; play('Attack', true);
     },
     charge(value: number) {
-      if (disposed || health <= 0) return;
+      if (disposed || health <= 0 || knockdownTime > 0) return;
       chargeLevel = THREE.MathUtils.clamp(value, 0, 1);
       lamp.scale.setScalar(1 + chargeLevel * 2.5); lampMaterial.color.setHex(chargeLevel > 0.7 ? 0xffeeaa : 0xff5038);
       if (shotTime <= 0) play(restingClip());
@@ -82,6 +91,10 @@ export function createRiverAmbusher(scene: THREE.Object3D, initialHealth = 125, 
       if (health <= 0) {
         deathTime += dt; root.rotation.z = Math.min(1.25, deathTime * 0.65);
         if (deathTime > Math.max(2.4, clipDuration('TurnOff', 2.15) + 0.25)) root.visible = false;
+      } else if (knockdownTime > 0) {
+        knockdownTime = Math.max(0, knockdownTime - dt);
+        root.rotation.z = knockdownTilt(knockdownTime);
+        if (knockdownTime === 0) { current = ''; play(restingClip()); }
       } else if (shotTime <= 0 && current === 'Attack') {
         play(restingClip());
         lamp.scale.setScalar(1 + chargeLevel * 2.5); lampMaterial.color.setHex(chargeLevel > 0.7 ? 0xffeeaa : 0xff5038);

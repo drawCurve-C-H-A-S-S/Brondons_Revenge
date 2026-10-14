@@ -9,6 +9,7 @@ import { teleportPlayer } from '../../scripts/teleportationDevice.js';
 import { createRewardChest } from '../../scripts/rewardChest.js';
 import { createLightsaber } from '../../scripts/items/createLightsaber.js';
 import { fitCabinProp } from '../living quarters/furnishings.js';
+import { createChairSeating, type ChairSeat } from '../../scripts/chairSeating.js';
 import { cameraVisitMap, createStageTwoProgress, type StageTwoProgress } from './stageTwoLayout.js';
 
 interface EquipmentRoomOptions {
@@ -53,6 +54,9 @@ export function createScene({ progress = createStageTwoProgress(), entryState, p
   const ui = document.createElement('section'); ui.className = 'stage-two-ui equipment-archive-ui'; ui.classList.toggle('hidden', !active);
   const caption = document.createElement('div'); caption.className = 'stage-two-dialogue hidden'; caption.setAttribute('role', 'status');
   ui.append(caption); if (!preview) document.body.append(ui);
+  const chairs: ChairSeat[] = [];
+  const seating = createChairSeating({ scene, camera, player, chairs: () => chairs,
+    prompt: document.getElementById('interact-prompt'), canInteract: () => active && !disposed && !paused });
   const desktop = createShipStatusTexture('ARCHIVE TERMINAL', ['INVENTORY SEALED', 'CAMERA RELAY ONLINE', 'DECK UNDER SURVEILLANCE']);
   box([1.95, 0.08, 1.05], [1.5, 0.82, -3], pale);
   box([0.52, 0.78, 0.9], [0.87, 0.39, -3], materials.dark);
@@ -64,6 +68,7 @@ export function createScene({ progress = createStageTwoProgress(), entryState, p
     const size = fitCabinProp(gltf.scene, 1.05, 0.68, 0.8); gltf.scene.name = 'ArchiveComputerChair';
     gltf.scene.position.add(new THREE.Vector3(1.5, 0, -1.7)); scene.add(gltf.scene);
     physics.addBox(size, { x: 1.5, y: size.y / 2, z: -1.7 });
+    chairs.push({ root: gltf.scene, yaw: 0 });
   });
   const recoveredSaber = createLightsaber(); recoveredSaber.name = 'ArchiveRecoveredLightsaber';
   recoveredSaber.position.set(-3.55, 1.15, -1.3); recoveredSaber.scale.setScalar(0.7);
@@ -85,19 +90,24 @@ export function createScene({ progress = createStageTwoProgress(), entryState, p
     getSceneId: () => 'scene1.3', getMapLayout: () => cameraVisitMap(37), getMapSceneId: () => 'scene37',
     getMusicTrack: () => 'stealth-2' as const,
     activate() { active = true; ui.classList.remove('hidden'); visitUI?.setVisible(true); player.clearInput(); player.enable(); },
-    controlsReady: () => active && !paused,
+    controlsReady: () => active && !paused && !seating.active,
+    isCinematic: () => seating.active,
+    get ownsWeaponInput() { return seating.active; },
+    getCinematicState: seating.getState, getCinematicPose: seating.getPose, getCinematicDelta: () => seating.delta,
+    applyCinematicCamera: seating.applyCamera,
+    updateInteractionFocus() { seating.updateInteractionFocus(); },
     setMenuPaused(value: boolean) { paused = value; player.clearInput(); },
     chest,
     updatePhysics(dt: number, thirdPerson = false) {
       if (disposed || !active || paused) return;
       const frame = Number.isFinite(dt) ? THREE.MathUtils.clamp(dt, 0, PHYSICS.maxFrameTime) : 0;
-      physics.step(frame, player, thirdPerson); chest.update(frame); visitUI?.update();
+      seating.update(frame); physics.step(frame, player, thirdPerson); chest.update(frame); visitUI?.update();
       captionTime = Math.max(0, captionTime - frame); if (!captionTime) caption.classList.add('hidden');
     },
     syncProgress() { if (loot.rewardCollected) chest.setCollected(); recoveredSaber.visible = !progress.lightsaberCollected; },
     minimap: { bounds: { minX: -4, maxX: 4, minZ: -4, maxZ: 4 }, floor: 0 },
     dispose() {
-      if (disposed) return; disposed = true; visitUI?.dispose(); chest.dispose(); ui.remove();
+      if (disposed) return; disposed = true; seating.dispose(); visitUI?.dispose(); chest.dispose(); ui.remove();
       player.dispose(); physics.dispose(); disposeRoom(scene);
     },
   };

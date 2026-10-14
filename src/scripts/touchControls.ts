@@ -40,7 +40,7 @@ let flightKnobEl: HTMLElement | null = null;
 const pressedButtons = new Set<string>();
 let fireActive = false;
 let firePressQueued = false;
-type AttackLabel = 'SHOOT' | 'SWING' | 'SLASH';
+type AttackLabel = 'SHOOT' | 'SWING' | 'SLASH' | 'PUNCH';
 const touchAttacks = new Set<{ attack: () => boolean; label: () => AttackLabel | null }>();
 const buttonBindings: Array<{ reset: () => void; dispose: () => void }> = [];
 

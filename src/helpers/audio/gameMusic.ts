@@ -51,7 +51,7 @@ function createMusicManager(pauseWithMenu = true) {
 }
 
 export function createGameMusic() {
-  const background = createMusicManager();
+  const background = createMusicManager(false);
   const menuMusic = createMusicManager(false);
   let sceneId: string | null = null, sceneData: SceneMusicState | null = null;
   let track: BackgroundMusicTrack | null = null;
@@ -94,6 +94,7 @@ export function createGameMusic() {
       if (value) background.pauseBgm();
       else background.playBgm();
     },
+    setWeaponWheelOpen(open: boolean) { background.setBgmMuffled(open); },
     update(deltaTime: number) { syncScene(); background.update(deltaTime); menuMusic.update(deltaTime); },
     dispose() {
       background.dispose(); menuMusic.dispose();

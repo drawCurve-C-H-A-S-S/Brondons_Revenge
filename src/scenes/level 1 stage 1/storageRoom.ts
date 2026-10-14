@@ -7,6 +7,7 @@ import { createShipInteriorMaterials, SHIP_INTERIOR_PALETTE } from '../../helper
 import type { ShipMapLayout } from '../../core/shipMap.js';
 import type { ShipMapBlock } from '../../helpers/scene/shipLayout.js';
 import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
+import type { DamageWeapon } from '../../scripts/pistol.js';
 import { getAudioSettings } from '../../helpers/audio/AudioManager.js';
 import { createStealthHangar, HANGAR_LAYOUT } from './stealthHangar.js';
 import { createStealthDirector, isBehindDrone, type StealthActor } from './stealthDirector.js';
@@ -998,7 +999,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
       ping(180, 0.1);
     },
     getDamageTargets: () => [...director.getDamageTargets(), ...droneDown ? [] : [{
-      root: drone, body: droneBody, damage: (amount: number, weapon?: 'pistol' | 'crowbar' | 'lightsaber') => {
+      root: drone, body: droneBody, damage: (amount: number, weapon?: DamageWeapon) => {
         if (!Number.isFinite(amount) || amount <= 0) return false;
         if (weapon !== 'pistol' || !isBehindDrone(drone.position, droneFacing, player.body.position)) {
           droneCaptionTime = 3;

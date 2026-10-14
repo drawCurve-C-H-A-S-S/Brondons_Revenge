@@ -44,7 +44,10 @@ export async function createFirstPersonHands(loader?: GLTFLoader) {
     return grip;
   }
 
-  createArm('l', new THREE.Vector3(-0.23, -0.31, -0.65), new THREE.Vector3(-0.36, -0.62, -0.25), handsGroup);
+  const leftPivot = new THREE.Group();
+  const leftWrist = new THREE.Vector3(-0.23, -0.31, -0.65);
+  leftPivot.position.copy(leftWrist); handsGroup.add(leftPivot);
+  createArm('l', new THREE.Vector3(), new THREE.Vector3(-0.13, -0.31, 0.4), leftPivot);
   const swingPivot = new THREE.Group();
   const restingWrist = new THREE.Vector3(0.25, -0.16, -0.62);
   swingPivot.position.copy(restingWrist); handsGroup.add(swingPivot);
@@ -53,12 +56,24 @@ export async function createFirstPersonHands(loader?: GLTFLoader) {
   crowbar.rotation.set(Math.PI / 2, 0, 0); rightHand.add(crowbar);
   mixer.stopAllAction(); mixer.uncacheRoot(model);
 
-  function update(attackProgress: number | null) {
+  function update(attackProgress: number | null, move: 'crowbar' | 'jab' | 'cross' | 'hook' = 'crowbar') {
+    crowbar.visible = move === 'crowbar';
+    leftPivot.position.copy(leftWrist); leftPivot.rotation.set(0, 0, 0);
+    swingPivot.position.copy(restingWrist); swingPivot.rotation.set(0, 0, 0);
     const t = attackProgress ?? 1;
     let windup = 0, strike = 0;
     if (t < 0.25) windup = THREE.MathUtils.smoothstep(t, 0, 0.25);
     else if (t < 0.5) { strike = THREE.MathUtils.smoothstep(t, 0.25, 0.5); windup = 1 - strike; }
     else strike = 1 - THREE.MathUtils.smoothstep(t, 0.5, 1);
+    if (move !== 'crowbar') {
+      const pivot = move === 'jab' ? leftPivot : swingPivot;
+      const wrist = move === 'jab' ? leftWrist : restingWrist;
+      const side = move === 'jab' ? -1 : 1, hook = move === 'hook';
+      pivot.position.set(wrist.x - side * strike * (hook ? 0.25 : 0.1),
+        wrist.y + strike * 0.08, wrist.z + windup * 0.1 - strike * (hook ? 0.25 : 0.45));
+      pivot.rotation.set(-strike * 0.1, side * (windup * 0.15 - strike * (hook ? 0.65 : 0.08)), side * strike * 0.12);
+      return;
+    }
     swingPivot.rotation.set(0.20 * windup - 0.45 * strike, -0.10 * windup, -0.15 * windup + 0.50 * strike);
     swingPivot.position.set(restingWrist.x - 0.03 * windup - 0.12 * strike, restingWrist.y + 0.03 * windup + 0.05 * strike, restingWrist.z - 0.06 * strike);
   }

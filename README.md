@@ -55,6 +55,10 @@ The two Controls tabs select the input and show the matching bindings.
 The menu is available during the opening as well as gameplay.
 Scene 1 suppresses automatic controller notices and gameplay control popups;
 controller setup remains available through the pause menu.
+**Sound** is available from the pause menu in every scene, including Scene 1.
+**View Ship Map** appears only in ship-interior scenes; the opening, flight,
+planet and finale scenes do not expose it. The normal minimap and its comic
+frame are both circular.
 Weapon and scene control cards dismiss automatically after **6 seconds**
 (flight controls after **4 seconds**), or immediately with **H**.
 Press **1** to toggle a solid-black player silhouette for trailer capture.
@@ -84,7 +88,7 @@ controller family for this page session, including reconnects.
 | --- | --- | --- | --- |
 | Move / look (yaw and pitch) | Left / right stick | Left / right stick | Left / right stick |
 | Jump | B | A | Cross |
-| Toggle crouch / forward slide tackle | Y | X | Square |
+| Toggle crouch / sprinting forward tackle | Y | X | Square |
 | Sprint | Hold ZL | Hold LT | Hold L2 |
 | Shoot / swing / slash | A | B | Circle |
 | Interact / use / collect | R | RB | R1 |
@@ -116,6 +120,9 @@ checkpoint automatically after the death presentation; the final boss retries
 its last checkpoint after the defeat cinematic. Existing automatic combat and
 flight retries remain active. The hangar escape always restarts in **Scene 14**
 with full health, skipping the lift arrival and introductory reveal.
+Brondon's shuttle destruction uses the same volumetric fire shader in Scene 14
+and every Level 2 flight phase, with the flight blast staying at the destruction
+point while the defeat presentation plays.
 Frontal shots against the storage drone remain blocked by armour, but no longer
 instantly kill and disable Brondon; patrol detection handles the ensuing danger.
 
@@ -178,7 +185,11 @@ synthesized siren; short interaction and combat effects remain.
 Opening **M** suspends gameplay audio and plays Menu without restarting it when
 switching submenus. Closing the menu resumes the previous music position.
 Boss victories never pause or restart the current soundtrack. The credits cue
-takes over when the final credits begin. Weapon-wheel pauses do not start Menu.
+takes over when the final credits begin. Opening the weapon wheel keeps the
+current BGM playing at 55% of its normal level, with a smoothly applied 850 Hz
+low-pass filter, instead of pausing it or starting Menu. Closing the wheel restores
+the original sound without restarting or seeking the track. Gameplay and sound
+effects still pause; browsers without Web Audio retain the reduced-volume effect.
 
 Existing ship/hangar music remains in its original areas. Planetbfm replaces
 DonRevJungleLoop on the planet. Skipping the prison release selects Broken Chains
@@ -287,22 +298,39 @@ a short approach and turn, and robot shutdown synchronized with hand contact.
 
 ## Slide tackle
 
-Press **C while moving forward with W** to perform a **1.4-second slide tackle**.
-It works at normal forward speed or while sprinting with **Shift**. The grounded
+Press **C while sprinting forward with Shift + W** to perform a
+**1.4-second slide tackle**. Walking forward does not trigger it. The grounded
 slide carries momentum along the starting heading, brakes, and smoothly returns
 to walking/running; releasing W lets the recovery come to a stop.
 
-- The actual character skeleton drives the movement: lowered and rotated hips,
-  articulated spine/head, extended leading leg, tucked trailing knee, a bracing
-  hand, toe-up leading boot, and a planted get-up. Physics owns forward travel.
+- The authored UAL **Slide_Start**, **Slide_Loop** and **Slide_Exit** clips
+  replace the procedural slide pose. The complete sequence follows the physical
+  slide timeline; physics owns forward travel.
+- Each enemy takes only **2 damage per tackle**. Normal ground patrols and
+  jungle sentries fall over, cannot move or attack, then recover after
+  **1.6 seconds**. Armoured drones, fixed turrets and scripted bosses retain
+  their encounter-specific rules.
 - First-person keeps your chosen view with a smoothly lowered camera; **V**
   shows the full animation in third-person. Weapons stay tucked during the slide.
-- C still toggles crouch when stationary or moving sideways/backward. On touch,
-  tap **CROUCH while moving forward** to slide.
+- C still toggles crouch while walking, stationary or moving sideways/backward.
+  On touch, hold **RUN** and move forward, then tap **CROUCH** to slide.
 - Slides cannot start in the air, vents, zero-G, on ladders, while handling cargo,
   or in the side-scrolling platformer. Jump/action inputs cannot interrupt or
   queue through the slide. Walls, lost ground, menus and scripted traversal
   cancel it safely; holding C never retriggers it.
+
+## Unarmed melee
+
+Select **Unarmed** and left-click to randomly jab, cross or hook with the
+authored UAL punching animations, without repeating the previous punch.
+Controller attack and touch **PUNCH** use the same attacks. First-person
+shows the attacking hands without a weapon.
+
+Punches deal **10 damage**, less than the pistol or melee weapons, with
+contact windows synchronized to animation playback. Each punch can hit a
+target only once, respects walls and has shorter reach than a weapon.
+Menus, cinematics, traversal and the finale's own combat controls cannot
+accidentally trigger the on-foot punches.
 
 ## Living quarters opening
 
@@ -333,11 +361,21 @@ control back to the player. Hold **Enter** to skip the arrival once the room is 
   Brendan's chest** and **scanner goggles from Branden's chest** before leaving.
   **N** toggles the goggles; **Q** places a purple marker and **T** returns to it.
   **Hold Tab** selects weapons, not teleport destinations.
+- Look at a nearby chair and press **E** to sit; press **E again** to stand.
+  Cabin chairs, surveillance workstations and the equipment archive share the
+  authored sitting, seated-idle and getting-up animations. Resting restores
+  **1 HP every 4 seconds**, never revives a dead player, and pauses with the menu.
+  Movement and weapon use are disabled until the get-up animation finishes.
 - Open **M > Ship Map** for a growing map of the sections you have reached.
   Living quarters are charted on arrival; entering Deck One adds the stealth
   passage, storage room and cargo hangar without removing the cabins. The two
   layouts join at the forward bulkhead, with a correctly aligned player marker.
   Locked cabins remain opaque; their furnishings are never exposed.
+  Compact room circles use fixed story-order numbers, starting with Brondon's
+  room, rather than internal scene IDs. Numbers stay stable as sections are
+  discovered. A glowing red dot marks Brondon's exact location at every zoom
+  level; nearby room labels move aside so they do not cover it. Elevator and
+  objective captions are reduced to keep the map clear.
 - **Left-drag** rotates the map, **scroll** zooms toward the cursor and
   **right-drag** pans. On touch, drag to rotate and use two fingers to pan/pinch.
   Arrow keys pan, **+ / -** zoom, **F / Locate** centers on Brondon and
@@ -417,6 +455,10 @@ are no longer part of Stage Two.
 - Desk monitors play randomly chosen **looping GIF recordings of corridor bots**,
   not live 3D scenes or teleport targets. Only the camera wall's three unfinished
   minigame feeds allow travel. The prison and vent feeds are view-only.
+  The hub has **15 workstations**, with additional stations along the side and
+  rear walls; the hangar-airlock approach is clear of desks and server racks.
+  After the vent drop, Prime remarks: "Security seems kind of lacklustre.
+  I wonder what's going on."
 - A guard waits at the centrally placed elevator. Stay crouched, approach from
   behind and press **E** for a silent takedown before using any camera links.
   Open the separate **camera-room crowbar chest** afterward. A noisy attack is fatal; **R** retries
@@ -438,7 +480,9 @@ are no longer part of Stage Two.
   button-press, flickering-light descent, heavy stomps and existing boss intro.
   There is no password or hidden keypad.
 - The camera hub is physically connected to the hangar airlock on the **same
-  deck**. After its guard is down, this door provides a return walking link.
+  deck**. Its surveillance-side airlock starts locked; once released, it
+  provides a return walking link and stays unlocked across revisits and deaths.
+  No gameplay hint explains the unlocking interaction.
   On the ship map it sits **directly below the upper vents**; the quarters,
   passage, hangar and airlock join cleanly. Elevators show translucent shafts,
   landing platforms and available/offline stops, rather than a plain line.
@@ -482,10 +526,14 @@ recovered during Stage Two.
 
 ## Level 2 matchup, targeting and firing
 
+- Scene 14's hangar matchup reads **BRONDON VS TRILOBOT SWARM**.
 - Scene 15 preserves Scene 14's launch position, heading, camera and speed,
   smoothly settling into the chase camera while the shuttle flies **alone for
   two seconds**. The capital ship then **fades in from the distance over 1.25
   seconds**, before the matchup appears.
+- The Scene 14-to-15 handoff is seamless, with no interceptor loading screen.
+  Interceptor loading artwork appears only when entering through the developer
+  scene menu; the later flight-phase developer jumps retain their own artwork.
 - The **4.6-second ship-versus-blockade cinematic** uses the
   actual escape shuttle and capital ship, with a six-interceptor formation
   representing the enemy wing. Animated arrivals, camera dollies, blue/red
@@ -556,12 +604,16 @@ bridge, and spider bots patrol only beyond it.
 River sharks swim below the surface with their fins barely showing. Falling
 into the river starts a continuous shark-swarm scene before death and a return
 to the landing checkpoint, rather than killing the player immediately.
-Sharks are fitted in their animated pose with height and length limits. Brendan's
-landing-site model has skin, clothing, hair and eye colours without the imported
-display plane. The landing film uses the same culling-aware forest as gameplay.
+Sharks are fitted in their animated pose with height and length limits. Brendan
+uses `Subject.glb`, with warm skin, a blue shirt, brown shorts, bare forearms and
+lower legs, and dark shoes. The same dressed actor appears in the landing film,
+playable jungle and final surface transmission. The landing film uses the same
+culling-aware forest as gameplay.
 
-The waterfall detour is optional. Going behind it shows a **VS** screen and
-seals the arena for the hopping **Waterfall Warden** spider miniboss. Every
+The waterfall detour is optional. Going behind it shows **BRONDON VS ROGUE
+SPIDER BOT** in side-by-side panels with a vertical divider and comic speed
+lines radiating outward from the central split, and seals the arena for the
+hopping spider miniboss. Every
 weapon remains available. Defeating it unseals the arena and reveals a chest
 with an **Aegis Core**. Collecting that core grants one automatic **30-second
 immunity** at the start of the final boss's playable combat. It survives
@@ -570,7 +622,16 @@ and cannot be refreshed by retrying.
 The reward footlocker faces back toward the cave entrance.
 
 Ship-styled facility sentinels can be destroyed with pistol fire or returned
-lightsaber-parried beams. The facility door opens as the player approaches
+lightsaber-parried beams. The facility's full rear wall is covered by the supplied
+group photo, with **SUDOERS HIDEOUT** centred in outlined comic lettering.
+The mural is shared by the landing, jungle and finale exterior so the building
+stays visually consistent. Finding it behind the building in Scene 17 triggers
+a one-time, ten-second discovery cutscene: Prime starts recognising the picture,
+but Brondon cuts him off and insists they get inside to save the students.
+The camera pans to the mural, combat and movement pause, and normal play resumes
+from the same spot and view afterward. The discovery remains recorded across
+landing-checkpoint retries.
+The facility door opens as the player approaches
 and blends into Scene 20, where Prime says, "I expected more security."
 
 ## Scene 21: Final boss
@@ -622,13 +683,21 @@ Before the orbital phase, the enemy poses, jumps back, raises both hands, forms
 the planet breaker, launches it skyward and commands its descent. The camera
 follows the meteor into Earth, then shows the explosion with a large **BOOM!**
 using the same starburst, halftone and ink artwork as other comic impact words.
-The final surface transmission returns to the actual `boy.glb` actor in the
-burning rescue forest, with a progressively charred appearance. A close-up inside Prime Frame's
-cockpit shows Brondon reacting to the failing surface link, then gathering resolve
-with Prime. The shorter sequence cuts between locations instead of flying the
-camera through terrain; its pullback starts at the actual cockpit camera and
-joins the orbital duel without restarting the music. The bomb begins its descent
-at the apex rather than pausing there.
+The final surface transmission returns to Brendan's dressed `Subject.glb` actor
+in the burning rescue forest. A dedicated close-up tracks his head, with the
+volumetric fire shader attached to the head bone and progressive surface scorching.
+Brendan cries, "Ahhhhh, it burns!" Inside Prime Frame's cockpit, Brondon answers,
+"Nooooo, Brendan!!" and vows to the Sudoers, "I will never forgive you. You must
+die. I will have my revenge!!!"
+The space sky, planet destruction, burning-head shot and cockpit exit are prepared
+before playback, including their actual lighting states. Orbital fog is disabled
+through its distance uniforms rather than switching shader variants, and rooftop
+shadows stop updating without changing the light's shader configuration.
+The sequence cuts between locations instead of flying the camera through terrain.
+Its eased, curved pullback starts at the actual cockpit camera; the cockpit fades
+out as Prime Frame is revealed, with both mechs in airborne fighting stances before
+the orbital duel resumes. Music continues without restarting. The bomb begins
+its descent at the apex rather than pausing there.
 
 The final QTE runs on a continuous cinematic timeline, regardless of successful
 or missed inputs. Root motion carries momentum across shots; prompts and brief

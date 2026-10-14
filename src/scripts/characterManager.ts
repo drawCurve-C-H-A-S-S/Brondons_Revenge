@@ -10,12 +10,12 @@
 import * as THREE from 'three';
 import type { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { loadPlayerModel, yieldToMainThread } from '../core/loader.js';
-import { loadCombatAnimationsForRig } from '../core/combatAnimations.js';
+import { loadCombatAnimationsForRig, UNARMED_ATTACK_CLIPS, UNARMED_ATTACK_SPEED } from '../core/combatAnimations.js';
 import { createCrowbar } from './items/createCrowbar.js';
 import { createLightsaber, disposeLightsaber, fitLightsaberToHand, fitWeaponToHand, getLightsaberAttackClips, LIGHTSABER_ATTACK_SPEED } from './items/createLightsaber.js';
 import { LADDER } from '../utils/constants.js';
 import { createGoggles } from './rewardChest.js';
-import { SLIDE_TACKLE, slideTackleMotion } from '../helpers/animation/slideTackle.js';
+import { SLIDE_TACKLE } from '../helpers/animation/slideTackle.js';
 
 import type { PlayerState } from './player.js';
 
@@ -38,7 +38,7 @@ export function hologramTransitionAt(time: number, arriving = false, duration = 
 }
 
 export interface CinematicPose {
-  clip: 'Walk_Loop' | 'Float_Loop' | 'Ladder_Climb_Loop' | 'Crouch_Idle_Loop' | 'Interact' | 'Silent_Takedown' | 'Idle_Loop' | 'Sprint_Loop' | 'Slide_Tackle' | 'Pistol_Aim_Neutral' | 'Pistol_Shoot' | 'Sword_Idle' | 'Sword_Attack' | 'Roll' | 'Hit_Chest' | 'Death01' | 'Jump_Start' | 'Jump_Loop' | 'Jump_Land' | 'Sitting_Enter';
+  clip: 'Walk_Loop' | 'Float_Loop' | 'Ladder_Climb_Loop' | 'Crouch_Idle_Loop' | 'Interact' | 'Silent_Takedown' | 'Idle_Loop' | 'Sprint_Loop' | 'Slide_Tackle' | 'Pistol_Aim_Neutral' | 'Pistol_Shoot' | 'Sword_Idle' | 'Sword_Attack' | 'Roll' | 'Hit_Chest' | 'Death01' | 'Jump_Start' | 'Jump_Loop' | 'Jump_Land' | 'Sitting_Enter' | 'Sitting_Exit' | 'Sitting_Idle_Loop';
   time: number;
   duration?: number;
   loop?: boolean;
@@ -60,6 +60,7 @@ const CLIP_NAMES = [
   'Ladder_Climb_Loop',
   'Float_Loop', 'Box_Push_Loop', 'Box_Pull_Loop',
   'Slide_Tackle', 'Silent_Takedown',
+  ...UNARMED_ATTACK_CLIPS,
 ] as const;
 type ClipName = typeof CLIP_NAMES[number] | `Sword_${string}`;
 
@@ -67,6 +68,7 @@ type ClipName = typeof CLIP_NAMES[number] | `Sword_${string}`;
 // locomotion state machine resumes (idle or walk, mixer-driven completion).
 const ACTION_CLIPS: ReadonlySet<string> = new Set([
   'Sword_Attack', 'Pistol_Shoot', 'Pistol_Reload', 'Dance_Loop', 'Interact',
+  ...UNARMED_ATTACK_CLIPS,
 ]);
 const ONE_SHOT_CLIPS = ['Jump_Start', 'Jump_Land', 'Slide_Tackle', ...ACTION_CLIPS];
 
@@ -247,7 +249,8 @@ export async function loadCharacter(loader?: GLTFLoader) {
 
   // ---- Animation setup ----
   const mixer = new THREE.AnimationMixer(model);
-  const combatClips = (await loadCombatAnimationsForRig(model)).filter(clip => clip.name.startsWith('Sword_'));
+  const combatClips = (await loadCombatAnimationsForRig(model)).filter(clip =>
+    clip.name.startsWith('Sword_') || clip.name === 'Slide_Tackle' || UNARMED_ATTACK_CLIPS.some(name => name === clip.name));
   const combatNames = new Set(combatClips.map(clip => clip.name));
   const clips = [...(gltf.animations ?? []).filter(clip => !combatNames.has(clip.name)), ...combatClips];
 
@@ -386,30 +389,16 @@ export async function loadCharacter(loader?: GLTFLoader) {
   clips.push(await bakeTraversal('Box_Push_Loop', 0.95, false, 1));
   clips.push(await bakeTraversal('Box_Pull_Loop', 1.05, false, -1));
 
-  const sprintClip = THREE.AnimationClip.findByName(clips, 'Sprint_Loop');
-  if (!sprintClip) throw new Error('Slide tackle animation requires Sprint_Loop');
-  const sampleMixer = new THREE.AnimationMixer(model);
-  const sampleAction = sampleMixer.clipAction(sprintClip).play();
-  const sampleSprint = (time: number) => {
-    resetRig(); sampleAction.reset().play(); sampleMixer.setTime(time);
-    return rig.map(({ bone }) => ({ position: bone.position.clone(), quaternion: bone.quaternion.clone(), scale: bone.scale.clone() }));
-  };
-  const entryPose = sampleSprint(sprintClip.duration * 0.2), exitPose = sampleSprint(sprintClip.duration * 0.7);
-  sampleMixer.stopAllAction(); sampleMixer.uncacheRoot(model); resetRig();
+  resetRig();
   const facing = model.quaternion.clone(); model.quaternion.identity(); model.updateMatrixWorld(true);
   const requireBone = (name: string) => {
     const bone = rig.find(entry => entry.bone.name === name)?.bone;
-    if (!bone?.parent) throw new Error(`Slide tackle animation requires ${name}`);
+    if (!bone?.parent) throw new Error(`Silent takedown animation requires ${name}`);
     return bone;
   };
   const pelvis = requireBone('pelvis'), spine = ['spine_01', 'spine_02', 'spine_03'].map(requireBone);
-  const neck = requireBone('neck_01'), slideHead = requireBone('Head');
+  const neck = requireBone('neck_01');
   const hipRest = pelvis.getWorldPosition(new THREE.Vector3());
-  const thigh = requireBone('thigh_l'), calf = requireBone('calf_l');
-  const foot = requireBone('foot_l');
-  const legLength = thigh.getWorldPosition(new THREE.Vector3()).distanceTo(calf.getWorldPosition(new THREE.Vector3()))
-    + calf.getWorldPosition(new THREE.Vector3()).distanceTo(foot.getWorldPosition(new THREE.Vector3()));
-  const feetRest = ['l', 'r'].map(suffix => requireBone(`foot_${suffix}`).getWorldQuaternion(new THREE.Quaternion()));
   const floor = -modelOffsetY, ankleHeight = ventSoleOffset;
   model.quaternion.copy(facing); model.updateMatrixWorld(true);
   function rotateAnatomically(bone: THREE.Object3D, x: number, y = 0, z = 0) {
@@ -440,48 +429,6 @@ export async function loadCharacter(loader?: GLTFLoader) {
       orientHand(suffix, false, weight > 0.2);
     }
   }));
-  clips.push(await bakeRigClip('Slide_Tackle', SLIDE_TACKLE.duration, 85, time => {
-    const { low, recover } = slideTackleMotion(time);
-    const drop = THREE.MathUtils.smootherstep(time, 0.04, 0.3);
-    const plant = THREE.MathUtils.smootherstep(time, 0.78, 1.2);
-    const push = Math.sin(recover * Math.PI);
-    const hips = hipRest.clone();
-    hips.x -= low * legLength * 0.045;
-    hips.y = THREE.MathUtils.lerp(hipRest.y, floor + legLength * 0.29, low) - Math.sin(drop * Math.PI) * 0.06;
-    hips.z -= low * legLength * 0.11;
-    pelvis.position.copy(pelvis.parent!.worldToLocal(hips)); model.updateMatrixWorld(true);
-    rotateAnatomically(pelvis, -low * 0.33, low * 0.12, low * 0.24);
-    rotateAnatomically(spine[0], -low * 0.23 + push * 0.3, -low * 0.1, -low * 0.08);
-    rotateAnatomically(spine[1], -low * 0.15 + push * 0.12);
-    rotateAnatomically(spine[2], low * 0.05);
-    rotateAnatomically(neck, low * 0.3 - push * 0.16);
-    rotateAnatomically(slideHead, low * 0.28 - push * 0.08, -low * 0.06);
-    for (const [index, suffix] of ['l', 'r'].entries()) {
-      const side = suffix === 'l' ? 1 : -1;
-      const lead = suffix === 'l';
-      const footTarget = new THREE.Vector3(side * legLength * (lead ? 0.18 : 0.16),
-        floor + ankleHeight + (lead ? low * 0.025 : Math.sin(drop * Math.PI) * 0.1),
-        legLength * (lead ? THREE.MathUtils.lerp(0.86, 0.08, plant) * drop : THREE.MathUtils.lerp(0.045, -0.32, plant) * drop));
-      solveLimb(`thigh_${suffix}`, `calf_${suffix}`, `foot_${suffix}`, footTarget,
-        new THREE.Vector3(side * 0.16, lead ? 0.1 : 0.8, 1));
-      const boot = requireBone(`foot_${suffix}`);
-      const bootRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(lead ? -low * 0.38 : push * 0.15, side * low * 0.1, 0)).multiply(feetRest[index]);
-      boot.quaternion.copy(boot.parent!.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(bootRotation)); model.updateMatrixWorld(true);
-      const handTarget = lead
-        ? new THREE.Vector3(legLength * 0.49, floor + THREE.MathUtils.lerp(1.08, 0.67, low), legLength * 0.18)
-        : new THREE.Vector3(-legLength * 0.45, floor + THREE.MathUtils.lerp(1.06, 0.09, low), -legLength * 0.28 * low);
-      solveLimb(`upperarm_${suffix}`, `lowerarm_${suffix}`, `hand_${suffix}`, handTarget, new THREE.Vector3(side, -0.25, -0.65));
-      orientHand(suffix, false);
-    }
-    // Preserve the authored run pose at both ends; all travel belongs to physics.
-    const entry = 1 - THREE.MathUtils.smootherstep(time, 0, 0.12);
-    const exit = THREE.MathUtils.smootherstep(time, 1.27, SLIDE_TACKLE.duration);
-    rig.forEach(({ bone }, index) => {
-      const pose = exit > 0 ? exitPose[index] : entryPose[index], weight = exit > 0 ? exit : entry;
-      bone.position.lerp(pose.position, weight); bone.quaternion.slerp(pose.quaternion, weight); bone.scale.lerp(pose.scale, weight);
-    });
-  }));
-
   // This is the in-place UAL export. Preserve its original bone tracks.
   const actions = new Map<ClipName, THREE.AnimationAction>();
   for (const name of CLIP_NAMES) {
@@ -499,6 +446,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
   }
 
   const lightsaberAttackClips = getLightsaberAttackClips(clips, combatClips.length > 0);
+  const unarmedAttackClips = clips.filter(clip => UNARMED_ATTACK_CLIPS.some(name => name === clip.name));
   const lightsaberAttacks = lightsaberAttackClips.map(clip => clip.name);
   const actionClips = new Set([...ACTION_CLIPS, ...lightsaberAttacks]);
   const swordIdle = THREE.AnimationClip.findByName(clips, 'Sword_Idle');
@@ -648,11 +596,12 @@ export async function loadCharacter(loader?: GLTFLoader) {
     const next = actions.get(name);
     if (!next || (next === currentAction && !restart && !immediate)) return;
     const saberAttack = lightsaberEquipped && lightsaberAttackClips.some(clip => clip.name === name);
-    const blend = name === 'Slide_Tackle' ? 0.08 : currentAction.getClip().name === 'Slide_Tackle' ? 0.14 : saberAttack ? 0.07 : 0.2;
+    const punchAttack = UNARMED_ATTACK_CLIPS.some(clip => clip === name);
+    const blend = name === 'Slide_Tackle' ? 0.08 : currentAction.getClip().name === 'Slide_Tackle' ? 0.14 : saberAttack || punchAttack ? 0.07 : 0.2;
     const sameAction = next === currentAction;
     if (immediate) mixer.stopAllAction();
     else if (!sameAction) currentAction.fadeOut(blend);
-    const speed = saberAttack ? LIGHTSABER_ATTACK_SPEED : name === 'Sword_Attack' ? 2.8 : 1;
+    const speed = saberAttack ? LIGHTSABER_ATTACK_SPEED : punchAttack ? UNARMED_ATTACK_SPEED : name === 'Sword_Attack' ? 2.8 : 1;
     next.reset().setEffectiveTimeScale(speed).setEffectiveWeight(1);
     if (!immediate && !sameAction) next.fadeIn(blend);
     next.play();
@@ -761,7 +710,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
     } else if (playerState.sliding) {
       fadeTo('Slide_Tackle');
       currentAction.paused = true;
-      currentAction.time = THREE.MathUtils.clamp(playerState.slideTime, 0, SLIDE_TACKLE.duration);
+      currentAction.time = THREE.MathUtils.clamp(playerState.slideTime / SLIDE_TACKLE.duration, 0, 1) * currentAction.getClip().duration;
     } else if (playerState.ventMode) {
       fadeTo(isMoving ? 'Crouch_Fwd_Loop' : 'Crouch_Idle_Loop', false, !wasVentMode);
       currentAction.setEffectiveTimeScale(isMoving && sprinting ? 2 : 1);
@@ -1067,7 +1016,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
   }
 
   return {
-    model, mixer, update, setFacing, setHologramTransition, setSilhouetteEnabled, weapon, crowbar, lightsaberAttackClips,
+    model, mixer, update, setFacing, setHologramTransition, setSilhouetteEnabled, weapon, crowbar, lightsaberAttackClips, unarmedAttackClips,
     setCrowbarEquipped: (equipped: boolean) => { crowbarEquipped = equipped; crowbar.visible = equipped; },
     setLightsaberEquipped: (equipped: boolean) => { lightsaberEquipped = equipped; lightsaber.visible = equipped; },
     setGogglesEquipped: (equipped: boolean) => { goggles.visible = equipped; },

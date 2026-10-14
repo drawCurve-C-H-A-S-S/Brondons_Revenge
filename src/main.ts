@@ -26,6 +26,7 @@ import { CrowbarController } from './scripts/crowbar.js';
 import { GogglesController } from './scripts/goggles.js';
 import { GogglesPostProcess } from './scripts/gogglesPostProcess.js';
 import { LightsaberController } from './scripts/lightsaber.js';
+import { UnarmedCombatController } from './scripts/unarmedCombat.js';
 import { AdaptiveHintManager } from './scripts/adaptiveHints.js';
 import { createCctvSystem, type CctvFeedSource } from './scripts/cctv.js';
 import { TeleportationDeviceController, teleportPlayer } from './scripts/teleportationDevice.js';
@@ -182,6 +183,7 @@ function renderGameScene(scene: THREE.Scene, camera: THREE.Camera) {
     renderSceneEffects(scene, camera);
     if (!deathPresentation && !currentSceneData?.isCinematic?.() && !currentSceneData?.ownsWeaponInput) {
       crowbar.renderFirstPerson(renderer);
+      unarmedCombat.renderFirstPerson(renderer);
     }
   });
   currentSceneData?.renderCinematicOverlay?.(renderer);
@@ -300,6 +302,19 @@ const lightsaber = new LightsaberController(() => ({
   getParryableBolts: () => currentSceneData?.getParryableBolts?.() ?? [],
 }));
 lightsaberController = lightsaber;
+const unarmedCombat = new UnarmedCombatController(() => ({
+  scene: activeScene, world: currentSceneData?.physicsWorld ?? null,
+  player: currentSceneData?.ownsWeaponInput || currentSceneData?.isCinematic?.() || deathPresentation ? null : currentPlayer,
+  character: globalCharacter?.model ?? null,
+  thirdPerson: isGameplayThirdPerson(),
+  unarmed: equippedWeapon() === 'unarmed',
+  attackClips: globalCharacter?.unarmedAttackClips ?? [],
+  targets: currentSceneData?.getDamageTargets?.() ?? [],
+  firstPersonHands: () => {
+    if (!isGameplayThirdPerson()) void prepareFirstPersonHands();
+    return firstPersonHands;
+  },
+}));
 const goggles = new GogglesController(() => ({
   player: currentSceneData?.ownsWeaponInput || currentSceneData?.isCinematic?.() || deathPresentation ? null : currentPlayer, scene: currentSceneData,
   setCharacterEquipped: active => globalCharacter?.setGogglesEquipped(active),
@@ -407,6 +422,7 @@ function selectWeapon(id: WeaponId) {
   if (equipmentInputBlocked() || !weaponEntries().some(entry => entry.id === id)) return;
   if (currentSceneData?.ownsWeaponInput) currentSceneData.selectWeapon(id);
   else {
+    unarmedCombat.reset();
     pistol.holster(); crowbar.holster(); lightsaber.holster();
     if (id === 'pistol') pistol.equip();
     else if (id === 'crowbar') crowbar.equip();
@@ -420,6 +436,7 @@ const weaponWheel = createWeaponWheel({
   getEntries: weaponEntries, getCurrentId: equippedWeapon, isBlocked: equipmentInputBlocked, onSelect: selectWeapon,
   setPaused(paused) {
     weaponWheelOpen = paused;
+    music.setWeaponWheelOpen(paused);
     clearSceneInput();
     const blocked = paused || quickMenuOpen;
     document.body.classList.toggle('quick-menu-open', blocked);
@@ -520,8 +537,8 @@ let shownControl: ControlCard | null = null;
 let controlTime = 0;
 const controlCard = document.getElementById('control-card')!;
 const lessons: Record<string, Omit<ControlCard, 'key' | 'scene'>> = {
-  quarters: { title: 'Living quarters', lines: ['WASD - walk / Shift - sprint / Mouse - look', 'C while moving forward - slide tackle; otherwise crouch', 'Look at a nameplate to see the room name', 'E - use doors, chests and devices', 'Unlocked doors play a short walk-through cinematic', 'V - first / third person / M - pause, then Map', 'Recover your gear and search Branden and Brendan\'s rooms'], touch: ['Left stick - walk / Right drag - look', 'CROUCH while moving forward - slide tackle', 'Look at nameplates to see room names automatically', 'USE - open doors and chests, recover gear', 'VIEW - first / third person / MENU - pause and map', 'Recover your gear and check the other lecturers\' rooms'] },
-  basics: { title: 'You’re awake', lines: ['WASD — walk · Shift — sprint', 'C while moving forward — slide tackle; otherwise crouch', 'Mouse — look · Click the world to capture the mouse', 'Space — jump · E — interact', 'Hold Tab — weapons · Aim and release to equip · Left click — shoot', 'V or the view button — switch first / third person · M — pause · / — hide / show HUD'], touch: ['Drag on the left to walk; drag on the right to look.', 'RUN, JUMP, CROUCH and USE are your movement controls.', 'CROUCH while moving forward performs a slide tackle.', 'PISTOL equips your gun; SHOOT fires it.', 'Tap VIEW to switch first / third person · MENU to pause.'] },
+  quarters: { title: 'Living quarters', lines: ['WASD - walk / Shift - sprint / Mouse - look', 'C while sprinting forward - slide tackle; otherwise crouch', 'Unarmed + left click - random punches', 'Look at a nameplate to see the room name', 'E - use doors, chests and devices', 'Unlocked doors play a short walk-through cinematic', 'V - first / third person / M - pause, then Map', 'Recover your gear and search Branden and Brendan\'s rooms'], touch: ['Left stick - walk / Right drag - look', 'Hold RUN + forward, then CROUCH - slide tackle', 'PUNCH - random unarmed attacks', 'Look at nameplates to see room names automatically', 'USE - open doors and chests, recover gear', 'VIEW - first / third person / MENU - pause and map', 'Recover your gear and check the other lecturers\' rooms'] },
+  basics: { title: 'You’re awake', lines: ['WASD — walk · Shift — sprint', 'C while sprinting forward — slide tackle; otherwise crouch', 'Mouse — look · Click the world to capture the mouse', 'Space — jump · E — interact', 'Hold Tab — weapons · Release to equip · Left click — attack; unarmed — punch', 'V or the view button — switch first / third person · M — pause · / — hide / show HUD'], touch: ['Drag on the left to walk; drag on the right to look.', 'RUN, JUMP, CROUCH and USE are your movement controls.', 'Hold RUN + forward, then CROUCH to slide tackle.', 'PUNCH attacks unarmed; PISTOL equips your gun; SHOOT fires it.', 'Tap VIEW to switch first / third person · MENU to pause.'] },
   pistol: { title: 'Pistol', lines: ['Hold Tab — select pistol; select Unarmed to holster', 'Left click — shoot at your crosshair'], touch: ['PISTOL — equip / holster', 'SHOOT — fire at your crosshair'] },
   crowbar: { title: 'Crowbar acquired', lines: ['Hold Tab — select crowbar; select Unarmed to holster', 'Left click — swing'], touch: ['CROW — equip / holster', 'SWING — attack'] },
   lightsaber: { title: 'Lightsaber acquired', lines: ['Hold Tab — select lightsaber; select Unarmed to holster',
@@ -537,7 +554,7 @@ const lessons: Record<string, Omit<ControlCard, 'key' | 'scene'>> = {
   flight: { title: 'Flight controls', lines: ['WASD — dodge · Mouse — aim', 'Hold left click — fire · Space — evade', 'V or the view button — cockpit / chase camera · M — pause'], touch: ['Left stick — dodge · Right drag — aim', 'Hold FIRE — shoot · EVADE — dodge', 'VIEW — cockpit / chase camera · MENU — pause']},
   flightSide: { title: 'Sidescroll flight', lines: ['WASD / arrows — move · Hold left click — fire straight', 'W / S + Space — dodge up / down'], touch: ['Left stick — move · Hold FIRE — fire straight', 'Stick up / down + EVADE — vertical dodge'] },
   flightTop: { title: 'Top-down flight', lines: ['WASD / arrows — move · Hold left click — fire upward', 'A / D + Space — evade left / right'], touch: ['Left stick — move · Hold FIRE — fire upward', 'Stick left / right + EVADE — lateral dodge'] },
-  jungle: { title: 'Back on the ground', lines: ['WASD — walk · Shift — sprint · Space — jump', 'C while moving forward — slide tackle; otherwise crouch', 'Hold Tab — select weapon · Left click — attack', 'V or the view button — change view'], touch: ['Left stick — walk · Right drag — look', 'RUN / JUMP — sprint and jump', 'CROUCH while moving forward — slide tackle', 'PISTOL / CROW — select weapon · SHOOT / SWING — attack', 'VIEW — change view'] },
+  jungle: { title: 'Back on the ground', lines: ['WASD — walk · Shift — sprint · Space — jump', 'C while sprinting forward — low-damage knockdown tackle; otherwise crouch', 'Hold Tab — select weapon · Left click — attack; unarmed — punch', 'V or the view button — change view'], touch: ['Left stick — walk · Right drag — look', 'RUN / JUMP — sprint and jump', 'Hold RUN + forward, then CROUCH — knockdown tackle', 'PISTOL / CROW — select weapon · SHOOT / SWING / PUNCH — attack', 'VIEW — change view'] },
   platformer: { title: 'Platforming controls', lines: ['A / D or arrows — move · Space — jump', 'Shift — sprint · C — crouch', 'Mouse — aim · Hold Tab — select weapon', 'Hold left click — attack'], touch: ['Left stick — move · JUMP — jump', 'RUN — sprint · CROUCH — crouch', 'Right drag — aim · PISTOL / CROW — select weapon', 'Hold FIRE — attack'] },
   finale: { title: 'Final boss controls', lines: ['A / D — move · J — down / side / heavy sword chain · F — two-handed rifle salvo', 'Hold R — shield / parry · Space — dodge boost · E — Last Light blade wave (18-second recharge)', 'After a special close-up, the camera returns before release: dodge or guard', 'W / S — rise or dive in space · Hold Enter — skip to the VS intro', 'Final QTE: time taps, mash D, hold E; 1–3 stars per prompt, three misses cause death'], touch: ['LEFT / RIGHT — move · UP / DOWN — fly in space', 'SWORD — chain cuts · SHIELD — hold to block / parry · BOOST — dodge', 'RIFLE — sheath, draw and fire · ULTIMATE — Last Light (18-second recharge)', 'QTE: tap, mash or hold the displayed letter; three misses break the link'] },
 };
@@ -1174,7 +1191,12 @@ async function loadHangar14(entryState?: PlayerTransitionState, checkpoint = fal
         const restored = entryState ? { ...entryState, health: PLAYER_MAX_HEALTH, heldKeys: [], blockedKeys: [] } : undefined;
         void loadHangar14(restored, true).catch(error => console.error('Hangar checkpoint restart failed:', error));
       },
-      onLaunch: loadFlight15,
+      onLaunch: state => {
+        void loadFlight15(state).catch(error => {
+          console.error('Flight launch transition failed:', error);
+          showTeleportDeviceMessage('The flight chapter could not be loaded. Use the developer scene menu to retry.');
+        });
+      },
     }) };
   }, () => { void loadHangar14(entryState, checkpoint); });
 }
@@ -1188,30 +1210,31 @@ interface ChapterScene {
   dispose(): void;
 }
 async function prepareChapter(destination: LoadingDestination,
-  create: () => Promise<{ id: string; data: ChapterScene }>, retry: () => void) {
-  const loading = beginCinematicLoading(destination, 1);
+  create: () => Promise<{ id: string; data: ChapterScene }>, retry: () => void, showLoading = true) {
+  const loading = showLoading ? beginCinematicLoading(destination, 1) : null;
   let chapter: { id: string; data: ChapterScene } | undefined;
   try {
-    await loading.presented;
+    await loading?.presented;
     chapter = await create();
     const request = sceneRequestVersion;
     await Promise.all([chapter.data.ready, chapter.data.gunReady, prepareGlobalCharacter()]);
     await chapter.data.prepareRendering?.(renderer);
     await prepareSceneRendering(renderer, chapter.data.scene, chapter.data.camera);
-    if (request !== sceneRequestVersion) { chapter.data.dispose(); loading.finish(); return; }
+    if (request !== sceneRequestVersion) { chapter.data.dispose(); loading?.finish(); return; }
     hideScene1Skip(); retireTraversalRoom();
     setTouchFlightMode(chapter.id === 'scene15');
     activateExtension(chapter.data, chapter.id);
-    if (!await warmBehindLoading(request)) { loading.finish(); return; }
-    loading.finish();
+    if (loading && !await warmBehindLoading(request)) { loading.finish(); return; }
+    loading?.finish();
   } catch (error) {
     chapter?.data.dispose();
+    if (!loading) throw error;
     console.error('[Chapter] Preparation failed:', destination, error);
     loading.fail('This chapter could not be prepared. Please try again.', retry);
   }
 }
 
-async function loadFlight15(entryState?: LaunchState, startAt?: FlightStartPhase) {
+async function loadFlight15(entryState?: LaunchState, startAt?: FlightStartPhase, developerVisit = false) {
   const destination = startAt === 'scrambler' ? 'scrambler' : startAt === 'bossArmor' ? 'armor'
     : startAt === 'topdownScrambler' ? 'red-scrambler' : startAt === 'bossCore' ? 'reactor' : 'flight';
   await prepareChapter(destination, async () => {
@@ -1219,7 +1242,7 @@ async function loadFlight15(entryState?: LaunchState, startAt?: FlightStartPhase
     if (!module) throw new Error('The flight chapter module could not load');
     await preloadMusic(startAt === 'bossCore' ? MUSIC_URLS['level-2-boss'] : MUSIC_URLS['level-2']);
     return { id: 'scene15', data: module.createScene({ entryState, startAt, onTransition: loadCrash16 }) };
-  }, () => { void loadFlight15(entryState, startAt); });
+  }, () => { void loadFlight15(entryState, startAt, developerVisit); }, developerVisit);
 }
 
 async function loadCrash16(entryState?: FlightExitState) {
@@ -1423,6 +1446,12 @@ function updateControllerMenuFocus() {
   if (first) focusControllerMenuItem(first);
 }
 
+function canViewShipMap() {
+  if (!currentSceneData || activeSceneId === 'scene1' || activeSceneId === 'prologue1') return false;
+  const id = currentSceneData.getMapSceneId?.() ?? currentSceneData.getSceneId?.() ?? activeSceneId;
+  return !!currentSceneData.getMapLayout?.() || SHIP_MAP_LAYOUT.rooms.some(room => id === `scene${room.id}`);
+}
+
 function chartCurrentMapSection() {
   const layout: ShipMapLayout | undefined = currentSceneData?.getMapLayout?.();
   try {
@@ -1438,6 +1467,7 @@ function chartCurrentMapSection() {
 }
 
 function clearSceneInput() {
+  unarmedCombat.reset();
   controllerInput?.reset(weaponWheelOpen);
   resetTouchInput();
   currentPlayer?.clearInput();
@@ -1630,7 +1660,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
   if (screen === 'developer' && developerUnlocked) screen = 'scenes';
   if (screen === menuScreen) return;
   const prologue = activeSceneId === 'scene1';
-  if (prologue && screen === 'sound') return;
+  if (screen === 'map' && !canViewShipMap()) return;
   if (screen === 'scenes' && (!quickMenuOpen || !developerUnlocked)) return;
   if (screen === 'controls') controlsReturnScreen = menuScreen === 'scenes' ? 'scenes' : 'home';
   if (screen === 'credits' && menuScreen !== 'credits') {
@@ -1682,7 +1712,9 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
     document.getElementById('pause-sound-panel')!.classList.toggle('hidden', screen !== 'sound');
     document.getElementById('pause-controls-panel')!.classList.toggle('hidden', screen !== 'controls');
     document.getElementById('pause-developer-form')!.classList.toggle('hidden', screen !== 'developer');
-    for (const id of ['pause-resume', 'pause-sound']) document.getElementById(id)!.classList.toggle('hidden', prologue);
+    document.getElementById('pause-resume')!.classList.toggle('hidden', prologue);
+    document.getElementById('pause-sound')!.classList.remove('hidden');
+    document.getElementById('pause-ship-map')!.classList.toggle('hidden', !canViewShipMap());
     if (screen === 'controls') renderControlsReference();
     if (screen === 'sound') {
       const settings = getAudioSettings();
@@ -1700,7 +1732,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
     if (shipMap && layout !== shipMapLayout) { shipMap.dispose(); shipMap = null; }
     shipMapLayout = layout;
     shipMap ??= createShipMap(renderer, document.getElementById('ship-map-view')!, layout);
-    shipMap.open(currentSceneData?.getMapSceneId?.() ?? currentSceneData?.getSceneId?.() ?? activeSceneId, currentPlayer?.body.position, currentPlayer?.getState().yaw);
+    shipMap.open(currentSceneData?.getMapSceneId?.() ?? currentSceneData?.getSceneId?.() ?? activeSceneId, currentPlayer?.body.position);
     const focus = isControllerActive() ? document.querySelector<HTMLElement>('[data-map-tool="current"]:not(:disabled), [data-map-tool="fit"]')
       : document.querySelector<HTMLElement>('.ship-map-canvas');
     if (focus) { if (isControllerActive()) focusControllerMenuItem(focus); else focus.focus(); }
@@ -1790,11 +1822,11 @@ async function jumpToScene(id: number) {
       case 6: if (!await loadCameraVisit('scene6', undefined, true)) throw new Error('The range camera room did not activate'); break;
       case 13: if (!await loadBay13()) throw new Error('Bay 13 did not activate'); break;
       case 14: await loadHangar14(); break;
-      case 15: await loadFlight15(); break;
-      case 15.5: await loadFlight15(undefined, 'scrambler'); break;
-      case 15.6: await loadFlight15(undefined, 'bossArmor'); break;
-      case 15.75: await loadFlight15(undefined, 'topdownScrambler'); break;
-      case 15.9: await loadFlight15(undefined, 'bossCore'); break;
+      case 15: await loadFlight15(undefined, undefined, true); break;
+      case 15.5: await loadFlight15(undefined, 'scrambler', true); break;
+      case 15.6: await loadFlight15(undefined, 'bossArmor', true); break;
+      case 15.75: await loadFlight15(undefined, 'topdownScrambler', true); break;
+      case 15.9: await loadFlight15(undefined, 'bossCore', true); break;
       case 16: await loadCrash16(); break;
       case 17: await loadGround17(); break;
       case 20: await loadFacility20(); break;
@@ -1980,8 +2012,8 @@ function animate() {
     document.getElementById('controller-notice')!.classList.toggle('hidden', controllerNoticeTime === 0);
   }
   cinematicLoading.update(delta);
-  music.setPaused(quickMenuOpen || weaponWheelOpen || teleportLoading || document.hidden
-    || !!currentSceneData?.isMusicPaused?.());
+  music.setPaused(quickMenuOpen || teleportLoading || document.hidden
+    || (!weaponWheelOpen && !!currentSceneData?.isMusicPaused?.()));
   if (mappedSceneData !== currentSceneData) { mappedSceneData = currentSceneData; chartCurrentMapSection(); }
   if (cinematicLoading.active) {
     controlCard.classList.add('hidden');
@@ -2091,6 +2123,8 @@ function animate() {
   if (!sceneOwnsControls && !currentSceneData?.ownsWeaponInput) { pistol.update(delta); crowbar.update(delta); }
   if (!sceneOwnsControls && !currentSceneData?.ownsWeaponInput) lightsaber.update(delta);
   else lightsaber.detach();
+  if (!sceneOwnsControls && !currentSceneData?.ownsWeaponInput) unarmedCombat.update(delta);
+  else unarmedCombat.reset();
   cctv.update(delta, activeScene, currentSceneData?.getCctvEnabled?.() ?? false, currentSceneData?.getCctvPaused?.() ?? false);
 
   // Controls

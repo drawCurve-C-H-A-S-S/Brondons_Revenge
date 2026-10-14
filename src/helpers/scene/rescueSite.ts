@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { loadBoyModel } from '../../core/loader.js';
+import { loadBoyModel, loadTexture } from '../../core/loader.js';
+import hideoutImageUrl from '../../assets/textures/sudoers-hideout.png?url';
 import type { createScenePhysics } from '../physics/scenePhysics.js';
 import { createSlidingPortal, roomBox, disposeRoom } from './shipRoom.js';
 import { cargoSign } from './cargoVisuals.js';
@@ -17,6 +18,7 @@ import mountainRock from '../../shaders/mountainRock.glsl?raw';
 export interface RescueArrival {
   pilotState?: PlayerTransitionState; hullHealth?: number;
   waterfallDefeated?: boolean; bossImmunityCollected?: boolean;
+  muralDiscovered?: boolean;
   cameraPosition?: THREE.Vector3; cameraQuaternion?: THREE.Quaternion; cameraFov?: number;
 }
 export interface WaterfallCharacterContact {
@@ -757,6 +759,31 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     mountain.position.set(Math.sin(angle) * 205, 8, Math.cos(angle) * 205); mountain.rotation.y = i; scene.add(mountain);
   }
   box([1, 24, 32], [-35, 12, -71]); box([1, 24, 32], [35, 12, -71]); box([70, 24, 1], [0, 12, -87]);
+  const muralCanvas = document.createElement('canvas');
+  muralCanvas.width = 2048; muralCanvas.height = Math.round(2048 * 24 / 70);
+  const muralContext = muralCanvas.getContext('2d');
+  if (!muralContext) throw new Error('The facility mural requires a 2D canvas context');
+  const muralTexture = new THREE.CanvasTexture(muralCanvas); muralTexture.colorSpace = THREE.SRGBColorSpace;
+  const mural = new THREE.Mesh(new THREE.PlaneGeometry(70, 24),
+    new THREE.MeshBasicMaterial({ map: muralTexture, toneMapped: false }));
+  mural.name = 'SudoersHideoutBackWall';
+  mural.position.set(0, 12, -87.51); mural.rotation.y = Math.PI;
+  scene.add(mural);
+  const muralReady = loadTexture(hideoutImageUrl).then(source => {
+    try {
+      if (disposed) return;
+      muralContext.drawImage(source.image, 0, 0, muralCanvas.width, muralCanvas.height);
+      muralContext.font = '900 128px Impact, Haettenschweiler, "Franklin Gothic Heavy", sans-serif';
+      muralContext.textAlign = 'center'; muralContext.textBaseline = 'middle'; muralContext.lineJoin = 'round';
+      const x = muralCanvas.width / 2, y = muralCanvas.height / 2;
+      muralContext.strokeStyle = '#f7fbff'; muralContext.lineWidth = 18;
+      muralContext.strokeText('SUDOERS HIDEOUT', x, y);
+      muralContext.strokeStyle = '#17191f'; muralContext.lineWidth = 10;
+      muralContext.strokeText('SUDOERS HIDEOUT', x, y);
+      muralContext.fillStyle = '#ffdb57'; muralContext.fillText('SUDOERS HIDEOUT', x, y);
+      muralTexture.needsUpdate = true;
+    } finally { source.dispose(); }
+  });
   const facilityRoof = box([71, 0.8, 33], [0, 24, -71], dark);
   facilityRoof.name = 'RescueSiteFacilityRoof';
   box([70, 0.2, 32], [0, -0.1, -71], dark);
@@ -821,7 +848,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   const boy = new THREE.Group(); boy.name = 'RescuedPodBoy'; boy.position.copy(RESCUE_SITE.boy); scene.add(boy);
   let disposed = false, settled = false, mixer: THREE.AnimationMixer | null = null;
   let idle: THREE.AnimationAction | undefined, walk: THREE.AnimationAction | undefined, walking = false;
-  const ready = loadBoyModel().then(gltf => {
+  const boyReady = loadBoyModel().then(gltf => {
     if (disposed) { disposeRoom(gltf.scene as unknown as THREE.Scene); return; }
     const model = gltf.scene, bounds = new THREE.Box3().setFromObject(model);
     model.scale.multiplyScalar(1.75 / Math.max(0.01, bounds.getSize(new THREE.Vector3()).y));
@@ -831,8 +858,12 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     const idleClip = gltf.animations.find(c => /idle/i.test(c.name)), walkClip = gltf.animations.find(c => /walk/i.test(c.name));
     if (idleClip) idle = mixer.clipAction(idleClip);
     if (walkClip) walk = mixer.clipAction(walkClip);
-    (walking ? walk ?? idle : idle)?.play(); settled = true;
-  }).catch(error => { settled = true; if (!disposed) console.error('[Rescue] Could not load boy.glb:', error); });
+    (walking ? walk ?? idle : idle)?.play();
+    mixer.update(0);
+  }).catch(error => {
+    if (!disposed) { console.error('[Rescue] Could not load Brendan:', error); throw error; }
+  });
+  const ready = Promise.all([boyReady, muralReady]).then(() => { settled = true; });
   scene.add(new THREE.HemisphereLight(0xd1e2c0, 0x253921, 2));
   const sun = new THREE.DirectionalLight(0xffe3ac, 3.6); sun.position.set(-70, 90, 25); sun.castShadow = true;
   sun.target.position.set(-30, 0, -5); scene.add(sun.target);
@@ -892,7 +923,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     return () => { for (const [object, visible] of visibility) object.visible = visible; };
   }
   let windTime = 0;
-  return { scene, ship, pod, boy, door, facilityRoof, rooftopEquipment, turrets, ready, pathLength, nearestPathPoint, isWalkable, trackStaticBody, updateActivePhysics, activatePhysicsNear, updateVisibility, prepareMinimap, isReady: () => settled,
+  return { scene, ship, pod, boy, door, mural, facilityRoof, rooftopEquipment, turrets, ready, pathLength, nearestPathPoint, isWalkable, trackStaticBody, updateActivePhysics, activatePhysicsNear, updateVisibility, prepareMinimap, isReady: () => settled,
     releasePropCulling(root: THREE.Object3D) {
       const index = distantProps.findIndex(prop => prop.root === root);
       if (index >= 0) distantProps.splice(index, 1);

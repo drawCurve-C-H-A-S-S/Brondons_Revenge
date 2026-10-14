@@ -750,7 +750,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     if (invulnerability > 0 || (phase === 'topdownScrambler' && topdown?.evading) || !combatLive()) return;
     playerHp = Math.max(0, playerHp - amount); invulnerability = 0.55; damageFlash = 0.7; tone(90, 30, 0.24, 0.08);
     if (playerHp === 0) {
-      phase = 'dead'; deathClock = 1.8; paused = false; ship.root.visible = false; clearInput(); clearBolts(); burst(ship.root.position, 14);
+      phase = 'dead'; deathClock = 1.8; paused = false; ship.root.visible = false; clearInput(); clearBolts(); explode(ship.root.position, 14, ship.root);
       document.body.classList.add('space-paused');
     }
   }
@@ -894,9 +894,10 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     document.body.classList.toggle('space-paused', paused || dead);
   }
   function updateEffects(dt: number) {
+    const worldScroll = phase === 'dead' ? 0 : FLIGHT_RULES.cruise * dt;
     for (let index = explosions.length - 1; index >= 0; index--) {
       const explosion = explosions[index]; explosion.age += dt;
-      explosion.mesh.position.z += FLIGHT_RULES.cruise * dt;
+      explosion.mesh.position.z += worldScroll;
       const progress = Math.min(1, explosion.age / 1.35);
       explosion.mesh.material.uniforms.uTime.value = explosion.age;
       explosion.mesh.material.uniforms.uProgress.value = progress;
@@ -904,7 +905,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       if (progress >= 1) { explosion.mesh.removeFromParent(); explosion.mesh.material.dispose(); explosions.splice(index, 1); }
     }
     for (let i = flashes.length - 1; i >= 0; i--) {
-      const f = flashes[i]; f.life -= dt; f.mesh.position.z += FLIGHT_RULES.cruise * dt;
+      const f = flashes[i]; f.life -= dt; f.mesh.position.z += worldScroll;
       if (!f.beam) { f.mesh.scale.setScalar(f.size * (1 - f.life / f.duration) + 0.5); f.mesh.material.opacity = Math.max(0, f.life / f.duration); }
       if (f.life <= 0) { scene.remove(f.mesh); if (!f.beam) f.mesh.material.dispose(); flashes.splice(i, 1); }
     }

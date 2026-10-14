@@ -13,6 +13,9 @@ import type { CinematicPose } from '../../scripts/characterManager.js';
 import { PARRY_DAMAGE, type ParryableBolt } from '../../scripts/lightsaber.js';
 import { createRiverAmbushers } from '../../scripts/riverAmbusher.js';
 import { createWaterfallMiniboss } from '../../scripts/waterfallMiniboss.js';
+import { KNOCKDOWN_DURATION, knockdownTilt } from '../../helpers/animation/knockdown.js';
+
+const MURAL_DISCOVERY_SECONDS = 10;
 
 /** One uninterrupted landing-site, bridge, waterfall and facility exterior. */
 export function createScene({ entryState, onRespawn, onFinished, loadModel = loadToolModel, loadDinosaur = loadDinoModel, loadShark = loadSharkModel }: {
@@ -66,6 +69,9 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   let disposed = false, alerted = false, doorLatched = false, completed = false, deathClock = 0;
   let elapsed = 0, arrivalClock = 0, paused = false, animationDelta = 0, entryClock = -1;
   const entryStart = new THREE.Vector3(), entryView = new THREE.Vector3(), entryRotation = new THREE.Quaternion();
+  let muralDiscovered = !!entryState?.muralDiscovered, muralClock = -1, muralFov = camera.fov, muralFacing = 0;
+  let muralEntry: ReturnType<typeof player.captureTransition> | null = null;
+  const muralView = new THREE.Vector3(), muralRotation = new THREE.Quaternion(), muralLook = new THREE.Quaternion();
   let sharkClock = -1, sharkLoadError = false;
   const sharkDeathAt = 4.2;
   const riverEntry = new THREE.Vector3(), riverCamera = new THREE.Vector3(), riverRotation = new THREE.Quaternion();
@@ -251,7 +257,8 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   }
   function damageJungleEnemy(enemy: JungleEnemy, amount: number, weapon?: DamageWeapon) {
     if (disposed || completed || !player.isEnabled() || player.getHealth() <= 0 || enemy.phase === 'dormant' || enemy.phase === 'dying'
-      || !Number.isFinite(amount) || amount <= 0 || (weapon !== 'pistol' && weapon !== 'crowbar' && weapon !== 'lightsaber')) return false;
+      || !Number.isFinite(amount) || amount <= 0
+      || (weapon !== 'pistol' && weapon !== 'crowbar' && weapon !== 'lightsaber' && weapon !== 'unarmed' && weapon !== 'tackle')) return false;
     if (enemy.kind === 'dino') return false;
     enemy.health = Math.max(0, enemy.health - amount); enemy.ring.visible = false;
     emitComicEffect(scene, enemy.health === 0 ? 'clank' : 'hit', { source: enemy.root, weapon });
@@ -259,13 +266,19 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
       enemy.phase = 'dying'; enemy.body.collisionResponse = false; enemy.timer = Math.max(1, enemy.actions.get('TurnOff')?.getClip().duration ?? 1.3) + 0.25;
       enemy.body.type = CANNON.Body.KINEMATIC; enemy.body.velocity.set(0, 0, 0); enemy.body.force.set(0, 0, 0); enemy.body.updateMassProperties();
       animateJungleEnemy(enemy, 'TurnOff', true); defeatedPatrols++;
-    } else { enemy.phase = 'hit'; enemy.timer = 0.3; enemy.action = ''; animateJungleEnemy(enemy, 'Hit', true); }
+    } else if (enemy.phase !== 'stunned') { enemy.phase = 'hit'; enemy.timer = 0.3; enemy.action = ''; animateJungleEnemy(enemy, 'Hit', true); }
+    return true;
+  }
+  function knockDownJungleEnemy(enemy: JungleEnemy) {
+    if (disposed || enemy.kind === 'dino' || enemy.phase === 'dormant' || enemy.phase === 'dying') return false;
+    enemy.phase = 'stunned'; enemy.timer = KNOCKDOWN_DURATION; enemy.cooldown = Math.max(enemy.cooldown, 1);
+    enemy.motor.drive(0, 0, 0); enemy.ring.visible = false; enemy.action = ''; animateJungleEnemy(enemy, 'Idle');
     return true;
   }
   function retireJungleEnemy(enemy: JungleEnemy) {
     if (enemy.body.world === physicsWorld) physicsWorld.removeBody(enemy.body);
     enemy.body.velocity.set(0, 0, 0);
-    enemy.root.visible = false; enemy.ring.visible = false; enemy.phase = 'dormant'; enemy.mixer.stopAllAction(); enemy.action = '';
+    enemy.root.visible = false; enemy.root.rotation.z = 0; enemy.ring.visible = false; enemy.phase = 'dormant'; enemy.mixer.stopAllAction(); enemy.action = '';
   }
   function updatePatrols(dt: number) {
     if (disposed || completed || entryClock >= 0 || sharkClock >= 0 || miniboss.isCinematic() || site.waterfall.locked || deathClock > 0 || !player.isEnabled() || player.getHealth() <= 0) return;
@@ -300,13 +313,14 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
         if (enemy.timer <= 0) retireJungleEnemy(enemy);
         continue;
       }
+      if (enemy.phase === 'stunned') {
+        enemy.timer = Math.max(0, enemy.timer - dt); enemy.motor.drive(0, 0, 0);
+        if (enemy.kind !== 'dino') enemy.root.rotation.z = -knockdownTilt(enemy.timer);
+        if (enemy.timer <= 0) { enemy.root.rotation.z = 0; enemy.phase = 'chasing'; animateJungleEnemy(enemy, 'Run'); }
+        continue;
+      }
       if (enemy.kind === 'dino') {
         if (distance > 48) { retireJungleEnemy(enemy); continue; }
-        if (enemy.phase === 'stunned') {
-          enemy.timer -= dt; enemy.motor.drive(0, 0, 0);
-          if (enemy.timer <= 0) { enemy.phase = 'chasing'; animateJungleEnemy(enemy, 'Run'); }
-          continue;
-        }
         if (!inTerritory || site.distanceToSafePath(p.x, p.z) <= 5) {
           enemy.motor.drive(0, 0, 0); enemy.mixer.stopAllAction(); enemy.action = ''; continue;
         }
@@ -413,7 +427,8 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   }
   function damageSentry(sentry: typeof sentries[number], amount: number, weapon?: DamageWeapon) {
     if (disposed || completed || deathClock > 0 || !player.isEnabled() || player.getHealth() <= 0 || !sentry.active
-      || (weapon !== 'pistol' && weapon !== 'crowbar' && weapon !== 'lightsaber') || !sentry.actor.damage(amount, weapon)) return false;
+      || (weapon !== 'pistol' && weapon !== 'crowbar' && weapon !== 'lightsaber' && weapon !== 'unarmed' && weapon !== 'tackle')
+      || !sentry.actor.damage(amount, weapon)) return false;
     if (sentry.actor.health === 0) {
       sentry.charge = -1; sentry.body.collisionResponse = false;
       sentry.body.type = CANNON.Body.KINEMATIC; sentry.body.velocity.set(0, 0, 0); sentry.body.force.set(0, 0, 0); sentry.body.updateMassProperties();
@@ -433,9 +448,11 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   function damageTargets(): DamageTarget[] {
     return [
       ...enemies.filter(enemy => enemy.kind !== 'dino' && enemy.phase !== 'dormant' && enemy.phase !== 'dying')
-        .map((enemy): DamageTarget => ({ root: enemy.root, body: enemy.body, damage: (amount, weapon) => damageJungleEnemy(enemy, amount, weapon) })),
+        .map((enemy): DamageTarget => ({ root: enemy.root, body: enemy.body,
+          damage: (amount, weapon) => damageJungleEnemy(enemy, amount, weapon), knockDown: () => knockDownJungleEnemy(enemy) })),
       ...sentries.filter(sentry => sentry.active && sentry.actor.health > 0)
-        .map((sentry): DamageTarget => ({ root: sentry.actor.root, body: sentry.body, damage: (amount, weapon) => damageSentry(sentry, amount, weapon) })),
+        .map((sentry): DamageTarget => ({ root: sentry.actor.root, body: sentry.body,
+          damage: (amount, weapon) => damageSentry(sentry, amount, weapon), knockDown: () => sentry.actor.knockDown() })),
       ...turrets.filter(turret => turret.health > 0)
         .map((turret): DamageTarget => ({ root: turret.root, damage: (amount, weapon) => damageTurret(turret, amount, weapon) })),
       ...miniboss.getDamageTargets(),
@@ -460,6 +477,10 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
         actor.root.position.set(spawnPoint.x, 0.02, spawnPoint.z); actor.root.visible = true; actor.aimAt(target);
       }
       if (actor.health <= 0) continue;
+      if (actor.knockedDown) {
+        sentry.motor.drive(0, 0, 0); sentry.charge = -1; sentry.cooldown = Math.max(sentry.cooldown, 1);
+        continue;
+      }
       const from = new THREE.Vector3(body.position.x, body.position.y + 1.35, body.position.z);
       const delta = p.clone().sub(new THREE.Vector3().copy(body.position)); delta.y = 0;
       const distance = delta.length(); delta.normalize(); sentry.cooldown -= dt;
@@ -595,7 +616,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
     },
   });
   function updateHud() {
-    if (completed || deathClock > 0 || entryClock >= 0 || sharkClock >= 0) return;
+    if (completed || deathClock > 0 || entryClock >= 0 || sharkClock >= 0 || muralClock >= 0) return;
     const nearBoy = arrivalClock < 7 && Math.hypot(player.body.position.x - boy.position.x, player.body.position.z - boy.position.z) < 12;
     caption?.classList.toggle('hidden', !nearBoy);
     if (nearBoy && caption) caption.textContent = '"I will stay with the ships. The facility is ahead. Follow the stone path; the waterfall may hide something."';
@@ -606,8 +627,56 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   }
   function captureArrival(): RescueArrival {
     const reward = miniboss.getStatus();
-    return { ...entryState, waterfallDefeated: reward.defeated, bossImmunityCollected: reward.collected,
+    return { ...entryState, waterfallDefeated: reward.defeated, bossImmunityCollected: reward.collected, muralDiscovered,
       pilotState: player.captureTransition({ x: 0, y: 0, z: 0 }) };
+  }
+  function beginMuralDiscovery() {
+    const state = player.getState(), p = player.body.position;
+    const depth = site.mural.position.z - p.z, halfWidth = site.mural.geometry.parameters.width / 2;
+    if (muralDiscovered || !site.isReady() || !player.isEnabled() || player.getHealth() <= 0
+      || miniboss.isCinematic() || site.waterfall.locked || !state.isOnGround || state.sliding || state.climbing || state.floating
+      || depth < 3 || depth > 29 || Math.abs(p.x - site.mural.position.x) > halfWidth - 2 || p.y > 2) return false;
+    muralEntry = player.captureTransition({ x: 0, y: 0, z: 0 });
+    muralView.copy(camera.position); muralRotation.copy(camera.quaternion); muralFov = camera.fov;
+    const shot = camera.clone(); shot.lookAt(site.mural.position); muralLook.copy(shot.quaternion);
+    muralFacing = Math.atan2(p.x - site.mural.position.x, p.z - site.mural.position.z);
+    muralClock = 0; muralDiscovered = true;
+    player.setInputLocked(true); player.setLookLocked(true);
+    player.body.velocity.set(0, 0, 0); player.body.force.set(0, 0, 0);
+    stopDefense(); status?.classList.add('hidden'); prompt?.classList.add('hidden');
+    return true;
+  }
+  function muralViewCamera() {
+    if (muralClock < 0 || !muralEntry) return false;
+    const entry = THREE.MathUtils.smootherstep(muralClock, 0, 1.1);
+    const exit = THREE.MathUtils.smootherstep(muralClock, MURAL_DISCOVERY_SECONDS - 0.9, MURAL_DISCOVERY_SECONDS);
+    const blend = entry * (1 - exit);
+    const turn = Math.atan2(Math.sin(muralFacing - muralEntry.yaw), Math.cos(muralFacing - muralEntry.yaw));
+    player.setRotation(muralEntry.yaw + turn * blend, muralEntry.pitch * (1 - blend));
+    camera.position.copy(muralView); camera.quaternion.slerpQuaternions(muralRotation, muralLook, blend);
+    camera.fov = THREE.MathUtils.lerp(muralFov, 65, blend);
+    camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
+    return true;
+  }
+  function updateMuralDiscovery(dt: number) {
+    if (!muralEntry) return;
+    muralClock += dt;
+    if (caption) {
+      caption.classList.toggle('hidden', muralClock < 0.65 || muralClock >= MURAL_DISCOVERY_SECONDS - 0.9);
+      caption.textContent = muralClock < 3
+        ? 'Prime: Brondon, this looks like....'
+        : "Brondon: No, Prime, there's no way. Stop whatever you are about to say. I came here to save them. Let's get inside.";
+    }
+    muralViewCamera();
+    if (muralClock < MURAL_DISCOVERY_SECONDS) return;
+    player.setInputLocked(false); player.setLookLocked(false);
+    player.restoreTransition({ ...muralEntry, velocity: { x: 0, y: 0, z: 0 }, heldKeys: [],
+      blockedKeys: muralEntry.heldKeys, sprinting: false, intentionalJump: false, jumpQueued: false, slide: undefined },
+      { x: 0, y: 0, z: 0, yaw: -Math.PI });
+    camera.position.copy(muralView); camera.quaternion.copy(muralRotation); camera.fov = muralFov;
+    camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
+    muralClock = -1; muralEntry = null; status?.classList.remove('hidden'); caption?.classList.add('hidden');
+    updateHud();
   }
   function finish() {
     completed = true; stopDefense(); freezePlayer(); status?.classList.add('hidden'); prompt?.classList.add('hidden');
@@ -616,6 +685,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   }
   function entryViewCamera() {
     if (sharkClock >= 0) return sharkViewCamera();
+    if (muralClock >= 0) return muralViewCamera();
     if (entryClock < 0) return miniboss.applyCinematicCamera();
     const progress = THREE.MathUtils.smootherstep(entryClock, 0, 0.9);
     camera.position.lerpVectors(entryView, new THREE.Vector3().copy(player.body.position).add(new THREE.Vector3(0, 1.2, 0)), progress);
@@ -689,14 +759,14 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
     minimap: { radius: 48, floor: 0, prepare: site.prepareMinimap },
     get robots() { return enemies.filter(enemy => enemy.kind === 'robot'); },
     get dinosaurs() { return enemies.filter(enemy => enemy.kind === 'dino'); },
-    getDamageTargets: (): DamageTarget[] => completed || entryClock >= 0 || sharkClock >= 0 || miniboss.isCinematic() || deathClock > 0 ? [] : damageTargets(),
+    getDamageTargets: (): DamageTarget[] => completed || entryClock >= 0 || sharkClock >= 0 || muralClock >= 0 || miniboss.isCinematic() || deathClock > 0 ? [] : damageTargets(),
     getParryableBolts: (): ParryableBolt[] =>
-      completed || entryClock >= 0 || sharkClock >= 0 || deathClock > 0 ? [] : bolts.filter(bolt => bolt.life > 0),
-    isCinematic: () => completed || entryClock >= 0 || sharkClock >= 0 || miniboss.isCinematic() || deathClock > 0,
+      completed || entryClock >= 0 || sharkClock >= 0 || muralClock >= 0 || deathClock > 0 ? [] : bolts.filter(bolt => bolt.life > 0),
+    isCinematic: () => completed || entryClock >= 0 || sharkClock >= 0 || muralClock >= 0 || miniboss.isCinematic() || deathClock > 0,
     isArenaLocked: () => site.waterfall.locked,
     getRiverStatus: () => ({ swarming: sharkClock >= 0, time: sharkClock, sharks: sharks.filter(shark => shark.attackIndex >= 0).length }),
     getCinematicDelta: () => animationDelta,
-    getCinematicState: () => completed || entryClock >= 0 || sharkClock >= 0 || miniboss.isCinematic() || deathClock > 0 ? { ...player.getState(),
+    getCinematicState: () => completed || entryClock >= 0 || sharkClock >= 0 || muralClock >= 0 || miniboss.isCinematic() || deathClock > 0 ? { ...player.getState(),
       isMoving: entryClock >= 0 && !completed, sprinting: false, isOnGround: sharkClock < 0, floating: sharkClock >= 0, jumping: false, climbing: false } : null,
     getCinematicPose(): CinematicPose | null {
       if (sharkClock >= 0) {
@@ -706,6 +776,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
       }
       if (deathClock > 0) return { clip: 'Death01', time: 2.5 - deathClock };
       if (entryClock >= 0) return { clip: 'Walk_Loop', time: entryClock, loop: true };
+      if (muralClock >= 0) return { clip: 'Idle_Loop', time: muralClock, loop: true };
       return miniboss.getCinematicPose();
     },
     applyCinematicCamera: entryViewCamera,
@@ -740,7 +811,9 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
       if (completed) { door.update(dt, player, false); return; }
       if (sharkClock >= 0) { updateSharkSwarm(dt); return; }
       if (entryClock >= 0) { updateEntry(dt); return; }
+      if (muralClock >= 0) { updateMuralDiscovery(dt); return; }
       arrivalClock += dt;
+      if (beginMuralDiscovery()) { updateMuralDiscovery(0); return; }
       miniboss.update(dt);
       updateSharks(dt);
       const p = player.body.position;

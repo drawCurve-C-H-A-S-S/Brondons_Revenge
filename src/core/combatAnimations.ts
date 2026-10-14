@@ -3,6 +3,9 @@ import combatUrl from '../assets/animations/quaterniusCombat.json?url';
 import { fetchAsset } from './assetCache.js';
 
 export const COMBAT_ANIMATION_URLS = [combatUrl];
+export const UNARMED_ATTACK_CLIPS = ['Punch_Jab', 'Punch_Cross', 'Melee_Hook_WithRecovery'] as const;
+export type UnarmedAttackName = typeof UNARMED_ATTACK_CLIPS[number];
+export const UNARMED_ATTACK_SPEED = 1.5;
 type SerializedClip = Parameters<typeof THREE.AnimationClip.parse>[0];
 type CombatSide = 'hero' | 'enemy';
 interface BindPose { name: string; position: [number, number, number]; quaternion: [number, number, number, number]; }

@@ -14,9 +14,11 @@ export function createHangarVersus({ singleOpponent = false, playerName, opponen
   const backgrounds = panels.map((panel, index) => {
     panel.add(new THREE.AmbientLight(0xffffff, 1.25));
     const light = new THREE.DirectionalLight(0xffffff, 3.2); light.position.set(4, 6, 8); panel.add(light);
+    const lineCenter = layout === 'columns' ? new THREE.Vector2(index === 0 ? 1.2 : -0.2, 0.5)
+      : new THREE.Vector2(0.5, index === 0 ? 0.5 : -0.2);
     const material = new THREE.ShaderMaterial({
       uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color(index === 0 ? 0x087bdd : 0xdd2635) },
-        uCenter: { value: new THREE.Vector2(0.5, index === 0 ? 0.5 : -0.2) } },
+        uCenter: { value: lineCenter } },
       vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 1.0, 1.0); }',
       fragmentShader: `
         uniform float uTime;
@@ -40,6 +42,7 @@ export function createHangarVersus({ singleOpponent = false, playerName, opponen
     panel.add(background); return material;
   });
   const frame = document.createElement('div'); frame.className = 'hangar-versus hidden'; frame.setAttribute('aria-hidden', 'true');
+  frame.dataset.layout = layout;
   const badge = document.createElement('div'); badge.className = 'hangar-versus-badge'; badge.textContent = 'VS'; frame.appendChild(badge); document.body.appendChild(frame);
   const names = [playerName, opponentName].flatMap((name, index) => {
     if (!name) return [];
