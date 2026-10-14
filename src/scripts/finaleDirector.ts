@@ -1,12 +1,12 @@
 import { createFinaleQte, createMechDuel, type DuelEvent, type QteEvent } from './mechDuel.js';
 import { HERO_TRANSFORM, PLANET_RUPTURE } from './finaleChoreography.js';
 
-export type FinaleStart = 'reveal' | 'ground' | 'rupture' | 'space' | 'finisher';
+export type FinaleStart = 'reveal' | 'ground' | 'rupture' | 'space' | 'finisher' | 'credits';
 export type FinalePhase = 'loading' | 'error' | FinaleStart | 'enemyTransform' | 'heroTransform' | 'versus' | 'rupture' | 'defeat' | 'victory' | 'credits' | 'done';
 export interface FinaleCheckpoint { stage: FinaleStart; bossImmunityUsed?: boolean; weaponsEquipped?: boolean; }
 export interface FinaleCue { phase: FinalePhase; id: string; at: number; }
 export const FINALE_DURATION = Object.freeze({
-  reveal: 27, enemyTransform: 19.2, heroTransform: 17, versus: 4.6, rupture: PLANET_RUPTURE.orbit + 0.4, defeat: 6, victory: 18, credits: 28,
+  reveal: 27, enemyTransform: 19.2, heroTransform: 17, versus: 4.6, rupture: PLANET_RUPTURE.orbit + 0.4, defeat: 6, victory: 18, credits: 90,
 });
 export const FINALE_CUES: readonly FinaleCue[] = [
   { phase: 'reveal', id: 'lights', at: 2 }, { phase: 'reveal', id: 'pose', at: 21.2 },
@@ -36,7 +36,7 @@ export const FINALE_CUES: readonly FinaleCue[] = [
 export function createFinaleDirector(start: FinaleStart = 'reveal', immunity: {
   bossImmunityAvailable?: boolean; bossImmunityUsed?: boolean; weaponsEquipped?: boolean;
 } = {}) {
-  const duel = createMechDuel(start === 'reveal' ? 'ground' : start, immunity);
+  const duel = createMechDuel(start === 'reveal' ? 'ground' : start === 'credits' ? 'finisher' : start, immunity);
   const qte = createFinaleQte();
   let phase: FinalePhase = 'loading', phaseTime = 0, time = 0, paused = false, assetsReady = false, error = '';
   let checkpoint: FinaleStart = start, failure = '', skipHold = 0, skipDown = false, ended = false;

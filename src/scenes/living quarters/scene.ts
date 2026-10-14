@@ -168,6 +168,12 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
   function startDoor(id: CabinId) {
     const cabin = CABIN_BY_ID.get(id)!;
     if (cabin.locked) { showNotice(`${cabinRoomName(cabin)}. Door is locked.`); return; }
+    if (id === 'brondon' && location === 'brondon' && (!progress.pistolCollected || !progress.teleporterCollected)) {
+      const missing = !progress.pistolCollected && !progress.teleporterCollected ? 'your pistol from the chest and the blue-LED teleportation device from your desk'
+        : !progress.pistolCollected ? 'your pistol from the chest' : 'the blue-LED teleportation device from your desk';
+      showNotice(`Prime: Collect ${missing} before leaving your room.`, 4);
+      return;
+    }
     player.requestAction('Interact');
     if (doorRequests.delete(id)) { showInteriors(); return; }
     doorRequests.add(id); doorErrors.delete(id); if (lastDoorError === id) lastDoorError = null;
@@ -284,7 +290,10 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
     const cabin = candidate.cabin ? CABIN_BY_ID.get(candidate.cabin)! : undefined;
     switch (candidate.kind) {
       case 'sign': return '';
-      case 'door': return cabin!.locked ? 'E / Check locked door' : doorErrors.has(cabin!.id) ? 'E / Retry cabin loading'
+      case 'door': return cabin!.locked ? 'E / Check locked door'
+        : cabin!.id === 'brondon' && location === 'brondon' && (!progress.pistolCollected || !progress.teleporterCollected)
+          ? 'E / Recover your pistol and desk teleporter before leaving'
+          : doorErrors.has(cabin!.id) ? 'E / Retry cabin loading'
         : `E / ${doorRequests.has(cabin!.id) ? doorLoading.has(cabin!.id) ? 'Cancel door opening' : 'Close door' : 'Open door'}`;
       case 'forward': return progress.bulkheadUnlocked ? `E / ${forwardRequested ? 'Close' : 'Open'} bulkhead` : 'E / Check forward bulkhead';
       case 'keypad': return `E / ${progress.bulkheadUnlocked ? 'Inspect unlocked' : 'Use bulkhead'} keypad`;

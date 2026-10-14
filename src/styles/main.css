@@ -102,6 +102,19 @@ canvas {
   opacity: 1;
 }
 
+body.hud-hidden :is(
+  #hud, [id*="hud"], [class*="hud"],
+  #crosshair, #look-reticle, #space-crosshair, #interact-prompt, #adaptive-hint,
+  #controller-notice, #scene-checkpoint, #boss-subtitles, #escape-qte, #space-alert,
+  #space-damage, #player-damage, #space-cinematic-caption, #flight-target, #goggles-overlay,
+  #control-card, #minimap, #touch-controls, #weapon-status, #weapon-wheel, #music-warning,
+  #loading-bay-status, #stealth-status, #prime-stealth-hint, #stealth-checkpoint,
+  #prologue-exit-prompt, #scene-menu-hint, #skip-btn, #quarters-status,
+  .stage-two-ui, .camera-visit-ui
+) {
+  display: none !important;
+}
+
 #loading-bay-status {
   position: fixed;
   bottom: 22px;
@@ -782,29 +795,124 @@ body.ship-map-open > :not(canvas):not(#pause-menu):not(script) { visibility: hid
   animation: scrollUp 12s linear forwards;
 }
 
+.credit-eyebrow {
+  margin: 0 0 16px;
+  color: #a0bdcf;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+}
 .credit-title {
-  font-size: 48px;
-  font-weight: bold;
-  letter-spacing: 8px;
-  margin-bottom: 60px;
-  color: #88aacc;
-  text-shadow: 0 0 20px rgba(136, 170, 204, 0.8);
+  margin: 0;
+  font-size: clamp(28px, 5vw, 48px);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.04em;
+  color: #f0f6fc;
 }
-
+.credit-intro { margin: 16px 0 32px; color: #a0bdcf; font-size: 15px; line-height: 1.6; }
 .credit-section {
-  margin: 40px 0;
+  margin: 32px 0;
 }
-
 .credit-role {
-  font-size: 14px;
-  letter-spacing: 3px;
-  color: #888;
-  margin-bottom: 8px;
+  margin: 0 0 20px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #94d9e7;
 }
-
 .credit-name {
+  margin: 0 0 12px;
   font-size: 24px;
-  color: #fff;
+  font-weight: 600;
+  color: #f0f6fc;
+}
+.credit-detail {
+  margin: 8px auto;
+  max-width: 760px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.credit-note { margin: 12px 0 0; color: #a0bdcf; font-size: 13px; line-height: 1.7; }
+.credit-contributors { margin: 0; }
+.credit-contributors > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  align-items: baseline;
+  gap: 16px;
+  padding: 10px 0;
+}
+.credit-contributors dt { color: #a0bdcf; font-size: 14px; }
+.credit-contributors dd { margin: 0; color: #f0f6fc; font-size: 18px; font-weight: 600; }
+.credit-list { margin: 0; padding: 0; list-style: none; }
+.credit-list li + li { margin-top: 22px; }
+.credit-list li > a { font-weight: 600; }
+.credit-license {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 7px;
+  border: 2px solid var(--comic-ink);
+  border-radius: 2px;
+  color: var(--comic-ink);
+  background: var(--comic-yellow);
+  font-size: 11px;
+  font-weight: 800;
+  vertical-align: middle;
+}
+.credit-closing { margin: 48px 0 16px; padding: 24px; border: 3px solid var(--comic-ink);
+  background: var(--comic-paper); box-shadow: 5px 5px 0 var(--comic-ink); text-align: center; }
+.credit-thanks { margin: 36px 0 20px; color: var(--comic-ink); font: 400 clamp(22px, 4vw, 32px)/1.2 var(--comic-display); }
+.credit-dialog-hint { margin: 0; color: #424653; font-size: 12px; }
+#credits-dialog {
+  width: min(860px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  margin: auto;
+  padding: clamp(16px, 3vw, 28px);
+  overflow: hidden;
+  color-scheme: light;
+  font-size: 15px;
+}
+#credits-dialog[open] { display: flex; flex-direction: column; gap: 12px; }
+#credits-dialog h2 { margin: 0; font-size: clamp(22px, 4vw, 30px); }
+#credits-dialog button {
+  min-height: 44px;
+  padding: 8px 14px;
+  font: inherit;
+  cursor: pointer;
+}
+#credits-dialog-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: auto;
+  scrollbar-color: var(--comic-ink) var(--comic-paper);
+  padding: 8px clamp(4px, 2vw, 18px) 8px 4px;
+  overflow-wrap: anywhere;
+}
+#credits-dialog-content:focus-visible { outline: 3px solid var(--comic-cyan); outline-offset: -3px; }
+#credits-dialog-content .credits-dialog-copy { text-align: left; animation: none; }
+#credits-dialog-content .credit-title { font-size: clamp(26px, 4vw, 40px); }
+#credits-dialog-content .credit-section {
+  margin: 20px 0;
+  padding: clamp(16px, 3vw, 24px);
+  border: 3px solid var(--comic-ink);
+  border-radius: 3px;
+  background: var(--comic-paper);
+  box-shadow: 4px 4px 0 var(--comic-ink);
+}
+#credits-dialog-content .credit-team { background: var(--comic-cyan); }
+#credits-dialog-content .credit-pending { border-left: 8px solid var(--comic-ink); background: #fff3c3; }
+.credits-dialog-copy a, .finale-credits-roll a { color: #005b78; text-decoration-color: currentColor; text-underline-offset: 3px; }
+.credits-dialog-copy a:hover { color: #aa1625; }
+:is(.credits-dialog-copy, .finale-credits-roll) :is(.credit-note, .credit-detail, .credit-contributors dt) { color: #424653; }
+:is(.credits-dialog-copy, .finale-credits-roll) .credit-contributors dd { color: var(--comic-ink); font-weight: 800; }
+.credits-dialog-copy :is(.credit-eyebrow, .credit-intro),
+.credit-closing .credit-eyebrow { color: #424653; }
+@media (max-width: 480px) {
+  .credit-contributors > div { grid-template-columns: 1fr; gap: 4px; }
 }
 
 @keyframes scrollUp {
@@ -819,15 +927,34 @@ body.ship-map-open > :not(canvas):not(#pause-menu):not(script) { visibility: hid
 /* Menu buttons */
 #menu-buttons {
   position: fixed;
+  inset: 0;
+  z-index: 101;
+  pointer-events: none;
+  animation: fadeIn 1s ease-in;
+}
+.menu-actions {
+  position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
   gap: 20px;
-  z-index: 101;
-  animation: fadeIn 1s ease-in;
+  pointer-events: auto;
 }
+.scene-credits-btn {
+  position: absolute;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  display: none;
+  min-height: 36px;
+  padding: 7px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  pointer-events: auto;
+  cursor: pointer;
+}
+body[data-scene="scene1"] .scene-credits-btn { display: block; }
 
 .menu-btn {
   padding: 16px 48px;
@@ -1416,6 +1543,8 @@ body[data-scene="scene1"] #hud,
 body[data-scene="scene1"] #crosshair,
 body[data-scene="scene1"] #minimap,
 body[data-scene="scene1"] #control-card,
+body[data-scene="scene1"] #adaptive-hint,
+body[data-scene="scene1"] #controller-notice,
 body[data-scene="scene1"] #touch-controls,
 body[data-scene="scene1"] #goggles-overlay { display: none !important; }
 /* Level 2 flight and crash scenes have no map overlay. */
@@ -1564,7 +1693,7 @@ body.touch-device .space-health-heading { letter-spacing: 0; font-size: 8px; }
   #flight-hud { bottom: 40px; }
 }
 
-:is(#pause-menu, #scene-quick-menu, #control-card, #interact-prompt, #adaptive-hint, #loading-bay-status,
+:is(#pause-menu, #scene-quick-menu, #credits-dialog, #control-card, #interact-prompt, #adaptive-hint, #loading-bay-status,
   #goggles-status, #boss-subtitles, #escape-qte, #space-alert, #space-pause,
   #space-cinematic-caption, #flight-target, #crowbar-overlay, #flight-hud, .platformer-hud) {
   color: var(--comic-ink);
@@ -1582,17 +1711,17 @@ body.touch-device .space-health-heading { letter-spacing: 0; font-size: 8px; }
   overflow-wrap: anywhere;
 }
 #pause-menu, #scene-quick-menu { color-scheme: light; padding: 24px; }
-#pause-menu::backdrop, #scene-quick-menu::backdrop {
+#pause-menu::backdrop, #scene-quick-menu::backdrop, #credits-dialog::backdrop {
   background: repeating-linear-gradient(135deg, #17191f52 0 2px, transparent 2px 12px), #17191f99;
 }
-#pause-menu[open]:not([data-screen="map"]), #scene-quick-menu[open] {
+#pause-menu[open]:not([data-screen="map"]), #scene-quick-menu[open], #credits-dialog[open] {
   animation: comic-panel-open 260ms cubic-bezier(0.18, 0.9, 0.3, 1.18) both;
 }
 :is(#interact-prompt, #adaptive-hint, #control-card, #boss-subtitles, #escape-qte, #space-alert,
   #space-pause, #space-cinematic-caption, #flight-target, .platformer-hud):not(.hidden) {
   animation: comic-caption-open 230ms cubic-bezier(0.18, 0.9, 0.3, 1.15) both;
 }
-:is(#pause-menu-title, #scene-menu-title, #control-card-title, #space-pause-title,
+:is(#pause-menu-title, #scene-menu-title, #credits-dialog-title, #control-card-title, #space-pause-title,
   #boss-health-label, #space-boss-label, .crowbar-overlay-title) {
   color: var(--comic-ink);
   font-family: var(--comic-display);
@@ -1616,8 +1745,8 @@ body.touch-device .space-health-heading { letter-spacing: 0; font-size: 8px; }
 :is(#scene-menu-description, #pause-controls-description, .scene-menu-footer,
   .scene-menu-gear, #control-card footer, #pause-sound-panel output, .escape-hint) { color: #424653; }
 #scene-menu-error { color: #aa1625; }
-:is(#pause-menu, #scene-quick-menu) button,
-:is(#view-toggle-btn, #control-card-close, .menu-btn, #skip-btn, .wake-skip-btn,
+:is(#pause-menu, #scene-quick-menu, #credits-dialog) button,
+:is(#view-toggle-btn, #control-card-close, .menu-btn, .scene-credits-btn, #skip-btn, .wake-skip-btn,
   .prologue-skip-btn, .scene-dialogue-skip, .touch-btn, .flight-shield-slot) {
   color: var(--comic-ink);
   background: var(--comic-paper);
@@ -1629,21 +1758,21 @@ body.touch-device .space-health-heading { letter-spacing: 0; font-size: 8px; }
   letter-spacing: 0;
   transition: translate 120ms ease-out, box-shadow 120ms ease-out, background-color 120ms ease-out;
 }
-:is(#pause-menu, #scene-quick-menu) button:hover:not(:disabled),
-:is(#view-toggle-btn, #control-card-close, .menu-btn, #skip-btn, .wake-skip-btn,
+:is(#pause-menu, #scene-quick-menu, #credits-dialog) button:hover:not(:disabled),
+:is(#view-toggle-btn, #control-card-close, .menu-btn, .scene-credits-btn, #skip-btn, .wake-skip-btn,
   .prologue-skip-btn, .scene-dialogue-skip, .touch-btn, .flight-shield-slot):hover:not(:disabled) {
   background: var(--comic-yellow);
   translate: -1px -1px;
   box-shadow: 4px 4px 0 var(--comic-ink);
 }
-:is(#pause-menu, #scene-quick-menu) button:active:not(:disabled),
-:is(#view-toggle-btn, #control-card-close, .menu-btn, #skip-btn, .wake-skip-btn,
+:is(#pause-menu, #scene-quick-menu, #credits-dialog) button:active:not(:disabled),
+:is(#view-toggle-btn, #control-card-close, .menu-btn, .scene-credits-btn, #skip-btn, .wake-skip-btn,
   .prologue-skip-btn, .scene-dialogue-skip, .touch-btn, .flight-shield-slot):active:not(:disabled) {
   translate: 3px 3px;
   box-shadow: 0 0 0 var(--comic-ink);
 }
-:is(#pause-menu, #scene-quick-menu) button:focus-visible,
-:is(#view-toggle-btn, #control-card-close, .menu-btn, #skip-btn, .wake-skip-btn,
+:is(#pause-menu, #scene-quick-menu, #credits-dialog) button:focus-visible,
+:is(#view-toggle-btn, #control-card-close, .menu-btn, .scene-credits-btn, #skip-btn, .wake-skip-btn,
   .prologue-skip-btn, .scene-dialogue-skip, .touch-btn, .flight-shield-slot):focus-visible {
   outline: 3px solid var(--comic-cyan);
   outline-offset: 4px;
@@ -1691,12 +1820,13 @@ body.controller-mode #menu-buttons .controller-menu-hint {
   max-width: 290px; padding: 8px; color: var(--comic-ink);
   background: var(--comic-paper); border: 2px solid var(--comic-ink);
 }
-body.controller-mode :is(#pause-menu, #scene-quick-menu, #menu-buttons) .controller-focused {
+body[data-scene="scene1"] #menu-buttons .controller-menu-hint { display: none; }
+body.controller-mode :is(#pause-menu, #scene-quick-menu, #credits-dialog, #menu-buttons) .controller-focused {
   outline: 4px solid var(--comic-cyan); outline-offset: 4px;
   background: var(--comic-yellow) !important; color: var(--comic-ink);
   box-shadow: 5px 5px 0 var(--comic-ink);
 }
-body.controller-mode #pause-controls-list.controller-focused { background: transparent !important; }
+body.controller-mode :is(#pause-controls-list, #credits-dialog-content).controller-focused { background: transparent !important; }
 #controller-layout-options { display: flex; align-items: center; gap: 10px; font-size: 12px; }
 #controller-swap-ab { width: 20px; height: 20px; accent-color: var(--comic-ink); }
 #pause-menu[data-screen="map"] { background: transparent; border: 0; box-shadow: none; }
@@ -2021,12 +2151,35 @@ body.quick-menu-open #stealth-retry { visibility: hidden; }
 }
 .menu-btn:hover { transform: none; }
 .menu-btn { min-width: 220px; }
-#menu-buttons:not(.hidden) { animation: comic-panel-open 320ms cubic-bezier(0.18, 0.9, 0.3, 1.18) both; }
+#menu-buttons:not(.hidden) .menu-actions { animation: comic-panel-open 320ms cubic-bezier(0.18, 0.9, 0.3, 1.18) both; }
 .hangar-versus-badge { color: var(--comic-yellow); font-family: var(--comic-display); }
 .credit-title { color: var(--comic-yellow); font-family: var(--comic-display); letter-spacing: 0; -webkit-text-stroke: 2px var(--comic-ink); paint-order: stroke fill; }
 .credit-role { color: var(--comic-cyan); font-family: var(--comic-body); letter-spacing: 0; }
 .credit-name { color: var(--comic-paper); font-family: var(--comic-display); letter-spacing: 0; text-shadow: 3px 3px 0 var(--comic-ink); }
 .credit-title { max-width: calc(100vw - 32px); overflow-wrap: anywhere; text-shadow: 4px 5px 0 var(--comic-ink); }
+:is(.credits-dialog-copy, .finale-credits-roll) .credit-title {
+  font-family: var(--comic-display);
+  font-weight: 400;
+  letter-spacing: 0;
+  -webkit-text-stroke: 0;
+}
+.credits-dialog-copy .credit-title { color: var(--comic-ink); text-shadow: 2px 2px 0 var(--comic-yellow); }
+.finale-credits-roll .credit-title { color: var(--comic-yellow); text-shadow: 4px 4px 0 var(--comic-ink); }
+:is(.credits-dialog-copy, .finale-credits-roll) .credit-role {
+  display: inline-block;
+  padding: 4px 9px;
+  color: var(--comic-ink);
+  background: var(--comic-yellow);
+  border: 2px solid var(--comic-ink);
+  font-family: var(--comic-body);
+  letter-spacing: 0;
+}
+:is(.credits-dialog-copy, .finale-credits-roll) .credit-name {
+  color: var(--comic-ink);
+  font-family: var(--comic-display);
+  font-weight: 400;
+  text-shadow: none;
+}
 
 @keyframes comic-title-slam {
   0% { scale: 1.35; rotate: -4deg; opacity: 0; }
@@ -2053,13 +2206,13 @@ body.quick-menu-open #stealth-retry { visibility: hidden; }
   #shield-bar { bottom: 42px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  :is(#pause-menu, #scene-quick-menu, #control-card, #interact-prompt, #adaptive-hint, #boss-subtitles,
+  :is(#pause-menu, #scene-quick-menu, #credits-dialog, #control-card, #interact-prompt, #adaptive-hint, #boss-subtitles,
     #escape-qte, #space-alert, #space-pause, #space-cinematic-caption, #flight-target, .platformer-hud,
-    #prologue-dialogue, #crowbar-overlay, #menu-buttons, .prologue-title-word) {
+    #prologue-dialogue, #crowbar-overlay, #menu-buttons, .menu-actions, .prologue-title-word) {
     animation: none !important;
   }
-  :is(#pause-menu, #scene-quick-menu) button,
-  :is(#view-toggle-btn, #control-card-close, .menu-btn, #skip-btn, .wake-skip-btn,
+  :is(#pause-menu, #scene-quick-menu, #credits-dialog) button,
+  :is(#view-toggle-btn, #control-card-close, .menu-btn, .scene-credits-btn, #skip-btn, .wake-skip-btn,
     .prologue-skip-btn, .scene-dialogue-skip, .touch-btn, .flight-shield-slot, .platformer-retry) { transition: none; translate: none; }
   #escape-key { animation: none !important; }
   #credits-content { animation: none; max-height: calc(100dvh - 48px); overflow-y: auto; pointer-events: auto; }
@@ -2175,13 +2328,22 @@ body.finale-active #touch-controls { display: none !important; }
 .finale-result p { max-width: 620px; color: #d2dfef; font: 600 15px/1.55 var(--comic-body, system-ui, sans-serif); }
 .finale-result button { margin-top: 14px; padding: 12px 22px; border: 1px solid #8deaff; background: #075d7a; color: #fff;
   font: 900 12px/1.3 var(--comic-body, system-ui, sans-serif); letter-spacing: 0.13em; pointer-events: auto; cursor: pointer; }
-.finale-credits { position: absolute; inset: 0; z-index: 2; overflow: hidden; background: linear-gradient(#05091450, #050914cc 76%); text-align: center; }
-.finale-credits-roll { position: absolute; top: 0; left: 50%; z-index: 1; width: min(720px, 90vw); transform: translate(-50%, 100vh);
-  color: #e9f3ff; font: 600 16px/1.6 var(--comic-body, system-ui, sans-serif); }
-.finale-credits .credit-title { margin: 36px 0; color: #78e5ff; font: 900 clamp(34px, 7vw, 72px)/1 var(--comic-display, system-ui, sans-serif); }
-.finale-credits .credit-section { margin: 28px 0; }
-.finale-credits .credit-role { color: #91aeca; font-size: 11px; font-weight: 900; letter-spacing: 0.2em; }
-.finale-credit-dancers { position: absolute; inset: 0; overflow: hidden; opacity: 0.34; }
+.finale-credits { position: absolute; inset: 0; z-index: 2; overflow: hidden;
+  background: linear-gradient(#050914cc, #050914f0 76%); text-align: center; }
+.finale-credits-roll { position: absolute; top: 0; left: 50%; z-index: 1; width: min(680px, 86vw); transform: translate(-50%, 100vh);
+  color: var(--comic-paper); font: 700 16px/1.7 var(--comic-body); overflow-wrap: anywhere; }
+.finale-credits .credit-title { margin: 0; font-size: clamp(30px, 5vw, 52px); }
+.finale-credits .credit-section { margin: 44px 0; padding: 24px;
+  color: var(--comic-ink); background-color: var(--comic-paper); background-image: var(--comic-dots); background-size: 6px 6px;
+  border: 3px solid var(--comic-ink); border-radius: 3px; box-shadow: 5px 5px 0 var(--comic-ink); }
+.finale-credits .credit-team { background-color: var(--comic-cyan); }
+.finale-credits .credit-contributors dt { text-align: right; }
+.finale-credits .credit-contributors dd { text-align: left; }
+.finale-credit-dancers { position: absolute; inset: 0; overflow: hidden; opacity: 0.16; }
+.finale-hud:is([data-phase="credits"], [data-phase="done"]) :is(.finale-objective, .finale-letterbox) { display: none; }
+@media (max-width: 480px) {
+  .finale-credits .credit-contributors :is(dt, dd) { text-align: center; }
+}
 .finale-credit-dancer { position: absolute; display: block; width: var(--dancer-size); aspect-ratio: var(--dancer-aspect);
   background-repeat: no-repeat; background-position: 0 0; animation: finale-dance-sprite 1s steps(24) infinite;
   transform: rotate(var(--dancer-turn)) scaleX(var(--dancer-flip)); filter: drop-shadow(3px 4px 0 #061021);

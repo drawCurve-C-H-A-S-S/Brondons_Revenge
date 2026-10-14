@@ -53,6 +53,13 @@ until you select Controller or reconnect the controller. Nonstandard devices
 still require calibration before their controls can be enabled.
 The two Controls tabs select the input and show the matching bindings.
 The menu is available during the opening as well as gameplay.
+Scene 1 suppresses automatic controller notices and gameplay control popups;
+controller setup remains available through the pause menu.
+Weapon and scene control cards dismiss automatically after **6 seconds**
+(flight controls after **4 seconds**), or immediately with **H**.
+Press **1** to toggle a solid-black player silhouette for trailer capture.
+The setting persists across scene changes, preserves animation and teleport
+fades, and leaves equipped weapons and other characters unchanged.
 
 Browsers may not expose a USB controller until its first button press. Use a
 current Chrome, Edge or Firefox browser on HTTPS or localhost. Standard-mapped
@@ -195,7 +202,11 @@ Pressing **PLAY** immediately opens a randomized, six-second screenshot slidesho
 with chapter-specific hints. It includes the prologue, living quarters, Level 1
 stealth/minigames/boss/escape, every Level 2 phase, the Level 3 jungle, secret
 waterfall, facility and final boss. Screenshots are captured from the game's
-actual scenes. The progress bar counts completed download/preparation jobs, not
+actual scenes. Loading artwork for the stealth patrol, cargo, range, interceptors,
+green/red scramblers, exposed reactor, jungle, facility and both finale views was
+refreshed from the 14 October screenshots. The exposed reactor has its own image,
+separate from the capital ship's shield phase.
+The progress bar counts completed download/preparation jobs, not
 an estimated timer; the prison's cutscenes and first-render shaders are prepared
 before the game starts. Failed preparation stays on the loading screen with
 **TRY AGAIN**, retaining successfully cached files.
@@ -313,6 +324,8 @@ control back to the player. Hold **Enter** to skip the arrival once the room is 
   walk-through cinematic in either direction; locked doors report their occupant.
 - Recover the **pistol from Brondon's chest** and the **blue-LED teleportation
   device from his desk**. The pistol cannot be equipped before recovery.
+  **E** cannot open Brondon's room door from inside until both items are collected;
+  Prime's reminder identifies any missing item.
   The teleporter's outbound destination link is blocked for now.
 - Every cabin shares a bed, correctly scaled desk/chair assets, a local computer
   with a blue desktop, file window, icons and taskbar,
@@ -627,11 +640,19 @@ the sword. Each prompt earns **one, two or three stars**. Up to two misses are r
 death and checkpoint retry. A successful run ends with a skyward sword charge,
 forward rush, disappearance, reappearance behind the enemy, a quiet pause and a
 delayed storm of slashes. Donus's return brings back the actual Scene 1 mothership
-and Prime Frame's authored dance. Centered credits run in **28 seconds**, retaining
+and Prime Frame's authored dance. Centered credits run in **90 seconds**, retaining
 the image-only dancing Brondon copies. A visible **hold Enter to skip** control
 skips the boss introduction; the same control skips the ending dialogue in
 Scenes 13 and 16 without losing their unlocks or scene handoff. Scene 1 ends
 directly on **Play / Don't Play**, with no opening credits roll.
+Scene 1 has a small **View Credits** button in the bottom-right corner of its menu.
+**View Credits** is also available in the pause and developer menus. Its scrollable
+credits sheet and the rolling credits use the game's comic typography, halftone
+paper panels, ink outlines, offset shadows and coloured caption badges.
+The credits sheet shares the end roll's attribution list: creation and story by
+**CHASS**, music by **Caleb**, model and animation authors, engine/physics libraries
+and development tools. Unconfirmed asset sources remain explicitly marked for
+verification rather than assigned to an author.
 
 The shuttle recall preserves its parked world transform, lifts clear of the ground
 before forward flight, then follows a curved approach to Brondon. Donus returns
@@ -649,10 +670,16 @@ are not treated as matching bone axes. Only animation tracks are included, not
 the packs' demo meshes or paid Source assets. The runtime caches the baked library
 before gameplay and does not retarget or bake it on each swing.
 
-The **lightsaber and final-boss sword share these direction mappings**. Attack
-means **left click** for the lightsaber, **J** in the finale, or the corresponding
-controller attack button. Directions are captured when attacking, including
-queued attacks; moving the stick afterwards does not change a queued move.
+For **keyboard and mouse lightsaber combat**, left click chooses a random
+authored cut, lunge or regular combo, avoiding consecutive repeats. **Three clicks
+within 450 milliseconds** queue the heavy combo. The current swing finishes
+before the heavy combo begins; rapid input does not restart or abruptly cut an
+animation. Movement keys no longer select mouse-click attacks.
+
+Controller/touch lightsaber attacks and the **final-boss sword** retain these
+direction mappings. Attack means the controller/touch attack button for the
+lightsaber, or **J** in the finale. Directions are captured when attacking,
+including queued attacks; moving the stick afterwards does not change a queued move.
 
 | Keyboard / left stick + attack | Authored move |
 | --- | --- |
@@ -666,8 +693,12 @@ queued attacks; moving the stick afterwards does not change a queued move.
 
 Down-left selects the classic cut; down-right selects the finishing cut.
 Lightsaber first-person presentation follows the animated hand and blade, not a
-separate generic swing arc. Both camera modes use the same authored durations and
-contact windows; recovery/idle poses do not damage targets. Separate combo strokes
+separate generic swing arc. Gameplay lightsaber clips play at **1.6x speed** with
+**70-millisecond attack blends**; both camera modes share the same scaled animation,
+cooldown and contact-window timing. A **360-millisecond parry window** opens on
+the initial click and each combo contact, with a **200-millisecond perfect window**.
+This makes approaching beams easier to reflect without speeding up the finale
+or damaging targets during recovery/idle poses. Separate combo strokes
 can hit a target once each, and holstering cancels pending swings and parries.
 
 In the finale, **G** stows/recalls the sword and rifle on the frame's back; unarmed
@@ -701,7 +732,10 @@ For local playtesting, open the pause menu, select **Developer Mode**, and click
 The final-boss shortcuts include **Bomb release / 50% health**, which starts at
 the exact bomb-release frame with **900 / 1800** enemy health, and **Final QTE
 start**, which starts the first QTE at time zero. Loading warm-up does not advance
-either checkpoint's timeline. Shielding keeps the mech's head facing forward;
+either checkpoint's timeline. **Epilogue - Rolling credits** jumps straight to
+the actual end credits, with the same music, dancing sprites and 90-second roll
+as a completed game; it does not replay the boss fight.
+Shielding keeps the mech's head facing forward;
 its normal opponent-tracking remains separate from the guard's torso/arm pose.
 
 ## Earth visuals

@@ -219,6 +219,7 @@ let bayBossDefeated = false;
 
 // --- Global Character (persists across scenes) ---
 let globalCharacter: Awaited<ReturnType<typeof loadCharacter>> = null;
+let playerSilhouetteEnabled = false;
 let characterPreparation: Promise<void> | null = null;
 let currentPlayer: Player | null = null;
 
@@ -480,6 +481,7 @@ async function prepareGlobalCharacter() {
     characterPreparation = import('./scripts/characterManager.js').then(async ({ loadCharacter }) => {
       const character = await loadCharacter();
       if (!character) throw new Error('The player character could not be prepared');
+      character.setSilhouetteEnabled(playerSilhouetteEnabled);
       globalCharacter = character;
     }).catch(error => {
       characterPreparation = null;
@@ -519,12 +521,13 @@ let controlTime = 0;
 const controlCard = document.getElementById('control-card')!;
 const lessons: Record<string, Omit<ControlCard, 'key' | 'scene'>> = {
   quarters: { title: 'Living quarters', lines: ['WASD - walk / Shift - sprint / Mouse - look', 'C while moving forward - slide tackle; otherwise crouch', 'Look at a nameplate to see the room name', 'E - use doors, chests and devices', 'Unlocked doors play a short walk-through cinematic', 'V - first / third person / M - pause, then Map', 'Recover your gear and search Branden and Brendan\'s rooms'], touch: ['Left stick - walk / Right drag - look', 'CROUCH while moving forward - slide tackle', 'Look at nameplates to see room names automatically', 'USE - open doors and chests, recover gear', 'VIEW - first / third person / MENU - pause and map', 'Recover your gear and check the other lecturers\' rooms'] },
-  basics: { title: 'You’re awake', lines: ['WASD — walk · Shift — sprint', 'C while moving forward — slide tackle; otherwise crouch', 'Mouse — look · Click the world to capture the mouse', 'Space — jump · E — interact', 'Hold Tab — weapons · Aim and release to equip · Left click — shoot', 'V or the view button — switch first / third person · M — pause'], touch: ['Drag on the left to walk; drag on the right to look.', 'RUN, JUMP, CROUCH and USE are your movement controls.', 'CROUCH while moving forward performs a slide tackle.', 'PISTOL equips your gun; SHOOT fires it.', 'Tap VIEW to switch first / third person · MENU to pause.'] },
+  basics: { title: 'You’re awake', lines: ['WASD — walk · Shift — sprint', 'C while moving forward — slide tackle; otherwise crouch', 'Mouse — look · Click the world to capture the mouse', 'Space — jump · E — interact', 'Hold Tab — weapons · Aim and release to equip · Left click — shoot', 'V or the view button — switch first / third person · M — pause · / — hide / show HUD'], touch: ['Drag on the left to walk; drag on the right to look.', 'RUN, JUMP, CROUCH and USE are your movement controls.', 'CROUCH while moving forward performs a slide tackle.', 'PISTOL equips your gun; SHOOT fires it.', 'Tap VIEW to switch first / third person · MENU to pause.'] },
   pistol: { title: 'Pistol', lines: ['Hold Tab — select pistol; select Unarmed to holster', 'Left click — shoot at your crosshair'], touch: ['PISTOL — equip / holster', 'SHOOT — fire at your crosshair'] },
   crowbar: { title: 'Crowbar acquired', lines: ['Hold Tab — select crowbar; select Unarmed to holster', 'Left click — swing'], touch: ['CROW — equip / holster', 'SWING — attack'] },
   lightsaber: { title: 'Lightsaber acquired', lines: ['Hold Tab — select lightsaber; select Unarmed to holster',
-    'W + left click — lunge / A or D + left click — left or right cut / S + left click — finishing cut',
-    'W+A + left click — regular combo / W+D + left click — heavy combo', 'Neutral left click — three-cut chain'],
+    'Left click — varied sword cuts, lunges and regular combos',
+    'Rapid clicks — queue a heavy combo; the current swing finishes smoothly',
+    'Click as a beam approaches to parry; each combo stroke can also reflect beams'],
     touch: ['SABER — equip / holster', 'Direction + SLASH — lunge, left, right or finishing cut',
       'Up-left + SLASH — regular combo / up-right + SLASH — heavy combo'] },
   teleport: { title: 'Teleportation device', lines: ['Q — place purple anchor', 'T — teleport instantly to your anchor'], touch: ['Keyboard Q — place anchor; T — teleport'] },
@@ -547,8 +550,12 @@ function dismissControls() {
 }
 function enterHudScene(id: string) {
   document.body.dataset.scene = id;
-  hintManager?.setEnabled(id !== 'scene21');
-  if (id === 'scene21') hintManager?.recordActivity();
+  hintManager?.setEnabled(id !== 'scene1' && id !== 'scene21');
+  if (id === 'scene1' || id === 'scene21') hintManager?.recordActivity();
+  if (id === 'scene1') {
+    controllerNoticeTime = 0;
+    document.getElementById('controller-notice')!.classList.add('hidden');
+  }
   checkpointNoticeTime = ['scene13', 'scene14', 'scene15', 'scene16'].includes(id) ? 2.5 : 0;
   document.getElementById('scene-checkpoint')!.classList.toggle('hidden', checkpointNoticeTime === 0);
   dismissControls();
@@ -572,13 +579,13 @@ function updateControlCard(dt: number) {
   if (!shownControl && controlQueue.length) {
     shownControl = controlQueue.shift()!;
     seenControls.add(shownControl.key);
-    controlTime = shownControl.key === 'flight' ? 4 : 18;
+    controlTime = shownControl.key === 'flight' ? 4 : 6;
     document.getElementById('control-card-title')!.textContent = shownControl.title;
     renderShownControl();
   }
   if (shownControl) {
     controlCard.classList.remove('hidden');
-    controlTime -= Math.min(dt, 0.1);
+    controlTime -= Math.max(0, dt);
     if (controlTime <= 0) dismissControls();
   }
 }
@@ -622,6 +629,17 @@ function setupViewToggle() {
   }
   window.addEventListener('keydown', (event: KeyboardEvent) => {
     if (event.repeat || quickMenuOpen || (event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable="true"]'))) return;
+    if ((event.code === 'Digit1' || event.code === 'Numpad1') && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
+      event.preventDefault();
+      playerSilhouetteEnabled = !playerSilhouetteEnabled;
+      globalCharacter?.setSilhouetteEnabled(playerSilhouetteEnabled);
+      return;
+    }
+    if (event.key === '/' && !event.ctrlKey && !event.altKey && !event.metaKey) {
+      event.preventDefault();
+      document.body.classList.toggle('hud-hidden');
+      return;
+    }
     if (event.code === 'KeyH' && shownControl) { event.preventDefault(); dismissControls(); }
     // Scenes with their own camera input consume V themselves.
     if (event.code === 'KeyV' && !currentSceneData?.toggleView) toggleView();
@@ -1361,8 +1379,11 @@ function updatePlayerView(dt: number) {
 // --- Direct scene selection ---
 const quickMenu = document.getElementById('scene-quick-menu') as HTMLDialogElement;
 const pauseMenu = document.getElementById('pause-menu') as HTMLDialogElement;
-type MenuScreen = 'home' | 'map' | 'sound' | 'controls' | 'developer' | 'scenes';
+const creditsDialog = document.getElementById('credits-dialog') as HTMLDialogElement;
+type MenuScreen = 'home' | 'map' | 'sound' | 'controls' | 'developer' | 'scenes' | 'credits';
 let menuScreen: MenuScreen | null = null;
+let creditsReturnScreen: Exclude<MenuScreen, 'credits'> | null = null;
+let creditsReturnFocus: HTMLElement | null = null;
 let shipMap: ReturnType<typeof createShipMap> | null = null;
 let shipMapLayout: ShipMapLayout | undefined;
 let controlsReturnScreen: 'home' | 'scenes' = 'home';
@@ -1373,10 +1394,11 @@ let resumePointerTarget: HTMLElement | null = null;
 let controllerFocusedItem: HTMLElement | null = null;
 
 function controllerMenuRoot() {
+  if (creditsDialog.open) return creditsDialog;
   if (cinematicLoading.active) return cinematicLoading.menuRoot;
   if (quickMenuOpen) return menuScreen === 'scenes' ? quickMenu : pauseMenu;
   const title = document.getElementById('menu-buttons')!;
-  return activeSceneId === 'scene1' && !title.classList.contains('hidden') ? title : null;
+  return !title.classList.contains('hidden') ? title : null;
 }
 function focusControllerMenuItem(element: HTMLElement) {
   controllerFocusedItem?.classList.remove('controller-focused');
@@ -1507,6 +1529,7 @@ function selectControlsTab(tab: InputMode) {
   if (controllerInput) renderControllerStatus(controllerInput.getStatus());
 }
 function controllerMenuAction(action: ControllerMenuAction) {
+  if (menuScreen === 'credits' && (action === 'pause' || action === 'back')) { backFromMenu(); return; }
   if (action === 'pause') { setPauseMenu(quickMenuOpen ? null : 'home'); return; }
   if (action === 'back') { if (quickMenuOpen) backFromMenu(); return; }
   const root = controllerMenuRoot();
@@ -1534,7 +1557,7 @@ function controllerMenuAction(action: ControllerMenuAction) {
     if (!tab.disabled) { tab.click(); focusControllerMenuItem(tab); }
     return;
   }
-  const list = document.getElementById('pause-controls-list')!;
+  const list = document.getElementById(menuScreen === 'credits' ? 'credits-dialog-content' : 'pause-controls-list')!;
   if (focused === list && (action === 'up' || action === 'down')) {
     const canScroll = step < 0 ? list.scrollTop > 0 : list.scrollTop + list.clientHeight < list.scrollHeight - 1;
     if (canScroll) { list.scrollBy({ top: step * 110 }); return; }
@@ -1557,7 +1580,7 @@ function setupControllerInput() {
           : document.body.classList.contains('quarters-interface') ? 'inspection'
             : currentSceneData?.isCinematic?.() || !currentPlayer?.isEnabled() ? 'cinematic' : 'foot';
       if (cinematicLoading.active || teleportLoading || deathPresentation) kind = 'cinematic';
-      const titleMenu = activeSceneId === 'scene1' && !document.getElementById('menu-buttons')!.classList.contains('hidden');
+      const titleMenu = !document.getElementById('menu-buttons')!.classList.contains('hidden');
       return { id: `${scene}:${phase}:${kind === 'finale-qte' ? currentSceneData.getControllerQteIndex() : ''}`,
         kind, menuOpen: quickMenuOpen || titleMenu, wheelOpen: weaponWheelOpen };
     },
@@ -1570,6 +1593,7 @@ function setupControllerInput() {
     },
     onStatus: renderControllerStatus,
     onNotice(message) {
+      if (activeSceneId === 'scene1') return;
       const notice = document.getElementById('controller-notice')!;
       notice.textContent = message; notice.classList.remove('hidden'); controllerNoticeTime = 5;
     },
@@ -1609,6 +1633,11 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
   if (prologue && screen === 'sound') return;
   if (screen === 'scenes' && (!quickMenuOpen || !developerUnlocked)) return;
   if (screen === 'controls') controlsReturnScreen = menuScreen === 'scenes' ? 'scenes' : 'home';
+  if (screen === 'credits' && menuScreen !== 'credits') {
+    creditsReturnScreen = menuScreen;
+    creditsReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    document.getElementById('credits-dialog-content')!.scrollTop = 0;
+  }
   const wasOpen = quickMenuOpen;
   menuScreen = screen;
   document.body.classList.toggle('ship-map-open', screen === 'map');
@@ -1627,8 +1656,8 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
   currentSceneData?.setMenuPaused?.(quickMenuOpen);
   if (!quickMenuOpen) setAudioMenuPaused(false);
 
-  const dialog = screen === 'scenes' ? quickMenu : screen ? pauseMenu : null;
-  for (const other of [pauseMenu, quickMenu]) {
+  const dialog = screen === 'credits' ? creditsDialog : screen === 'scenes' ? quickMenu : screen ? pauseMenu : null;
+  for (const other of [pauseMenu, quickMenu, creditsDialog]) {
     if (other !== dialog && other.open) other.close();
   }
   if (!dialog) {
@@ -1642,7 +1671,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
     }
     return;
   }
-  if (screen !== 'scenes') {
+  if (screen !== 'scenes' && screen !== 'credits') {
     document.getElementById('pause-menu-title')!.textContent = screen === 'controls' ? (developerUnlocked ? 'All Controls' : 'Controls')
       : screen === 'map' ? 'Ship Map'
       : screen === 'sound' ? 'Sound' : screen === 'developer' ? 'Developer Mode' : 'Pause';
@@ -1687,13 +1716,24 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
     const current = quickMenu.querySelector<HTMLButtonElement>('[aria-current="true"]') ?? buttons[0];
     if (current) { if (isControllerActive()) focusControllerMenuItem(current); else { current.focus(); current.scrollIntoView({ block: 'nearest' }); } }
   } else {
-    const focusId = screen === 'controls' ? controlsTab === 'controller' ? 'input-controller' : 'input-keyboard' : screen === 'sound' ? 'bgm-volume'
+    const focusId = screen === 'credits' ? 'credits-dialog-close'
+      : screen === 'controls' ? controlsTab === 'controller' ? 'input-controller' : 'input-keyboard' : screen === 'sound' ? 'bgm-volume'
       : screen === 'developer' ? 'developer-unlock' : prologue ? 'pause-controls' : 'pause-resume';
     const focus = document.getElementById(focusId);
     if (focus) { if (isControllerActive()) focusControllerMenuItem(focus); else focus.focus(); }
   }
 }
 function backFromMenu() {
+  if (menuScreen === 'credits') {
+    const focus = creditsReturnFocus;
+    creditsReturnFocus = null;
+    setPauseMenu(creditsReturnScreen);
+    if (focus?.isConnected && focus.getClientRects().length) {
+      if (isControllerActive()) focusControllerMenuItem(focus);
+      else focus.focus();
+    }
+    return;
+  }
   setPauseMenu(menuScreen === 'home' ? null : menuScreen === 'controls' ? controlsReturnScreen : 'home');
 }
 async function jumpToScene(id: number) {
@@ -1761,6 +1801,7 @@ async function jumpToScene(id: number) {
       case 21: await loadScene21(); break;
       case 21.5: await loadScene21(undefined, { stage: 'rupture' }); break;
       case 21.9: await loadScene21(undefined, { stage: 'finisher' }); break;
+      case 22: await loadScene21(undefined, { stage: 'credits' }); break;
     }
     if (request !== sceneRequestVersion) return;
     const spawnedPlayer = currentSceneData?.player as Player | undefined;
@@ -1779,6 +1820,16 @@ async function jumpToScene(id: number) {
 }
 function setupSceneQuickMenu() {
   renderer.domElement.tabIndex = -1;
+  const creditsCopy = document.getElementById('credits-content')!.cloneNode(true) as HTMLElement;
+  creditsCopy.removeAttribute('id');
+  creditsCopy.classList.add('credits-dialog-copy');
+  document.getElementById('credits-dialog-content')!.replaceChildren(creditsCopy);
+  document.getElementById('view-credits-btn')!.addEventListener('click', () => setPauseMenu('credits'));
+  document.getElementById('credits-dialog-close')!.addEventListener('click', () => backFromMenu());
+  creditsDialog.addEventListener('click', event => {
+    event.stopPropagation();
+    if (event.target === creditsDialog) backFromMenu();
+  });
   const list = document.getElementById('scene-quick-list')!;
   for (const [id, label] of SCENE_CHOICES) {
     const button = document.createElement('button'); button.type = 'button'; button.dataset.scene = String(id);
@@ -1791,6 +1842,7 @@ function setupSceneQuickMenu() {
     else if (button?.id === 'pause-ship-map') setPauseMenu('map');
     else if (button?.id === 'pause-sound') setPauseMenu('sound');
     else if (button?.id === 'pause-controls') setPauseMenu('controls');
+    else if (button?.id === 'pause-credits') setPauseMenu('credits');
     else if (button?.id === 'pause-developer') setPauseMenu('developer');
     else if (button?.hasAttribute('data-pause-back')) backFromMenu();
   });
@@ -1817,28 +1869,35 @@ function setupSceneQuickMenu() {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
     if (button?.dataset.scene) jumpToScene(Number(button.dataset.scene));
     else if (button?.id === 'scene-quick-controls') setPauseMenu('controls');
+    else if (button?.id === 'scene-quick-credits') setPauseMenu('credits');
     else if (button?.id === 'scene-quick-close') setPauseMenu('home');
   });
-  for (const dialog of [pauseMenu, quickMenu]) {
+  for (const dialog of [pauseMenu, quickMenu, creditsDialog]) {
     dialog.addEventListener('cancel', event => { event.preventDefault(); backFromMenu(); });
     for (const type of ['keydown', 'keyup', 'mousedown', 'mouseup', 'mousemove', 'pointerdown', 'pointerup', 'pointermove', 'touchstart', 'touchmove', 'touchend', 'wheel']) {
       dialog.addEventListener(type, event => event.stopPropagation());
     }
   }
   pauseMenu.addEventListener('close', () => {
-    if (!pauseMenu.open && menuScreen !== null && menuScreen !== 'scenes') setPauseMenu(null, false);
+    if (!pauseMenu.open && menuScreen !== null && menuScreen !== 'scenes' && menuScreen !== 'credits') setPauseMenu(null, false);
   });
   quickMenu.addEventListener('close', () => {
     if (!quickMenu.open && menuScreen === 'scenes') setPauseMenu('home');
   });
+  creditsDialog.addEventListener('close', () => {
+    if (!creditsDialog.open && menuScreen === 'credits') backFromMenu();
+  });
   const insideMenu = (event: Event) => event.target instanceof Node
-    && (pauseMenu.contains(event.target) || quickMenu.contains(event.target));
+    && (pauseMenu.contains(event.target) || quickMenu.contains(event.target) || creditsDialog.contains(event.target));
   window.addEventListener('keydown', event => {
     const editing = event.target instanceof HTMLElement
       && event.target.closest('input:not([type="range"]), textarea, select, [contenteditable="true"]');
     if (event.code === 'KeyM' && !editing && !event.ctrlKey && !event.altKey && !event.metaKey) {
       event.preventDefault(); event.stopImmediatePropagation();
-      if (!event.repeat) setPauseMenu(quickMenuOpen ? null : 'home');
+      if (!event.repeat) {
+        if (menuScreen === 'credits') backFromMenu();
+        else setPauseMenu(quickMenuOpen ? null : 'home');
+      }
       return;
     }
     if (!quickMenuOpen) return;

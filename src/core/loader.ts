@@ -10,6 +10,7 @@ import sharkModelUrl from '../assets/models/Dino/Shark.glb';
 import bossModelUrl from '../assets/models/bayboss.glb';
 import boyModelUrl from '../assets/models/boy.glb';
 import mothershipModelUrl from '../assets/models/mothership.glb';
+import gundamModelUrl from '../assets/models/gundam.glb';
 import { assetUrl, cachedAssetUrl, fetchAsset, type PreloadTask } from './assetCache.js';
 
 const gltfLoader = new GLTFLoader();
@@ -118,6 +119,7 @@ export async function loadBoyModel() {
 }
 export async function loadMCModel() { return cloneModel(await modelTemplate(mcModelUrl)); }
 export async function loadSubjectModel() { return cloneModel(await modelTemplate(subjectModelUrl)); }
+export async function loadGundamModel() { return cloneModel(await modelTemplate(gundamModelUrl)); }
 export async function preloadToolModel(name: ToolModelName) { await toolTemplate(name); }
 
 /** Decode the player asset once; each view gets an independent skeleton and mixer. */

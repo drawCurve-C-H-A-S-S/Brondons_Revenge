@@ -12,7 +12,7 @@ import type { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { loadPlayerModel, yieldToMainThread } from '../core/loader.js';
 import { loadCombatAnimationsForRig } from '../core/combatAnimations.js';
 import { createCrowbar } from './items/createCrowbar.js';
-import { createLightsaber, disposeLightsaber, fitLightsaberToHand, fitWeaponToHand, getLightsaberAttackClips } from './items/createLightsaber.js';
+import { createLightsaber, disposeLightsaber, fitLightsaberToHand, fitWeaponToHand, getLightsaberAttackClips, LIGHTSABER_ATTACK_SPEED } from './items/createLightsaber.js';
 import { LADDER } from '../utils/constants.js';
 import { createGoggles } from './rewardChest.js';
 import { SLIDE_TACKLE, slideTackleMotion } from '../helpers/animation/slideTackle.js';
@@ -219,12 +219,14 @@ export async function loadCharacter(loader?: GLTFLoader) {
   const transitionMeshes: Array<{ mesh: THREE.Mesh; material: THREE.Material | THREE.Material[] }> = [];
   const animatedBones = new Set<THREE.Object3D>();
   const hologramMaterials = new Map<THREE.Material, THREE.Material>();
+  const silhouetteMaterials = new Map<THREE.Material, THREE.Material>();
   const hologramUniforms = {
     hologramTime: { value: 0 },
     hologramBlend: { value: 0 },
     hologramOpacity: { value: 1 },
   };
   let hologramActive = false;
+  let silhouetteEnabled = false;
 
   // Layer 0 is the gameplay camera; layer 1 is the mirror camera.
   model.traverse((child: THREE.Object3D) => {
@@ -646,11 +648,11 @@ export async function loadCharacter(loader?: GLTFLoader) {
     const next = actions.get(name);
     if (!next || (next === currentAction && !restart && !immediate)) return;
     const saberAttack = lightsaberEquipped && lightsaberAttackClips.some(clip => clip.name === name);
-    const blend = name === 'Slide_Tackle' ? 0.08 : currentAction.getClip().name === 'Slide_Tackle' ? 0.14 : saberAttack ? 0.045 : 0.2;
+    const blend = name === 'Slide_Tackle' ? 0.08 : currentAction.getClip().name === 'Slide_Tackle' ? 0.14 : saberAttack ? 0.07 : 0.2;
     const sameAction = next === currentAction;
     if (immediate) mixer.stopAllAction();
     else if (!sameAction) currentAction.fadeOut(blend);
-    const speed = name === 'Sword_Attack' && !saberAttack ? 2.8 : 1;
+    const speed = saberAttack ? LIGHTSABER_ATTACK_SPEED : name === 'Sword_Attack' ? 2.8 : 1;
     next.reset().setEffectiveTimeScale(speed).setEffectiveWeight(1);
     if (!immediate && !sameAction) next.fadeIn(blend);
     next.play();
@@ -958,6 +960,38 @@ export async function loadCharacter(loader?: GLTFLoader) {
     model.rotation.set(0, yaw + MODEL_ROT_OFFSET, 0, 'YXZ');
   }
 
+  function silhouetteMaterial(original: THREE.Material): THREE.Material {
+    const cached = silhouetteMaterials.get(original);
+    if (cached) return cached;
+    const material = original.clone();
+    material.customProgramCacheKey = () => `${original.customProgramCacheKey()}-player-silhouette`;
+    material.onBeforeCompile = (shader, renderer) => {
+      original.onBeforeCompile(shader, renderer);
+      shader.fragmentShader = shader.fragmentShader.replace('#include <dithering_fragment>', `
+        #include <dithering_fragment>
+        gl_FragColor.rgb = vec3(0.0);
+      `);
+    };
+    silhouetteMaterials.set(original, material);
+    return material;
+  }
+
+  function applyCharacterMaterials() {
+    const activeMaterial = (original: THREE.Material) => {
+      const material = silhouetteEnabled ? silhouetteMaterial(original) : original;
+      return hologramActive ? hologramMaterial(material) : material;
+    };
+    for (const entry of transitionMeshes) {
+      entry.mesh.material = Array.isArray(entry.material) ? entry.material.map(activeMaterial) : activeMaterial(entry.material);
+    }
+  }
+
+  function setSilhouetteEnabled(enabled: boolean) {
+    if (silhouetteEnabled === enabled) return;
+    silhouetteEnabled = enabled;
+    applyCharacterMaterials();
+  }
+
   function hologramMaterial(original: THREE.Material): THREE.Material {
     const cached = hologramMaterials.get(original);
     if (cached) return cached;
@@ -995,16 +1029,14 @@ export async function loadCharacter(loader?: GLTFLoader) {
   function setHologramTransition(state: HologramTransition | null) {
     if (!state) {
       if (!hologramActive) return;
-      for (const entry of transitionMeshes) entry.mesh.material = entry.material;
       hologramActive = false;
+      applyCharacterMaterials();
       model.visible = true;
       return;
     }
     if (!hologramActive) {
-      for (const entry of transitionMeshes) {
-        entry.mesh.material = Array.isArray(entry.material) ? entry.material.map(hologramMaterial) : hologramMaterial(entry.material);
-      }
       hologramActive = true;
+      applyCharacterMaterials();
     }
     hologramUniforms.hologramTime.value = state.time;
     hologramUniforms.hologramBlend.value = THREE.MathUtils.clamp(state.blend, 0, 1);
@@ -1014,8 +1046,11 @@ export async function loadCharacter(loader?: GLTFLoader) {
 
   function dispose() {
     setHologramTransition(null);
+    setSilhouetteEnabled(false);
     for (const material of hologramMaterials.values()) material.dispose();
     hologramMaterials.clear();
+    for (const material of silhouetteMaterials.values()) material.dispose();
+    silhouetteMaterials.clear();
     disposeLightsaber(lightsaber);
     crowbar.removeFromParent();
     goggles.removeFromParent();
@@ -1032,7 +1067,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
   }
 
   return {
-    model, mixer, update, setFacing, setHologramTransition, weapon, crowbar, lightsaberAttackClips,
+    model, mixer, update, setFacing, setHologramTransition, setSilhouetteEnabled, weapon, crowbar, lightsaberAttackClips,
     setCrowbarEquipped: (equipped: boolean) => { crowbarEquipped = equipped; crowbar.visible = equipped; },
     setLightsaberEquipped: (equipped: boolean) => { lightsaberEquipped = equipped; lightsaber.visible = equipped; },
     setGogglesEquipped: (equipped: boolean) => { goggles.visible = equipped; },

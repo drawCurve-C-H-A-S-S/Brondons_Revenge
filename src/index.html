@@ -82,31 +82,93 @@
   <!-- Credit roll overlay -->
   <div id="credits-overlay" class="hidden">
     <div id="credits-content">
-      <div class="credit-title">THE DONS REVENGE</div>
-      <div class="credit-section">
-        <div class="credit-role">CREATED BY</div>
-        <div class="credit-name">CHASS</div>
-      </div>
-      <div class="credit-section">
-        <div class="credit-role">3D ENGINE</div>
-        <div class="credit-name">Three.js</div>
-      </div>
-      <div class="credit-section">
-        <div class="credit-role">SPECIAL THANKS TO </div>
-        <div class="credit-name">YOUR MOM</div>
-      </div>
-      <div class="credit-section">
-        <div class="credit-role">PHYSICS</div>
-        <div class="credit-name">Cannon-es</div>
-      </div>
+      <p class="credit-eyebrow">A GAME BY CHASS</p>
+      <h1 class="credit-title">BRONDON'S REVENGE</h1>
+      <p class="credit-intro">The people, tools and artwork behind the journey.</p>
+      <section class="credit-section credit-team">
+        <h2 class="credit-role">Creative team</h2>
+        <dl class="credit-contributors">
+          <div><dt>Created by</dt><dd>CHASS</dd></div>
+          <div><dt>Story</dt><dd>CHASS</dd></div>
+          <div><dt>Music &amp; soundtrack</dt><dd>Caleb</dd></div>
+        </dl>
+      </section>
+      <section class="credit-section">
+        <h2 class="credit-role">Models &amp; artwork</h2>
+        <ul class="credit-list">
+          <li><a href="https://skfb.ly/6vSDA" target="_blank" rel="noreferrer">Space Ship mk2</a>
+            <p class="credit-detail">antoniojmonteiro <span class="credit-license">CC BY 4.0</span></p></li>
+          <li><a href="https://skfb.ly/pC9vt" target="_blank" rel="noreferrer">Dante_dmc1__cutscene_model</a>
+            <p class="credit-detail">0PALITE <span class="credit-license">CC BY 4.0</span></p>
+            <p class="credit-note">Used as Brondon (Don.glb). The listing identifies this as a reupload, with Moccacino-chan as the original source.</p></li>
+          <li><a href="https://gobkit.com/" target="_blank" rel="noreferrer">Free Character "Shark"</a>
+            <p class="credit-detail">Gobkit <span class="credit-license">CC0 1.0</span></p></li>
+        </ul>
+      </section>
+      <section class="credit-section">
+        <h2 class="credit-role">Character animation</h2>
+        <p class="credit-name">Quaternius</p>
+        <p class="credit-detail"><a href="https://quaternius.com/packs/universalanimationlibrary.html" target="_blank" rel="noreferrer">Universal Animation Library [Standard]</a><br />
+          <a href="https://quaternius.com/packs/universalanimationlibrary2.html" target="_blank" rel="noreferrer">Universal Animation Library 2 [Standard]</a>
+          <span class="credit-license">CC0 1.0</span></p>
+        <p class="credit-note">Combat animations extracted, retargeted and baked for this game.</p>
+      </section>
+      <section class="credit-section">
+        <h2 class="credit-role">Engine &amp; physics</h2>
+        <dl class="credit-contributors">
+          <div><dt>3D rendering</dt><dd><a href="https://threejs.org/" target="_blank" rel="noreferrer">Three.js 0.170.0</a></dd></div>
+          <div><dt>Physics</dt><dd><a href="https://github.com/pmndrs/cannon-es" target="_blank" rel="noreferrer">cannon-es 0.20.0</a></dd></div>
+        </dl>
+        <p class="credit-note">Thanks to the Three.js and cannon-es contributors. Both libraries are MIT licensed.</p>
+        <p class="credit-note">Three.js provides OrbitControls, GLTFLoader, FBXLoader, OBJLoader, SkeletonUtils and AnimationMixer.</p>
+      </section>
+      <section class="credit-section">
+        <h2 class="credit-role">Runtime libraries</h2>
+        <ul class="credit-list">
+          <li><a href="https://github.com/qiao/PathFinding.js" target="_blank" rel="noreferrer">PathFinding.js 0.4.18</a>
+            <p class="credit-detail">qiao &amp; contributors <span class="credit-license">MIT</span></p></li>
+          <li><a href="https://github.com/matt-way/gifuct-js" target="_blank" rel="noreferrer">gifuct-js 2.1.2</a>
+            <p class="credit-detail">matt-way &amp; contributors <span class="credit-license">MIT</span></p></li>
+          <li><a href="https://github.com/gkjohnson/three-bvh-csg" target="_blank" rel="noreferrer">three-bvh-csg 0.0.17</a>
+            &amp; <a href="https://github.com/gkjohnson/three-mesh-bvh" target="_blank" rel="noreferrer">three-mesh-bvh 0.8.3</a>
+            <p class="credit-detail">gkjohnson &amp; contributors <span class="credit-license">MIT</span></p></li>
+          <li><a href="https://github.com/google/draco" target="_blank" rel="noreferrer">Draco 1.5.7</a>
+            <p class="credit-detail">Google &amp; contributors <span class="credit-license">Apache-2.0</span></p></li>
+        </ul>
+        <p class="credit-note">Controller support uses the browser's built-in Gamepad API.</p>
+      </section>
+      <section class="credit-section">
+        <h2 class="credit-role">Development tools</h2>
+        <p class="credit-detail"><a href="https://github.com/vitejs/vite" target="_blank" rel="noreferrer">Vite 6.4.3</a> &amp; contributors (MIT)<br />
+          <a href="https://github.com/microsoft/TypeScript" target="_blank" rel="noreferrer">TypeScript 5.9.3</a> by Microsoft &amp; contributors (Apache-2.0)<br />
+          <a href="https://github.com/eugeneware/ffmpeg-static" target="_blank" rel="noreferrer">ffmpeg-static 5.3.0</a> by eugeneware &amp; contributors (GPL-3.0-or-later)</p>
+        <p class="credit-note">Build-time tools, not included in the game. ffmpeg-static supports local audio conversion.
+          Development-only types: @types/three and @types/pathfinding (MIT).</p>
+      </section>
+      <section class="credit-section credit-pending">
+        <h2 class="credit-role">Attribution pending verification</h2>
+        <p class="credit-note">Creator and license information has not yet been confirmed for Bay Warden (bayboss.glb),
+          boy.glb, Dino/dino.glb, MC.glb, Subject.glb, gundam.glb, the Retro computers models, Tools models and atlases,
+          MachineTexture images, Shield_powerup.png, corridor surveillance GIFs and sound effects.
+          These assets are not attributed to CHASS; their sources and licenses still need verification.</p>
+      </section>
+      <footer class="credit-closing">
+        <p class="credit-role">Special thanks</p>
+        <p class="credit-name">YOUR MOM</p>
+        <p class="credit-thanks">Thank you for playing.</p>
+        <p class="credit-eyebrow">BRONDON'S REVENGE / THE END</p>
+      </footer>
     </div>
   </div>
   
   <!-- Menu buttons -->
   <div id="menu-buttons" class="hidden">
-    <button id="play-btn" class="menu-btn">PLAY</button>
-    <button id="quit-btn" class="menu-btn">DON'T PLAY</button>
-    <p class="controller-menu-hint">Left stick / D-pad: choose · A: select · +: menu</p>
+    <div class="menu-actions">
+      <button id="play-btn" class="menu-btn">PLAY</button>
+      <button id="quit-btn" class="menu-btn">DON'T PLAY</button>
+      <p class="controller-menu-hint">Left stick / D-pad: choose · A: select · +: menu</p>
+    </div>
+    <button id="view-credits-btn" class="scene-credits-btn" type="button">View Credits</button>
   </div>
   
   <!-- Fade overlay for transitions -->
@@ -126,6 +188,7 @@
       <button id="pause-ship-map" type="button">Ship Map</button>
       <button id="pause-sound" type="button">Sound</button>
       <button id="pause-controls" type="button">Controls</button>
+      <button id="pause-credits" type="button">View Credits</button>
       <label id="pause-stealth-settings" class="hidden" for="stealth-hints-toggle">
         <span>Prime hints</span><input id="stealth-hints-toggle" type="checkbox" checked />
       </label>
@@ -191,10 +254,22 @@
     <p id="scene-menu-description">Chapters are listed in story order. Jump to a level or stage with full health, a crowbar, pistol, lightsaber, goggles, and teleportation device.</p>
     <p class="scene-menu-gear">Hold <kbd data-input-key="Tab">Tab</kbd> to select weapons · <kbd data-input-key="KeyQ">Q</kbd> place anchor · <kbd data-input-key="KeyT">T</kbd> teleport · <kbd data-input-key="KeyN">N</kbd> goggles</p>
     <button id="scene-quick-controls" type="button">All Controls</button>
+    <button id="scene-quick-credits" type="button">View Credits</button>
     <div id="scene-quick-list" role="group" aria-label="Choose a level or stage"></div>
     <p id="scene-menu-error" role="alert"></p>
     <footer class="scene-menu-footer">Arrow keys to select · Enter to load · Click a scene to jump</footer>
     <p class="controller-menu-hint">Left stick / D-pad: choose · A: select · B: back</p>
+  </dialog>
+  <dialog id="credits-dialog" aria-labelledby="credits-dialog-title">
+    <header class="scene-menu-header">
+      <div>
+        <p class="scene-menu-eyebrow">PEOPLE / ARTWORK / TECHNOLOGY</p>
+        <h2 id="credits-dialog-title">Credits</h2>
+      </div>
+      <button id="credits-dialog-close" type="button">Close</button>
+    </header>
+    <div id="credits-dialog-content" role="region" aria-label="Credits and asset licenses" tabindex="0"></div>
+    <p class="credit-dialog-hint">Scroll to explore · Esc to return</p>
   </dialog>
 
   <div id="touch-controls" class="hidden">

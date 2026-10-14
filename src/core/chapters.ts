@@ -77,7 +77,7 @@ export const LOADING_CHAPTERS = {
       'Destroy the red scrambler to expose the capital ship\'s final phase.'],
   },
   reactor: {
-    chapter: 'LEVEL 2 / PHASE 5', title: 'THE EXPOSED REACTOR', images: [image('level2-capital-ship')],
+    chapter: 'LEVEL 2 / PHASE 5', title: 'THE EXPOSED REACTOR', images: [image('level2-reactor')],
     tips: ['Fire at the exposed reactor while its shield is down.',
       'The last phase fires denser barrages. Dodge through the open lane.'],
   },
@@ -126,6 +126,7 @@ export const SCENE_CHOICES = [
   [20, 'Level 3 Facility Stage - AI research facility'], [21, 'Level 3 Final Boss - Sudoers 5'],
   [21.5, 'Level 3 Final Boss - Bomb release / 50% health'],
   [21.9, 'Level 3 Final Boss - Final QTE start'],
+  [22, 'Epilogue - Rolling credits'],
 ] as const;
 
 export function createLoadingSlideDeck(destination: LoadingDestination, random = Math.random) {

@@ -694,7 +694,7 @@ test('rooftop lighting reaches night continuously after assembly, including a sk
   director.pause(true); director.skipIntro(); assert.equal(director.getState().phase, 'versus');
 });
 
-test('epilogue uses the opening mothership, native mech dance, shared comic BOOM and one faster credit duration', async () => {
+test('epilogue uses the opening mothership, native mech dance, shared comic BOOM and one readable credit duration', async () => {
   const [opening, finale, mechs, presentation, main, comic] = await Promise.all([
     readFile(new URL('../src/scenes/scene1.ts', import.meta.url), 'utf8'),
     readFile(new URL('../src/scenes/level 3/scene21.ts', import.meta.url), 'utf8'),
@@ -706,13 +706,34 @@ test('epilogue uses the opening mothership, native mech dance, shared comic BOOM
   assert.match(opening, /createMothership\(loadShip\)/); assert.match(finale, /createMothership\(\)/);
   assert.match(mechs, /move === 'dance'.*find\('Dance_Loop'\)/);
   assert.match(finale, /phaseTime >= DONUS_RETURN\.appear \? 'dance'/);
-  assert.equal(FINALE_DURATION.credits, 28);
+  assert.equal(FINALE_DURATION.credits, 90);
   assert.match(presentation, /\/ FINALE_DURATION\.credits/);
   assert.match(finale, /phase === 'done' \? FINALE_DURATION\.credits/);
   assert.match(presentation, /createComicEffectArtwork\('boom'\)/);
   assert.match(comic, /new THREE\.CanvasTexture\(createComicEffectArtwork/);
   assert.doesNotMatch(main, /showCredits|creditsTimer/);
   assert.match(finale, /createHoldToSkip\(\{ button: presentation\.skipButton/);
+});
+
+test('developer credits entry starts at the real roll, pauses, and completes without combat or QTE input', () => {
+  const director = createFinaleDirector('credits');
+  assert.equal(director.getState().phase, 'loading');
+  director.assetsLoaded();
+  assert.equal(director.getState().phase, 'credits');
+  assert.equal(director.getState().phaseTime, 0);
+  assert.equal(director.duel.enemy.health, 0);
+  assert.deepEqual(director.drainChanges(), ['credits']);
+  director.pause(true);
+  advance(dt => director.update(dt), 10);
+  assert.equal(director.getState().phaseTime, 0);
+  director.pause(false);
+  advance(dt => director.update(dt), FINALE_DURATION.credits - 0.1);
+  assert.equal(director.getState().phase, 'credits');
+  advance(dt => director.update(dt), 0.2);
+  assert.equal(director.getState().phase, 'done');
+  assert.equal(director.getState().ended, true);
+  assert.deepEqual(director.drainQteEvents(), []);
+  assert.deepEqual(director.drainDuelEvents(), []);
 });
 
 test('D needs distinct mash presses and E needs an uninterrupted hold without freezing the scene', () => {

@@ -269,7 +269,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     return { root, body, nose, flame, tracer, wave, beam, beamGlow };
   });
   const missileDirection = vector(0, 1, 0);
-  const spaceReached = checkpoint?.stage === 'space' || checkpoint?.stage === 'finisher';
+  const spaceReached = checkpoint?.stage === 'space' || checkpoint?.stage === 'finisher' || checkpoint?.stage === 'credits';
   let reachedSpace = spaceReached, paused = false, blurred = false, disposed = false;
   let lastPhase: FinalePhase = 'loading', lastFirework = -1;
   let animationDelta = 0, finishedCallbackSent = false;
@@ -1213,7 +1213,8 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     },
     getSceneId: () => 'scene21',
     getDeveloperSceneId: () => director.getState().phase === 'rupture' ? 'scene21.5'
-      : director.getState().phase === 'finisher' ? 'scene21.9' : 'scene21',
+      : director.getState().phase === 'finisher' ? 'scene21.9'
+        : director.getState().phase === 'credits' || director.getState().phase === 'done' ? 'scene22' : 'scene21',
     getControllerPhase: () => lastPhase,
     getControllerQteIndex: () => director.qte.getState().index,
     getMusicTrack: () => finaleMusicTrack(director.getState().phase),

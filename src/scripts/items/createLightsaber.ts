@@ -4,7 +4,8 @@ import saberGlowFragment from '../../shaders/saberGlow.frag.glsl?raw';
 import { MELEE_STRIKES, SWORD_ATTACK_CLIPS } from '../finaleChoreography.js';
 
 export type LightsaberAttackName = typeof SWORD_ATTACK_CLIPS[keyof typeof SWORD_ATTACK_CLIPS];
-export const LIGHTSABER_SWING_DURATION = MELEE_STRIKES.slash.duration;
+export const LIGHTSABER_ATTACK_SPEED = 1.6;
+export const LIGHTSABER_SWING_DURATION = MELEE_STRIKES.slash.duration / LIGHTSABER_ATTACK_SPEED;
 
 /** Discover the rig's authored strikes without treating blocks or idles as attacks. */
 export function getLightsaberAttackClips(clips: readonly THREE.AnimationClip[], requireComplete = true) {
