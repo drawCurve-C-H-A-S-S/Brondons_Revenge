@@ -748,8 +748,12 @@ River sharks swim below the surface with their fins barely showing. Falling
 into the river starts a continuous shark-swarm scene before death and a return
 to the landing checkpoint, rather than killing the player immediately.
 Sharks are fitted in their animated pose with height and length limits. Brendan
-uses `Subject.glb`, with warm skin, a blue shirt, brown shorts, bare forearms and
-lower legs, and dark shoes. The same dressed actor appears in the landing film,
+uses `DonfromStreets.glb`, preserving its original materials and rigged animations.
+He shares Brondon's two-tone cel shadow shader, stands and talks after leaving
+the pod, then independently paces around the wreck and pauses to inspect it
+while the player explores. Standing clips are selected explicitly rather than
+matching crouched idle animations.
+The same actor appears in the landing film,
 playable jungle and final surface transmission. The landing film uses the same
 culling-aware forest as gameplay.
 
@@ -870,7 +874,7 @@ then cuts back to show it rematerializing above the hands and arming red.
 The enemy launches it skyward and commands its descent. The camera
 follows the meteor into Earth, then shows the explosion with a large **BOOM!**
 using the same starburst, halftone and ink artwork as other comic impact words.
-The final surface transmission returns to Brendan's dressed `Subject.glb` actor
+The final surface transmission returns to Brendan's `DonfromStreets.glb` actor
 in the burning rescue forest. A dedicated close-up tracks his head, with the
 volumetric fire shader attached to the head bone and progressive surface scorching.
 Brendan cries, "Ahhhhh, it burns!" Inside Prime Frame's cockpit, Brondon answers,
@@ -948,6 +952,13 @@ including queued attacks; moving the stick afterwards does not change a queued m
 | No direction | Classic Sword Attack, then left cut, then finishing cut |
 
 Down-left selects the classic cut; down-right selects the finishing cut.
+First-person hands use the FPS-hands branch's weapon grips for the crowbar,
+two-handed pistol (with recoil), and lightsaber, with idle fists when unarmed.
+They appear both when toggling to first person and when a wall forces the
+shoulder camera into first person, then disappear when shoulder clearance returns.
+The hands render in a separate depth-cleared view so nearby walls do not clip
+the held weapon; pistol muzzle effects remain aligned with the grip, and melee
+damage continues to use the gameplay attack paths rather than the overlay.
 Lightsaber first-person presentation follows the animated hand and blade, not a
 separate generic swing arc. Gameplay lightsaber clips play at **1.6x speed** with
 **70-millisecond attack blends**; both camera modes share the same scaled animation,

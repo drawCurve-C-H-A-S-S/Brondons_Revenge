@@ -6,14 +6,9 @@ import { MeleeSwing, getAttackSegment } from './melee.js';
 import type { Player } from './player.js';
 import { registerTouchAttackCallback, refreshTouchAttackButton } from './touchControls.js';
 import { isControllerEvent, inputHint } from './gamepadInput.js';
+import type { FirstPersonHands } from './firstPersonHands.js';
 
 const CROWBAR_SWING_DURATION = 0.35;
-
-interface FirstPersonHands {
-  update: (attackProgress: number | null) => void;
-  render: (renderer: THREE.WebGLRenderer) => void;
-  dispose: () => void;
-}
 
 interface CrowbarContext {
   scene: THREE.Scene | null;
@@ -104,9 +99,12 @@ export class CrowbarController {
     if (!hasCrowbar && this.equipped) this.holster();
     const usable = !!player?.isEnabled() && !player.getState().sliding && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling;
     setCharacterEquipped(this.equipped && usable);
-    this.root.visible = this.equipped && !thirdPerson && usable;
+    this.root.visible = this.equipped && !thirdPerson && usable && !firstPersonHands;
     const progress = this.swingTime > 0 ? 1 - this.swingTime / CROWBAR_SWING_DURATION : 1;
-    if (this.equipped && usable && !thirdPerson) firstPersonHands?.update(this.swingTime > 0 ? progress : null);
+    if (this.equipped && usable && !thirdPerson && firstPersonHands) {
+      firstPersonHands.setWeapon('crowbar');
+      firstPersonHands.update(this.swingTime > 0 ? progress : null);
+    }
     if (camera && this.root.visible) {
       if (this.root.parent !== camera) camera.add(this.root);
       this.root.rotation.set(-0.45 - Math.sin(Math.PI * progress) * 1.8, 0.35, 0.35);

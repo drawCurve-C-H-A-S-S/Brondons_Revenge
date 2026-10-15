@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { loadBoyModel, loadTexture } from '../../core/loader.js';
+import { loadBrendanModel, loadTexture } from '../../core/loader.js';
+import { createBrendanBehavior, type BrendanActivity } from './brendanBehavior.js';
 import hideoutImageUrl from '../../assets/textures/sudoers-hideout.png?url';
 import type { createScenePhysics } from '../physics/scenePhysics.js';
 import { createSlidingPortal, roomBox, disposeRoom } from './shipRoom.js';
@@ -909,20 +910,17 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     scene.add(mesh); return { mesh, angle: i * 2.4, delay: i * 0.025 };
   });
   const boy = new THREE.Group(); boy.name = 'RescuedPodBoy'; boy.position.copy(RESCUE_SITE.boy); scene.add(boy);
-  let disposed = false, settled = false, mixer: THREE.AnimationMixer | null = null;
-  let idle: THREE.AnimationAction | undefined, walk: THREE.AnimationAction | undefined, walking = false;
-  const boyReady = loadBoyModel().then(gltf => {
+  let disposed = false, settled = false, brendan: ReturnType<typeof createBrendanBehavior> | null = null;
+  let brendanActivity: BrendanActivity = 'idle';
+  const boyReady = loadBrendanModel().then(gltf => {
     if (disposed) { disposeRoom(gltf.scene as unknown as THREE.Scene); return; }
-    const model = gltf.scene, bounds = new THREE.Box3().setFromObject(model);
+    const model = gltf.scene;
+    brendan = createBrendanBehavior(boy, model, gltf.animations, RESCUE_SITE.pod);
+    const bounds = new THREE.Box3().setFromObject(model);
     model.scale.multiplyScalar(1.75 / Math.max(0.01, bounds.getSize(new THREE.Vector3()).y));
     bounds.setFromObject(model); const center = bounds.getCenter(new THREE.Vector3()); model.position.set(-center.x, -bounds.min.y, -center.z);
     model.traverse(node => { if (node instanceof THREE.Mesh) { node.castShadow = true; node.receiveShadow = true; } });
-    boy.add(model); mixer = new THREE.AnimationMixer(model);
-    const idleClip = gltf.animations.find(c => /idle/i.test(c.name)), walkClip = gltf.animations.find(c => /walk/i.test(c.name));
-    if (idleClip) idle = mixer.clipAction(idleClip);
-    if (walkClip) walk = mixer.clipAction(walkClip);
-    (walking ? walk ?? idle : idle)?.play();
-    mixer.update(0);
+    boy.add(model); brendan.setActivity(brendanActivity);
   }).catch(error => {
     if (!disposed) { console.error('[Rescue] Could not load Brendan:', error); throw error; }
   });
@@ -993,7 +991,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     },
     distanceToSafePath: (x: number, z: number) => routeDistance(x, z), isJungleObstacleBody: (body: CANNON.Body) => obstacleVisuals.has(body), breakJungleObstacle,
     disintegrateTrees,
-    setWalking(value: boolean) { if (value === walking) return; walking = value; (value ? idle : walk)?.fadeOut(0.2); (value ? walk ?? idle : idle)?.reset().fadeIn(0.2).play(); },
+    setBrendanActivity(value: BrendanActivity) { brendanActivity = value; brendan?.setActivity(value); },
     bridge, water, waterfall, mountain, damageBridge, breakBridge,
     setImpact(age: number) {
       crater.visible = age >= 0;
@@ -1015,11 +1013,11 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
       riverWater.update(dt);
       sourceWater.update(dt);
       if (ship.root.visible) ship.update(dt);
-      if (boy.visible) mixer?.update(dt);
+      brendan?.update(dt, characterContact?.position);
       if (!culling) crowns.rotation.z = Math.sin(windTime * 0.45) * 0.001;
     },
     dispose() {
-      if (disposed) return; disposed = true; mixer?.stopAllAction();
+      if (disposed) return; disposed = true; brendan?.dispose();
       waterfall.setLocked(false);
       if (ledgeBody.world === physics.world) physics.world.removeBody(ledgeBody);
       rockDebris.dispose(); obstacleVisuals.clear(); instanceLocations.clear(); pendingImpacts.length = 0; fallingTrees.length = 0;

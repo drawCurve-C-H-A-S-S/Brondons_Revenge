@@ -4,6 +4,7 @@ import { loadToolModel } from '../core/loader.js';
 import type { Player } from './player.js';
 import { registerTouchAttackCallback, refreshTouchAttackButton } from './touchControls.js';
 import { isControllerEvent, inputHint } from './gamepadInput.js';
+import type { FirstPersonHands } from './firstPersonHands.js';
 
 export type DamageWeapon = 'pistol' | 'crowbar' | 'lightsaber' | 'unarmed' | 'tackle';
 export interface DamageTarget {
@@ -27,6 +28,7 @@ interface WeaponContext {
     shoot(): void;
   };
   holsterOther?: () => void;
+  firstPersonHands?: FirstPersonHands | null | (() => FirstPersonHands | null);
   onShot?: (point: THREE.Vector3, origin: THREE.Vector3) => void;
 }
 function belongsTo(object: THREE.Object3D, root: THREE.Object3D) {
@@ -81,6 +83,10 @@ export class PistolController {
     new THREE.MeshBasicMaterial({ color: 0xff2b2b, transparent: true, opacity: 0.85, depthWrite: false }));
   private beamLife = 0;
   private lastAvailable: boolean | null = null;
+  private model: THREE.Group | null = null;
+  private muzzlePosition = new THREE.Vector3();
+  private muzzleQuat = new THREE.Quaternion();
+  private cameraQuat = new THREE.Quaternion();
   private crosshair: HTMLElement | null;
   private status: HTMLElement | null;
   private unregisterTouchAttack: () => void;
@@ -105,6 +111,7 @@ export class PistolController {
         if (object instanceof THREE.Mesh) object.castShadow = true;
       });
       this.root.add(gltf.scene);
+      this.model = gltf.scene;
       this.loaded = true;
       this.updateStatus();
     }).catch(error => {
@@ -209,9 +216,15 @@ export class PistolController {
     this.flash.visible = this.recoil > 0.065;
     this.beamLife = Math.max(0, this.beamLife - frame);
     this.beam.visible = this.beamLife > 0;
-    const { scene, camera, player, thirdPerson, weaponAnimation } = this.context();
+    const { scene, camera, player, thirdPerson, weaponAnimation, firstPersonHands: handsSource } = this.context();
+    const firstPersonHands = typeof handsSource === 'function' ? handsSource() : handsSource;
     this.root.visible = this.loaded && this.equipped && !!player?.isEnabled() && !player.getState().sliding && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling;
     weaponAnimation?.setEquipped(this.root.visible);
+    if (firstPersonHands && this.root.visible && !thirdPerson) {
+      firstPersonHands.setWeapon('pistol');
+      firstPersonHands.setRecoil(this.recoil / 0.1);
+      firstPersonHands.update(null);
+    }
     if (!scene || !camera || !this.root.visible) { this.root.removeFromParent(); this.beam.removeFromParent(); return; }
     camera.updateMatrixWorld(true);
     const socket = thirdPerson ? weaponAnimation?.socket : null;
@@ -219,13 +232,30 @@ export class PistolController {
       if (this.root.parent !== socket) socket.add(this.root);
       this.root.position.set(0, 0, 0);
       this.root.quaternion.identity();
-    } else {
+      if (this.model) this.model.visible = true;
+    } else if (thirdPerson || !firstPersonHands) {
       if (this.root.parent !== scene) scene.add(this.root);
       this.root.position.set(0.24, -0.24, -0.48 + this.recoil * 0.4).applyMatrix4(camera.matrixWorld);
       camera.getWorldQuaternion(this.root.quaternion);
       this.root.rotateX(this.recoil * 0.7);
+      if (this.model) this.model.visible = true;
+    } else {
+      if (this.root.parent !== scene) scene.add(this.root);
+      if (this.model) this.model.visible = false;
+      firstPersonHands.getMuzzle(camera, this.muzzlePosition, this.muzzleQuat);
+      this.root.position.copy(this.muzzlePosition).applyMatrix4(camera.matrixWorld);
+      this.root.quaternion.copy(camera.getWorldQuaternion(this.cameraQuat)).multiply(this.muzzleQuat);
     }
     this.root.updateWorldMatrix(true, true);
+  }
+
+  renderFirstPerson(renderer: THREE.WebGLRenderer) {
+    const { player, thirdPerson, hasPistol, firstPersonHands: handsSource } = this.context();
+    const hands = typeof handsSource === 'function' ? handsSource() : handsSource;
+    if (hasPistol !== false && this.loaded && this.equipped && !thirdPerson && player?.isEnabled()
+      && !player.getState().sliding && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling) {
+      hands?.render(renderer);
+    }
   }
 
   private clearFeedback = () => {

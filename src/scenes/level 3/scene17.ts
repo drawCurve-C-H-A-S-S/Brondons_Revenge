@@ -64,7 +64,8 @@ export function createScene({ entryState, fromFacility = false, onRespawn, onFin
     });
     physicsWorld.addBody(body); site.trackStaticBody(body);
   }
-  site.trackStaticBody(physics.addBox({ x: 0.55, y: 1.75, z: 0.55 }, { x: RESCUE_SITE.boy.x, y: 0.875, z: RESCUE_SITE.boy.z }));
+  const brendanBody = physics.addBox({ x: 0.55, y: 1.75, z: 0.55 }, { x: RESCUE_SITE.boy.x, y: 0.875, z: RESCUE_SITE.boy.z });
+  site.trackStaticBody(brendanBody);
   // Use the final render camera, including third-person offsets, without advancing simulation.
   scene.onBeforeRender = (_renderer, _scene, viewCamera) => site.updateVisibility(viewCamera, player.body.position);
 
@@ -798,7 +799,10 @@ export function createScene({ entryState, fromFacility = false, onRespawn, onFin
       if (disposed || paused || document.hidden || document.body.classList.contains('quick-menu-open')) return;
       dt = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, PHYSICS.maxFrameTime)); animationDelta = dt;
       waterfallContact.headY = player.getHeadY();
+      site.setBrendanActivity(arrivalClock < 7 && !fromFacility ? 'talk' : 'ambient');
       site.update(dt, waterfallContact);
+      brendanBody.position.set(boy.position.x, boy.position.y + 0.875, boy.position.z);
+      brendanBody.aabbNeedsUpdate = true; physicsWorld.broadphase.dirty = true;
       if (deathClock > 0) {
         if (sharkClock >= 0) updateSharkSwarm(dt);
         deathClock = Math.max(0, deathClock - dt);

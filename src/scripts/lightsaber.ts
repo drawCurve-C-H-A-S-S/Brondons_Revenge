@@ -7,6 +7,7 @@ import type { Player } from './player.js';
 import { LightsaberAudio } from './lightsaberAudio.js';
 import { registerTouchAttackCallback, refreshTouchAttackButton } from './touchControls.js';
 import { isControllerEvent } from './gamepadInput.js';
+import type { FirstPersonHands } from './firstPersonHands.js';
 import {
   directionalSwordAttack, MELEE_STRIKES, SWORD_ATTACK_CLIPS, swordHitWindows, type PlayerSwordStrike,
 } from './finaleChoreography.js';
@@ -40,6 +41,7 @@ interface LightsaberContext {
   openDoor: () => void;
   holsterOther?: () => void;
   getParryableBolts?: () => ParryableBolt[];
+  firstPersonHands?: FirstPersonHands | null | (() => FirstPersonHands | null);
 }
 
 export class LightsaberController {
@@ -63,6 +65,10 @@ export class LightsaberController {
   private sourceRotation = new THREE.Quaternion();
   private cameraPosition = new THREE.Vector3();
   private characterPosition = new THREE.Vector3();
+  private posePosition = new THREE.Vector3();
+  private poseQuaternion = new THREE.Quaternion();
+  private yawInverse = new THREE.Quaternion();
+  private yAxis = new THREE.Vector3(0, 1, 0);
   private ignitionTime = 0;
   private parryWindow = 0;
   private parryPerfect = false;
@@ -183,7 +189,8 @@ export class LightsaberController {
       this.parryPerfect = this.parryWindow > PARRY_TOTAL_SECONDS - PARRY_PERFECT_SECONDS;
     }
     const context = this.context();
-    const { scene, camera, player, character, thirdPerson, hasLightsaber, setCharacterEquipped } = context;
+    const { scene, camera, player, character, thirdPerson, hasLightsaber, setCharacterEquipped, firstPersonHands: handsSource } = context;
+    const firstPersonHands = typeof handsSource === 'function' ? handsSource() : handsSource;
     if (!hasLightsaber && this.equipped) this.holster();
     const usable = !!player?.isEnabled() && player.getHealth() > 0 && !player.getState().climbing
       && !player.getState().sliding && !player.getState().ventMode && !player.getState().boxHandling;
@@ -193,8 +200,24 @@ export class LightsaberController {
       this.ignitionTime = Math.max(0, this.ignitionTime - frame);
       if (this.ignitionTime === 0) this.audio.startHum();
     } else this.audio.stopHum();
-    this.root.visible = active && !thirdPerson;
+    this.root.visible = active && !thirdPerson && !firstPersonHands;
     const sourceWeapon = character?.getObjectByName('lightsaber');
+    if (firstPersonHands && active && !thirdPerson && player) {
+      firstPersonHands.setWeapon('lightsaber');
+      if (this.swingTime > 0 && camera && character && sourceWeapon) {
+        camera.getWorldPosition(this.cameraPosition);
+        character.getWorldPosition(this.characterPosition);
+        this.yawInverse.setFromAxisAngle(this.yAxis, -player.getState().yaw);
+        sourceWeapon.getWorldPosition(this.posePosition);
+        this.posePosition.x -= this.characterPosition.x;
+        this.posePosition.y -= this.cameraPosition.y;
+        this.posePosition.z -= this.characterPosition.z;
+        this.posePosition.applyQuaternion(this.yawInverse);
+        this.poseQuaternion.copy(this.yawInverse).multiply(sourceWeapon.getWorldQuaternion(this.sourceRotation));
+        firstPersonHands.setLightsaberPose(this.posePosition, this.poseQuaternion, camera.fov);
+      } else firstPersonHands.setLightsaberPose(null);
+      firstPersonHands.update(this.swingTime > 0 ? 1 - this.swingTime / this.swingDuration : null);
+    }
     if (scene && camera && character && sourceWeapon && this.root.visible) {
       camera.updateMatrixWorld(true);
       scene.add(this.root);
@@ -215,7 +238,7 @@ export class LightsaberController {
       this.queuedMove = null; this.keyboardClickTimes = [];
       this.previousSegment = null; this.melee.reset(); return;
     }
-    const weapon = thirdPerson ? sourceWeapon : this.root.getObjectByName('lightsaber');
+    const weapon = thirdPerson || firstPersonHands ? sourceWeapon : this.root.getObjectByName('lightsaber');
     if (!weapon) return;
     const segment = getWeaponSegment(weapon);
     if (previousSwing > 0) {
@@ -241,6 +264,15 @@ export class LightsaberController {
     if (previousSwing > 0 && this.swingTime === 0 && this.queuedMove) {
       const move = this.queuedMove; this.queuedMove = null;
       this.swing(move);
+    }
+  }
+
+  renderFirstPerson(renderer: THREE.WebGLRenderer) {
+    const { player, thirdPerson, hasLightsaber, firstPersonHands: handsSource } = this.context();
+    const hands = typeof handsSource === 'function' ? handsSource() : handsSource;
+    if (hasLightsaber && this.equipped && !thirdPerson && player?.isEnabled() && player.getHealth() > 0
+      && !player.getState().sliding && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling) {
+      hands?.render(renderer);
     }
   }
 

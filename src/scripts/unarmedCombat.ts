@@ -100,6 +100,11 @@ export class UnarmedCombatController {
       return;
     }
     this.tacklePlayer = null; this.previousSlideTime = 0; this.tackle.reset();
+    if (context.unarmed && !context.thirdPerson) {
+      const hands = context.firstPersonHands();
+      hands?.setWeapon('unarmed');
+      hands?.update(null, 'jab');
+    }
     if (!context.unarmed || !state.isOnGround || state.climbing || state.ventMode || state.floating || state.boxHandling
       || (this.punch && this.punch.player !== player)) { this.punch = null; this.fists.reset(); return; }
     const punch = this.punch;
@@ -116,9 +121,11 @@ export class UnarmedCombatController {
   }
 
   renderFirstPerson(renderer: THREE.WebGLRenderer) {
-    if (!this.punch) return;
     const context = this.context();
-    if (context.unarmed && !context.thirdPerson && context.player === this.punch.player && context.player.isEnabled()) {
+    const player = context.player;
+    if (context.unarmed && !context.thirdPerson && player?.isEnabled() && player.getHealth() > 0
+      && !player.getState().sliding && !player.getState().climbing && !player.getState().ventMode
+      && !player.getState().floating && !player.getState().boxHandling) {
       context.firstPersonHands()?.render(renderer);
     }
   }

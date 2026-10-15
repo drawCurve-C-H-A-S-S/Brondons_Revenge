@@ -4,6 +4,7 @@ import { clone as cloneRig } from 'three/addons/utils/SkeletonUtils.js';
 import playerModelUrl from '../assets/models/Don.glb';
 import mcModelUrl from '../assets/models/MC.glb';
 import subjectModelUrl from '../assets/models/Subject.glb';
+import brendanModelUrl from '../assets/models/DonfromStreets.glb';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import dinoModelUrl from '../assets/models/Dino/dino.glb';
 import sharkModelUrl from '../assets/models/Dino/Shark.glb';
@@ -127,6 +128,11 @@ export async function loadBoyModel() {
   return gltf;
 }
 export async function loadMCModel() { return cloneModel(await modelTemplate(mcModelUrl)); }
+export async function loadBrendanModel() {
+  const model = cloneModel(await modelTemplate(brendanModelUrl));
+  applyPlayerCelShading(model.scene);
+  return model;
+}
 export async function loadSubjectModel() { return cloneModel(await modelTemplate(subjectModelUrl)); }
 export async function loadGundamModel() { return cloneModel(await modelTemplate(gundamModelUrl)); }
 export async function preloadToolModel(name: ToolModelName) { await toolTemplate(name); }
@@ -221,7 +227,7 @@ const toolAssets = import.meta.glob<string>([
   '../assets/textures/T_Trim_03_{Normal,Cables,ORM,BaseColor}.png',
   '../assets/textures/T_Trim_01_{Normal,BaseColor_Red,ORM}.png',
 ], { eager: true, query: '?url', import: 'default' });
-export const MODEL_ASSET_URLS = [playerModelUrl, mcModelUrl, subjectModelUrl, dinoModelUrl, sharkModelUrl,
+export const MODEL_ASSET_URLS = [playerModelUrl, mcModelUrl, subjectModelUrl, brendanModelUrl, dinoModelUrl, sharkModelUrl,
   bossModelUrl, mothershipModelUrl, ...Object.values(toolAssets)];
 const toolUrls = new Map(Object.entries(toolAssets).map(([path, url]) => [path.split('/').pop()!, url]));
 gltfLoader.manager.setURLModifier(url => {

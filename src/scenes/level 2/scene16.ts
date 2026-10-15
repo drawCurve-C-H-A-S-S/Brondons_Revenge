@@ -195,7 +195,8 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
     const walkFacing = Math.atan2(RESCUE_SITE.boy.x - hatchExit.x, RESCUE_SITE.boy.z - hatchExit.z);
     const playerFacing = Math.atan2(player.body.position.x - site.boy.position.x, player.body.position.z - site.boy.position.z);
     site.boy.rotation.y = walkFacing + Math.atan2(Math.sin(playerFacing - walkFacing), Math.cos(playerFacing - walkFacing)) * THREE.MathUtils.smoothstep(t, 16.5, 17.3);
-    site.setWalking(t >= 14 && t < 17); site.update(dt);
+    site.setBrendanActivity(t >= 14 && t < 17 ? 'walk' : t >= 17 && t < 30 ? 'talk' : 'idle');
+    site.update(dt);
     for (let i = 0; i < crashBits.count; i++) {
       const age = t - 2.05, impact = groundPodImpact;
       const speed = 2 + i % 6, angle = i * 2.4;

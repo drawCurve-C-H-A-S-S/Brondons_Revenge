@@ -119,27 +119,31 @@ export function createFinaleAftermath(scene: THREE.Scene, boy: THREE.Group, fore
     pilotResources = captureFinaleResources(asset.scene);
     if (disposed) { pilotResources.dispose(); return; }
     boyHead = boy.getObjectByName('Head') ?? null;
-    if (!boyHead) throw new Error('The final surface transmission requires Brendan and his Subject.glb head bone');
+    if (!boyHead) throw new Error('The final surface transmission requires Brendan and his DonfromStreets.glb head bone');
+    const scorchedMaterials = new Set<THREE.Material>();
     boy.traverse(node => {
       if (node instanceof THREE.Bone) boyBones.push({ bone: node, rest: node.quaternion.clone() });
       if (!(node instanceof THREE.Mesh)) return;
       if (node.name === 'Plane' && !(node instanceof THREE.SkinnedMesh)) { node.visible = false; return; }
       for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
-        if (!(material instanceof THREE.MeshStandardMaterial)) continue;
+        if (!(material instanceof THREE.MeshStandardMaterial) || scorchedMaterials.has(material)) continue;
+        scorchedMaterials.add(material);
         material.roughness = 0.96;
-        material.onBeforeCompile = shader => {
+        const shade = material.onBeforeCompile, shadingKey = material.customProgramCacheKey();
+        material.onBeforeCompile = (shader, renderer) => {
+          shade.call(material, shader, renderer);
           Object.assign(shader.uniforms, burnUniforms);
           shader.vertexShader = 'varying vec3 vScorchP;\n' + shader.vertexShader
             .replace('#include <begin_vertex>', '#include <begin_vertex>\nvScorchP = position;');
           shader.fragmentShader = 'varying vec3 vScorchP; uniform float uBurn; uniform float uScorchTime;\n' + shader.fragmentShader
-            .replace('#include <color_fragment>', `#include <color_fragment>
+            .replace('#include <opaque_fragment>', `
               float charNoise = fract(sin(dot(floor(vScorchP * 38.0), vec3(12.9, 78.2, 36.4))) * 43758.5);
-              diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.018, 0.012, 0.011), uBurn * (0.92 + charNoise * 0.08));`)
-            .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+              outgoingLight = mix(outgoingLight, vec3(0.018, 0.012, 0.011), uBurn * (0.92 + charNoise * 0.08));
               float ember = pow(max(0.0, sin(vScorchP.y * 53.0 + vScorchP.x * 41.0 + uScorchTime)), 32.0);
-              totalEmissiveRadiance += vec3(0.85, 0.065, 0.008) * ember * uBurn * (1.0 - uBurn * 0.65);`);
+              outgoingLight += vec3(0.85, 0.065, 0.008) * ember * uBurn * (1.0 - uBurn * 0.65);
+              #include <opaque_fragment>`);
         };
-        material.customProgramCacheKey = () => 'finale-brendan-scorched-v1';
+        material.customProgramCacheKey = () => `${shadingKey}-finale-brendan-scorched-v2`;
         material.needsUpdate = true;
       }
     });
