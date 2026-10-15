@@ -348,6 +348,76 @@ export function createScene({ entryState, onRespawn, onFinished }: {
   revealLight.position.set(0, MEZZ_Y + 2.4, -14);
   scene.add(revealLight);
 
+  // ── Observation-deck fit-out (fills the containment bay + deck) ────────────
+  const circuitTexture = () => {
+    const c = document.createElement('canvas'); c.width = 512; c.height = 256;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#04141a'; g.fillRect(0, 0, 512, 256);
+    g.strokeStyle = 'rgba(45,225,215,0.8)'; g.lineWidth = 2;
+    for (let i = 0; i < 46; i++) {
+      const x = (i * 97) % 512, y = (i * 61) % 256;
+      const dx = (i % 2 ? 1 : -1) * (30 + (i * 13) % 80);
+      const dy = (i % 3 ? 1 : -1) * (20 + (i * 7) % 60);
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x + dx, y); g.lineTo(x + dx, y + dy); g.stroke();
+    }
+    g.fillStyle = 'rgba(90,255,240,0.9)';
+    for (let i = 0; i < 34; i++) { g.beginPath(); g.arc((i * 131) % 512, (i * 89) % 256, 3, 0, Math.PI * 2); g.fill(); }
+    return new THREE.CanvasTexture(c);
+  };
+  const schematicTexture = () => {
+    const c = document.createElement('canvas'); c.width = 512; c.height = 200;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#06222a'; g.fillRect(0, 0, 512, 200);
+    g.strokeStyle = '#37e6d6'; g.lineWidth = 2;
+    g.strokeRect(16, 16, 150, 80); g.strokeRect(16, 108, 150, 76);
+    g.strokeRect(182, 16, 314, 110); g.strokeRect(182, 138, 314, 46);
+    g.beginPath(); g.arc(91, 146, 26, 0, Math.PI * 2); g.stroke();
+    g.beginPath(); g.arc(91, 146, 16, 0, Math.PI * 1.4); g.stroke();
+    for (let i = 0; i < 9; i++) { g.fillStyle = `rgba(55,230,214,${0.3 + 0.07 * i})`; g.fillRect(196 + i * 32, 40 + ((i * 29) % 40), 18, 70); }
+    g.fillStyle = '#8ff6ea';
+    for (let i = 0; i < 26; i++) g.fillRect(196 + ((i * 37) % 290), 150 + ((i * 11) % 28), 12, 3);
+    return new THREE.CanvasTexture(c);
+  };
+  const deckDark = new THREE.MeshStandardMaterial({ color: 0x0a1820, metalness: 0.6, roughness: 0.45 });
+  const cyanGlow = new THREE.MeshBasicMaterial({ color: 0x37e6d6 });
+  const redGlow = new THREE.MeshBasicMaterial({ color: 0xff4433 });
+  const circuitMat = new THREE.MeshBasicMaterial({ map: circuitTexture() });
+
+  // Circuit-board backdrop across the containment bay's north wall
+  const bayPanel = new THREE.Mesh(new THREE.PlaneGeometry(W * 2 - 2, 2.6), circuitMat);
+  bayPanel.position.set(0, MEZZ_Y + 1.4, -D + 0.12); scene.add(bayPanel);
+  box([W * 2 - 1.4, 0.18, 0.18], [0, MEZZ_Y + 2.8, -D + 0.2], deckDark, false);
+  box([W * 2 - 1.4, 0.18, 0.18], [0, MEZZ_Y + 0.02, -D + 0.2], deckDark, false);
+  const bayStrip = new THREE.Mesh(new THREE.BoxGeometry(W * 2 - 2, 0.06, 0.08), cyanGlow);
+  bayStrip.position.set(0, MEZZ_Y + 0.08, -D + 0.22); scene.add(bayStrip);
+
+  // Big angled schematic display high on the north wall above the pods
+  box([10.8, 2.3, 0.25], [0, MEZZ_Y + 3.4, -D + 0.35], deckDark, false);
+  const display = new THREE.Mesh(new THREE.PlaneGeometry(10.2, 1.8), new THREE.MeshBasicMaterial({ map: schematicTexture() }));
+  display.position.set(0, MEZZ_Y + 3.4, -D + 0.5); display.rotation.x = 0.28; scene.add(display);
+
+  // Cyan ceiling strip lights across the bay / deck
+  for (const cz of [-16, -12, -8, -4, 0]) {
+    const s = new THREE.Mesh(new THREE.BoxGeometry(W * 2 - 3, 0.05, 0.12), cyanGlow);
+    s.position.set(0, CEIL - 0.3, cz); scene.add(s);
+  }
+
+  // Long console tables with glowing touch-surfaces and red indicator strips
+  function deckConsole(x: number, z: number, yaw: number) {
+    const g = new THREE.Group(); g.position.set(x, MEZZ_Y + 0.2, z); g.rotation.y = yaw; scene.add(g);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.9, 1.1), deckDark);
+    body.position.y = 0.45; body.castShadow = body.receiveShadow = true; g.add(body);
+    const top = new THREE.Mesh(new THREE.PlaneGeometry(2.9, 0.9), cyanGlow);
+    top.rotation.x = -Math.PI / 2; top.position.set(0, 0.91, 0); g.add(top);
+    const red = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.06, 0.06), redGlow);
+    red.position.set(0, 0.55, 0.56); g.add(red);
+    physics.addBox({ x: 1.6, y: 0.45, z: 0.55 }, { x, y: MEZZ_Y + 0.45, z });
+  }
+  deckConsole(-7, -5, 0);
+  deckConsole(7, -5, 0);
+  deckConsole(-10.5, 0, Math.PI / 2);
+  deckConsole(10.5, 0, -Math.PI / 2);
+
   // ── Player / camera ────────────────────────────────────────────────────────
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 200);
   const spawn = { x: 0, y: PHYSICS.playerRadius, z: 10 };
