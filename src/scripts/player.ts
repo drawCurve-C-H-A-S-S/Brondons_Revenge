@@ -44,6 +44,19 @@ export interface PlayerState {
   sliding: boolean;
   slideTime: number;
   slideYaw: number;
+  zeroGMode: boolean;
+}
+
+// Configuration handed to setZeroGMode by the owning scene/boss. The player never imports
+// phase-4 tuning directly, so this stays a plain data contract (no circular dependency).
+export interface ZeroGConfig {
+  axis: THREE.Vector3;
+  tapImpulse: number; moveDamping: number; maxSpeed: number;
+  heatPerTap: number; heatCoolPerSecond: number; overheatLock: number;
+  deckY: number; floatHeight: number; liftGain: number; liftMax: number; liftResponse: number;
+  bounds: { minX: number; maxX: number; minZ: number; maxZ: number; ceiling: number };
+  exclusions: Array<{ x: number; z: number; radius: number }>;
+  restitution: number;
 }
 
 export const PLAYER_MAX_HEALTH = 100;
@@ -146,6 +159,27 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   const groundNormal = new CANNON.Vec3(0, 1, 0);
   const minGroundY = Math.cos(PHYSICS.maxSlopeDegrees * Math.PI / 180);
 
+  // --- Zero-G thruster mode (Bay Warden phase 4). Additive; inert until setZeroGMode(true). ---
+  // Discrete tap input kept structured so a gamepad stick or mobile tilt can feed it later.
+  const zeroGInput = {
+    heldAxis: 0,
+    queuedTap: 0,
+    reset() { this.heldAxis = 0; this.queuedTap = 0; },
+  };
+  const DEFAULT_ZERO_G: ZeroGConfig = {
+    axis: new THREE.Vector3(1, 0, 0),
+    tapImpulse: 0.95, moveDamping: 0.98, maxSpeed: 4.5,
+    heatPerTap: 0.2, heatCoolPerSecond: 0.3, overheatLock: 1.0,
+    deckY: 0, floatHeight: 1.5, liftGain: 3.2, liftMax: 3.4, liftResponse: 8,
+    bounds: { minX: -19, maxX: 19, minZ: -23, maxZ: 23, ceiling: 12 },
+    exclusions: [], restitution: 0.35,
+  };
+  let zeroGMode = false;
+  let zeroGHeat = 0, zeroGOverheat = 0, zeroGImpulseScale = 1, zeroGTapSign = 0, zeroGLiftBlend = 0;
+  let zeroGConfig: ZeroGConfig = DEFAULT_ZERO_G;
+  const zeroGAxis = new THREE.Vector3(1, 0, 0);
+  const ZERO_G_STRAFE_KEYS = ['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight'];
+
   // --- Camera ---
   let yaw = 0;
   let pitch = 0;
@@ -169,6 +203,21 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     if (floatingStrafeOnly) {
       if (e.code !== 'KeyA' && e.code !== 'KeyD') return;
       e.preventDefault();
+    }
+    if (zeroGMode) {
+      // Thruster taps replace walking/jump/crouch/sprint/slide; weapons, look and the wheel pass through.
+      if (ZERO_G_STRAFE_KEYS.includes(e.code)) {
+        e.preventDefault();
+        if (!e.repeat && !keys[e.code]) {
+          const dir = (e.code === 'KeyD' || e.code === 'ArrowRight') ? 1 : -1;
+          zeroGInput.queuedTap = dir; zeroGInput.heldAxis = dir;
+        }
+        keys[e.code] = true;
+        return;
+      }
+      if (e.code === 'Space' || e.code === 'KeyC' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+        e.preventDefault(); keys[e.code] = true; return;
+      }
     }
     if (sideScrollDepth !== null) {
       if (document.hidden || document.body.classList.contains('quick-menu-open') ||
@@ -226,6 +275,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     if (floating) playerBody.velocity.y = 0;
     sprinting = false;
     turnRemaining = 0;
+    zeroGInput.reset();
     cancelSlide();
   }
 
@@ -402,6 +452,43 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       floatTime += _dt;
       return;
     }
+    if (zeroGMode) {
+      // Cancel world gravity so the body hovers (the same trick the boss drones use).
+      playerBody.force.set(
+        -physicsWorld.gravity.x * playerMass,
+        -physicsWorld.gravity.y * playerMass,
+        -physicsWorld.gravity.z * playerMass);
+      // One discrete thruster tap per sub-step along the boss-supplied dodge axis, gated by overheat.
+      const tap = zeroGInput.queuedTap; zeroGInput.queuedTap = 0;
+      if (tap !== 0 && zeroGOverheat <= 0) {
+        const impulse = zeroGConfig.tapImpulse * zeroGImpulseScale * tap;
+        playerBody.velocity.x += zeroGAxis.x * impulse;
+        playerBody.velocity.y += zeroGAxis.y * impulse;
+        playerBody.velocity.z += zeroGAxis.z * impulse;
+        zeroGTapSign = tap;
+        zeroGHeat += zeroGConfig.heatPerTap;
+        if (zeroGHeat >= 1) { zeroGHeat = 1; zeroGOverheat = zeroGConfig.overheatLock; }
+      }
+      // Frame-rate independent glide damping plus a hard speed cap.
+      const damp = Math.pow(zeroGConfig.moveDamping, _dt * 60);
+      playerBody.velocity.x *= damp; playerBody.velocity.z *= damp;
+      const horizontal = Math.hypot(playerBody.velocity.x, playerBody.velocity.z);
+      if (horizontal > zeroGConfig.maxSpeed) {
+        const s = zeroGConfig.maxSpeed / horizontal;
+        playerBody.velocity.x *= s; playerBody.velocity.z *= s;
+      }
+      // Smooth lift-off toward the fixed float height (change B); blend eases the initial rise.
+      zeroGLiftBlend = Math.min(1, zeroGLiftBlend + _dt * 1.6);
+      const targetY = zeroGConfig.deckY + zeroGConfig.floatHeight;
+      const desiredVy = THREE.MathUtils.clamp((targetY - playerBody.position.y) * zeroGConfig.liftGain,
+        -zeroGConfig.liftMax, zeroGConfig.liftMax) * zeroGLiftBlend;
+      playerBody.velocity.y = THREE.MathUtils.lerp(playerBody.velocity.y, desiredVy, 1 - Math.exp(-zeroGConfig.liftResponse * _dt));
+      // Thruster heat cooldown / overheat lockout.
+      if (zeroGOverheat > 0) { zeroGOverheat = Math.max(0, zeroGOverheat - _dt); if (zeroGOverheat === 0) zeroGHeat = 0; }
+      else zeroGHeat = Math.max(0, zeroGHeat - zeroGConfig.heatCoolPerSecond * _dt);
+      jumpQueued = false; intentionalJump = false; isOnGround = false;
+      return;
+    }
     let currentMoveSpeed = boxHandling ? 1.25 : ventMode ? sprinting ? ventSprintSpeed : ventMoveSpeed : crouching ? crouchMoveSpeed : moveSpeed;
     if (sprinting && !crouching) currentMoveSpeed = sprintMoveSpeed;
     if (sliding) {
@@ -443,7 +530,28 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       playerBody.velocity.z = 0;
       playerBody.aabbNeedsUpdate = true;
     }
-    if (enabled && !climbing) updateGroundState(true);
+    if (zeroGMode) {
+      // Clamp inside the bay and out of the lift hole / intact pillars with a soft bounce (change B).
+      const b = zeroGConfig.bounds, r = playerRadius;
+      const pos = playerBody.position, vel = playerBody.velocity, rest = zeroGConfig.restitution;
+      if (pos.x < b.minX + r) { pos.x = b.minX + r; if (vel.x < 0) vel.x = -vel.x * rest; }
+      else if (pos.x > b.maxX - r) { pos.x = b.maxX - r; if (vel.x > 0) vel.x = -vel.x * rest; }
+      if (pos.z < b.minZ + r) { pos.z = b.minZ + r; if (vel.z < 0) vel.z = -vel.z * rest; }
+      else if (pos.z > b.maxZ - r) { pos.z = b.maxZ - r; if (vel.z > 0) vel.z = -vel.z * rest; }
+      if (pos.y > b.ceiling - r) { pos.y = b.ceiling - r; if (vel.y > 0) vel.y = -vel.y * rest; }
+      const floorY = zeroGConfig.deckY + r;
+      if (pos.y < floorY) { pos.y = floorY; if (vel.y < 0) vel.y = -vel.y * rest; }
+      for (const ex of zeroGConfig.exclusions) {
+        const dx = pos.x - ex.x, dz = pos.z - ex.z, minDist = ex.radius + r, distSq = dx * dx + dz * dz;
+        if (distSq >= minDist * minDist) continue;
+        const dist = Math.sqrt(distSq) || 1e-4, nx = dx / dist, nz = dz / dist;
+        pos.x = ex.x + nx * minDist; pos.z = ex.z + nz * minDist;
+        const vn = vel.x * nx + vel.z * nz;
+        if (vn < 0) { vel.x -= (1 + rest) * vn * nx; vel.z -= (1 + rest) * vn * nz; }
+      }
+      playerBody.aabbNeedsUpdate = true;
+    }
+    if (enabled && !climbing && !zeroGMode) updateGroundState(true);
     if (sliding) {
       if (!isOnGround) cancelSlide();
       else for (const contact of physicsWorld.contacts) {
@@ -569,6 +677,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
 
   function dispose() {
     enabled = false;
+    zeroGMode = false;
     clearInput();
     window.removeEventListener('keydown', onKeyDown);
     window.removeEventListener('keyup', onKeyUp);
@@ -698,6 +807,39 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       if (active) floatingStrafeHeight = playerBody.position.y + 1.4;
       clearInput();
     },
+    // --- Zero-G thruster mode (Bay Warden phase 4). Additive; never touches setZeroGravity. ---
+    setZeroGMode: (active: boolean, config?: ZeroGConfig) => {
+      if (config) zeroGConfig = config;
+      if (active === zeroGMode) { if (active && config) zeroGAxis.copy(config.axis); return; }
+      cancelSlide();
+      jumpQueued = false; intentionalJump = false;
+      crouching = false; crouchForced = false; sprinting = false; sliding = false; slideTime = 0;
+      actionRequest = null; actionRequestLife = 0;
+      zeroGInput.reset();
+      zeroGMode = active;
+      if (active) {
+        zeroGAxis.copy(zeroGConfig.axis);
+        zeroGHeat = 0; zeroGOverheat = 0; zeroGLiftBlend = 0; zeroGTapSign = 0;
+        // Keep current velocity; the float spring eases the player up to the fixed height.
+        playerBody.force.set(0, 0, 0);
+        isOnGround = false;
+      } else {
+        zeroGImpulseScale = 1; zeroGTapSign = 0; zeroGHeat = 0; zeroGOverheat = 0; zeroGLiftBlend = 0;
+        zeroGConfig = DEFAULT_ZERO_G;
+        updateGroundState(false);
+      }
+      playerBody.aabbNeedsUpdate = true;
+      playerBody.wakeUp();
+      updateCamera(0);
+    },
+    setZeroGAxis: (axis: THREE.Vector3) => { zeroGAxis.copy(axis); },
+    setZeroGImpulseScale: (scale: number) => { zeroGImpulseScale = Number.isFinite(scale) ? Math.max(0, Math.min(1, scale)) : 1; },
+    getZeroGHeat: () => zeroGHeat,
+    isZeroGOverheated: () => zeroGOverheat > 0,
+    isZeroGMode: () => zeroGMode,
+    // Consumed once per physics sub-step by the boss to spawn a single thruster puff (change F).
+    consumeThrusterTap: () => { const s = zeroGTapSign; zeroGTapSign = 0; return s; },
+    clearZeroGTaps: () => { zeroGInput.reset(); zeroGTapSign = 0; },
     setLookLocked: (locked: boolean) => { lookLocked = locked; },
     setInputLocked: (locked: boolean) => { inputLocked = locked; if (locked) clearInput(); },
     setSideScrollDepth: (depth: number | null) => {
@@ -766,6 +908,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       sliding,
       slideTime,
       slideYaw,
+      zeroGMode,
     }),
   };
 }

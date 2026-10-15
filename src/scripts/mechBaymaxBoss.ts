@@ -26,9 +26,34 @@ export const BOSS_RULES = Object.freeze({
   droneShotInterval: 2.4, droneShotStagger: 0.4, droneShotFirstDelay: 1.4,
   droneLaserSpeed: 15, droneLaserDamage: 5, parryDamage: 50,
 });
+// Phase 4 (zero-gravity net barrage) tuning. Additive; never referenced by phases 1-3.
+// The player floats on a fixed deck height and taps A/D to slide along a lane perpendicular
+// to the boss, dodging telegraphed net volleys. All values are meters/seconds unless noted.
+export const PHASE4_RULES = Object.freeze({
+  phaseFourThreshold: 0.25,
+  // Player thruster feel (consumed by player.setZeroGMode; see the tuning note in the plan).
+  tapImpulse: 0.95, moveDamping: 0.98, maxZeroGSpeed: 4.5,
+  heatPerTap: 0.2, heatCoolPerSecond: 0.3, overheatLock: 1.0,
+  // Fixed float height above the deck with a smooth lift-off spring (change B).
+  floatHeight: 1.5, floatDeckY: 0, floatLiftGain: 3.2, floatLiftMax: 3.4, floatLiftResponse: 8,
+  // Bay bounds the player is clamped inside, plus exclusion circles (change B).
+  boundsMinX: -19, boundsMaxX: 19, boundsMinZ: -23, boundsMaxZ: 23,
+  boundsCeiling: 12, liftHoleX: 0, liftHoleZ: 0, liftHoleRadius: 5.0,
+  pillarClearance: 2.2, bounceRestitution: 0.35,
+  // Net volleys: 1 -> 3 balls, 3.0s -> 1.8s interval, spread across a 3.0 m lane (change C).
+  ballsStart: 1, ballsEnd: 3, volleyIntervalStart: 3.0, volleyIntervalEnd: 1.8,
+  barrageDuration: 24, laneWidth: 3.0, laneSlots: 5,
+  telegraphSeconds: 0.6, netSpeed: 13, netDamage: 12, netRadius: 0.34, netLife: 4.0,
+  nearMissRadius: 1.15, volleysToOverload: 8,
+  // Entanglement reduces thruster impulse 15% per wrap; max wraps traps the player (change D).
+  entangleImpulseFactor: 0.85, maxEntanglement: 3, trappedSeconds: 1.3,
+  // Boss hover anchor during the barrage and the awakening stand-up (change A uses 'rising').
+  bossHoverX: 0, bossHoverZ: 14, bossHoverY: 3.2, awakeningSeconds: 1.2,
+  netPoolSize: 8, puffPoolSize: 10, puffLife: 0.4,
+});
 export type BossPhase = 'dormant' | 'flying' | 'windup' | 'rushing' | 'recovering' | 'falling' | 'exposed' | 'rising'
   | 'phaseThreeAwakening' | 'gravityWindup' | 'gravity' | 'droneExplosion' | 'phaseThreeTargets'
-  | 'phaseThreeRecovery' | 'defeated';
+  | 'phaseThreeRecovery' | 'phaseFourAwakening' | 'zeroG' | 'zeroGTrapped' | 'zeroGOverload' | 'defeated';
 export interface BossPillar { position: THREE.Vector3; intact: () => boolean; shatter: () => void; }
 interface BossOptions {
   loadDrone?: () => ReturnType<typeof loadToolModel>;
@@ -38,6 +63,10 @@ interface BossOptions {
   onDroneApproach?: (drone: THREE.Object3D) => void;
   onDroneExplosion?: (drone: THREE.Object3D, position: THREE.Vector3) => void;
   onDroneExplosionEnd?: () => void;
+  // Phase 4 hooks (additive). onNearMiss receives the lateral side (-1 | 1) the net passed.
+  onPhaseFour?: () => void;
+  onTrapped?: () => void;
+  onNearMiss?: (side: number) => void;
 }
 type DroneState = 'launch' | 'orbit' | 'windup' | 'charge';
 type Drone = {
@@ -107,16 +136,30 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
 
   // --- Floating orbiting targets. ---
   let phaseThree = false, health = BOSS_RULES.health as number, round = 1, remaining = 0;
+  // --- Phase 4 (zero-gravity net barrage) state. Additive; inert until phaseFour is set. ---
+  let phaseFour = false, zeroGActive = false, healthSnapshot = BOSS_RULES.health as number;
+  let entanglement = 0, volleysSurvived = 0, volleyTimer = 0, telegraphTimer = -1, trappedTimer = 0;
+  let netPoolReady = false, puffPoolReady = false, puffCursor = 0;
   let phase: BossPhase = 'dormant';
   let phaseTime = 0, elapsed = 0, shotClock = 0, headCooldown = 0, scanning = false, disposed = false;
   let transformProgress = 0, targetsPhaseThreeMode = false;
-  const healthPhase = () => health <= BOSS_RULES.health * BOSS_RULES.phaseThreeThreshold ? 3
+  const healthPhase = () => health <= BOSS_RULES.health * PHASE4_RULES.phaseFourThreshold ? 4
+    : health <= BOSS_RULES.health * BOSS_RULES.phaseThreeThreshold ? 3
     : health <= BOSS_RULES.health * BOSS_RULES.phaseTwoThreshold ? 2 : 1;
   let lastPhaseThreeState = false;
   let volleyQueue = 0, volleyClock = 0, volleyPattern: AttackPattern = 'single', volleyMuzzle = 0;
   const bolts: Array<{ mesh: THREE.Mesh; velocity: THREE.Vector3; life: number; damage: number; parried: boolean; owner: 'boss' | 'player' }> = [];
   const droneBoltMaterial = new THREE.MeshBasicMaterial({ color: 0xff9424 });
   const fragments: Array<{ mesh: THREE.Mesh; velocity: THREE.Vector3; life: number }> = [];
+  // Phase 4 pooled projectiles, thruster puffs, and the shared dodge axis (all preallocated once).
+  const zeroGAxis = new THREE.Vector3(1, 0, 0);
+  const netBalls: Array<{ mesh: THREE.Mesh; active: boolean; telegraph: boolean; velocity: THREE.Vector3;
+    origin: THREE.Vector3; target: THREE.Vector3; life: number; nearMissed: boolean }> = [];
+  const puffs: Array<{ mesh: THREE.Mesh; life: number }> = [];
+  const netBallMaterial = new THREE.MeshBasicMaterial({ color: 0x9fe8ff, transparent: true, opacity: 0.92 });
+  const netTelegraphMaterial = new THREE.MeshBasicMaterial({ color: 0xff5a3c, transparent: true, opacity: 0.55 });
+  const puffGeometry = new THREE.SphereGeometry(0.16, 8, 6);
+  const puffMaterial = new THREE.MeshBasicMaterial({ color: 0xd6f4ff, transparent: true, opacity: 0.7, depthWrite: false });
 
   function burst(position: THREE.Vector3) {
     for (let i = 0; i < 14; i++) {
@@ -171,6 +214,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     if (health > 0) emitComicEffect(scene, 'hit', { source: root, position: getHeadWorldPosition(), weapon });
     burst(getHeadWorldPosition());
     if (!health) finishBoss();
+    else if (healthPhase() === 4 && !phaseFour) enterPhaseFour();
     else if (healthPhase() === 3 && !phaseThree) enterPhaseThree();
     else if (previousPhase === 1 && healthPhase() === 2) { phase = 'rising'; phaseTime = 0; remaining = 0; }
     return true;
@@ -893,6 +937,241 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     }
   }
 
+  // --- Phase 4: zero-gravity net barrage. Additive; inert until phaseFour is set. ---
+  // Reused temporaries so the 120 Hz net/puff simulation never allocates per frame.
+  const _netFrom = new THREE.Vector3(), _netTo = new THREE.Vector3(), _netDir = new THREE.Vector3();
+  const _netRel = new THREE.Vector3(), _netLat = new THREE.Vector3(), _netPlayer = new THREE.Vector3();
+  const _netToPlayer = new THREE.Vector3(), _netPerp = new THREE.Vector3(), _netUp = new THREE.Vector3(0, 1, 0);
+  const _netOrigin = new THREE.Vector3(), _netTarget = new THREE.Vector3();
+
+  function enterPhaseFour() {
+    phaseFour = true;
+    clearBolts(); removeDrones();
+    entanglement = 0; volleysSurvived = 0; volleyTimer = 0; telegraphTimer = -1; trappedTimer = 0;
+    root.rotation.z = 0;
+    root.position.set(PHASE4_RULES.bossHoverX, root.position.y, PHASE4_RULES.bossHoverZ);
+    // Stand the mech up with a short awakening, then the update loop opens the barrage.
+    phase = 'phaseFourAwakening'; phaseTime = 0; remaining = 0; pillarStun = false;
+    options.onPhaseFour?.();
+  }
+  // The boss owns PHASE4_RULES and the live pillar list, so it hands the player a plain config.
+  // This keeps player.ts free of any import from this module (the boss already imports the player).
+  function buildZeroGConfig() {
+    const exclusions: Array<{ x: number; z: number; radius: number }> = [
+      { x: PHASE4_RULES.liftHoleX, z: PHASE4_RULES.liftHoleZ, radius: PHASE4_RULES.liftHoleRadius },
+    ];
+    for (const pillar of pillars) {
+      if (!pillar.intact()) continue;
+      exclusions.push({ x: pillar.position.x, z: pillar.position.z, radius: PHASE4_RULES.pillarClearance });
+    }
+    return {
+      axis: zeroGAxis,
+      tapImpulse: PHASE4_RULES.tapImpulse, moveDamping: PHASE4_RULES.moveDamping, maxSpeed: PHASE4_RULES.maxZeroGSpeed,
+      heatPerTap: PHASE4_RULES.heatPerTap, heatCoolPerSecond: PHASE4_RULES.heatCoolPerSecond, overheatLock: PHASE4_RULES.overheatLock,
+      deckY: PHASE4_RULES.floatDeckY, floatHeight: PHASE4_RULES.floatHeight,
+      liftGain: PHASE4_RULES.floatLiftGain, liftMax: PHASE4_RULES.floatLiftMax, liftResponse: PHASE4_RULES.floatLiftResponse,
+      bounds: { minX: PHASE4_RULES.boundsMinX, maxX: PHASE4_RULES.boundsMaxX, minZ: PHASE4_RULES.boundsMinZ, maxZ: PHASE4_RULES.boundsMaxZ, ceiling: PHASE4_RULES.boundsCeiling },
+      exclusions, restitution: PHASE4_RULES.bounceRestitution,
+    };
+  }
+  function startZeroGBarrage() {
+    // Snapshot health at the start of EVERY barrage: first entry and each exposed-window return (change E).
+    healthSnapshot = health;
+    entanglement = 0; volleysSurvived = 0; trappedTimer = 0; telegraphTimer = -1;
+    volleyTimer = PHASE4_RULES.volleyIntervalStart * 0.5;
+    for (const ball of netBalls) { ball.active = false; ball.telegraph = false; ball.mesh.visible = false; }
+    root.position.set(PHASE4_RULES.bossHoverX, root.position.y, PHASE4_RULES.bossHoverZ);
+    prepareNetPool(); preparePuffPool();
+    player.setZeroGImpulseScale(1);
+    player.setZeroGMode(true, buildZeroGConfig());
+    zeroGActive = true; phase = 'zeroG'; phaseTime = 0;
+  }
+  function retryPhaseFour() {
+    // In-place reset only (never the loadBay13 checkpoint path). Restore the latest snapshot (changes D + E).
+    health = healthSnapshot;
+    entanglement = 0; volleysSurvived = 0; trappedTimer = 0; telegraphTimer = -1;
+    volleyTimer = PHASE4_RULES.volleyIntervalStart * 0.5;
+    for (const ball of netBalls) { ball.active = false; ball.telegraph = false; ball.mesh.visible = false; }
+    player.setZeroGImpulseScale(1);
+    player.clearZeroGTaps();
+    // The trap disabled zero-G, so re-float unconditionally; revive first if the net damage killed the player.
+    if (!player.isEnabled()) player.enable();
+    player.setZeroGMode(true, buildZeroGConfig());
+    zeroGActive = true; phase = 'zeroG'; phaseTime = 0;
+  }
+  function overloadZeroG() {
+    // Change A: manual finish. Overload drops the mech into the existing fall -> exposed window.
+    zeroGActive = false;
+    for (const ball of netBalls) { ball.active = false; ball.telegraph = false; ball.mesh.visible = false; }
+    player.setZeroGMode(false);
+    emitComicEffect(scene, 'boom', { source: root });
+    emitComicEffect(scene, 'clank', { source: root });
+    phase = 'zeroGOverload'; phaseTime = 0;
+  }
+  function prepareNetPool() {
+    if (netPoolReady) return; netPoolReady = true;
+    for (let i = 0; i < PHASE4_RULES.netPoolSize; i++) {
+      const mesh = new THREE.Mesh(sphereGeometry, netBallMaterial);
+      mesh.name = `BossNetBall-${i}`; mesh.scale.setScalar(PHASE4_RULES.netRadius / 0.5);
+      mesh.visible = false; mesh.frustumCulled = false; scene.add(mesh);
+      netBalls.push({ mesh, active: false, telegraph: false, velocity: new THREE.Vector3(),
+        origin: new THREE.Vector3(), target: new THREE.Vector3(), life: 0, nearMissed: false });
+    }
+  }
+  function preparePuffPool() {
+    if (puffPoolReady) return; puffPoolReady = true;
+    for (let i = 0; i < PHASE4_RULES.puffPoolSize; i++) {
+      const mesh = new THREE.Mesh(puffGeometry, puffMaterial.clone());
+      mesh.name = `BossThrusterPuff-${i}`; mesh.visible = false; mesh.frustumCulled = false; scene.add(mesh);
+      puffs.push({ mesh, life: 0 });
+    }
+  }
+  function launchVolley() {
+    prepareNetPool();
+    _netPlayer.set(player.body.position.x, player.body.position.y, player.body.position.z);
+    _netToPlayer.copy(_netPlayer).sub(root.position); _netToPlayer.y = 0;
+    if (_netToPlayer.lengthSq() < 1e-4) _netToPlayer.set(0, 0, -1);
+    _netToPlayer.normalize();
+    _netPerp.crossVectors(_netUp, _netToPlayer).normalize();
+    const ramp = Math.min(1, volleysSurvived / Math.max(1, PHASE4_RULES.volleysToOverload - 1));
+    const balls = Math.round(PHASE4_RULES.ballsStart + (PHASE4_RULES.ballsEnd - PHASE4_RULES.ballsStart) * ramp);
+    const slots = PHASE4_RULES.laneSlots, spacing = PHASE4_RULES.laneWidth / (slots - 1);
+    // Distinct random slots guarantee spread and leave (slots - balls) >= 2 open gaps (change C).
+    const indices = Array.from({ length: slots }, (_, i) => i);
+    for (let i = indices.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = indices[i]; indices[i] = indices[j]; indices[j] = t; }
+    let launched = 0;
+    for (let n = 0; n < balls; n++) {
+      const ball = netBalls.find(b => !b.active && !b.telegraph);
+      if (!ball) break;
+      const offset = (indices[n] - (slots - 1) / 2) * spacing;
+      _netTarget.copy(_netPlayer).addScaledVector(_netPerp, offset);
+      _netOrigin.copy(getShoulderWorld(n % 2 ? 'r' : 'l'));
+      ball.origin.copy(_netOrigin); ball.target.copy(_netTarget);
+      ball.mesh.position.copy(_netTarget);            // danger marker sits at the arrival point
+      ball.mesh.material = netTelegraphMaterial;
+      ball.mesh.scale.setScalar(PHASE4_RULES.netRadius / 0.5 * 1.4);
+      ball.mesh.visible = true;
+      ball.telegraph = true; ball.active = false; ball.nearMissed = false; ball.life = PHASE4_RULES.telegraphSeconds;
+      ball.velocity.set(0, 0, 0);
+      launched++;
+    }
+    if (launched) {
+      telegraphTimer = PHASE4_RULES.telegraphSeconds;
+      volleysSurvived++;
+      emitComicEffect(scene, 'pew', { source: root, position: getShoulderWorld('l') });
+    }
+  }
+  function stepNetBalls(dt: number) {
+    _netPlayer.set(player.body.position.x, player.body.position.y, player.body.position.z);
+    for (let i = netBalls.length - 1; i >= 0; i--) {
+      const ball = netBalls[i];
+      if (!ball.active) continue;
+      _netFrom.copy(ball.mesh.position);
+      _netTo.copy(_netFrom).addScaledVector(ball.velocity, dt);
+      let distance = Infinity, hitPlayer = false;
+      world.raycastAll(new CANNON.Vec3(_netFrom.x, _netFrom.y, _netFrom.z), new CANNON.Vec3(_netTo.x, _netTo.y, _netTo.z), { skipBackfaces: false }, hit => {
+        if (!hit.body || bossBodies.has(hit.body) || !hit.body.collisionResponse || hit.distance >= distance) return;
+        distance = hit.distance; hitPlayer = hit.body === player.body;
+      });
+      ball.life -= dt;
+      if (hitPlayer || distance !== Infinity || ball.life <= 0 || _netTo.y < 0.05) {
+        if (hitPlayer) {
+          emitComicEffect(scene, 'thud', { source: root, position: _netPlayer.clone() });
+          player.takeDamage(PHASE4_RULES.netDamage);
+          entanglement++;
+          player.setZeroGImpulseScale(Math.pow(PHASE4_RULES.entangleImpulseFactor, entanglement));
+          burst(_netPlayer);
+          if (entanglement >= PHASE4_RULES.maxEntanglement) {
+            zeroGActive = false;
+            for (const b of netBalls) { b.active = false; b.telegraph = false; b.mesh.visible = false; }
+            player.setZeroGMode(false);
+            phase = 'zeroGTrapped'; phaseTime = 0; trappedTimer = PHASE4_RULES.trappedSeconds;
+            options.onTrapped?.();
+            return; // the trap cleared the whole pool; stop iterating (mirrors the stepBolts guard)
+          }
+        }
+        ball.active = false; ball.mesh.visible = false;
+      } else {
+        ball.mesh.position.copy(_netTo);
+        if (!ball.nearMissed) {
+          _netDir.copy(ball.velocity).normalize();
+          _netRel.copy(_netPlayer).sub(_netTo);
+          const along = _netRel.dot(_netDir);
+          if (along < 0) {
+            ball.nearMissed = true;
+            const perpDist = Math.sqrt(Math.max(0, _netRel.lengthSq() - along * along));
+            if (perpDist < PHASE4_RULES.nearMissRadius + player.radius) {
+              _netLat.copy(_netRel).addScaledVector(_netDir, -along); _netLat.y = 0;
+              options.onNearMiss?.(_netLat.lengthSq() > 1e-6 ? (Math.sign(_netLat.dot(zeroGAxis)) || 1) : 1);
+            }
+          }
+        }
+      }
+    }
+  }
+  function emitThrusterPuff(sign: number) {
+    preparePuffPool();
+    const puff = puffs[puffCursor % puffs.length]; puffCursor++;
+    puff.mesh.position.set(
+      player.body.position.x - zeroGAxis.x * sign * 0.45,
+      player.body.position.y - zeroGAxis.y * sign * 0.45 - 0.1,
+      player.body.position.z - zeroGAxis.z * sign * 0.45);
+    puff.mesh.scale.setScalar(0.6);
+    (puff.mesh.material as THREE.MeshBasicMaterial).opacity = 0.7;
+    puff.mesh.visible = true;
+    puff.life = PHASE4_RULES.puffLife;
+  }
+  function stepPuffs(dt: number) {
+    for (const puff of puffs) {
+      if (puff.life <= 0) { if (puff.mesh.visible) puff.mesh.visible = false; continue; }
+      puff.life -= dt;
+      const t = Math.max(0, puff.life / PHASE4_RULES.puffLife);
+      puff.mesh.scale.setScalar(0.6 + (1 - t) * 1.5);
+      (puff.mesh.material as THREE.MeshBasicMaterial).opacity = 0.7 * t;
+      if (puff.life <= 0) puff.mesh.visible = false;
+    }
+  }
+  function updateZeroG(dt: number) {
+    root.position.x = PHASE4_RULES.bossHoverX;
+    root.position.z = PHASE4_RULES.bossHoverZ;
+    // Dodge axis: horizontal, perpendicular to the boss -> player line.
+    _netToPlayer.set(player.body.position.x - root.position.x, 0, player.body.position.z - root.position.z);
+    if (_netToPlayer.lengthSq() < 1e-4) _netToPlayer.set(0, 0, -1);
+    _netToPlayer.normalize();
+    zeroGAxis.crossVectors(_netUp, _netToPlayer).normalize();
+    player.setZeroGAxis(zeroGAxis);
+    // One pooled thruster puff per consumed tap, on the opposite side (change F).
+    const tap = player.consumeThrusterTap();
+    if (tap !== 0) emitThrusterPuff(tap);
+    stepPuffs(dt);
+    if (telegraphTimer > 0) {
+      telegraphTimer -= dt;
+      const pulse = 1.2 + Math.abs(Math.sin(elapsed * 18)) * 0.5;
+      for (const ball of netBalls) if (ball.telegraph) ball.mesh.scale.setScalar(PHASE4_RULES.netRadius / 0.5 * pulse);
+      if (telegraphTimer <= 0) {
+        for (const ball of netBalls) if (ball.telegraph) {
+          ball.telegraph = false; ball.active = true; ball.life = PHASE4_RULES.netLife; ball.nearMissed = false;
+          ball.mesh.material = netBallMaterial; ball.mesh.scale.setScalar(PHASE4_RULES.netRadius / 0.5);
+          ball.mesh.position.copy(ball.origin);
+          _netDir.copy(ball.target).sub(ball.origin);
+          if (_netDir.lengthSq() < 1e-6) _netDir.set(0, 0, -1);
+          ball.velocity.copy(_netDir.normalize().multiplyScalar(PHASE4_RULES.netSpeed));
+        }
+      }
+    } else {
+      volleyTimer -= dt;
+      if (volleyTimer <= 0) {
+        launchVolley();
+        const ramp = Math.min(1, volleysSurvived / Math.max(1, PHASE4_RULES.volleysToOverload - 1));
+        volleyTimer = PHASE4_RULES.volleyIntervalStart + (PHASE4_RULES.volleyIntervalEnd - PHASE4_RULES.volleyIntervalStart) * ramp;
+      }
+    }
+    stepNetBalls(dt);
+    // Overload only once the lane is clear, so the final volley still resolves (change A).
+    const laneClear = telegraphTimer <= 0 && !netBalls.some(b => b.active || b.telegraph);
+    if (laneClear && (volleysSurvived >= PHASE4_RULES.volleysToOverload || phaseTime >= PHASE4_RULES.barrageDuration)) overloadZeroG();
+  }
+
   function update(dt: number) {
     if (disposed) return;
     elapsed += dt; phaseTime += dt; headCooldown = Math.max(0, headCooldown - dt);
@@ -906,7 +1185,8 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     if (phase === 'defeated' || !modelLoaded) return;
     if (phase === 'droneExplosion') { updateDrones(dt); return; }
     if (player.getHealth() <= 0) { removeDrones(); clearBolts(); return; }
-    if (phase === 'flying' || phase === 'dormant' || phase === 'gravityWindup' || phase === 'gravity') {
+    if (phase === 'flying' || phase === 'dormant' || phase === 'gravityWindup' || phase === 'gravity'
+      || phase === 'phaseFourAwakening' || phase === 'zeroG' || phase === 'zeroGTrapped' || phase === 'zeroGOverload') {
       root.rotation.y = Math.atan2(player.body.position.x - root.position.x, player.body.position.z - root.position.z);
     }
     root.rotation.z = phase === 'windup' ? root.rotation.z : 0;
@@ -933,6 +1213,11 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     } else if (phase === 'gravityWindup' && phaseTime >= BOSS_RULES.transformSeconds && droneTemplate) {
       phase = 'gravity'; phaseTime = 0; spawnDroneWave(); options.onPhaseThreeEnd?.();
     }
+    // --- Phase 4 state handling (additive; phases 1-3 never enter these branches). ---
+    if (phase === 'phaseFourAwakening' && phaseTime >= PHASE4_RULES.awakeningSeconds) startZeroGBarrage();
+    else if (phase === 'zeroG') updateZeroG(dt);
+    else if (phase === 'zeroGTrapped') { trappedTimer -= dt; if (trappedTimer <= 0) retryPhaseFour(); }
+    else if (phase === 'zeroGOverload' && phaseTime >= 0.15) beginFall(false);
     if (phase === 'falling' && phaseTime >= 0.85) {
       phase = 'exposed'; phaseTime = 0;
       remaining = pillarStun ? BOSS_RULES.pillarStunSeconds : BOSS_RULES.exposedSeconds;
@@ -943,10 +1228,16 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
         phase = 'rising'; phaseTime = 0; remaining = 0;
       }
     } else if (phase === 'rising' && phaseTime >= 1.2) {
-      round++; shotClock = 0; rushClock = 0; remaining = 0; pillarStun = false;
-      targets.forEach(target => target.reset(healthPhase() === 3 ? 'phase3' : 'phase1'));
-      if (healthPhase() === 3) { removeDrones(); phase = 'gravityWindup'; phaseTime = 0; }
-      else { phase = 'flying'; phaseTime = 0; }
+      if (phaseFour) {
+        // Change A: loop straight back into the barrage, skipping the fly-in cinematic and keeping
+        // current health. startZeroGBarrage re-snapshots health for the next retry (change E).
+        startZeroGBarrage();
+      } else {
+        round++; shotClock = 0; rushClock = 0; remaining = 0; pillarStun = false;
+        targets.forEach(target => target.reset(healthPhase() === 3 ? 'phase3' : 'phase1'));
+        if (healthPhase() === 3) { removeDrones(); phase = 'gravityWindup'; phaseTime = 0; }
+        else { phase = 'flying'; phaseTime = 0; }
+      }
     }
     pose();
 
@@ -976,6 +1267,20 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   return {
     root, head: headHitbox, body: bodyHitbox, targets, headTarget, bodyTarget, ready: Promise.all([modelReady, droneReady]),
     start() { if (phase === 'dormant') { phase = 'flying'; phaseTime = 0; shotClock = 0; } },
+    // Developer entry (scene 13.5): skip straight to the phase-4 zero-G barrage.
+    startAtPhaseFour() {
+      const enter = () => {
+        if (disposed || !modelLoaded) return;
+        phaseFour = true; phaseThree = true;
+        health = Math.min(health, Math.ceil(BOSS_RULES.health * PHASE4_RULES.phaseFourThreshold));
+        removeDrones(); clearBolts();
+        root.visible = true;
+        root.position.set(PHASE4_RULES.bossHoverX, root.position.y, PHASE4_RULES.bossHoverZ);
+        phase = 'phaseFourAwakening'; phaseTime = 0; remaining = 0; pillarStun = false;
+        options.onPhaseFour?.();
+      };
+      if (modelLoaded) enter(); else void modelReady.then(enter).catch(() => {});
+    },
     async prepareRendering(renderer: THREE.WebGLRenderer, camera: THREE.Camera) {
       if (disposed) return;
       const textures = new Set<THREE.Texture>();
@@ -1021,10 +1326,21 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     getStatus: () => ({ phase, phaseThree, combatPhase: healthPhase(), health, maxHealth: BOSS_RULES.health, pillarStun,
       round, remaining, targets: targets.map(t => t.hits()), charging, drones: drones.filter(drone => drone.active).length,
       droneLoadError, projectiles: bolts.length, pillarsRemaining: pillars.filter(p => p.intact()).length,
-      transformProgress, phaseThreeTargetsActive: targetsPhaseThreeMode }),
+      transformProgress, phaseThreeTargetsActive: targetsPhaseThreeMode,
+      phaseFour, zeroGActive, entanglement, maxEntanglement: PHASE4_RULES.maxEntanglement,
+      thrusterHeat: player.getZeroGHeat(), overheated: player.isZeroGOverheated(),
+      volleysSurvived, volleysToOverload: PHASE4_RULES.volleysToOverload }),
     dispose() {
       if (disposed) return; disposed = true; if (phase === 'droneExplosion') options.onDroneExplosionEnd?.();
       unregister(); clearBolts(); disposeDronePool(); fragments.forEach(f => f.mesh.removeFromParent());
+      // Phase 4 cleanup (additive): release the zero-G mode and dispose the net/puff pools.
+      zeroGActive = false;
+      if (phaseFour) player.setZeroGMode(false);
+      for (const ball of netBalls) ball.mesh.removeFromParent();
+      netBalls.length = 0;
+      for (const puff of puffs) { puff.mesh.removeFromParent(); (puff.mesh.material as THREE.Material).dispose(); }
+      puffs.length = 0;
+      netBallMaterial.dispose(); netTelegraphMaterial.dispose(); puffGeometry.dispose(); puffMaterial.dispose();
       for (const { body } of colliders) if (body.world === world) world.removeBody(body);
       mixer?.stopAllAction(); if (modelRoot) { disposeTemplate(modelRoot); modelRoot = null; }
       root.removeFromParent();

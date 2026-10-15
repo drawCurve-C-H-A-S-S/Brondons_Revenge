@@ -1153,14 +1153,14 @@ async function loadCameraVisit(id: CameraRoomId, entryState?: PlayerTransitionSt
   return true;
 }
 
-async function loadBay13(entryState?: PlayerTransitionState, fromServiceLift = false, checkpoint = false) {
+async function loadBay13(entryState?: PlayerTransitionState, fromServiceLift = false, checkpoint = false, startAtPhaseFour = false) {
   // The service-lift ride ends on black; the boss stage loads behind its own chapter screen.
   const loading = beginCinematicLoading('boss', checkpoint ? 0.5 : 1);
   try {
     const module = await prepareScene(13);
     if (!module) { loading?.finish(); return false; }
     const source = currentSceneData, request = sceneRequestVersion;
-    const sceneData = module.createScene({ entryState, fromServiceLift, checkpoint, defeated: bayBossDefeated, renderer,
+    const sceneData = module.createScene({ entryState, fromServiceLift, checkpoint, startAtPhaseFour, defeated: bayBossDefeated, renderer,
       healthPackCollected: healthPackCollectedScene13,
       onHealthPackCollected: () => { healthPackCollectedScene13 = true; },
       onDefeated: () => { bayBossDefeated = true; },
@@ -1397,6 +1397,8 @@ function updatePlayerView(dt: number) {
     return;
   }
   currentSceneData?.applyEntryCamera?.();
+  // Phase 4 near-miss punch (additive): runs right after the entry/return camera blend.
+  currentSceneData?.applyNearMissCamera?.();
 }
 
 // --- Direct scene selection ---
@@ -1808,7 +1810,7 @@ async function jumpToScene(id: number) {
   } else if (id === 1.3 || id === 5 || id === 6) {
     stageTwoProgress.checkpoint = 'surveillance'; stageTwoProgress.guardDown = true;
   }
-  if (id === 13) bayBossDefeated = false;
+  if (id === 13 || id === 13.5) bayBossDefeated = false;
   const request = sceneRequestVersion + 1;
   try {
     switch (id) {
@@ -1821,6 +1823,7 @@ async function jumpToScene(id: number) {
       case 5: if (!await loadCameraVisit('scene5', undefined, true)) throw new Error('The cargo camera room did not activate'); break;
       case 6: if (!await loadCameraVisit('scene6', undefined, true)) throw new Error('The range camera room did not activate'); break;
       case 13: if (!await loadBay13()) throw new Error('Bay 13 did not activate'); break;
+      case 13.5: if (!await loadBay13(undefined, false, false, true)) throw new Error('Bay 13 did not activate'); break;
       case 14: await loadHangar14(); break;
       case 15: await loadFlight15(undefined, undefined, true); break;
       case 15.5: await loadFlight15(undefined, 'scrambler', true); break;

@@ -29,11 +29,12 @@ export function preloadAssets() {
 }
 
 /** Bay 13 arena, reached through the surveillance service elevator. */
-export function createScene({ entryState, fromServiceLift = false, defeated = false, checkpoint = false, onDefeated, onDescend, onRespawn, loadBoy = loadBoyModel, loadDrone, loadBoss, renderer, healthPackCollected: initialHealthPackCollected = false, onHealthPackCollected }: {
+export function createScene({ entryState, fromServiceLift = false, defeated = false, checkpoint = false, startAtPhaseFour = false, onDefeated, onDescend, onRespawn, loadBoy = loadBoyModel, loadDrone, loadBoss, renderer, healthPackCollected: initialHealthPackCollected = false, onHealthPackCollected }: {
   entryState?: PlayerTransitionState;
   fromServiceLift?: boolean;
   defeated?: boolean;
   checkpoint?: boolean;
+  startAtPhaseFour?: boolean;
   onDefeated?: () => void;
   onRespawn?: () => void;
   onDescend?: (state: PlayerTransitionState) => void;
@@ -167,7 +168,7 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
   door.openImmediately();
   let deathClock = 0;
   let bossVictory = false;
-  let disposed = false, cleared = defeated, cinematic: 'entry' | 'versus' | 'awakening' | 'reveal' | 'lift' | null = defeated || checkpoint ? null : 'entry', cinematicTime = 0;
+  let disposed = false, cleared = defeated, cinematic: 'entry' | 'versus' | 'awakening' | 'reveal' | 'lift' | null = defeated || checkpoint || startAtPhaseFour ? null : 'entry', cinematicTime = 0;
   let versus: ReturnType<typeof createHangarVersus> | null = null;
   let arenaSupplyTime = 0, supplyNoticeTime = 0;
   let droneCutscene: { root: THREE.Object3D; stage: 'incoming' | 'impact'; clock: number; time: number; poseTime: number; impactPosition: THREE.Vector3 | null;
@@ -224,6 +225,18 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
   const hud = document.getElementById('boss-hud'), fill = document.getElementById('boss-health-fill');
   const label = document.getElementById('boss-health-label');
   const subtitles = document.getElementById('boss-subtitles');
+  // --- Phase 4 HUD (thruster heat + entanglement pips) and near-miss slow-mo / camera state. ---
+  const phase4Hud = document.getElementById('phase4-hud');
+  const phase4Heat = document.getElementById('phase4-heat-fill');
+  const phase4Pips = document.getElementById('phase4-entangle-pips');
+  const NEAR_MISS = { duration: 0.4, slowMo: 0.45, fovPunch: 9, offset: 0.14 };
+  let nearMissClock = 0, nearMissSide = 1, nearMissBaseFov = 70, nearMissApplied = false, phaseNoticeTime = 0;
+  const nearMissRight = new THREE.Vector3();
+  function triggerNearMiss(side: number) { nearMissSide = Math.sign(side) || 1; nearMissClock = NEAR_MISS.duration; }
+  function showPhaseNotice(text: string) {
+    if (!subtitles) return;
+    subtitles.textContent = text; subtitles.classList.remove('hidden'); phaseNoticeTime = 3.2;
+  }
   const skipButton = document.createElement('button');
   skipButton.type = 'button'; skipButton.className = 'scene-dialogue-skip hidden';
   document.body.appendChild(skipButton);
@@ -297,8 +310,13 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
       player.setRotation(droneCutscene.yaw, droneCutscene.pitch);
       droneCutscene = null; returnToBattle();
     },
+    // Phase 4 hooks (additive): subtitle notices plus the near-miss slow-mo / camera punch.
+    onPhaseFour() { showPhaseNotice('GRAVITY FIELD OFFLINE — TAP A / D TO DODGE THE NETS'); },
+    onTrapped() { showPhaseNotice('ENTANGLED — RESETTING THE BARRAGE'); },
+    onNearMiss(side) { triggerNearMiss(side); },
   });
   if (defeated) boss.dispose();
+  else if (startAtPhaseFour) { door.setLocked(true); player.setPosition(0, player.radius + 0.4, -8); boss.startAtPhaseFour(); }
   else if (checkpoint) { door.setLocked(true); boss.start(); }
   const ready = loadBoy().then(gltf => {
     if (disposed) { disposeRoom(gltf.scene as unknown as THREE.Scene); return; }
@@ -569,6 +587,31 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
     if (cleared && !cinematic && prompt) { prompt.textContent = inputHint('Press E to interact — descend to hangar'); prompt.classList.toggle('hidden', !nearConsole()); }
     if (fill) fill.style.width = `${s.health / s.maxHealth * 100}%`;
     if (label) label.textContent = `BAY WARDEN / ${s.health} / ${s.maxHealth}`;
+    // Phase 4 HUD (additive): thruster heat bar + entanglement pips, inline-styled (no CSS edits).
+    const phase4Visible = s.zeroGActive && !cleared && !cinematic;
+    if (phase4Hud) phase4Hud.classList.toggle('hidden', !phase4Visible);
+    if (phase4Visible) {
+      if (phase4Heat) {
+        phase4Heat.style.width = `${Math.round(THREE.MathUtils.clamp(s.thrusterHeat, 0, 1) * 100)}%`;
+        phase4Heat.style.background = s.overheated ? '#ff4d3d' : '#7fe3ff';
+      }
+      if (phase4Pips) {
+        if (phase4Pips.childElementCount !== s.maxEntanglement) {
+          phase4Pips.textContent = '';
+          for (let i = 0; i < s.maxEntanglement; i++) {
+            const pip = document.createElement('span');
+            pip.style.cssText = 'display:inline-block;width:13px;height:13px;margin:0 3px;border-radius:50%;border:1px solid #9fe8ff;background:#0d2a38;transition:opacity .15s,background .15s;';
+            phase4Pips.appendChild(pip);
+          }
+        }
+        for (let i = 0; i < phase4Pips.childElementCount; i++) {
+          const pip = phase4Pips.children[i] as HTMLElement;
+          const wrapped = i < s.entanglement;
+          pip.style.opacity = wrapped ? '1' : '0.3';
+          pip.style.background = wrapped ? '#ff5a3c' : '#0d2a38';
+        }
+      }
+    }
   }
   const assetsReady = Promise.all([ready, boss.ready]).then(async () => {
     if (disposed || !renderer || defeated) return;
@@ -614,9 +657,24 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
       camera.quaternion.slerpQuaternions(returnRotation, camera.quaternion.clone(), blend);
       camera.fov = THREE.MathUtils.lerp(returnFov, shotFov, blend); camera.updateProjectionMatrix();
     },
+    // Near-miss camera punch (additive): FOV kick + small lateral offset, never touching the quaternion.
+    applyNearMissCamera() {
+      if (nearMissClock <= 0) {
+        if (nearMissApplied) { camera.fov = nearMissBaseFov; camera.updateProjectionMatrix(); nearMissApplied = false; }
+        return;
+      }
+      if (returnClock > 0) return;
+      if (!nearMissApplied) { nearMissBaseFov = camera.fov; nearMissApplied = true; }
+      const p = THREE.MathUtils.clamp(1 - nearMissClock / NEAR_MISS.duration, 0, 1);
+      const punch = Math.sin(p * Math.PI);
+      camera.fov = nearMissBaseFov + NEAR_MISS.fovPunch * punch; camera.updateProjectionMatrix();
+      camera.updateMatrixWorld();
+      nearMissRight.setFromMatrixColumn(camera.matrixWorld, 0);
+      camera.position.addScaledVector(nearMissRight, NEAR_MISS.offset * punch * nearMissSide);
+    },
     onPlayerDeath() {
       if (!onRespawn) return false;
-      if (!deathClock) { deathClock = 2.5; boss.dispose(); freeze(); if (subtitles) { subtitles.textContent = 'WARDEN CHECKPOINT / RESTARTING'; subtitles.classList.remove('hidden'); } }
+      if (!deathClock) { deathClock = 2.5; boss.dispose(); freeze(); phase4Hud?.classList.add('hidden'); if (subtitles) { subtitles.textContent = 'WARDEN CHECKPOINT / RESTARTING'; subtitles.classList.remove('hidden'); } }
       return true;
     },
     updatePhysics(dt: number, thirdPerson = false) {
@@ -644,8 +702,16 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
         }
         subtitles?.classList.add('hidden');
       }
-      const timeScale = !droneCutscene ? 1 : droneCutscene.stage === 'incoming' ? BOSS_RULES.droneExplosionSlow
+      const droneScale = !droneCutscene ? 1 : droneCutscene.stage === 'incoming' ? BOSS_RULES.droneExplosionSlow
         : THREE.MathUtils.lerp(0.25, 1, THREE.MathUtils.smoothstep(droneCutscene.clock, 0.65, 1.3));
+      // Near-miss slow-mo (additive): dip the scene timeScale, never below the drone cutscene scale.
+      let nearMissScale = 1;
+      if (nearMissClock > 0) {
+        nearMissClock = Math.max(0, nearMissClock - dt);
+        const p = THREE.MathUtils.clamp(1 - nearMissClock / NEAR_MISS.duration, 0, 1);
+        nearMissScale = 1 - (1 - NEAR_MISS.slowMo) * Math.sin(p * Math.PI);
+      }
+      const timeScale = Math.min(droneScale, nearMissScale);
       cinematicDelta = dt * timeScale;
       if (droneCutscene?.stage === 'impact') droneCutscene.poseTime += cinematicDelta;
       physics.step(cinematicDelta, player, thirdPerson);
@@ -665,6 +731,10 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
       if (supplyNoticeTime > 0) {
         supplyNoticeTime = Math.max(0, supplyNoticeTime - cinematicDelta);
         if (!supplyNoticeTime && !cinematic && !droneCutscene) subtitles?.classList.add('hidden');
+      }
+      if (phaseNoticeTime > 0) {
+        phaseNoticeTime = Math.max(0, phaseNoticeTime - cinematicDelta);
+        if (!phaseNoticeTime && !supplyNoticeTime && !cinematic && !droneCutscene) subtitles?.classList.add('hidden');
       }
       for (const supply of arenaSupplies) {
         const { pickup } = supply;
@@ -706,7 +776,7 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
       if (disposed) return; disposed = true;
       skipHold.dispose(); skipButton.remove();
       window.removeEventListener('keydown', onKey); prompt?.classList.add('hidden');
-      hud?.classList.add('hidden'); subtitles?.classList.add('hidden');
+      hud?.classList.add('hidden'); subtitles?.classList.add('hidden'); phase4Hud?.classList.add('hidden');
       versus?.dispose(); versus = null;
       boss.dispose(); boyMixer?.stopAllAction(); if (boy) boyMixer?.uncacheRoot(boy);
       player.dispose(); physics.dispose(); disposeRoom(scene); rubbleGeometry.dispose();

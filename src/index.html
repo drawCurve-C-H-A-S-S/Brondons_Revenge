@@ -23,6 +23,14 @@
     <div id="boss-health-track"><div id="boss-health-fill"></div></div>
   </section>
   <div id="boss-subtitles" class="hidden" role="status" aria-live="polite"></div>
+  <section id="phase4-hud" class="hidden" aria-label="Bay Warden phase 4 thruster status"
+    style="position:fixed;left:50%;bottom:15vh;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:7px;pointer-events:none;z-index:6;">
+    <div id="phase4-heat-track" role="progressbar" aria-label="Thruster heat" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
+      style="width:min(240px,46vw);height:10px;border-radius:6px;background:rgba(6,20,30,.72);border:1px solid rgba(159,232,255,.55);overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.55);">
+      <div id="phase4-heat-fill" style="width:0%;height:100%;background:#7fe3ff;transition:width .08s linear,background .2s ease;"></div>
+    </div>
+    <div id="phase4-entangle-pips" aria-label="Net entanglement" style="display:flex;align-items:center;min-height:15px;"></div>
+  </section>
   <section id="escape-qte" class="hidden" role="status" aria-live="assertive" aria-label="Timed escape action">
     <div class="escape-caption">PRESS THE DISPLAYED KEY</div>
     <kbd id="escape-key">Y</kbd>
