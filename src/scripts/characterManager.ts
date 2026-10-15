@@ -9,7 +9,7 @@
  */
 import * as THREE from 'three';
 import type { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { loadPlayerModel, yieldToMainThread } from '../core/loader.js';
+import { loadPlayerModel, setPlayerCellShadingEnabled, yieldToMainThread } from '../core/loader.js';
 import { loadCombatAnimationsForRig, UNARMED_ATTACK_CLIPS, UNARMED_ATTACK_SPEED } from '../core/combatAnimations.js';
 import { createCrowbar } from './items/createCrowbar.js';
 import { createLightsaber, disposeLightsaber, fitLightsaberToHand, fitWeaponToHand, getLightsaberAttackClips, LIGHTSABER_ATTACK_SPEED } from './items/createLightsaber.js';
@@ -24,7 +24,7 @@ interface Vec3Like { x: number; y: number; z: number; }
 export const HOLOGRAM_TRANSFER_DURATION = 1.95;
 export const TELEPORT_TRANSFER_DURATION = 0.18;
 
-interface HologramTransition { blend: number; opacity: number; time: number; }
+interface HologramTransition { blend: number; opacity: number; time: number; melt?: number; }
 
 export function hologramTransitionAt(time: number, arriving = false, duration = HOLOGRAM_TRANSFER_DURATION): HologramTransition {
   const span = Number.isFinite(duration) && duration > 0 ? duration : HOLOGRAM_TRANSFER_DURATION;
@@ -49,6 +49,7 @@ export interface CinematicPose {
   spinAttack?: number;
   handTargets?: { left: Vec3Like; right: Vec3Like; weight: number };
   footTargets?: { left: Vec3Like; right: Vec3Like; weight: number };
+  seatContact?: { position: Vec3Like; weight: number };
 }
 
 const CLIP_NAMES = [
@@ -226,6 +227,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
     hologramTime: { value: 0 },
     hologramBlend: { value: 0 },
     hologramOpacity: { value: 1 },
+    hologramMelt: { value: 0 },
   };
   let hologramActive = false;
   let silhouetteEnabled = false;
@@ -642,6 +644,48 @@ export async function loadCharacter(loader?: GLTFLoader) {
     });
   }
 
+  const seatPelvis = rig.find(({ bone }) => /^(pelvis|hips)$/i.test(bone.name))?.bone;
+  let seatVertices: Array<{ mesh: THREE.SkinnedMesh; indices: number[] }> | null = null;
+  function applySeatContact(contact: NonNullable<CinematicPose['seatContact']>) {
+    if (contact.weight <= 0) return;
+    if (!seatPelvis) throw new Error('The seated character requires a pelvis bone');
+    if (!seatVertices) {
+      seatVertices = [];
+      model.traverse(node => {
+        if (!(node instanceof THREE.SkinnedMesh)) return;
+        const joints = node.geometry.getAttribute('skinIndex'), weights = node.geometry.getAttribute('skinWeight');
+        const hipJoints = new Set(node.skeleton.bones.flatMap((bone, index) =>
+          /pelvis|hips|thigh|upleg/i.test(bone.name) ? [index] : []));
+        const indices: number[] = [];
+        for (let vertex = 0; vertex < joints.count; vertex++) {
+          let influence = 0;
+          for (let component = 0; component < 4; component++)
+            if (hipJoints.has(joints.getComponent(vertex, component))) influence += weights.getComponent(vertex, component);
+          if (influence >= 0.6) indices.push(vertex);
+        }
+        seatVertices!.push({ mesh: node, indices });
+      });
+    }
+    model.updateMatrixWorld(true);
+    const pelvis = seatPelvis.getWorldPosition(new THREE.Vector3());
+    const forward = new THREE.Vector3(0, 0, 1).transformDirection(model.matrixWorld);
+    const vertex = new THREE.Vector3(), relative = new THREE.Vector3();
+    let contactY = Infinity;
+    for (const { mesh, indices } of seatVertices) {
+      mesh.skeleton.update();
+      for (const index of indices) {
+        mesh.getVertexPosition(index, vertex); mesh.localToWorld(vertex);
+        relative.copy(vertex).sub(pelvis);
+        if (relative.dot(forward) <= 0.035 && relative.y > -0.25 && relative.y < 0.04)
+          contactY = Math.min(contactY, vertex.y);
+      }
+    }
+    if (!Number.isFinite(contactY)) throw new Error('Unable to locate the seated character contact surface');
+    model.position.addScaledVector(new THREE.Vector3(contact.position.x - pelvis.x,
+      contact.position.y - contactY + 0.002, contact.position.z - pelvis.z), THREE.MathUtils.clamp(contact.weight, 0, 1));
+    model.updateMatrixWorld(true);
+  }
+
   // ---- Per-frame update ----
 
   function update(
@@ -841,6 +885,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
       for (const grip of gripPose) grip.bone.quaternion.copy(grip.quaternion);
     }
     if (cinematic?.bodyPitch !== undefined) model.rotation.x = cinematic.bodyPitch;
+    if (cinematic?.seatContact) applySeatContact(cinematic.seatContact);
     if (cinematic?.handTargets) applyHandTargets(cinematic.handTargets);
     if (cinematic?.footTargets) applyHandTargets(cinematic.footTargets, legChains);
     if (cinematic?.spinAttack !== undefined) {
@@ -951,7 +996,12 @@ export async function loadCharacter(loader?: GLTFLoader) {
     material.onBeforeCompile = (shader, renderer) => {
       original.onBeforeCompile(shader, renderer);
       Object.assign(shader.uniforms, hologramUniforms);
-      shader.vertexShader = `varying vec3 hologramPosition;\n${shader.vertexShader}`.replace(
+      shader.vertexShader = `varying vec3 hologramPosition;\nuniform float hologramMelt;\n${shader.vertexShader}`
+        .replace('#include <project_vertex>', `
+          transformed.y *= 1.0 - hologramMelt * 0.88;
+          transformed.xz *= 1.0 + hologramMelt * 0.25;
+          #include <project_vertex>
+        `).replace(
         '#include <project_vertex>',
         '#include <project_vertex>\nhologramPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;',
       );
@@ -959,6 +1009,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
         uniform float hologramTime;
         uniform float hologramBlend;
         uniform float hologramOpacity;
+        uniform float hologramMelt;
         varying vec3 hologramPosition;
         ${shader.fragmentShader}
       `.replace('#include <opaque_fragment>', `
@@ -968,6 +1019,9 @@ export async function loadCharacter(loader?: GLTFLoader) {
         float hologramFlicker = 0.96 + 0.04 * sin(hologramTime * 25.0);
         vec3 hologramColor = vec3(0.04, 0.5, 1.4) * (0.6 + hologramScan * 0.28 + hologramRim * 0.8) * hologramFlicker;
         gl_FragColor.rgb = mix(gl_FragColor.rgb, hologramColor, hologramBlend);
+        float corrosion = fract(sin(dot(floor(hologramPosition * 42.0), vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+        if (hologramMelt > 0.0 && corrosion < hologramMelt * 0.9) discard;
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.5, 0.17, 0.025), hologramMelt * 0.8);
         gl_FragColor.a *= hologramOpacity;
       `);
     };
@@ -990,6 +1044,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
     hologramUniforms.hologramTime.value = state.time;
     hologramUniforms.hologramBlend.value = THREE.MathUtils.clamp(state.blend, 0, 1);
     hologramUniforms.hologramOpacity.value = THREE.MathUtils.clamp(state.opacity, 0, 1);
+    hologramUniforms.hologramMelt.value = THREE.MathUtils.clamp(state.melt ?? 0, 0, 1);
     model.visible = state.opacity > 0;
   }
 
@@ -1017,6 +1072,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
 
   return {
     model, mixer, update, setFacing, setHologramTransition, setSilhouetteEnabled, weapon, crowbar, lightsaberAttackClips, unarmedAttackClips,
+    setCellShadingEnabled: (enabled: boolean) => setPlayerCellShadingEnabled(model, enabled),
     setCrowbarEquipped: (equipped: boolean) => { crowbarEquipped = equipped; crowbar.visible = equipped; },
     setLightsaberEquipped: (equipped: boolean) => { lightsaberEquipped = equipped; lightsaber.visible = equipped; },
     setGogglesEquipped: (equipped: boolean) => { goggles.visible = equipped; },

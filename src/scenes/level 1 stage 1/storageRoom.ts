@@ -10,7 +10,7 @@ import { createPlayer, type PlayerTransitionState } from '../../scripts/player.j
 import type { DamageWeapon } from '../../scripts/pistol.js';
 import { getAudioSettings } from '../../helpers/audio/AudioManager.js';
 import { createStealthHangar, HANGAR_LAYOUT } from './stealthHangar.js';
-import { createStealthDirector, isBehindDrone, type StealthActor } from './stealthDirector.js';
+import { createStealthDirector, isInDroneView, type StealthActor } from './stealthDirector.js';
 import beamVertex from '../../shaders/stealthBeam.vert.glsl?raw';
 import beamFragment from '../../shaders/stealthBeam.frag.glsl?raw';
 import { emitComicEffect } from '../../helpers/scene/comicEffects.js';
@@ -105,7 +105,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     box([0.14, STORAGE_CLOSET.doorHeight, 0.32], [side * 0.84, STORAGE_CLOSET.doorHeight / 2, 0], trim);
   }
   const quartersDoor = createSlidingPortal(scene, physics, { x: -14, y: deckY, z: -2.5, yaw: Math.PI / 2 },
-    5, roomHeight, 'LIVING QUARTERS', { doorHeight: 2.5 });
+    5, roomHeight, 'LIVING QUARTERS', { doorHeight: 2.5, landingFloor: false });
   quartersDoor.setLocked(!onReturnToQuarters);
   box([1.6, 0.2, 5], [-14.8, -0.1, -2.5], floor);
   box([1.6, 0.16, 5], [-14.8, roomHeight, -2.5], dark).userData.minimap = false;
@@ -180,7 +180,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   drone.add(lens);
   const droneFacing = new THREE.Vector3(-1, 0, 0);
   const droneTarget = new THREE.Vector3();
-  let droneDown = false, droneDownTime = 0, droneCaptionTime = 0, corridorRearShot = false;
+  let droneDown = false, droneDownTime = 0, droneCaptionTime = 0, corridorSilentShot = false;
   const droneBody = new CANNON.Body({ mass: 0, type: CANNON.Body.KINEMATIC,
     shape: new CANNON.Sphere(0.4), collisionFilterGroup: 2, collisionFilterMask: 1 });
   droneBody.position.set(0, deckY + 2.02, -2.5); physics.world.addBody(droneBody);
@@ -330,7 +330,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     getPlayerPosition: () => player.body.position,
     onDroneShotBlocked: () => {
       droneCaptionTime = 3;
-      if (subtitle) { subtitle.textContent = 'Eye-drone armour. Shoot directly from behind.'; subtitle.classList.remove('hidden'); }
+      if (subtitle) { subtitle.textContent = 'Eye-drone armour. Shoot while outside its view.'; subtitle.classList.remove('hidden'); }
     },
     onAttack: (_actor, damage) => {
       if (!caught && !doorwayTransfer && cinematic?.kind !== 'reveal') {
@@ -575,11 +575,11 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     if (climbing) return;
     if (peeking) endPeek(true);
     else if (!checkpoint && nearDoor()) {
-      if (player.body.position.z < 0) { doorOpen = !doorOpen; player.requestAction('Interact'); }
+      if (player.body.position.z < 0) { doorOpen = !doorOpen; }
       else if (doorOpen) doorOpen = false;
       else beginPeek();
     } else if (nearQuartersDoor()) {
-      quartersRequested = !quartersRequested; player.requestAction('Interact');
+      quartersRequested = !quartersRequested;
     } else if (Math.hypot(player.body.position.x - 14, player.body.position.z + 2.5) < 2.4 && !checkpoint) {
       entranceRequested = true; player.setRotation(-Math.PI / 2, 0); startCinematic('reveal');
     } else {
@@ -763,6 +763,18 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     else showHint('entry', 'Stay behind the containers.');
   }
 
+  function corridorCanSeePlayer() {
+    const from = new CANNON.Vec3(drone.position.x, drone.position.y, drone.position.z);
+    const to = player.body.position.clone();
+    to.y += player.getState().crouching ? 0.6 : 1.3;
+    const distance = from.distanceTo(to);
+    if (distance >= 7.5 || !isInDroneView(from, droneFacing, to, THREE.MathUtils.degToRad(55))) return false;
+    let blocked = false;
+    physics.world.raycastAll(from, to, { skipBackfaces: true, checkCollisionResponse: true }, hit => {
+      if (hit.body && hit.body !== player.body && hit.body !== droneBody && hit.distance < distance - 0.05) blocked = true;
+    });
+    return !blocked;
+  }
   function updatePhysics(dt: number, thirdPerson = false) {
     if (disposed || !active) return;
     const frame = Number.isFinite(dt) ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime)) : 0;
@@ -855,19 +867,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
 
     let visible = false;
     if (!droneDown && corridorEngaged && !peeking && !caught && !checkpoint && alarmAge === 0 && !doorwayTransfer) {
-      const from = player.body.position.clone();
-      from.set(drone.position.x, drone.position.y, drone.position.z);
-      const to = player.body.position.clone();
-      to.y += player.getState().crouching ? 0.6 : 1.3;
-      const distance = from.distanceTo(to);
-      const facing = (to.x - from.x) * droneFacing.x / Math.max(distance, 0.001);
-      if (distance < 7.5 && facing > Math.cos(THREE.MathUtils.degToRad(55))) {
-        let blocked = false;
-        physics.world.raycastAll(from, to, { skipBackfaces: true, checkCollisionResponse: true }, hit => {
-          if (hit.body && hit.body !== player.body && hit.distance < distance - 0.05) blocked = true;
-        });
-        visible = !blocked;
-      }
+      visible = corridorCanSeePlayer();
     }
     if (!caught && alarmAge === 0) suspicion = checkpoint ? director.suspicion
       : THREE.MathUtils.clamp(suspicion + (visible ? frame * 0.95 : -frame * 1.5), 0, 1);
@@ -992,7 +992,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
       : { clip: 'Idle_Loop', time: elapsed },
     onPistolShot: (point: THREE.Vector3) => {
       if (cinematic || peeking || caught || climbing) return;
-      if (corridorRearShot) { corridorRearShot = false; return; }
+      if (corridorSilentShot) { corridorSilentShot = false; return; }
       if (director.consumeSilentDroneShot()) return;
       const panel = hangar.panels.find(item => Math.hypot(point.x - item.position.x, point.z - item.position.z) < 1);
       if (panel) activatePanel(panel.id); else director.emitNoise(point, 21);
@@ -1001,13 +1001,13 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     getDamageTargets: () => [...director.getDamageTargets(), ...droneDown ? [] : [{
       root: drone, body: droneBody, damage: (amount: number, weapon?: DamageWeapon) => {
         if (!Number.isFinite(amount) || amount <= 0) return false;
-        if (weapon !== 'pistol' || !isBehindDrone(drone.position, droneFacing, player.body.position)) {
+        if (weapon !== 'pistol' || corridorCanSeePlayer()) {
           droneCaptionTime = 3;
-          if (subtitle) { subtitle.textContent = 'Eye-drone armour. Shoot directly from behind.'; subtitle.classList.remove('hidden'); }
+          if (subtitle) { subtitle.textContent = 'Eye-drone armour. Shoot while outside its view.'; subtitle.classList.remove('hidden'); }
           corridorEngaged = true;
           return false;
         }
-        droneDown = true; droneDownTime = 0; corridorRearShot = true; suspicion = 0;
+        droneDown = true; droneDownTime = 0; corridorSilentShot = true; suspicion = 0;
         physics.world.removeBody(droneBody); droneLight.intensity = 0; droneLight.shadow.autoUpdate = false; droneBeam.visible = false;
         emitComicEffect(scene, 'clank', { source: drone, position: drone.position.clone(), size: 0.8 }); return true;
       },

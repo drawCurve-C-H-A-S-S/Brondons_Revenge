@@ -94,12 +94,16 @@ export async function loadBoyModel() {
     for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
       if (!(material instanceof THREE.MeshStandardMaterial)) continue;
       material.roughness = 0.88; material.metalness = 0;
-      if (material.name === 'SuitBase') {
-        const positions = node.geometry.getAttribute('position'), colors = new Float32Array(positions.count * 3);
+      if (material.name === 'SuitBase' || material.name === 'SubjectSkin') {
+        const positions = node.geometry.getAttribute('position');
+        if (!positions) return;
+        const colors = new Float32Array(positions.count * 3);
         for (let index = 0; index < positions.count; index++) {
           const y = (positions.getY(index) - bounds.min.y) / height;
           const bareArm = Math.abs(positions.getX(index)) > height * 0.19 && y > 0.58;
-          color.copy(bareArm ? palette.skin : y > 0.53 ? palette.shirt : y > 0.31 ? palette.shorts : palette.skin);
+          const exposedSkin = bareArm || material.name === 'SubjectSkin' && y > 0.8;
+          color.copy(material.name === 'SubjectSkin' && y < 0.075 ? palette.boots
+            : exposedSkin ? palette.skin : y > 0.53 ? palette.shirt : y > 0.31 ? palette.shorts : palette.skin);
           color.toArray(colors, index * 3);
         }
         node.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -127,6 +131,46 @@ export async function loadSubjectModel() { return cloneModel(await modelTemplate
 export async function loadGundamModel() { return cloneModel(await modelTemplate(gundamModelUrl)); }
 export async function preloadToolModel(name: ToolModelName) { await toolTemplate(name); }
 
+const playerCelShading = new WeakMap<THREE.Object3D, { value: number }>();
+
+export function setPlayerCellShadingEnabled(scene: THREE.Object3D, enabled: boolean) {
+  const uniform = playerCelShading.get(scene);
+  if (uniform) uniform.value = enabled ? 1 : 0;
+}
+
+function applyPlayerCelShading(scene: THREE.Object3D) {
+  const enabled = { value: 1 };
+  playerCelShading.set(scene, enabled);
+  const materials = new Set<THREE.MeshStandardMaterial>();
+  scene.traverse(node => {
+    if (!(node instanceof THREE.Mesh)) return;
+    for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
+      if (!(material instanceof THREE.MeshStandardMaterial) || materials.has(material)) continue;
+      materials.add(material);
+      const baseColor = material.emissive.getHex() !== 0 ? material.emissive.clone() : material.color.clone();
+      const unshaded = /faceskin|eyewhites/i.test(material.name);
+      material.customProgramCacheKey = () => 'brondon-two-tone-cel-v2';
+      material.onBeforeCompile = shader => {
+        shader.uniforms.uBrondonColor = { value: baseColor };
+        shader.uniforms.uBrondonUnshaded = { value: unshaded ? 1 : 0 };
+        shader.uniforms.uCellShadingEnabled = enabled;
+        shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `
+          #include <common>
+          uniform vec3 uBrondonColor;
+          uniform float uBrondonUnshaded;
+          uniform float uCellShadingEnabled;
+        `).replace('#include <opaque_fragment>', `
+          vec3 brondonNormal = inverseTransformDirection(normal, viewMatrix);
+          float brondonLight = dot(brondonNormal, normalize(vec3(0.5, 1.0, 0.5)));
+          float brondonShade = uBrondonUnshaded > 0.5 || brondonLight > -0.1 ? 1.0 : 0.5;
+          outgoingLight = uBrondonColor * (uCellShadingEnabled < 0.5 ? 0.3 : brondonShade);
+          #include <opaque_fragment>
+        `);
+      };
+    }
+  });
+}
+
 /** Decode the player asset once; each view gets an independent skeleton and mixer. */
 export async function loadPlayerModel(loader = playerLoader) {
   let pending = playerTemplates.get(loader);
@@ -153,7 +197,10 @@ export async function loadPlayerModel(loader = playerLoader) {
     playerTemplates.set(loader, pending);
   }
   const template = await pending;
-  return cloneModel(template);
+  const model = cloneModel(template);
+  // Install on the clone: Three.js material cloning does not retain shader hooks.
+  applyPlayerCelShading(model.scene);
+  return model;
 }
 
 // Only bundle the tools used by gameplay, including their external dependencies.

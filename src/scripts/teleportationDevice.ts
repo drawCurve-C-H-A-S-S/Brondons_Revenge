@@ -93,6 +93,18 @@ export class TeleportationDeviceController {
     this.state = { collected: false, placed: false, placementScene: null, placementPosition: null, placementRotation: null };
   }
 
+  setMarker(sceneId: string, position: { x: number; y: number; z: number }, rotation: number) {
+    if (!this.state.collected) throw new Error('Cannot set a teleport marker before collecting the device');
+    if (!sceneId || ![position.x, position.y, position.z, rotation].every(Number.isFinite))
+      throw new Error('Teleport markers require a scene and finite coordinates/rotation');
+    this.state.placed = true;
+    this.state.placementScene = sceneId;
+    this.state.placementPosition = { ...position };
+    this.state.placementRotation = rotation;
+    this.markerRadius = this.context().getPlayerRadius();
+    this.update(0);
+  }
+
   private onKeyDown = (event: KeyboardEvent) => {
     if (event.repeat || event.ctrlKey || event.altKey || event.metaKey || !this.state.collected) return;
     if (document.hidden || document.body.classList.contains('quick-menu-open')) return;
@@ -128,12 +140,7 @@ export class TeleportationDeviceController {
     const rejected = ctx.canPlace?.(ctx.currentSceneId, position);
     if (rejected) { ctx.showMessage(rejected); return; }
 
-    this.state.placed = true;
-    this.state.placementScene = ctx.currentSceneId;
-    this.state.placementPosition = { ...position };
-    this.state.placementRotation = rotation;
-    this.markerRadius = ctx.getPlayerRadius();
-    this.update(0);
+    this.setMarker(ctx.currentSceneId, position, rotation);
     ctx.showMessage(ctx.placementMessage?.(ctx.currentSceneId, position)
       ?? 'Marker placed. Press T to return; hold Tab to choose weapons.');
   }

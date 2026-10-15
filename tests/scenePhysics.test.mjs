@@ -14,6 +14,7 @@ let createScenePhysics;
 let createPlayer;
 let PHYSICS;
 let loadCharacter;
+let createSlidingPortal, disposeRoom;
 
 before(async () => {
   server = await createServer({
@@ -25,6 +26,7 @@ before(async () => {
   ({ createScenePhysics, PHYSICS } = await server.ssrLoadModule('/helpers/physics/scenePhysics.ts'));
   ({ createPlayer } = await server.ssrLoadModule('/scripts/player.ts'));
   ({ loadCharacter } = await server.ssrLoadModule('/scripts/characterManager.ts'));
+  ({ createSlidingPortal, disposeRoom } = await server.ssrLoadModule('/helpers/scene/shipRoom.ts'));
 });
 after(async () => { await server?.close(); });
 
@@ -72,6 +74,37 @@ function simpleFixture(t, setup) {
   t.after(() => { player.dispose(); physics.dispose(); restore(); });
   return { physics, player, updatePhysics: dt => physics.step(dt, player) };
 }
+
+for (const cargo of [false, true]) for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+  test(`portal landing has no coplanar overlap with the room deck (cargo: ${cargo}, yaw: ${yaw})`, t => {
+    const restore = browserStubs(), physics = createScenePhysics(), scene = new THREE.Scene();
+    t.after(() => { disposeRoom(scene); physics.dispose(); restore(); });
+    const door = createSlidingPortal(scene, physics, { x: 7, y: 3, z: -11, yaw }, 8, 4.5, 'TEST',
+      cargo ? { cargo: () => [] } : {});
+    const landing = door.group.getObjectByName('PortalExteriorLanding');
+    const support = door.group.getObjectByName('PortalThresholdSupport');
+    assert.ok(landing?.visible); assert.equal(support.visible, false);
+    landing.geometry.computeBoundingBox();
+    const bounds = landing.geometry.boundingBox.clone().translate(landing.position);
+    assert.equal(bounds.max.z, 0, 'the visible landing must end exactly at the room boundary');
+    assert.ok(Math.abs(bounds.max.y) < 1e-6, 'do not raise the threshold to mask duplicate surfaces');
+    assert.equal(bounds.min.z, cargo ? -3 : -2);
+    scene.updateMatrixWorld(true);
+    const world = new THREE.Box3().setFromObject(landing);
+    assert.ok(Math.abs(world.max.y - 3) < 1e-6);
+    assert.equal(physics.world.bodies.length, 6, 'keep the original wall, door and support colliders');
+  });
+}
+
+test('portal uses the existing safe-space deck without generating a second rendered floor', t => {
+  const restore = browserStubs(), physics = createScenePhysics(), scene = new THREE.Scene();
+  t.after(() => { disposeRoom(scene); physics.dispose(); restore(); });
+  const door = createSlidingPortal(scene, physics, { x: 0, y: 0, z: 0, yaw: 0 }, 8, 4.5, 'TEST', { landingFloor: false });
+  assert.equal(door.group.getObjectByName('PortalExteriorLanding'), undefined);
+  const support = door.group.getObjectByName('PortalThresholdSupport');
+  assert.equal(support.visible, false);
+  assert.equal(physics.world.bodies.length, 6, 'removing duplicate rendering must not remove safe-space support');
+});
 
 function grounded(player, message) {
   if (!player.getState().isOnGround) {

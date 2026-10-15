@@ -30,6 +30,10 @@ try {
   }
 } catch { /* Storage is optional; session volume controls still work. */ }
 
+const mutedEmbed = typeof window !== 'undefined' && window.parent !== window
+  && new URLSearchParams(window.location?.search ?? '').get('muted') === '1';
+if (mutedEmbed) { volumes.bgm = 0; volumes.sfx = 0; }
+
 export function getAudioSettings() { return { ...volumes, paused: menuPaused }; }
 function notifyAudioSettings() {
   for (const manager of managers) manager.update();

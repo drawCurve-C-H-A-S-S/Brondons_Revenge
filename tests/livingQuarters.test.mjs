@@ -38,7 +38,7 @@ function browser(t) {
     createImageData: (width, height) => ({ data: new Uint8ClampedArray(width * height * 4) }),
   }, { get: (target, name) => name in target ? target[name] : () => {} });
   class Element extends EventTarget {
-    constructor(tag = 'div') { super(); this.tagName = tag.toUpperCase(); }
+    constructor(tag = 'div') { super(); this.tagName = tag.toUpperCase(); this.ownerDocument = { defaultView: { Element } }; }
     style = { setProperty(name, value) { this[name] = value; } };
     dataset = {}; children = []; textContent = ''; disabled = false; classes = new Set();
     set id(value) { this._id = value; elements.set(value, this); }
@@ -55,6 +55,14 @@ function browser(t) {
     appendChild(node) { this.append(node); return node; }
     remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(node => node !== this); this.parentElement = null; }
     setAttribute(name, value) { this[name] = value; }
+    set src(value) {
+      this._src = value;
+      if (this.tagName === 'IMG') {
+        this.width = 800; this.height = 450;
+        queueMicrotask(() => this.dispatchEvent(new Event('load')));
+      }
+    }
+    get src() { return this._src; }
     getContext() { return context; }
     closest(selector) { return selector.split(',').some(tag => tag.trim().toUpperCase() === this.tagName) ? this : null; }
     getBoundingClientRect() { return { width: 1280, height: 720, left: 0, top: 0, bottom: 720 }; }
@@ -65,6 +73,7 @@ function browser(t) {
   globalThis.document = Object.assign(new EventTarget(), {
     hidden: false, pointerLockElement: null, baseURI: 'http://localhost:5173/', body: new Element('body'),
     createElement: tag => new Element(tag),
+    createElementNS: (_namespace, tag) => new Element(tag),
     getElementById: id => { if (!elements.has(id)) { const node = new Element(); node.id = id; } return elements.get(id); },
   });
   t.after(() => Object.assign(globalThis, previous));
@@ -102,6 +111,43 @@ function leaveCabin(data, cabin) {
   assert.equal(data.getLocation(), 'hallway');
 }
 function leaveBrondon(data) { leaveCabin(data, layout.CABIN_BY_ID.get('brondon')); }
+
+test('Prime blocks cabin gaming during an unfinished campaign without seating or locking the player', async t => {
+  const elements = browser(t), data = await quarters(t);
+  step(data, 3);
+  data.scene.updateMatrixWorld(true);
+  const computer = data.scene.getObjectByName('CabinComputer');
+  assert.ok(computer);
+  assert.equal(data.scene.getObjectByName('CabinComputerScreen').material.map.name, 'CrewGameMenu-brondon');
+  const iframeCount = node => Number(node.tagName === 'IFRAME') + node.children.reduce((count, child) => count + iframeCount(child), 0);
+  assert.equal(iframeCount(document.body), 0, 'An unfinished campaign must not load a live website');
+  const point = computer.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.3, 0));
+  aim(data, point.clone().add(new THREE.Vector3(0, 0, 1.25)), point);
+  data.updateInteractionFocus();
+  assert.match(elements.get('quarters-interact').textContent, /Sit down and play/);
+  key('KeyE');
+  assert.equal(elements.get('quarters-speaker').textContent, 'Prime');
+  assert.match(elements.get('quarters-subtitle-text').textContent, /Lock in.*crewmembers.*You can play when/);
+  assert.equal(elements.get('quarters-subtitle').classList.contains('hidden'), false);
+  assert.equal(data.isCinematic(), false);
+  assert.equal(data.player.isEnabled(), true);
+  step(data, 9.1);
+  assert.equal(elements.get('quarters-subtitle').classList.contains('hidden'), true);
+});
+
+test('the completed-campaign computer embeds the current build with mute enabled', async t => {
+  browser(t);
+  const data = await quarters(t, { allowComputerPlay: true });
+  step(data, 3);
+  data.renderCinematicOverlay({ domElement: document.createElement('canvas') });
+  const frames = [];
+  const collect = node => { if (node.tagName === 'IFRAME') frames.push(node); node.children.forEach(collect); };
+  collect(document.body);
+  assert.equal(frames.length, 1);
+  assert.equal(frames[0].src, 'http://localhost:5173/?muted=1');
+  assert.equal(frames[0].allow, "autoplay 'none'");
+  assert.equal(data.scene.getObjectByName('CabinComputerScreen').material.opacity, 0);
+});
 
 test('eight cabins have four doors per side, three named lecturers, five locked students and distinct posters', () => {
   assert.equal(layout.CABINS.length, 8);
@@ -239,7 +285,13 @@ test('the actual desk and chair glTF assets fit cabin dimensions without floatin
     assert.ok(Math.abs(box.min.y) < 0.001);
     assert.equal(model.scale.x, model.scale.y); assert.equal(model.scale.y, model.scale.z);
   }
-  assert.ok(room.teleporterPoint.y > 0.84 && room.teleporterPoint.y < 1);
+  const device = new THREE.Box3().setFromObject(room.teleporter);
+  const blanket = new THREE.Box3().setFromObject(room.bed.getObjectByName('ExpeditionBlanket'));
+  assert.equal(room.teleporter.parent, room.bed);
+  assert.ok(device.min.y >= blanket.max.y - 1e-6 && device.min.y - blanket.max.y < 0.002);
+  assert.ok(device.min.x >= blanket.min.x && device.max.x <= blanket.max.x);
+  assert.ok(device.min.z >= blanket.min.z && device.max.z <= blanket.max.z);
+  assert.ok(room.teleporterPoint.distanceTo(room.teleporter.getWorldPosition(new THREE.Vector3())) < 0.06);
 });
 
 test('arrival has moving room/hallway shots, hold-Enter skip, no premature control and pause-safe timing', async t => {
@@ -251,7 +303,8 @@ test('arrival has moving room/hallway shots, hold-Enter skip, no premature contr
   assert.ok(paused.equals(data.camera.position)); data.setMenuPaused(false);
   step(data, 8);
   assert.ok(Math.abs(data.camera.position.x) < 1, 'Arrival must cut into the actual living quarters passage');
-  assert.match(elements.get('quarters-subtitle-text').textContent, /only area.*without surveillance/);
+  assert.match(elements.get('quarters-subtitle-text').textContent, /no surveillance in these living quarters/);
+  assert.doesNotMatch(elements.get('quarters-subtitle-text').textContent, /only area/);
   event('keydown', 'Enter'); step(data, 1.2); event('keyup', 'Enter');
   assert.equal(data.isCinematic(), false); assert.equal(data.player.isEnabled(), true);
   assert.equal(data.getLocation(), 'brondon'); assert.equal(data.getMapSceneId(), 'scene21');
@@ -344,7 +397,7 @@ test('pistol, LED teleporter, purple crystal and goggles persist across cabin vi
   assert.equal(progress.pistolCollected, true); assert.equal(pistols, 1);
   assert.equal(data.scene.getObjectByName('RecoveredPistol').visible, false);
   const teleporter = data.scene.getObjectByName('PersonalTeleportDevice');
-  aim(data, layout.cabinPoint(cabin, -1.12, 0.3, 1.1), teleporter.getWorldPosition(new THREE.Vector3()));
+  aim(data, layout.cabinPoint(cabin, 0.5, 0.3, -1.45), teleporter.getWorldPosition(new THREE.Vector3()));
   key('KeyE'); step(data, 5.2); assert.equal(progress.teleporterCollected, true); assert.equal(teleporters, 1);
   assert.equal(teleporter.visible, false); assert.match(layout.quartersObjective(progress), /purple teleport crystal.*Brendan/);
   leaveBrondon(data);

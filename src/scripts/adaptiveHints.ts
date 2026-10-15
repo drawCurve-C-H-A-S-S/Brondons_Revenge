@@ -47,7 +47,7 @@ export class AdaptiveHintManager {
         'The crates near the ladder look breakable with the right tool.',
         'Find the crowbar in the cargo bay to break those crates.',
       ],
-      delays: [30, 60, 90],
+      delays: [45, 90, 135],
     });
 
     // Shield pickup in scene7
@@ -59,7 +59,7 @@ export class AdaptiveHintManager {
         'A blue glow catches your eye in the dining area.',
         'The shield pickup is floating near the tables at the back of the cafeteria.',
       ],
-      delays: [45, 75, 105],
+      delays: [60, 105, 150],
     });
 
     // Boss weak point (scene13)
@@ -71,7 +71,7 @@ export class AdaptiveHintManager {
         'Watch for the drone attack — dodge to the side when it approaches.',
         'When the drone explodes, the boss\'s armor cracks. Strike then!',
       ],
-      delays: [40, 70, 100],
+      delays: [55, 100, 145],
     });
 
     // Health pack after boss
@@ -83,7 +83,7 @@ export class AdaptiveHintManager {
         'A medical kit appeared after defeating the boss.',
         'The health pack is floating near the elevator console — walk over it to heal.',
       ],
-      delays: [30, 60, 90],
+      delays: [45, 90, 135],
     });
 
     // Cargo door (scene10/11)
@@ -95,22 +95,7 @@ export class AdaptiveHintManager {
         'The cargo crate might be heavy enough to keep the door open.',
         'Grab the cargo crate (E) and place it in front of the door.',
       ],
-      delays: [35, 65, 95],
-    });
-
-    // General exploration hint
-    this.addTrigger({
-      id: 'exploration',
-      check: (state) => {
-        // Generic hint when player seems lost in any scene
-        return true;
-      },
-      messages: [
-        'Look around for interactive objects and clues.',
-        'Try pressing E near objects that look important.',
-        'Check your inventory (K for pistol, T for crowbar, L for lightsaber, N for goggles).',
-      ],
-      delays: [120, 180, 240],
+      delays: [50, 95, 140],
     });
   }
 

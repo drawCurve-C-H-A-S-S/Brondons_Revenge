@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { createPointingHand, type PointingHand } from '../../scripts/pointingHand.js';
 import type { InteractiveDisplay, SurfaceAction } from './surfaces.js';
 import { isControllerActive, isControllerEvent, controllerMenuLabel, controllerButtonLabel, inputHint } from '../../scripts/gamepadInput.js';
 
@@ -9,7 +8,7 @@ export interface InspectionTarget {
   width: number;
   height: number;
   title: string;
-  pointer: 'arrow' | 'hand';
+  pointer: 'arrow' | 'light';
   instructions?: string;
   onAction: (action: SurfaceAction) => void;
 }
@@ -17,7 +16,6 @@ interface InspectionState {
   target: InspectionTarget;
   phase: 'opening' | 'active' | 'closing';
   time: number;
-  pressTime: number;
   position: THREE.Vector3;
   rotation: THREE.Quaternion;
   fov: number;
@@ -26,7 +24,7 @@ interface InspectionState {
   returnFov: number;
 }
 
-export function createInspectionView(scene: THREE.Scene, camera: THREE.PerspectiveCamera, ui: HTMLElement, onClose: () => void) {
+export function createInspectionView(camera: THREE.PerspectiveCamera, ui: HTMLElement, onClose: () => void) {
   const controls = document.createElement('div'); controls.id = 'quarters-console-controls'; controls.className = 'hidden';
   const instructions = document.createElement('span'); instructions.setAttribute('role', 'status');
   const close = document.createElement('button'); close.type = 'button'; close.textContent = 'E / Esc - Step back';
@@ -34,32 +32,15 @@ export function createInspectionView(scene: THREE.Scene, camera: THREE.Perspecti
   const raycaster = new THREE.Raycaster(), pointer = new THREE.Vector2();
   const view = new THREE.PerspectiveCamera(), center = new THREE.Vector3(), normal = new THREE.Vector3(), up = new THREE.Vector3();
   const cornerA = new THREE.Vector3(), cornerB = new THREE.Vector3();
-  let state: InspectionState | null = null, hand: PointingHand | null = null, disposed = false;
-  let handLoading: Promise<void> | null = null, handError: Error | null = null;
-
-  function prepareHand() {
-    if (hand || handLoading) return;
-    handError = null;
-    handLoading = createPointingHand().then(loaded => {
-      if (disposed) { loaded.dispose(); return; }
-      hand = loaded; scene.add(loaded.root);
-    }, error => {
-      if (disposed) return;
-      console.error('[LivingQuarters] Unable to prepare keypad hand:', error);
-      handError = error instanceof Error ? error : new Error(String(error));
-    }).finally(() => { handLoading = null; });
-  }
-  function ready() { return state?.target.pointer !== 'hand' || hand !== null; }
+  let state: InspectionState | null = null, disposed = false;
   function updateInstructions() {
     if (!state) return;
     close.textContent = inputHint('E / Esc - Step back', 'inspection');
-    if (isControllerActive() && ready()) {
+    if (isControllerActive()) {
       instructions.textContent = `Right stick: pointer / ${controllerMenuLabel('confirm')}: select on-screen buttons / ${controllerButtonLabel('r')} or ${controllerMenuLabel('back')}: step back`;
       return;
     }
-    instructions.textContent = inputHint(state.target.pointer === 'hand' && !hand
-      ? handError ? 'Unable to load hand. R to retry / E or Esc to step back.' : 'Preparing the Interact hand pose...'
-      : state.target.pointer === 'hand' ? 'Click digits or type the code / Enter: OK / Backspace: erase'
+    instructions.textContent = inputHint(state.target.pointer === 'light' ? 'Click digits or type the code / Enter: OK / Backspace: erase'
         : state.target.instructions ?? 'Click save us to read / Enter: open file', 'inspection');
   }
   function applyCamera() {
@@ -83,27 +64,15 @@ export function createInspectionView(scene: THREE.Scene, camera: THREE.Perspecti
       camera.fov = THREE.MathUtils.lerp(state.fov, fov, t);
     }
     camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
-    if (hand) {
-      hand.root.visible = state.phase === 'active' && target.pointer === 'hand';
-      if (hand.root.visible) {
-        const cursor = target.display.cursor, canvas = target.display.canvas;
-        const press = state.pressTime > 0 ? Math.sin((1 - state.pressTime / 0.18) * Math.PI) * 0.027 : 0;
-        hand.root.position.set((cursor.x / canvas.width - 0.5) * target.width,
-          (0.5 - cursor.y / canvas.height) * target.height, 0.045 - press);
-        target.screen.localToWorld(hand.root.position);
-        target.screen.getWorldQuaternion(hand.root.quaternion);
-      }
-    }
   }
   function leave() {
     if (!state || state.phase === 'closing') return;
     state.phase = 'closing'; state.time = 0; state.position.copy(camera.position); state.rotation.copy(camera.quaternion); state.fov = camera.fov;
     state.target.display.focus(false); controls.classList.add('hidden');
-    if (hand) hand.root.visible = false;
   }
   close.addEventListener('click', leave);
   function canInput() {
-    return !disposed && state?.phase === 'active' && ready() && !document.hidden && !document.body.classList.contains('quick-menu-open');
+    return !disposed && state?.phase === 'active' && !document.hidden && !document.body.classList.contains('quick-menu-open');
   }
   function pointAt(event: MouseEvent | PointerEvent) {
     if (!state) return false;
@@ -129,7 +98,6 @@ export function createInspectionView(scene: THREE.Scene, camera: THREE.Perspecti
     if (!canInput() || event.button !== 0 || controls.contains(event.target instanceof Node ? event.target : null)) return;
     if (!document.pointerLockElement && !isControllerEvent(event) && !pointAt(event)) return;
     event.preventDefault(); event.stopImmediatePropagation();
-    state!.pressTime = 0.18;
     const action = state!.target.display.click();
     if (action) state!.target.onAction(action);
     applyCamera();
@@ -138,15 +106,11 @@ export function createInspectionView(scene: THREE.Scene, camera: THREE.Perspecti
     if (!state || disposed || event.repeat || event.defaultPrevented || document.hidden || document.body.classList.contains('quick-menu-open')) return;
     if (event.ctrlKey || event.altKey || event.metaKey) return;
     if (event.code === 'Escape' || event.code === 'KeyE') { event.preventDefault(); event.stopImmediatePropagation(); leave(); return; }
-    if (event.code === 'KeyR' && handError && state.target.pointer === 'hand') {
-      event.preventDefault(); event.stopImmediatePropagation(); prepareHand(); updateInstructions(); return;
-    }
     if (event.target instanceof HTMLElement && controls.contains(event.target)) return;
     if (!canInput() || event.code === 'Tab') return;
     event.preventDefault(); event.stopImmediatePropagation();
     const action = state.target.display.key(event.code);
     if (action) {
-      state.pressTime = 0.18;
       if (action !== 'handled') state.target.onAction(action);
     }
     applyCamera();
@@ -158,19 +122,18 @@ export function createInspectionView(scene: THREE.Scene, camera: THREE.Perspecti
     get active() { return state !== null; },
     open(target: InspectionTarget) {
       if (disposed || state) throw new Error('An inspection view is already active or has been disposed');
-      state = { target, phase: 'opening', time: 0, pressTime: 0,
+      state = { target, phase: 'opening', time: 0,
         position: camera.position.clone(), rotation: camera.quaternion.clone(), fov: camera.fov,
         returnPosition: camera.position.clone(), returnRotation: camera.quaternion.clone(), returnFov: camera.fov };
       target.display.reset(); document.body.classList.add('quarters-interface'); controls.classList.remove('hidden');
       controls.setAttribute('aria-label', target.title);
-      if (target.pointer === 'hand') prepareHand();
       updateInstructions();
     },
     update(dt: number) {
       if (!state || disposed) return;
-      state.time += dt; state.pressTime = Math.max(0, state.pressTime - dt); state.target.display.update(dt);
+      state.time += dt; state.target.display.update(dt);
       updateInstructions();
-      if (state.phase === 'opening' && state.time >= 0.95 && ready()) {
+      if (state.phase === 'opening' && state.time >= 0.95) {
         state.phase = 'active'; state.target.display.focus(true);
       }
       applyCamera();
@@ -184,7 +147,7 @@ export function createInspectionView(scene: THREE.Scene, camera: THREE.Perspecti
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('pointerdown', onPointerDown, true); window.removeEventListener('keydown', onKey, true);
       const wasActive = state !== null;
-      state?.target.display.reset(); state = null; hand?.dispose(); controls.remove();
+      state?.target.display.reset(); state = null; controls.remove();
       if (wasActive) document.body.classList.remove('quarters-interface');
     },
   };

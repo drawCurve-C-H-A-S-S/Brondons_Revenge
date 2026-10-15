@@ -5,6 +5,7 @@ import pixelateFrag from '../shaders/ascii/pixelate.frag.glsl?raw';
 
 const SCALE = 8;
 const CHARS = ['.', ';', 'c', 'o', 'P', '?', '@', '═', '│', '/', '\\'];
+export const GOGGLES_READABLE_LAYER = 2;
 
 /** ASCII night vision wraps the existing scene effects and first-person rendering. */
 export class GogglesPostProcess {
@@ -15,6 +16,9 @@ export class GogglesPostProcess {
     stencilBuffer: false,
   });
   private readonly resolution = new THREE.Vector2();
+  private readonly readableTarget = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: true, stencilBuffer: false });
+  private readonly maskBlack = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide, fog: false, toneMapped: false });
+  private readonly maskWhite = new THREE.MeshBasicMaterial({ color: 0xffffff, depthFunc: THREE.LessEqualDepth, fog: false, toneMapped: false });
   private readonly viewport = new THREE.Vector4();
   private readonly scissor = new THREE.Vector4();
   private readonly fontAtlas = this.createFontAtlas();
@@ -23,6 +27,8 @@ export class GogglesPostProcess {
     fragmentShader: pixelateFrag,
     uniforms: {
       tFullRes: { value: this.fullResRenderTarget.texture },
+      tReadable: { value: this.readableTarget.texture },
+      uReadable: { value: false },
       tFontAtlas: { value: this.fontAtlas },
       uGridSize: { value: new THREE.Vector2(1, 1) },
       uFullResSize: { value: new THREE.Vector2(1, 1) },
@@ -65,6 +71,7 @@ export class GogglesPostProcess {
   resize(width: number, height: number) {
     const w = Math.max(1, Math.floor(width)), h = Math.max(1, Math.floor(height));
     if (this.fullResRenderTarget.width !== w || this.fullResRenderTarget.height !== h) this.fullResRenderTarget.setSize(w, h);
+    if (this.readableTarget.width !== w || this.readableTarget.height !== h) this.readableTarget.setSize(w, h);
     this.material.uniforms.uFullResSize.value.set(w, h);
     const cell = SCALE * this.renderer.getPixelRatio();
     this.material.uniforms.uGridSize.value.set(Math.max(1, Math.floor(w / cell)), Math.max(1, Math.floor(h / cell)));
@@ -79,17 +86,33 @@ export class GogglesPostProcess {
     const cubeFace = renderer.getActiveCubeFace(), mip = renderer.getActiveMipmapLevel();
     const autoClear = renderer.autoClear, scissorTest = renderer.getScissorTest(), xr = renderer.xr.enabled;
     renderer.getViewport(this.viewport); renderer.getScissor(this.scissor);
+    const background = scene.background, override = scene.overrideMaterial, layers = camera.layers.mask;
     try {
       renderer.autoClear = true;
       renderer.setScissorTest(false);
       renderer.setRenderTarget(this.fullResRenderTarget);
       renderer.clear();
       draw();
+      let readable = false;
+      scene.traverseVisible(node => { if (node instanceof THREE.Mesh && node.layers.isEnabled(GOGGLES_READABLE_LAYER)) readable = true; });
+      this.material.uniforms.uReadable.value = readable;
+      if (readable) {
+        renderer.setRenderTarget(this.readableTarget);
+        scene.background = new THREE.Color(0x000000); scene.overrideMaterial = this.maskBlack;
+        renderer.clear(); renderer.render(scene, camera);
+        scene.background = null; scene.overrideMaterial = this.maskWhite;
+        camera.layers.set(GOGGLES_READABLE_LAYER);
+        renderer.autoClear = false;
+        renderer.render(scene, camera);
+        camera.layers.mask = layers; scene.background = background; scene.overrideMaterial = override;
+        renderer.autoClear = true;
+      }
       renderer.setRenderTarget(target, cubeFace, mip);
       renderer.setViewport(this.viewport); renderer.setScissor(this.scissor); renderer.setScissorTest(scissorTest);
       renderer.xr.enabled = false;
       this.quad.render(renderer);
     } finally {
+      camera.layers.mask = layers; scene.background = background; scene.overrideMaterial = override;
       renderer.setRenderTarget(target, cubeFace, mip);
       renderer.setViewport(this.viewport); renderer.setScissor(this.scissor); renderer.setScissorTest(scissorTest);
       renderer.autoClear = autoClear;
@@ -100,6 +123,7 @@ export class GogglesPostProcess {
   dispose() {
     this.active = false;
     this.fullResRenderTarget.dispose();
+    this.readableTarget.dispose(); this.maskBlack.dispose(); this.maskWhite.dispose();
     this.fontAtlas.dispose();
     this.material.dispose();
     this.quad.dispose();

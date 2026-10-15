@@ -2,7 +2,9 @@
 import * as THREE from 'three';
 import { isControllerEvent, inputHint } from '../../scripts/gamepadInput.js';
 import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
-import { loadPlayerModel } from '../../core/loader.js';
+import { loadPlayerModel, loadTexture } from '../../core/loader.js';
+import eyePhotographUrl from '../../assets/textures/brondon-eyes.png?url';
+import { createEyeOpening } from './eyeOpening.js';
 import { createPlayer } from '../../scripts/player.js';
 import { applyLayFlatPose, createPrologueGetUpClip, HOLOGRAM_TRANSFER_DURATION, hologramTransitionAt } from '../../scripts/characterManager.js';
 import { createPrologueFlashbacks, type PrologueShot } from './prologueFlashbacks.js';
@@ -366,219 +368,22 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
   eyeCanvas.setAttribute('aria-hidden', 'true');
   eyeCanvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;object-fit:contain;background:#020409;z-index:2400;pointer-events:none;display:none;';
   if (!preview) document.body.appendChild(eyeCanvas);
-  const eyeContext = eyeCanvas.getContext('2d')!;
-  const eyeBackdrop = document.createElement('canvas');
-  eyeBackdrop.width = eyeCanvas.width;
-  eyeBackdrop.height = eyeCanvas.height;
-  const skinContext = eyeBackdrop.getContext('2d')!;
-  const skinGradient = skinContext.createLinearGradient(0, 0, 0, 720);
-  skinGradient.addColorStop(0, '#6a4e44');
-  skinGradient.addColorStop(0.36, '#c1977e');
-  skinGradient.addColorStop(0.7, '#b88c75');
-  skinGradient.addColorStop(1, '#79564d');
-  skinContext.fillStyle = skinGradient;
-  skinContext.fillRect(0, 0, 1920, 720);
-
-  function detailNoise(index: number): number {
-    const value = Math.sin(index * 12.9898 + 78.233) * 43758.5453;
-    return value - Math.floor(value);
-  }
-
-  for (const eyeX of [560, 1360]) {
-    const socketShadow = skinContext.createRadialGradient(eyeX, 350, 35, eyeX, 350, 310);
-    socketShadow.addColorStop(0, 'rgba(65, 36, 32, 0.32)');
-    socketShadow.addColorStop(0.65, 'rgba(84, 45, 39, 0.16)');
-    socketShadow.addColorStop(1, 'rgba(84, 45, 39, 0)');
-    skinContext.fillStyle = socketShadow;
-    skinContext.fillRect(eyeX - 310, 40, 620, 620);
-    for (let hairIndex = 0; hairIndex < 145; hairIndex++) {
-      const fraction = hairIndex / 144;
-      const hairX = eyeX - 235 + fraction * 470;
-      const hairY = 212 - Math.sin(fraction * Math.PI) * 40 + detailNoise(hairIndex + eyeX) * 17;
-      skinContext.strokeStyle = `rgba(40, 29, 27, ${0.25 + detailNoise(hairIndex + 15) * 0.45})`;
-      skinContext.lineWidth = 1.3 + detailNoise(hairIndex + 70) * 1.8;
-      skinContext.beginPath();
-      skinContext.moveTo(hairX, hairY);
-      skinContext.quadraticCurveTo(hairX + 8, hairY - 17, hairX + 16, hairY - 21);
-      skinContext.stroke();
-    }
-  }
-  const bridgeLight = skinContext.createRadialGradient(960, 390, 20, 960, 390, 175);
-  bridgeLight.addColorStop(0, 'rgba(255, 229, 206, 0.26)');
-  bridgeLight.addColorStop(1, 'rgba(255, 229, 206, 0)');
-  skinContext.fillStyle = bridgeLight;
-  skinContext.fillRect(785, 215, 350, 350);
-  for (let poreIndex = 0; poreIndex < 2600; poreIndex++) {
-    const poreX = detailNoise(poreIndex * 3) * 1920;
-    const poreY = detailNoise(poreIndex * 3 + 1) * 720;
-    skinContext.fillStyle = poreIndex % 3 === 0 ? 'rgba(255, 225, 200, 0.12)' : 'rgba(61, 36, 31, 0.1)';
-    skinContext.beginPath();
-    skinContext.ellipse(poreX, poreY, 0.6 + detailNoise(poreIndex + 9), 0.5, 0, 0, Math.PI * 2);
-    skinContext.fill();
-  }
-  const reflectedLight = skinContext.createLinearGradient(0, 0, 1920, 0);
-  reflectedLight.addColorStop(0, 'rgba(95, 194, 239, 0.32)');
-  reflectedLight.addColorStop(0.25, 'rgba(95, 194, 239, 0)');
-  reflectedLight.addColorStop(0.75, 'rgba(95, 194, 239, 0)');
-  reflectedLight.addColorStop(1, 'rgba(95, 194, 239, 0.28)');
-  skinContext.fillStyle = reflectedLight;
-  skinContext.fillRect(0, 0, 1920, 720);
-
-  function drawEyeCloseup(elapsed: number): void {
-    const context = eyeContext;
-    context.save();
-    context.translate(960, 360);
-    const pushIn = 1 + smootherstep(elapsed / 4.8) * 0.045;
-    context.scale(pushIn, pushIn);
-    context.translate(-960, -360);
-    context.drawImage(eyeBackdrop, 0, 0);
-    for (const [eyeIndex, eyeX] of [560, 1360].entries()) {
-      const eyeTime = elapsed - eyeIndex * 0.08;
-      const flutter = 0.08 * (THREE.MathUtils.smoothstep(eyeTime, 0.6, 0.9) - THREE.MathUtils.smoothstep(eyeTime, 1.0, 1.2));
-      const blink = THREE.MathUtils.smoothstep(eyeTime, 2.55, 2.66) * (1 - THREE.MathUtils.smoothstep(eyeTime, 2.74, 2.94));
-      const opening = THREE.MathUtils.clamp(
-        (flutter + 0.58 * smootherstep((eyeTime - 1.25) / 1.2)) * (1 - blink)
-        + 0.42 * smootherstep((eyeTime - 2.95) / 1.0), 0, 1,
-      );
-      const eyeY = 385;
-      const halfWidth = 238;
-      const upperHeight = opening * 156;
-      const lowerHeight = opening * 92;
-      const aperture = new Path2D();
-      aperture.moveTo(eyeX - halfWidth, eyeY + 5);
-      aperture.quadraticCurveTo(eyeX, eyeY - upperHeight, eyeX + halfWidth, eyeY + 5);
-      aperture.quadraticCurveTo(eyeX, eyeY + lowerHeight, eyeX - halfWidth, eyeY + 5);
-      aperture.closePath();
-
-      if (opening > 0.012) {
-        context.save();
-        context.clip(aperture);
-        const sclera = context.createLinearGradient(0, eyeY - 95, 0, eyeY + 75);
-        sclera.addColorStop(0, '#72929b');
-        sclera.addColorStop(0.48, '#e7e4d5');
-        sclera.addColorStop(1, '#a6b7b7');
-        context.fillStyle = sclera;
-        context.fillRect(eyeX - halfWidth, eyeY - 160, halfWidth * 2, 320);
-        context.strokeStyle = 'rgba(159, 90, 87, 0.24)';
-        context.lineWidth = 0.8;
-        for (let veinIndex = 0; veinIndex < 12; veinIndex++) {
-          const veinSide = veinIndex % 2 === 0 ? -1 : 1;
-          const veinY = eyeY + (detailNoise(veinIndex + 42) - 0.5) * 95;
-          context.beginPath();
-          context.moveTo(eyeX + veinSide * 225, veinY);
-          context.bezierCurveTo(eyeX + veinSide * 195, veinY - 12, eyeX + veinSide * 170, veinY + 15, eyeX + veinSide * 145, veinY + 4);
-          context.stroke();
-        }
-        const focus = smootherstep((eyeTime - 3) / 1.2);
-        const irisX = eyeX + Math.sin(eyeTime * 3.4) * 5 * (1 - focus);
-        const irisY = eyeY + 7 - focus * 4;
-        const irisRadius = 85;
-        const pupilRadius = 37 - focus * 11;
-        const iris = context.createRadialGradient(irisX, irisY, pupilRadius, irisX, irisY, irisRadius);
-        iris.addColorStop(0, '#c39958');
-        iris.addColorStop(0.3, '#907346');
-        iris.addColorStop(0.78, '#4b5544');
-        iris.addColorStop(1, '#1b3033');
-        context.fillStyle = iris;
-        context.beginPath();
-        context.arc(irisX, irisY, irisRadius, 0, Math.PI * 2);
-        context.fill();
-        for (let fiberIndex = 0; fiberIndex < 180; fiberIndex++) {
-          const angle = fiberIndex * Math.PI * 2 / 180;
-          const innerRadius = pupilRadius + 3 + detailNoise(fiberIndex) * 8;
-          const outerRadius = irisRadius - 4 - detailNoise(fiberIndex + 22) * 9;
-          context.strokeStyle = fiberIndex % 3 === 0 ? 'rgba(223, 185, 109, 0.5)' : 'rgba(37, 44, 29, 0.48)';
-          context.lineWidth = 0.7 + detailNoise(fiberIndex + 3) * 1.2;
-          context.beginPath();
-          context.moveTo(irisX + Math.cos(angle) * innerRadius, irisY + Math.sin(angle) * innerRadius);
-          context.quadraticCurveTo(
-            irisX + Math.cos(angle + 0.018) * 57, irisY + Math.sin(angle + 0.018) * 57,
-            irisX + Math.cos(angle) * outerRadius, irisY + Math.sin(angle) * outerRadius,
-          );
-          context.stroke();
-        }
-        context.fillStyle = '#050b10';
-        context.beginPath();
-        context.arc(irisX, irisY, pupilRadius, 0, Math.PI * 2);
-        context.fill();
-        context.strokeStyle = 'rgba(11, 29, 34, 0.8)';
-        context.lineWidth = 4;
-        context.beginPath();
-        context.arc(irisX, irisY, irisRadius - 1, 0, Math.PI * 2);
-        context.stroke();
-        context.fillStyle = 'rgba(178, 230, 255, 0.7)';
-        context.fillRect(irisX - 29, irisY - 47, 6, 41);
-        context.fillStyle = 'rgba(242, 250, 255, 0.9)';
-        context.beginPath();
-        context.ellipse(irisX - 16, irisY - 29, 9, 6, -0.4, 0, Math.PI * 2);
-        context.fill();
-        context.fillStyle = 'rgba(169, 219, 244, 0.45)';
-        context.beginPath();
-        context.ellipse(irisX + 27, irisY + 34, 4, 3, 0, 0, Math.PI * 2);
-        context.fill();
-        const lidShadow = context.createLinearGradient(0, eyeY - upperHeight / 2, 0, eyeY + lowerHeight / 2);
-        lidShadow.addColorStop(0, 'rgba(22, 18, 22, 0.65)');
-        lidShadow.addColorStop(0.4, 'rgba(22, 18, 22, 0)');
-        lidShadow.addColorStop(1, 'rgba(22, 18, 22, 0.1)');
-        context.fillStyle = lidShadow;
-        context.fillRect(eyeX - halfWidth, eyeY - 160, halfWidth * 2, 320);
-        context.restore();
-      }
-
-      context.lineCap = 'round';
-      context.strokeStyle = '#3d2928';
-      context.lineWidth = 4.5;
-      context.beginPath();
-      context.moveTo(eyeX - halfWidth, eyeY + 5);
-      context.quadraticCurveTo(eyeX, eyeY - upperHeight, eyeX + halfWidth, eyeY + 5);
-      context.stroke();
-      context.strokeStyle = 'rgba(76, 45, 40, 0.6)';
-      context.lineWidth = 2;
-      context.beginPath();
-      context.moveTo(eyeX - halfWidth + 8, eyeY + 12);
-      context.quadraticCurveTo(eyeX, eyeY + lowerHeight + 7, eyeX + halfWidth - 8, eyeY + 12);
-      context.stroke();
-      context.strokeStyle = 'rgba(211, 227, 224, 0.65)';
-      context.lineWidth = 1.6;
-      context.beginPath();
-      context.moveTo(eyeX - halfWidth + 23, eyeY + 8);
-      context.quadraticCurveTo(eyeX, eyeY + lowerHeight, eyeX + halfWidth - 23, eyeY + 8);
-      context.stroke();
-      context.strokeStyle = 'rgba(83, 47, 41, 0.4)';
-      context.lineWidth = 2.2;
-      context.beginPath();
-      context.moveTo(eyeX - halfWidth + 15, eyeY - 18);
-      context.quadraticCurveTo(eyeX, eyeY - upperHeight - 32, eyeX + halfWidth - 15, eyeY - 18);
-      context.stroke();
-      for (let lashIndex = 0; lashIndex < 30; lashIndex++) {
-        const fraction = 0.06 + lashIndex / 29 * 0.88;
-        const lashX = eyeX - halfWidth + fraction * halfWidth * 2;
-        const lashY = eyeY + 5 - 2 * upperHeight * fraction * (1 - fraction);
-        const lashLength = 10 + detailNoise(lashIndex + eyeIndex * 30) * 14;
-        const splay = (fraction - 0.5) * 26;
-        context.strokeStyle = 'rgba(30, 24, 24, 0.85)';
-        context.lineWidth = 1.4 + detailNoise(lashIndex + 80);
-        context.beginPath();
-        context.moveTo(lashX, lashY);
-        context.quadraticCurveTo(lashX + splay * 0.3, lashY - lashLength * 0.4, lashX + splay, lashY - lashLength);
-        context.stroke();
-      }
-    }
-    context.restore();
-  }
-
-  type Keyframe = { time: number; pos: THREE.Vector3; look: THREE.Vector3; fov: number };
-  const keyframes: Keyframe[] = [
-    { time: 0.0, pos: new THREE.Vector3(2.5, 1.85, 1.8), look: subjectCenter.clone(), fov: 48 },
-    { time: 5.0, pos: new THREE.Vector3(2.5, 1.85, -1.5), look: subjectCenter.clone(), fov: 48 },
-    { time: 5.2, pos: new THREE.Vector3(2.5, 1.85, -1.5), look: subjectCenter.clone(), fov: 48 },
-    { time: 10.0, pos: new THREE.Vector3(2.6, 2.1, 2.8), look: subjectCenter.clone(), fov: 52 },
-    { time: 11.2, pos: new THREE.Vector3(2.6, 2.1, 2.8), look: subjectCenter.clone(), fov: 52 },
-  ];
+  let eyeOpening: ReturnType<typeof createEyeOpening> | null = null;
+  const eyesReady = preview ? Promise.resolve() : loadTexture(eyePhotographUrl).then(texture => {
+    try { if (!disposed) eyeOpening = createEyeOpening(eyeCanvas, texture.image); }
+    finally { texture.dispose(); }
+  });
 
   const EYE_SHOT_START = 5.2;
   const EYE_SHOT_END = 10.0;
   const DIALOGUE_START = 11.2;
+  const footEndView = new THREE.Vector3(0, HOVER_HEIGHT - 0.35, 2.7);
+  type Keyframe = { time: number; pos: THREE.Vector3; look: THREE.Vector3; fov: number };
+  const keyframes: Keyframe[] = [
+    { time: 0, pos: footEndView, look: subjectCenter.clone(), fov: 48 },
+    { time: EYE_SHOT_END, pos: footEndView, look: subjectCenter.clone(), fov: 48 },
+    { time: DIALOGUE_START, pos: new THREE.Vector3(2.6, 2.1, 2.8), look: subjectCenter.clone(), fov: 52 },
+  ];
 
   const tmpLook = new THREE.Vector3();
   function smootherstep(x: number): number {
@@ -643,16 +448,13 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
     { speaker: 'Prime', text: 'I believe they were moved to the nearest planet. Transport records point to a surface facility still running those experiments.', shot: 'planet', duration: 8.8, automatic: true },
     { speaker: 'Prime', text: 'I cannot confirm their exact location yet. But that is our strongest lead. You need to get off this ship and find your crewmembers.', shot: 'planet', duration: 9, automatic: true },
     { speaker: 'Brondon', text: 'I need to save them, how can I get out of these chains?', shot: 'present' },
-    { speaker: 'Prime', text: 'A maintenance relay is exposed. I can release the restraints before Donus notices. Listen carefully before you move.', shot: 'present', duration: 8, automatic: true },
-    { speaker: 'Prime', text: 'Security robots patrol the working decks. Cameras watch the main corridors and the entrances to the research and cargo rooms.', shot: 'corridor', duration: 8.5, automatic: true },
-    { speaker: 'Prime', text: 'Trilobyte bots patrol between them. They do not need to see you for long to raise an alarm.', shot: 'patrol', duration: 7.5, automatic: true },
-    { speaker: 'Prime', text: 'Watch the lenses. Use cover. Let a patrol pass when you can. We need a way out, not a fight in every corridor.', shot: 'corridor', duration: 8.3, automatic: true },
-    { speaker: 'Prime', text: 'This is Deck One\'s hangar. Sentries sweep the gaps between cargo containers. If we pass through here, stay behind solid cover.', shot: 'stealth', duration: 9, automatic: true },
-    { speaker: 'Prime', text: 'Wait for the scan fields to turn away before crossing. One alarm can bring the entire patrol down on you. We will need to move quietly.', shot: 'stealth', duration: 9.2, automatic: true },
+    { speaker: 'Prime', text: 'A maintenance relay is exposed. I can release the restraints before Donus notices.', shot: 'present', duration: 8, automatic: true },
+    { speaker: 'Prime', text: 'The working decks belong to Donus now. Cameras in every corridor, sentries pacing the cargo gaps.', shot: 'corridor', duration: 8.5, automatic: true },
+    { speaker: 'Prime', text: 'Trilobyte bots sweep between them. One glimpse and the whole deck comes down on you.', shot: 'patrol', duration: 7.5, automatic: true },
+    { speaker: 'Prime', text: 'So we go quietly, and we let the patrols pass. We need a way out, not a fight in every corridor.', shot: 'stealth', duration: 8.5, automatic: true },
     { speaker: 'Brondon', text: 'Then where can we go safely? I do not even have my weapon.', shot: 'present' },
-    { speaker: 'Prime', text: 'Your pistol is in the chest in your room. Your personal teleportation device is on your desk. Your cabin is the only teleport anchor I can reach.', shot: 'present', duration: 9.5, automatic: true },
-    { speaker: 'Prime', text: 'The living quarters are the only part of the ship without surveillance. Crew privacy systems keep that wing off the security network.', shot: 'present', duration: 8.5, automatic: true },
-    { speaker: 'Prime', text: 'I can teleport you to your room, and nowhere else. Recover your equipment there, then check Branden and Brendan\'s rooms before we try to escape.', shot: 'present', duration: 9.5, automatic: true },
+    { speaker: 'Prime', text: 'Your cabin. It is the only room I can still reach by teleport, and the living quarters sit off the surveillance grid — crew privacy keeps that wing dark.', shot: 'present', duration: 9, automatic: true },
+    { speaker: 'Prime', text: 'I can send you home and nowhere else. Your gear is waiting there. That is where we begin.', shot: 'present', duration: 8.5, automatic: true },
     { speaker: 'Brondon', text: 'Stay with me, Prime.', shot: 'present' },
     { speaker: 'Prime', text: 'Always. When the field drops, brace for the fall. Get to your feet, and I will transfer you back to your cabin. We are bringing the others home.', shot: 'present' },
   ];
@@ -931,6 +733,11 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
     overlay.classList.remove('hidden'); exitPrompt.style.display = 'block';
   }
 
+  function detailNoise(index: number): number {
+    const value = Math.sin(index * 12.9898 + 78.233) * 43758.5453;
+    return value - Math.floor(value);
+  }
+
   function breakChains(): void {
     if (chainsBroken) return;
     chainsBroken = true;
@@ -1051,7 +858,7 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
       } else physics.step(frame, player, thirdPerson);
       return;
     }
-    if (modelReady && flashbacksReady) timelineTime += frame;
+    if (modelReady && flashbacksReady && (preview || eyeOpening)) timelineTime += frame;
 
     // Nothing dynamic lives in the world, but step it to keep contacts cheap.
     physicsWorld.step(1 / 60, frame, 3);
@@ -1073,7 +880,7 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
       floorGlow.material.opacity = 0.85 + Math.sin(timelineTime * 1.1) * 0.06;
     }
 
-    const eyeShotActive = timelineTime >= EYE_SHOT_START && timelineTime < EYE_SHOT_END;
+    const eyeShotActive = !preview && timelineTime >= EYE_SHOT_START && timelineTime < EYE_SHOT_END;
     eyeCanvas.style.display = eyeShotActive ? 'block' : 'none';
     if (eyeShotActive) {
       const elapsed = timelineTime - EYE_SHOT_START;
@@ -1082,7 +889,8 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
         THREE.MathUtils.smoothstep(elapsed, 0, 0.22)
         * (1 - THREE.MathUtils.smoothstep(elapsed, duration - 0.3, duration)),
       );
-      drawEyeCloseup(elapsed);
+      if (!eyeOpening) throw new Error('Brondon eye photograph is not ready');
+      eyeOpening.draw(elapsed);
     }
 
     // Subtle breathing on the corner strip lights.
@@ -1170,10 +978,10 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
     roomId: 'prologue-1',
     scene,
     camera,
-    ready: Promise.all([subjectReady, flashbacks?.ready]),
+    ready: Promise.all([subjectReady, flashbacks?.ready, eyesReady]),
     getMusicTrack: (): 'emotional' | 'broken-chains' => chainsBroken || playable ? 'broken-chains' : 'emotional',
     async prepareRendering(renderer: THREE.WebGLRenderer) {
-      await Promise.all([subjectReady, flashbacks?.ready]);
+      await Promise.all([subjectReady, flashbacks?.ready, eyesReady]);
       await prepareSceneRendering(renderer, scene, camera);
       await flashbacks?.prepareRendering(renderer, camera);
     },

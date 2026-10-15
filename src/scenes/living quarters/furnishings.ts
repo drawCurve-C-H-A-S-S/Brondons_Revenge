@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { loadToolModel } from '../../core/loader.js';
+import { loadToolModel, loadTexture } from '../../core/loader.js';
+import playScreenUrl from '../../assets/textures/brondon-play-screen.png?url';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
 import { cabinCenter, cabinPoint, type CabinDefinition, type QuartersProgress } from './layout.js';
 import { createRescueDesktop, drawDesktopBackground } from './surfaces.js';
@@ -7,6 +8,8 @@ import { createCrewChest } from '../../helpers/scene/crewChest.js';
 import { createGoggles } from '../../scripts/rewardChest.js';
 import { createTeleportCrystal } from '../../scripts/teleportationDevice.js';
 import { createShipTerminal } from '../../helpers/scene/shipInterior.js';
+import { fitRoomProp } from '../../helpers/scene/shipRoom.js';
+export { fitRoomProp as fitCabinProp } from '../../helpers/scene/shipRoom.js';
 
 type Physics = ReturnType<typeof createScenePhysics>;
 export type CabinProp = 'Prop_Desk_Small' | 'Prop_Chair' | 'Gun_Revolver';
@@ -130,19 +133,6 @@ function posterTexture(cabin: CabinDefinition) {
   return texture;
 }
 
-export function fitCabinProp(model: THREE.Group, height: number, maxWidth: number, maxDepth: number, yaw = 0) {
-  model.rotation.y = yaw;
-  let bounds = new THREE.Box3().setFromObject(model);
-  const size = bounds.getSize(new THREE.Vector3());
-  if (size.toArray().some(value => !Number.isFinite(value) || value <= 0)) throw new Error('Cabin prop has invalid dimensions');
-  model.scale.multiplyScalar(Math.min(height / size.y, maxWidth / size.x, maxDepth / size.z));
-  bounds = new THREE.Box3().setFromObject(model);
-  const center = bounds.getCenter(new THREE.Vector3());
-  model.position.add(new THREE.Vector3(-center.x, -bounds.min.y, -center.z));
-  model.traverse(node => { if (node instanceof THREE.Mesh) node.castShadow = node.receiveShadow = true; });
-  return bounds.getSize(new THREE.Vector3());
-}
-
 export async function createCabinFurnishings(cabin: CabinDefinition, physics: Physics, progress: QuartersProgress,
   load: CabinModelLoader = loadToolModel) {
   const names: CabinProp[] = ['Prop_Desk_Small', 'Prop_Chair', ...(cabin.id === 'brondon' ? ['Gun_Revolver' as const] : [])];
@@ -176,16 +166,18 @@ export async function createCabinFurnishings(cabin: CabinDefinition, physics: Ph
     collider(new THREE.Vector3(1.6, 0.66, 2.45), cabinPoint(cabin, 1.65, 0.33, -1.7));
 
     const desk = models[0]; desk.name = 'CabinDesk';
-    const deskSize = fitCabinProp(desk, 0.84, 2.2, 1.02);
+    const deskSize = fitRoomProp(desk, 0.84, 2.2, 1.02, Math.PI);
     desk.position.add(new THREE.Vector3(cabin.side * -0.55, 0, 2.65)); root.add(desk);
     collider(deskSize, cabinPoint(cabin, -0.55, deskSize.y / 2, 2.65));
     const chair = models[1]; chair.name = 'CabinChair';
-    const chairSize = fitCabinProp(chair, 1.12, 0.75, 0.85, Math.PI);
+    const chairSize = fitRoomProp(chair, 1.12, 0.75, 0.85, Math.PI);
     chair.position.add(new THREE.Vector3(cabin.side * -0.55, 0, 1.65)); root.add(chair);
     collider(chairSize, cabinPoint(cabin, -0.55, chairSize.y / 2, 1.65));
 
     const desktop = cabin.id === 'branden' ? createRescueDesktop(progress) : null;
-    const terminal = createShipTerminal(desktop?.texture ?? desktopTexture(cabin)), computer = terminal.root, screen = terminal.screen;
+    const playScreen = cabin.id === 'brondon' ? await loadTexture(playScreenUrl) : null;
+    if (playScreen) { playScreen.colorSpace = THREE.SRGBColorSpace; playScreen.name = 'CrewGameMenu-brondon'; }
+    const terminal = createShipTerminal(playScreen ?? desktop?.texture ?? desktopTexture(cabin)), computer = terminal.root, screen = terminal.screen;
     computer.name = 'CabinComputer'; screen.name = 'CabinComputerScreen';
     computer.position.set(cabin.side * -0.55, deskSize.y, 2.75); root.add(computer);
 
@@ -204,7 +196,7 @@ export async function createCabinFurnishings(cabin: CabinDefinition, physics: Ph
     }
     const pistol = models[2];
     if (pistol) {
-      pistol.name = 'RecoveredPistol'; fitCabinProp(pistol, 0.15, 0.57, 0.24);
+      pistol.name = 'RecoveredPistol'; fitRoomProp(pistol, 0.15, 0.57, 0.24);
       pistol.position.y += 0.58; chest.add(pistol);
     }
     const crystal = cabin.id === 'brendan' ? createTeleportCrystal() : null;
@@ -215,7 +207,7 @@ export async function createCabinFurnishings(cabin: CabinDefinition, physics: Ph
     const teleporter = new THREE.Group(); teleporter.name = 'PersonalTeleportDevice';
     if (cabin.id === 'brondon') {
       const led = new THREE.Mesh(new THREE.SphereGeometry(0.018, 10, 8), glow);
-      teleporter.position.set(cabin.side * -1.12, deskSize.y + 0.035, 2.41); root.add(teleporter);
+      teleporter.position.set(0, 0.71, 0.25); bed.add(teleporter);
       box(teleporter, 'TeleporterCasing', [0.19, 0.07, 0.13], [0, 0, 0]);
       box(teleporter, 'TeleporterInset', [0.13, 0.006, 0.08], [0, 0.039, 0], pale);
       led.position.set(0.045, 0.05, 0); teleporter.add(led);
@@ -237,7 +229,7 @@ export async function createCabinFurnishings(cabin: CabinDefinition, physics: Ph
     return {
       root, desk, chair, bed, computer, screen, desktop, poster, chest, teleporter, lidPivot, crystal, goggles,
       chestPoint: cabinPoint(cabin, 1.7, 0.6, 0.65),
-      teleporterPoint: cabinPoint(cabin, -1.12, deskSize.y + 0.085, 2.41),
+      teleporterPoint: cabinPoint(cabin, 1.65, 0.76, -1.45),
       update,
       dispose() {
         bodies.forEach(body => { if (body.world === physics.world) physics.world.removeBody(body); });

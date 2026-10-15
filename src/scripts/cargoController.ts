@@ -5,6 +5,7 @@ import { disposeRoom, type PortalFrame } from '../helpers/scene/shipRoom.js';
 import type { Player, PlayerTransitionState } from './player.js';
 import type { DamageTarget } from './pistol.js';
 import { inputHint } from './gamepadInput.js';
+import { BreakableMaterial } from './breakableMaterial.js';
 import { CARGO, beltMoving, cargoPosition, laneX, removeCargo, type CargoPuzzleState, type CargoRecord, type CargoRoom } from './cargoPuzzle.js';
 interface CargoObject extends DamageTarget { record: CargoRecord; root: THREE.Group; body: CANNON.Body; }
 /** Stable cargo obstacles and an explicitly controlled, swept player/crate pair. */
@@ -38,7 +39,8 @@ export function createCargoController(scene: THREE.Scene, world: CANNON.World, p
   }
   function add(record: CargoRecord) {
     const root = new THREE.Group(); root.name = record.id; root.userData.breakableWeapon = record.breakable ? 'crowbar' : undefined;
-    const material = new THREE.MeshStandardMaterial({ color: 0x517b8b, metalness: 0.6, roughness: 0.68 });
+    const material = record.breakable ? new BreakableMaterial('crowbar')
+      : new THREE.MeshStandardMaterial({ color: 0x517b8b, metalness: 0.6, roughness: 0.68 });
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.4, 1.4), material); mesh.castShadow = mesh.receiveShadow = true; root.add(mesh);
     const trim = new THREE.MeshStandardMaterial({ color: 0xcedee1, metalness: 0.6 });
     for (const x of [-0.48, 0.48]) { const band = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.42, 1.42), trim); band.position.x = x; root.add(band); }
@@ -163,7 +165,7 @@ export function createCargoController(scene: THREE.Scene, world: CANNON.World, p
       body.aabbNeedsUpdate = true; root.position.copy(body.position); root.quaternion.copy(body.quaternion);
       if (record.mode === 'parked') record.position = { x: body.position.x, y: body.position.y, z: body.position.z };
       const mat = (root.children[0] as THREE.Mesh).material as THREE.MeshStandardMaterial;
-      mat.color.setHex(highlighted && record.breakable ? 0xffd629 : 0x517b8b);
+      if (mat instanceof BreakableMaterial) { mat.setHighlighted(highlighted); mat.update(dt); }
     }
     for (let i = debris.length - 1; i >= 0; i--) { const d = debris[i]; d.life -= dt; d.velocity.y -= dt * 9.82; d.mesh.position.addScaledVector(d.velocity, dt); d.mesh.position.y = Math.max(0.1, d.mesh.position.y); d.mesh.rotation.x += dt * 3; if (d.life <= 0) { d.mesh.removeFromParent(); debris.splice(i, 1); } }
   }

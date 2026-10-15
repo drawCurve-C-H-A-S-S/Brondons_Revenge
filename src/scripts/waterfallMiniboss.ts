@@ -5,7 +5,6 @@ import { createGroundMotor } from '../helpers/physics/scenePhysics.js';
 import { createHangarVersus } from '../helpers/scene/hangarVersus.js';
 import { disposeRoom } from '../helpers/scene/shipRoom.js';
 import { emitComicEffect } from '../helpers/scene/comicEffects.js';
-import { createRewardChest } from './rewardChest.js';
 import type { Player } from './player.js';
 import type { DamageTarget, DamageWeapon } from './pistol.js';
 import type { CinematicPose } from './characterManager.js';
@@ -20,16 +19,16 @@ interface WaterfallArena {
   setLocked(locked: boolean): void;
 }
 
-export function createWaterfallMiniboss({ scene, world, player, camera, arena, defeated = false, collected = false,
+export function createWaterfallMiniboss({ scene, world, player, camera, arena, defeated = false, achievementUnlocked = false,
   loadModel = loadToolModel }: {
   scene: THREE.Scene; world: CANNON.World; player: Player; camera: THREE.PerspectiveCamera;
-  arena: WaterfallArena; defeated?: boolean; collected?: boolean; loadModel?: typeof loadToolModel;
+  arena: WaterfallArena; defeated?: boolean; achievementUnlocked?: boolean; loadModel?: typeof loadToolModel;
 }) {
   const root = new THREE.Group(); root.name = 'WaterfallSpiderRobobot'; root.position.copy(arena.center); root.visible = false; scene.add(root);
   const radius = 1.05;
   const body = new CANNON.Body({ mass: 45, shape: new CANNON.Sphere(radius), fixedRotation: true, allowSleep: false,
     linearDamping: 0, material: new CANNON.Material({ friction: 0, restitution: 0 }) });
-  body.position.set(root.position.x, radius + 0.04, root.position.z);
+  body.position.set(root.position.x, arena.center.y + radius + 0.04, root.position.z);
   const motor = createGroundMotor(body, radius);
   const versus = createHangarVersus({ singleOpponent: true, playerName: 'BRONDON', opponentName: 'ROGUE SPIDER BOT', layout: 'columns' });
   const hud = document.createElement('div'); hud.className = 'waterfall-boss-hud hidden';
@@ -44,17 +43,15 @@ export function createWaterfallMiniboss({ scene, world, player, camera, arena, d
   const entryCamera = camera.position.clone(), entryRotation = camera.quaternion.clone();
   const hopStart = new THREE.Vector3(), hopEnd = new THREE.Vector3();
   let phase: Phase = defeated ? 'defeated' : 'dormant', health = defeated ? 0 : WATERFALL_BOSS.health;
-  let clock = 0, hopClock = -1, cooldown = 1.2, disposed = false, loaded = false, assetError = false, rewardCollected = collected;
+  let clock = 0, hopClock = -1, cooldown = 1.2, disposed = false, loaded = false, assetError = false;
+  let secretUnlocked = defeated || achievementUnlocked, achievementTime = 0;
   let mixer: THREE.AnimationMixer | null = null, model: THREE.Group | null = null, clips: THREE.AnimationClip[] = [], animation = '';
-  let chest: ReturnType<typeof createRewardChest> | null = null;
-  function spawnChest() {
-    if (chest || rewardCollected || disposed) return;
-    chest = createRewardChest({ scene, world, player, position: arena.center.clone().add(new THREE.Vector3(-4, 0, 0)),
-      yaw: -Math.PI / 2, reward: 'aegis', style: 'crew', unlocked: () => phase === 'defeated',
-      canInteract: () => !disposed && player.getHealth() > 0 && !document.hidden && !document.body.classList.contains('quick-menu-open'),
-      onCollect: () => { rewardCollected = true; return true; },
-    }, loadModel);
-  }
+  const achievement = document.createElement('section'); achievement.className = 'secret-achievement hidden';
+  achievement.setAttribute('role', 'status'); achievement.setAttribute('aria-live', 'polite');
+  const achievementLabel = document.createElement('span'); achievementLabel.textContent = 'SECRET ACHIEVEMENT UNLOCKED';
+  const achievementTitle = document.createElement('strong'); achievementTitle.textContent = 'BEHIND THE FALLS';
+  const achievementText = document.createElement('p'); achievementText.textContent = 'Find and defeat the hidden Waterfall Warden.';
+  achievement.append(achievementLabel, achievementTitle, achievementText); document.body.appendChild(achievement);
   function animate(name: string, once = false) {
     if (!mixer || animation === name) return;
     const clip = clips.find(clip => clip.name === name) ?? clips.find(clip => clip.name === 'Idle');
@@ -84,7 +81,6 @@ export function createWaterfallMiniboss({ scene, world, player, camera, arena, d
     }
   }
   const ready = defeated ? Promise.resolve() : load();
-  if (defeated) spawnChest();
   function begin() {
     phase = 'versus'; clock = 0; root.visible = true;
     entryCamera.copy(camera.position); entryRotation.copy(camera.quaternion);
@@ -97,7 +93,10 @@ export function createWaterfallMiniboss({ scene, world, player, camera, arena, d
     phase = 'defeated'; clock = 0; health = 0; hopClock = -1;
     warning.visible = false; hud.classList.add('hidden'); arena.setLocked(false);
     body.velocity.set(0, 0, 0); body.type = CANNON.Body.KINEMATIC; body.collisionResponse = false; body.updateMassProperties();
-    animate('TurnOff', true); spawnChest();
+    animate('TurnOff', true);
+    if (!secretUnlocked) {
+      secretUnlocked = true; achievementTime = 6.5; achievement.classList.remove('hidden');
+    }
   }
   function damage(amount: number, weapon?: DamageWeapon) {
     if (!Number.isFinite(amount) || amount <= 0) throw new RangeError('Waterfall Warden damage must be positive and finite');
@@ -133,9 +132,9 @@ export function createWaterfallMiniboss({ scene, world, player, camera, arena, d
       direction.normalize(); motor.drive(direction.x, direction.z, distance > 2.2 ? 1.7 : 0); animate(distance > 2.2 ? 'Walk' : 'Idle');
     } else {
       motor.drive(0, 0, 0); animate('Charge');
-      hopEnd.set(THREE.MathUtils.clamp(p.x, arena.bounds.min.x + 2, arena.bounds.max.x - 2), radius + 0.04,
+      hopEnd.set(THREE.MathUtils.clamp(p.x, arena.bounds.min.x + 2, arena.bounds.max.x - 2), arena.center.y + radius + 0.04,
         THREE.MathUtils.clamp(p.z, arena.bounds.min.z + 2, arena.bounds.max.z - 2));
-      warning.position.set(hopEnd.x, 0.07, hopEnd.z); warning.visible = true;
+      warning.position.set(hopEnd.x, arena.center.y + 0.07, hopEnd.z); warning.visible = true;
       if (cooldown <= 0) {
         hopStart.copy(body.position); hopClock = 0; motor.reset(); animate('Attack', true);
         body.velocity.y = -world.gravity.y * WATERFALL_BOSS.hopSeconds * 0.5;
@@ -158,7 +157,7 @@ export function createWaterfallMiniboss({ scene, world, player, camera, arena, d
   return {
     root, body, ready, beforePhysicsStep, afterPhysicsStep,
     getDamageTargets: (): DamageTarget[] => phase === 'fight' && !disposed ? [{ root, body, damage }] : [],
-    getStatus: () => ({ phase, health, loaded, assetError, hopping: hopClock >= 0, defeated: phase === 'defeated', collected: rewardCollected }),
+    getStatus: () => ({ phase, health, loaded, assetError, hopping: hopClock >= 0, defeated: phase === 'defeated', achievementUnlocked: secretUnlocked }),
     isCinematic: () => phase === 'versus',
     getCinematicPose: (): CinematicPose | null => phase === 'versus' ? { clip: 'Idle_Loop', time: clock, loop: true } : null,
     captureCharacter(character: THREE.Object3D) { if (phase === 'versus') versus.capture(character, [root]); },
@@ -169,7 +168,8 @@ export function createWaterfallMiniboss({ scene, world, player, camera, arena, d
     },
     update(dt: number) {
       if (disposed) return;
-      clock += dt; mixer?.update(dt); chest?.update(dt);
+      clock += dt; mixer?.update(dt);
+      achievementTime = Math.max(0, achievementTime - dt); achievement.classList.toggle('hidden', achievementTime === 0);
       if (phase === 'dormant' && arena.contains(player.body.position) && player.isEnabled() && player.getHealth() > 0) {
         hud.classList.toggle('hidden', !assetError);
         if (loaded) begin();
@@ -186,7 +186,7 @@ export function createWaterfallMiniboss({ scene, world, player, camera, arena, d
     },
     dispose() {
       if (disposed) return; disposed = true; arena.setLocked(false);
-      window.removeEventListener('keydown', onKey); versus.dispose(); hud.remove(); chest?.dispose();
+      window.removeEventListener('keydown', onKey); versus.dispose(); hud.remove(); achievement.remove();
       mixer?.stopAllAction(); if (model) mixer?.uncacheRoot(model);
       root.traverse(node => { if (node instanceof THREE.SkinnedMesh) node.skeleton.dispose(); });
       if (body.world === world) world.removeBody(body);

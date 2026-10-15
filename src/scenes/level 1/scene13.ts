@@ -83,7 +83,8 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
   box([0.6, 14, 48], [-20, 7, 0], wall); box([0.6, 14, 48], [20, 7, 0], wall);
   box([40, 14, 0.6], [0, 7, 24], wall); box([40, 0.5, 48], [0, 14, 0], dark);
   box([40, 3, 0.5], [0, 1.5, -24], wall);
-  const door = createSlidingPortal(scene, physics, { x: 0, y: 3, z: -24, yaw: 0 }, 40, 11, 'SERVICE ELEVATOR / BAY 13');
+  const door = createSlidingPortal(scene, physics, { x: 0, y: 3, z: -24, yaw: 0 }, 40, 11, 'SERVICE ELEVATOR / BAY 13',
+    { landingFloor: !fromServiceLift });
   if (fromServiceLift) {
     box([4.4, 0.2, 3.6], [0, 2.9, -25.8], steel);
     box([4.4, 0.16, 3.6], [0, 6.2, -25.8], dark);

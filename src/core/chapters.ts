@@ -47,6 +47,11 @@ export const LOADING_CHAPTERS = {
     tips: ['The sealed archive holds another weapon and a keycard.',
       'Keycards persist when you return to the surveillance room.'],
   },
+  rust: {
+    chapter: 'LEVEL 1 / MINIGAME STAGE / RUST CHAMBER', title: 'THE RUST CHAMBER', images: [image('stage2-archive')],
+    tips: ['Blue corrosion breaks under gunfire. Orange corrosion yields to the crowbar or lightsaber.',
+      'Follow the chains to see what each release is holding.', 'A poem near the entrance offers a hint.'],
+  },
   boss: {
     chapter: 'LEVEL 1 / BOSS STAGE', title: 'THE BAY WARDEN', images: [image('bay-warden')],
     tips: ['Keep moving. The Bay Warden punishes anyone who stands still.',
@@ -98,7 +103,7 @@ export const LOADING_CHAPTERS = {
   facility: {
     chapter: 'LEVEL 3 / FACILITY STAGE', title: 'AI RESEARCH FACILITY', images: [image('facility')],
     tips: ['Read the research logs before sequencing the facility panel.',
-      'The station clues reveal the correct order. Explore before guessing.'],
+      'After powering the stairs, approach the glass office door and press E to peek.'],
   },
   finale: {
     chapter: 'LEVEL 3 / FINAL BOSS', title: 'SUDOERS 5 / THE LAST LIGHT', images: [image('finale-rooftop'), image('finale-orbit')],
@@ -118,6 +123,7 @@ export const SCENE_CHOICES = [
   [1.2, 'Level 1 Minigame Stage - Vents and surveillance'],
   [5, 'Level 1 Minigame Stage - Cargo hold'], [6, 'Level 1 Minigame Stage - Target range'],
   [1.3, 'Level 1 Minigame Stage - Equipment archive'],
+  [1.4, 'Level 1 Minigame Stage - Rust chamber'],
   [13, 'Level 1 Boss Stage - Bay Warden'], [14, 'Level 1 Escape Stage - Hangar escape'],
   [15, 'Level 2 Phase 1 - Interceptors'], [15.5, 'Level 2 Phase 2 - Green scrambler'],
   [15.6, 'Level 2 Phase 3 - Capital ship shields'], [15.75, 'Level 2 Phase 4 - Red scrambler'],
@@ -131,7 +137,13 @@ export const SCENE_CHOICES = [
 
 export function createLoadingSlideDeck(destination: LoadingDestination, random = Math.random) {
   const ids: LoadingChapterId[] = destination === 'game' ? Object.keys(LOADING_CHAPTERS) as LoadingChapterId[] : [destination];
-  const slides = ids.flatMap(id => LOADING_CHAPTERS[id].images.map(image => ({ id, image, content: LOADING_CHAPTERS[id] })));
+  const seen = new Set<string>();
+  const slides = ids.flatMap(id => LOADING_CHAPTERS[id].images
+    .filter(image => {
+      if (seen.has(image)) return false;
+      seen.add(image);
+      return true;
+    }).map(image => ({ id, image, content: LOADING_CHAPTERS[id] })));
   let remaining: typeof slides = [], previousImage = '';
   return {
     next() {

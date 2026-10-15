@@ -58,6 +58,7 @@ const sceneImports = {
   1.1: () => import('./scenes/level 1 stage 1/storageRoom.js'),
   1.2: () => import('./scenes/level 1 stage 2/scene.js'),
   1.3: () => import('./scenes/level 1 stage 2/equipmentRoom.js'),
+  1.4: () => import('./scenes/level 1 stage 2/rustChamber.js'),
   5: () => import('./scenes/level 1/scene5.js'),
   6: () => import('./scenes/level 1/scene6.js'),
   13: () => import('./scenes/level 1/scene13.js'),
@@ -97,7 +98,7 @@ async function prepareScene<Id extends SceneModuleId>(id: Id) {
 let stageTwoProgress = createStageTwoProgress();
 
 // --- Renderer ---
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, window.matchMedia('(pointer: coarse)').matches ? 1 : 1.5));
 renderer.shadowMap.enabled = true;
@@ -105,6 +106,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 document.body.appendChild(renderer.domElement);
+renderer.domElement.style.position = 'relative'; renderer.domElement.style.zIndex = '1';
 const cctv = createCctvSystem(renderer, [
   ...STAGE_TWO_MINIGAMES.map(room => ({ ...room, load: () => cameraFeed(room.id),
     cleared: () => stageTwoProgress.remoteRooms[room.id].rewardCollected })),
@@ -215,6 +217,10 @@ function advanceSceneActions(dt: number) {
 let scene1SkipVisible = false;
 let scene1SkipHold: ReturnType<typeof createHoldToSkip> | null = null;
 let quartersProgress = createQuartersProgress();
+const COMPLETION_KEY = 'brondons-revenge-completed';
+let campaignCompleted = false, developerRun = false;
+try { campaignCompleted = window.localStorage.getItem(COMPLETION_KEY) === '1'; }
+catch (error) { console.warn('[Progress] Unable to read campaign completion:', error); }
 const shipMapProgress = createShipMapProgress();
 let mappedSceneData: unknown = null;
 let bayBossDefeated = false;
@@ -316,8 +322,12 @@ const unarmedCombat = new UnarmedCombatController(() => ({
   },
 }));
 const goggles = new GogglesController(() => ({
-  player: currentSceneData?.ownsWeaponInput || currentSceneData?.isCinematic?.() || deathPresentation ? null : currentPlayer, scene: currentSceneData,
-  setCharacterEquipped: active => globalCharacter?.setGogglesEquipped(active),
+  player: currentSceneData?.ownsWeaponInput || currentSceneData?.isCinematic?.() || deathPresentation ? null : currentPlayer,
+  setCharacterEquipped: active => {
+    globalCharacter?.setGogglesEquipped(active);
+    globalCharacter?.setCellShadingEnabled(!active);
+    if (activeSceneId === 'scene6') currentSceneData?.setGogglesActive?.(active);
+  },
   onToggle: active => gogglesPostProcess.setActive(active),
 }));
 
@@ -342,7 +352,7 @@ function surveillanceMarkerPlaced() {
     && !!marker.placementPosition && isSurveillancePoint(marker.placementPosition);
 }
 
-function isCameraVisit(id: string) { return id === 'scene5' || id === 'scene6' || id === 'stage2-armory'; }
+function isCameraVisit(id: string) { return STAGE_TWO_MINIGAMES.some(room => room.id === id); }
 
 function equipmentInputBlocked() {
   return document.hidden || quickMenuOpen || weaponWheelOpen || teleportLoading
@@ -537,26 +547,21 @@ let shownControl: ControlCard | null = null;
 let controlTime = 0;
 const controlCard = document.getElementById('control-card')!;
 const lessons: Record<string, Omit<ControlCard, 'key' | 'scene'>> = {
-  quarters: { title: 'Living quarters', lines: ['WASD - walk / Shift - sprint / Mouse - look', 'C while sprinting forward - slide tackle; otherwise crouch', 'Unarmed + left click - random punches', 'Look at a nameplate to see the room name', 'E - use doors, chests and devices', 'Unlocked doors play a short walk-through cinematic', 'V - first / third person / M - pause, then Map', 'Recover your gear and search Branden and Brendan\'s rooms'], touch: ['Left stick - walk / Right drag - look', 'Hold RUN + forward, then CROUCH - slide tackle', 'PUNCH - random unarmed attacks', 'Look at nameplates to see room names automatically', 'USE - open doors and chests, recover gear', 'VIEW - first / third person / MENU - pause and map', 'Recover your gear and check the other lecturers\' rooms'] },
-  basics: { title: 'You’re awake', lines: ['WASD — walk · Shift — sprint', 'C while sprinting forward — slide tackle; otherwise crouch', 'Mouse — look · Click the world to capture the mouse', 'Space — jump · E — interact', 'Hold Tab — weapons · Release to equip · Left click — attack; unarmed — punch', 'V or the view button — switch first / third person · M — pause · / — hide / show HUD'], touch: ['Drag on the left to walk; drag on the right to look.', 'RUN, JUMP, CROUCH and USE are your movement controls.', 'Hold RUN + forward, then CROUCH to slide tackle.', 'PUNCH attacks unarmed; PISTOL equips your gun; SHOOT fires it.', 'Tap VIEW to switch first / third person · MENU to pause.'] },
-  pistol: { title: 'Pistol', lines: ['Hold Tab — select pistol; select Unarmed to holster', 'Left click — shoot at your crosshair'], touch: ['PISTOL — equip / holster', 'SHOOT — fire at your crosshair'] },
-  crowbar: { title: 'Crowbar acquired', lines: ['Hold Tab — select crowbar; select Unarmed to holster', 'Left click — swing'], touch: ['CROW — equip / holster', 'SWING — attack'] },
-  lightsaber: { title: 'Lightsaber acquired', lines: ['Hold Tab — select lightsaber; select Unarmed to holster',
-    'Left click — varied sword cuts, lunges and regular combos',
-    'Rapid clicks — queue a heavy combo; the current swing finishes smoothly',
-    'Click as a beam approaches to parry; each combo stroke can also reflect beams'],
-    touch: ['SABER — equip / holster', 'Direction + SLASH — lunge, left, right or finishing cut',
-      'Up-left + SLASH — regular combo / up-right + SLASH — heavy combo'] },
-  teleport: { title: 'Teleportation device', lines: ['Q — place purple anchor', 'T — teleport instantly to your anchor'], touch: ['Keyboard Q — place anchor; T — teleport'] },
-  goggles: { title: 'Scanner goggles acquired', lines: ['N — wear / remove goggles'], touch: ['GOGGLES — wear / remove'] },
-  vent: { title: 'Vent maze', lines: ['WASD / arrows — move · Hold Shift — crouch sprint', 'Explore the branches to find the camera-room exit', 'Wait for green sensors · Blue pads save your position'], touch: ['Left stick — move · SPRINT — faster crawl', 'Find the camera-room exit through the maze', 'Green sensors are safe · Blue pads are checkpoints'] },
-  cargo: { title: 'Handling cargo', lines: ['E — grab / release a nearby box', 'WASD — move while holding it'], touch: ['USE — grab / release a nearby box', 'Left stick — move the box'] },
-  flight: { title: 'Flight controls', lines: ['WASD — dodge · Mouse — aim', 'Hold left click — fire · Space — evade', 'V or the view button — cockpit / chase camera · M — pause'], touch: ['Left stick — dodge · Right drag — aim', 'Hold FIRE — shoot · EVADE — dodge', 'VIEW — cockpit / chase camera · MENU — pause']},
-  flightSide: { title: 'Sidescroll flight', lines: ['WASD / arrows — move · Hold left click — fire straight', 'W / S + Space — dodge up / down'], touch: ['Left stick — move · Hold FIRE — fire straight', 'Stick up / down + EVADE — vertical dodge'] },
-  flightTop: { title: 'Top-down flight', lines: ['WASD / arrows — move · Hold left click — fire upward', 'A / D + Space — evade left / right'], touch: ['Left stick — move · Hold FIRE — fire upward', 'Stick left / right + EVADE — lateral dodge'] },
-  jungle: { title: 'Back on the ground', lines: ['WASD — walk · Shift — sprint · Space — jump', 'C while sprinting forward — low-damage knockdown tackle; otherwise crouch', 'Hold Tab — select weapon · Left click — attack; unarmed — punch', 'V or the view button — change view'], touch: ['Left stick — walk · Right drag — look', 'RUN / JUMP — sprint and jump', 'Hold RUN + forward, then CROUCH — knockdown tackle', 'PISTOL / CROW — select weapon · SHOOT / SWING / PUNCH — attack', 'VIEW — change view'] },
-  platformer: { title: 'Platforming controls', lines: ['A / D or arrows — move · Space — jump', 'Shift — sprint · C — crouch', 'Mouse — aim · Hold Tab — select weapon', 'Hold left click — attack'], touch: ['Left stick — move · JUMP — jump', 'RUN — sprint · CROUCH — crouch', 'Right drag — aim · PISTOL / CROW — select weapon', 'Hold FIRE — attack'] },
-  finale: { title: 'Final boss controls', lines: ['A / D — move · J — down / side / heavy sword chain · F — two-handed rifle salvo', 'Hold R — shield / parry · Space — dodge boost · E — Last Light blade wave (18-second recharge)', 'After a special close-up, the camera returns before release: dodge or guard', 'W / S — rise or dive in space · Hold Enter — skip to the VS intro', 'Final QTE: time taps, mash D, hold E; 1–3 stars per prompt, three misses cause death'], touch: ['LEFT / RIGHT — move · UP / DOWN — fly in space', 'SWORD — chain cuts · SHIELD — hold to block / parry · BOOST — dodge', 'RIFLE — sheath, draw and fire · ULTIMATE — Last Light (18-second recharge)', 'QTE: tap, mash or hold the displayed letter; three misses break the link'] },
+  quarters: { title: 'Living quarters', lines: ['WASD move · Shift sprint · Mouse look', 'C crouch · forward + C slide tackle', 'Look at nameplate · E interact · V view · M pause & map'], touch: ['Left stick move · right drag look', 'CROUCH · forward + CROUCH slide tackle', 'USE interact · VIEW camera · MENU pause & map'] },
+  basics: { title: 'You\'re awake', lines: ['WASD move · Shift sprint · Space jump', 'Mouse look · click the world to capture it', 'C crouch · forward + C slide tackle', 'E interact · Hold Tab weapons · V view · M pause'], touch: ['Left stick move · right drag look', 'RUN · JUMP · CROUCH (forward = slide tackle)', 'USE interact · hold a weapon to equip · VIEW · MENU'] },
+  pistol: { title: 'Pistol', lines: ['Hold Tab → pistol · Left click fire'], touch: ['PISTOL equip · SHOOT fire'] },
+  crowbar: { title: 'Crowbar acquired', lines: ['Hold Tab → crowbar · Left click swing'], touch: ['CROW equip · SWING attack'] },
+  lightsaber: { title: 'Lightsaber acquired', lines: ['Hold Tab → lightsaber · Left click slash', 'Rapid clicks → heavy combo · Click on beam → parry / reflect'], touch: ['SABER equip · SLASH attack', 'Direction + SLASH — lunge / combo'] },
+  teleport: { title: 'Teleportation device', lines: ['Q place anchor · T teleport to it'], touch: ['Q place anchor · T teleport'] },
+  goggles: { title: 'Scanner goggles acquired', lines: ['N wear / remove goggles'], touch: ['GOGGLES wear / remove'] },
+  vent: { title: 'Vent maze', lines: ['WASD / arrows move · Hold Shift crouch sprint', 'Green sensors safe · blue pads checkpoint', 'E climb ladder · Hold Space climb fast'], touch: ['Left stick move · SPRINT faster crawl', 'Green sensors safe · blue pads checkpoint', 'USE mount ladder · hold JUMP climb fast'] },
+  cargo: { title: 'Handling cargo', lines: ['E grab / release a box · WASD carry'], touch: ['USE grab / release · left stick carry'] },
+  flight: { title: 'Flight controls', lines: ['WASD dodge · Mouse aim', 'Hold left click fire · Space evade', 'V cockpit / chase · M pause'], touch: ['Left stick dodge · right drag aim', 'Hold FIRE · EVADE dodge', 'VIEW camera · MENU pause']},
+  flightSide: { title: 'Sidescroll flight', lines: ['WASD move · hold left click fire forward', 'W / S + Space dodge up / down'], touch: ['Left stick move · hold FIRE forward', 'Up / down + EVADE vertical dodge'] },
+  flightTop: { title: 'Top-down flight', lines: ['WASD move · hold left click fire upward', 'A / D + Space dodge left / right'], touch: ['Left stick move · hold FIRE upward', 'Left / right + EVADE lateral dodge'] },
+  jungle: { title: 'Back on the ground', lines: ['WASD move · Shift sprint · Space jump', 'C crouch · forward + C slide tackle', 'Hold Tab weapon · left click attack · V view'], touch: ['Left stick move · right drag look · RUN · JUMP', 'CROUCH (forward = slide tackle)', 'Weapon to select · attack · VIEW camera'] },
+  platformer: { title: 'Platforming controls', lines: ['A / D move · Space jump · Shift sprint · C crouch', 'Mouse aim · Hold Tab weapon · hold left click attack'], touch: ['Left stick move · JUMP · RUN · CROUCH', 'Right drag aim · weapon select · hold FIRE'] },
+  finale: { title: 'Final boss controls', lines: ['A / D move · J sword chain · F rifle salvo', 'Hold R shield / parry · Space dodge', 'E Last Light (18s recharge) · W / S rise or dive', 'Enter skip intro · QTE: tap, mash or hold the letter'], touch: ['LEFT / RIGHT move · UP / DOWN fly', 'SWORD chain · SHIELD block · BOOST dodge', 'RIFLE fire · ULTIMATE Last Light', 'QTE: tap, mash or hold the letter'] },
 };
 function introduceControls(key: string, scene?: string) {
   if (seenControls.has(key) || controlQueue.some(card => card.key === key) || shownControl?.key === key) return;
@@ -771,6 +776,7 @@ async function loadLivingQuarters(fromPassage = false, entryState?: PlayerTransi
   const source = currentSceneData, request = sceneRequestVersion;
   const sceneData = module.createScene({
     progress: quartersProgress, fromPassage, entryState, deferActivation: true,
+    allowComputerPlay: campaignCompleted && !developerRun,
     warmRoom: async (scene, camera) => { await prepareSceneRendering(renderer, scene, camera); },
     onPistolCollected: () => { hasPistol = true; introduceControls('pistol'); },
     onCrystalCollected: () => { teleportDevice.collect(); introduceControls('teleport'); },
@@ -966,6 +972,7 @@ function showMenuButtons() {
 async function transitionToScene2() {
   if (playLoading) return;
   playLoading = true;
+  developerRun = false;
   const loading = beginCinematicLoading('game');
   try {
     await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
@@ -1092,7 +1099,9 @@ async function cameraFeed(id: CameraFeedId): Promise<CctvFeedSource> {
     ? (await sceneModule(5)).createScene({ remoteVisit: true, preview: true, loot: stageTwoProgress.remoteRooms.scene5 })
     : id === 'scene6'
       ? (await sceneModule(6)).createScene({ remoteVisit: true, preview: true, loot: stageTwoProgress.remoteRooms.scene6 })
-      : (await sceneModule(1.3)).createScene({ progress: stageTwoProgress, preview: true });
+      : id === 'stage2-rust'
+        ? (await sceneModule(1.4)).createScene({ preview: true, loot: stageTwoProgress.remoteRooms['stage2-rust'] })
+        : (await sceneModule(1.3)).createScene({ progress: stageTwoProgress, preview: true });
   try {
     await sceneData.ready;
     await renderer.compileAsync(sceneData.scene, sceneData.camera);
@@ -1102,6 +1111,7 @@ async function cameraFeed(id: CameraFeedId): Promise<CctvFeedSource> {
     if ('syncProgress' in sceneData) sceneData.syncProgress();
     sceneData.updatePhysics(dt);
   },
+    ...(id === 'stage2-rust' ? { camera: sceneData.camera } : {}),
     dispose: () => sceneData.dispose() };
 }
 
@@ -1133,6 +1143,12 @@ async function loadCameraVisit(id: CameraRoomId, entryState?: PlayerTransitionSt
     sceneData = module.createScene({ remoteVisit: true, deferActivation: true, entryState,
       loot: stageTwoProgress.remoteRooms.scene6, hasReturnMarker: surveillanceMarkerPlaced, onRestart: restartSurveillance,
       onKeycardCollected: () => { collectStageTwoKeycard(stageTwoProgress, 'scene6'); } });
+  } else if (id === 'stage2-rust') {
+    const module = await prepareScene(1.4);
+    if (!module || source !== currentSceneData) return false;
+    sceneData = module.createScene({ deferActivation: true, entryState, loot: stageTwoProgress.remoteRooms['stage2-rust'],
+      hasReturnMarker: surveillanceMarkerPlaced, onRestart: restartSurveillance,
+      onKeycardCollected: () => { collectStageTwoKeycard(stageTwoProgress, 'stage2-rust'); } });
   } else {
     const module = await prepareScene(1.3);
     if (!module || source !== currentSceneData) return false;
@@ -1146,6 +1162,10 @@ async function loadCameraVisit(id: CameraRoomId, entryState?: PlayerTransitionSt
   retireTraversalRoom();
   activateExtension(sceneData, id);
   sceneData.activate();
+  if (developerVisit) {
+    stageTwoProgress.checkpoint = 'surveillance'; stageTwoProgress.guardDown = true;
+    teleportDevice.setMarker('stage2-infiltration', { x: 28, y: sceneData.player.radius, z: -46 }, Math.PI);
+  }
   shipMapProgress.reveal(sceneData.getMapLayout());
   teleportArrivalTime = 0;
   globalCharacter?.setHologramTransition(hologramTransitionAt(0, true, TELEPORT_TRANSFER_DURATION));
@@ -1255,16 +1275,16 @@ async function loadCrash16(entryState?: FlightExitState) {
   }, () => { void loadCrash16(entryState); });
 }
 
-async function loadGround17(entryState?: RescueArrival) {
+async function loadGround17(entryState?: RescueArrival, fromFacility = false) {
   await prepareChapter('jungle', async () => {
     const module = await prepareScene(17);
     if (!module) throw new Error('The jungle module could not load');
     await preloadMusic(MUSIC_URLS.planet);
     return { id: 'scene17', data: module.createScene({
-      entryState, onFinished: loadFacility20,
+      entryState, fromFacility, onFinished: loadFacility20,
       onRespawn: state => loadGround17(checkpointArrival(state)),
     }) };
-  }, () => { void loadGround17(entryState); });
+  }, () => { void loadGround17(entryState, fromFacility); });
 }
 
 function checkpointArrival(entryState?: RescueArrival): RescueArrival {
@@ -1273,16 +1293,18 @@ function checkpointArrival(entryState?: RescueArrival): RescueArrival {
 }
 
 async function loadFacility20(entryState?: RescueArrival) {
+  const fromExterior = activeSceneId === 'scene17' && !!entryState?.pilotState;
   await prepareChapter('facility', async () => {
-    const module = await prepareScene(20);
-    if (!module) throw new Error('The facility module could not load');
-    await preloadMusic(MUSIC_URLS['stealth-2']);
-    return { id: 'scene20', data: module.createScene({
-      entryState,
-      onRespawn: () => loadFacility20(checkpointArrival(entryState)),
-      onFinished: next => { void loadScene21(next); },
-    }) };
-  }, () => { void loadFacility20(entryState); });
+      const module = await prepareScene(20);
+      if (!module) throw new Error('The facility module could not load');
+      await preloadMusic(MUSIC_URLS['stealth-2']);
+      return { id: 'scene20', data: module.createScene({
+        entryState, fromExterior,
+        onReturn: next => { void loadGround17(next, true); },
+        onRespawn: () => loadFacility20(checkpointArrival(entryState)),
+        onFinished: next => { void loadScene21(next); },
+      }) };
+    }, () => { void loadFacility20(entryState); });
 }
 
 async function loadScene21(entryState?: RescueArrival, checkpoint?: FinaleCheckpoint) {
@@ -1301,7 +1323,14 @@ async function loadScene21(entryState?: RescueArrival, checkpoint?: FinaleCheckp
   try {
     sceneData = module.createScene({
       entryState, checkpoint, renderer,
-      onFinished: () => { showMenuButtons(); },
+      onFinished: () => {
+        if (!developerRun) {
+          campaignCompleted = true;
+          try { window.localStorage.setItem(COMPLETION_KEY, '1'); }
+          catch (error) { console.warn('[Progress] Completion unlocked for this session, but could not be saved:', error); }
+        }
+        showMenuButtons();
+      },
       onRetry: next => { void loadScene21(entryState, next); },
     });
     if (loading) {
@@ -1397,6 +1426,7 @@ function updatePlayerView(dt: number) {
     return;
   }
   currentSceneData?.applyEntryCamera?.();
+  currentSceneData?.applyCameraEffects?.();
 }
 
 // --- Direct scene selection ---
@@ -1742,7 +1772,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
     const buttons = quickMenu.querySelectorAll<HTMLButtonElement>('[data-scene]');
     const currentId = currentSceneData?.getDeveloperSceneId?.() ?? currentSceneData?.getSceneId?.() ?? activeSceneId;
     const chapterIds: Record<string, number> = { scene1: 1, prologue1: 0, 'living-quarters': 0.5,
-      'stage1-storage': 1.1, 'stage2-infiltration': 1.2, 'stage2-armory': 1.3 };
+      'stage1-storage': 1.1, 'stage2-infiltration': 1.2, 'stage2-armory': 1.3, 'stage2-rust': 1.4 };
     const selectedId = chapterIds[currentId] ?? Number(currentId.replace('scene', ''));
     buttons.forEach(button => button.setAttribute('aria-current', String(Number(button.dataset.scene) === selectedId)));
     const current = quickMenu.querySelector<HTMLButtonElement>('[aria-current="true"]') ?? buttons[0];
@@ -1805,10 +1835,11 @@ async function jumpToScene(id: number) {
   if (id === 1.2) {
     stageTwoProgress = createStageTwoProgress(); cctv.clearSources();
     hasCrowbar = hasLightsaber = false; bayBossDefeated = false; healthPackCollectedScene13 = false;
-  } else if (id === 1.3 || id === 5 || id === 6) {
+  } else if (id === 1.3 || id === 1.4 || id === 5 || id === 6) {
     stageTwoProgress.checkpoint = 'surveillance'; stageTwoProgress.guardDown = true;
   }
   if (id === 13) bayBossDefeated = false;
+  developerRun = true;
   const request = sceneRequestVersion + 1;
   try {
     switch (id) {
@@ -1817,6 +1848,7 @@ async function jumpToScene(id: number) {
       case 1.1: await loadStage1Storage(); break;
       case 1.2: if (!await loadStageTwo()) throw new Error('Stage Two did not activate'); break;
       case 1.3: if (!await loadCameraVisit('stage2-armory', undefined, true)) throw new Error('The archive did not activate'); break;
+      case 1.4: if (!await loadCameraVisit('stage2-rust', undefined, true)) throw new Error('The rust chamber did not activate'); break;
       case 1: await loadScene1(); break;
       case 5: if (!await loadCameraVisit('scene5', undefined, true)) throw new Error('The cargo camera room did not activate'); break;
       case 6: if (!await loadCameraVisit('scene6', undefined, true)) throw new Error('The range camera room did not activate'); break;
@@ -1922,6 +1954,7 @@ function setupSceneQuickMenu() {
   const insideMenu = (event: Event) => event.target instanceof Node
     && (pauseMenu.contains(event.target) || quickMenu.contains(event.target) || creditsDialog.contains(event.target));
   window.addEventListener('keydown', event => {
+    if (document.body.classList.contains('facility-browser-open')) return;
     const editing = event.target instanceof HTMLElement
       && event.target.closest('input:not([type="range"]), textarea, select, [contenteditable="true"]');
     if (event.code === 'KeyM' && !editing && !event.ctrlKey && !event.altKey && !event.metaKey) {

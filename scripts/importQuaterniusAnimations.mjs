@@ -119,23 +119,37 @@ function bakeRetargetedClip(source, target, clip) {
   return json;
 }
 
-const sources = await Promise.all(['UAL1_Standard.glb', 'UAL2_Standard.glb'].map(name => readRig(path.join(sourceDirectory, name))));
-const targets = await Promise.all(['MC.glb', 'Subject.glb'].map(name => readRig(path.join(project, 'src', 'assets', 'models', name))));
-const clips = sources.flatMap(source => source.json.animations.filter(animation => selected.test(animation.name))
-  .map(animation => ({ source, clip: sourceClip(source, animation) })));
-const output = {
-  version: 1, license: 'CC0-1.0',
-  sources: ['Quaternius Universal Animation Library [Standard]', 'Quaternius Universal Animation Library 2 [Standard]'],
-  bindPoses: Object.fromEntries(targets.map((target, index) => [index === 0 ? 'hero' : 'enemy',
-    ['root', 'pelvis', 'upperarm_r', 'thigh_r'].map(name => {
-      const bone = target.nodes.find(node => node.name === name);
-      if (!bone) throw new Error(`The target rig is missing ${name}`);
-      return { name, position: bone.position.toArray().map(rounded), quaternion: bone.quaternion.toArray().map(rounded) };
-    })])),
-  rigs: Object.fromEntries(targets.map((target, index) => [index === 0 ? 'hero' : 'enemy',
-    clips.map(({ source, clip }) => bakeRetargetedClip(source, target, clip))])),
-};
 const destination = path.join(project, 'src', 'assets', 'animations');
-await mkdir(destination, { recursive: true });
-await writeFile(path.join(destination, 'quaterniusCombat.json'), JSON.stringify(output));
-console.log(`Imported ${clips.length} real combat/recovery clips for both game rigs (${clips.map(({ clip }) => clip.name).join(', ')})`);
+const rigNames = ['hero', 'enemy', 'brondon'];
+const bindPose = target => ['root', 'pelvis', 'upperarm_r', 'thigh_r'].map(name => {
+  const bone = target.nodes.find(node => node.name === name);
+  if (!bone) throw new Error(`The target rig is missing ${name}`);
+  return { name, position: bone.position.toArray().map(rounded), quaternion: bone.quaternion.toArray().map(rounded) };
+});
+
+if (sourceDirectory === '--brondon') {
+  const libraryPath = path.join(destination, 'quaterniusCombat.json');
+  const library = JSON.parse(await readFile(libraryPath, 'utf8'));
+  const [source, target] = await Promise.all(['MC.glb', 'Don.glb'].map(name =>
+    readRig(path.join(project, 'src', 'assets', 'models', name))));
+  library.bindPoses.brondon = bindPose(target);
+  library.rigs.brondon = library.rigs.hero.map(serialized =>
+    bakeRetargetedClip(source, target, THREE.AnimationClip.parse(serialized)));
+  await writeFile(libraryPath, JSON.stringify(library));
+  console.log(`Retargeted ${library.rigs.brondon.length} combat clips for Brondon`);
+} else {
+  const sources = await Promise.all(['UAL1_Standard.glb', 'UAL2_Standard.glb'].map(name => readRig(path.join(sourceDirectory, name))));
+  const targets = await Promise.all(['MC.glb', 'Subject.glb', 'Don.glb'].map(name => readRig(path.join(project, 'src', 'assets', 'models', name))));
+  const clips = sources.flatMap(source => source.json.animations.filter(animation => selected.test(animation.name))
+    .map(animation => ({ source, clip: sourceClip(source, animation) })));
+  const output = {
+    version: 1, license: 'CC0-1.0',
+    sources: ['Quaternius Universal Animation Library [Standard]', 'Quaternius Universal Animation Library 2 [Standard]'],
+    bindPoses: Object.fromEntries(targets.map((target, index) => [rigNames[index], bindPose(target)])),
+    rigs: Object.fromEntries(targets.map((target, index) => [rigNames[index],
+      clips.map(({ source, clip }) => bakeRetargetedClip(source, target, clip))])),
+  };
+  await mkdir(destination, { recursive: true });
+  await writeFile(path.join(destination, 'quaterniusCombat.json'), JSON.stringify(output));
+  console.log(`Imported ${clips.length} real combat/recovery clips for all game rigs (${clips.map(({ clip }) => clip.name).join(', ')})`);
+}

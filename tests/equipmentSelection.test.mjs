@@ -5,6 +5,7 @@ import { createServer } from 'vite';
 
 let server, THREE, createPlayer, createScenePhysics, createWeaponWheel, weaponWheelIndex;
 let TeleportationDeviceController, teleportPlayer, hologramTransitionAt, TELEPORT_TRANSFER_DURATION;
+let GogglesController;
 before(async () => {
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false },
     appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
@@ -12,6 +13,7 @@ before(async () => {
   ({ createPlayer } = await server.ssrLoadModule('/scripts/player.ts'));
   ({ createScenePhysics } = await server.ssrLoadModule('/helpers/physics/scenePhysics.ts'));
   ({ createWeaponWheel, weaponWheelIndex } = await server.ssrLoadModule('/scripts/weaponWheel.ts'));
+  ({ GogglesController } = await server.ssrLoadModule('/scripts/goggles.ts'));
   ({ TeleportationDeviceController, teleportPlayer } = await server.ssrLoadModule('/scripts/teleportationDevice.ts'));
   ({ hologramTransitionAt, TELEPORT_TRANSFER_DURATION } = await server.ssrLoadModule('/scripts/characterManager.ts'));
 });
@@ -84,6 +86,26 @@ function wheelFixture(t) {
   return { wheel, pauses, selections, root: document.body.children[0],
     setCollected: value => { collected = value; }, block: value => { blocked = value; }, isPaused: () => paused };
 }
+
+test('goggles toggle ASCII presentation without modifying scene targets', t => {
+  dom(t);
+  let enabled = true, health = 100, highlighted = 0;
+  const ascii = [], equipped = [];
+  const goggles = new GogglesController(() => ({
+    player: { isEnabled: () => enabled, getHealth: () => health },
+    scene: { setGogglesActive() { highlighted++; } },
+    setCharacterEquipped: active => equipped.push(active), onToggle: active => ascii.push(active),
+  }));
+  t.cleanup(() => goggles.dispose());
+  key('KeyN'); assert.equal(goggles.isEquipped(), false);
+  goggles.collect(); assert.deepEqual(ascii, [true]); assert.equal(equipped.at(-1), true);
+  key('KeyN'); assert.deepEqual(ascii, [true, false]); assert.equal(goggles.isEquipped(), false);
+  key('KeyN'); assert.equal(goggles.isEquipped(), true);
+  enabled = false; goggles.update(); assert.equal(ascii.at(-1), false);
+  enabled = true; goggles.update(); assert.equal(ascii.at(-1), true);
+  health = 0; goggles.update(); assert.equal(ascii.at(-1), false);
+  assert.equal(highlighted, 0, 'goggles must never reveal or boost breakable targets');
+});
 
 test('radial selection maps collected counts, segment boundaries, and the neutral center', () => {
   for (let count = 1; count <= 4; count++) {
@@ -194,6 +216,30 @@ test('Q places only after collection; purple markers work outside scene 4 withou
   assert.equal(f.scene().children.filter(node => node.name === 'TeleportAnchor').length, 1);
   const dispose = t.mock.method(ring.geometry, 'dispose'); f.device.dispose();
   assert.equal(dispose.mock.callCount(), 1); assert.equal(marker.parent, null);
+});
+
+test('a developer return marker can be placed in surveillance while visiting a camera minigame', t => {
+  const f = teleportFixture(t), position = { x: 28, y: 0.3, z: -46 };
+  assert.throws(() => f.device.setMarker('stage2-infiltration', position, Math.PI), /before collecting/);
+  f.device.collect(false);
+  assert.throws(() => f.device.setMarker('', position, 0), /require a scene/);
+  assert.throws(() => f.device.setMarker('stage2-infiltration', { ...position, x: NaN }, 0), /finite/);
+  f.device.setMarker('stage2-infiltration', position, Math.PI);
+  position.x = 999;
+  assert.deepEqual(f.device.getState(), { collected: true, placed: true, placementScene: 'stage2-infiltration',
+    placementPosition: { x: 28, y: 0.3, z: -46 }, placementRotation: Math.PI });
+  assert.equal(f.scene().getObjectByName('TeleportAnchor'), undefined, 'the marker belongs in surveillance, not this minigame');
+  key('KeyT'); assert.deepEqual(f.teleports, ['stage2-infiltration']);
+  assert.equal(f.player.body.position.x, 28);
+  f.changeScene('stage2-infiltration');
+  assert.ok(f.scene().getObjectByName('TeleportAnchor'));
+});
+
+test('every developer camera visit seeds the same safe surveillance marker after activation', async () => {
+  const main = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8');
+  const visit = main.slice(main.indexOf('async function loadCameraVisit('), main.indexOf('async function loadBay13('));
+  assert.match(visit, /if \(developerVisit\) \{[\s\S]*?teleportDevice\.setMarker\('stage2-infiltration', \{ x: 28, y: sceneData\.player\.radius, z: -46 \}, Math\.PI\)/);
+  assert.ok(visit.indexOf('sceneData.activate()') < visit.indexOf('teleportDevice.setMarker'));
 });
 
 test('T moves synchronously with no character model and clears motion without resetting health', t => {

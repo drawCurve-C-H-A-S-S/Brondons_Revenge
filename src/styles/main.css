@@ -1654,6 +1654,20 @@ body.touch-device #control-card footer::after { content: 'Tap × to dismiss · c
   box-shadow: 5px 5px 0 var(--comic-ink); background: var(--comic-paper); text-align: center; font-weight: 700;
 }
 .stage-two-dialogue { bottom: 11%; }
+.rust-poem-reading { position: absolute; inset: 0; color: #e1ccb0; }
+.rust-poem-reading::before, .rust-poem-reading::after {
+  content: ''; position: absolute; left: 0; right: 0; height: 7vh; background: #080a0d;
+}
+.rust-poem-reading::before { top: 0; }
+.rust-poem-reading::after { bottom: 0; }
+.rust-poem-reading p {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip-path: inset(50%); white-space: pre-line;
+}
+.rust-poem-reading span {
+  position: absolute; bottom: 2vh; left: 0; right: 0; z-index: 1; text-align: center;
+  font: 16px Georgia, serif; text-shadow: 0 1px 2px #000;
+}
 .stage-two-route { top: 16%; background: var(--comic-cyan); }
 .stage-two-climb, .stage-two-failure { bottom: 22%; background: var(--comic-yellow); }
 .stage-two-lift-controls { top: 28%; display: flex; flex-direction: column; gap: 8px; width: min(420px, calc(100vw - 36px)); }
@@ -1905,6 +1919,17 @@ body.controller-mode :is(#pause-controls-list, #credits-dialog-content).controll
 #flight-powerups .flight-shield-slot { background: #242044; padding: 5px; border: 0; border-radius: 50%; box-shadow: 0 0 8px #b975ff66; }
 .flight-shield-slot::after { border-color: #b975ff; border-radius: 50%; }
 .waterfall-boss-hud { position: fixed; top: 22px; left: 50%; transform: translateX(-50%); width: min(420px, 70vw); padding: 10px 16px; background: var(--comic-paper); border: 3px solid var(--comic-ink); box-shadow: 4px 4px 0 var(--comic-ink); color: var(--comic-ink); text-align: center; z-index: 60; }
+.secret-achievement {
+  position: fixed; top: 12%; left: 50%; transform: translateX(-50%) rotate(-1deg); z-index: 1800;
+  width: min(460px, calc(100vw - 40px)); box-sizing: border-box; padding: 18px 24px;
+  color: var(--comic-ink); background: var(--comic-dots) 0 0 / 6px 6px, var(--comic-yellow);
+  border: 4px solid var(--comic-ink); box-shadow: 7px 7px 0 var(--comic-ink); text-align: center; pointer-events: none;
+}
+.secret-achievement:not(.hidden) { animation: comic-caption-open 280ms cubic-bezier(0.18, 0.9, 0.3, 1.15) both; }
+.secret-achievement span { display: block; font: 800 11px/1.4 var(--comic-body); }
+.secret-achievement strong { display: block; margin-top: 6px; font: 36px/1.1 var(--comic-display); }
+.secret-achievement p { margin: 9px 0 0; font: 700 13px/1.5 var(--comic-body); }
+body.quick-menu-open .secret-achievement { visibility: hidden; }
 .waterfall-boss-hud strong { display: block; font: 24px var(--comic-display); }
 .waterfall-boss-hud span { font: 12px var(--comic-body); }
 .waterfall-boss-track { height: 10px; margin: 8px 0; border: 2px solid var(--comic-ink); background: #212638; }
@@ -2251,14 +2276,43 @@ body.quick-menu-open #stealth-retry { visibility: hidden; }
 #quarters-letterbox::before, #quarters-letterbox::after { content: ''; position: absolute; width: 100%; height: 7%; background: var(--comic-ink); left: 0; }
 #quarters-letterbox::before { top: 0; }
 #quarters-letterbox::after { bottom: 0; }
-#quarters-subtitle { position: absolute; left: 50%; bottom: 9%; transform: translateX(-50%); width: min(720px, calc(100vw - 40px)); box-sizing: border-box; background: var(--comic-paper); border: 4px solid var(--comic-ink); box-shadow: 5px 5px 0 var(--comic-ink); padding: 12px 20px; }
-#quarters-speaker { color: #245468; font-family: var(--comic-display); font-size: 22px; }
-#quarters-subtitle-text { margin: 5px 0 0; font-size: 15px; line-height: 1.6; font-weight: 600; }
+#quarters-subtitle, .facility-dialogue { position: absolute; left: 50%; bottom: 9%; transform: translateX(-50%); width: min(720px, calc(100vw - 40px)); box-sizing: border-box; background: var(--comic-paper); border: 4px solid var(--comic-ink); box-shadow: 5px 5px 0 var(--comic-ink); padding: 12px 20px; }
+#quarters-speaker, .facility-dialogue strong { color: #245468; font-family: var(--comic-display); font-size: 22px; }
+#quarters-subtitle-text, .facility-dialogue p { margin: 5px 0 0; font-size: 15px; line-height: 1.6; font-weight: 600; }
+.facility-dialogue, .facility-message {
+  position: fixed; z-index: 65; pointer-events: none; color: var(--comic-ink); font-family: var(--comic-body);
+  background-color: var(--comic-paper); background-image: var(--comic-dots); background-size: 6px 6px;
+}
+.facility-dialogue:not(.hidden) { animation: comic-caption-open 230ms cubic-bezier(0.18, 0.9, 0.3, 1.15) both; }
+.facility-message {
+  left: 50%; bottom: 16%; transform: translateX(-50%); width: max-content; max-width: min(720px, calc(100vw - 40px));
+  box-sizing: border-box; padding: 12px 20px; border: 4px solid var(--comic-ink); box-shadow: 5px 5px 0 var(--comic-ink);
+  font-size: 15px; font-weight: 700; line-height: 1.6; white-space: pre-line; text-align: center;
+}
+body.facility-browser-open .facility-dialogue, body.facility-browser-open .facility-message,
+body.quick-menu-open .facility-dialogue, body.quick-menu-open .facility-message { display: none; }
 #quarters-skip { position: absolute; right: 20px; top: 9%; pointer-events: auto; padding: 9px 14px; border: 3px solid var(--comic-ink); box-shadow: 3px 3px 0 var(--comic-ink); background: var(--comic-yellow); color: var(--comic-ink); font: 800 12px var(--comic-body); cursor: pointer; }
 #quarters-console-controls { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; align-items: center; justify-content: center; gap: 12px; width: max-content; max-width: calc(100vw - 32px); }
 #quarters-console-controls span, #quarters-console-controls button { padding: 9px 13px; border: 3px solid var(--comic-ink); box-shadow: 3px 3px 0 var(--comic-ink); background: var(--comic-paper); color: var(--comic-ink); font: 700 12px/1.4 var(--comic-body); text-align: center; }
 #quarters-console-controls button { flex-shrink: 0; pointer-events: auto; cursor: pointer; background: var(--comic-yellow); }
 body.quarters-interface:not(.quick-menu-open) canvas { cursor: none; touch-action: none; }
+.facility-web-world { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.facility-web-surface { overflow: hidden; background: white; }
+.facility-web-surface iframe { width: 100%; height: 100%; border: 0; background: white; }
+.facility-web-controls {
+  position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 2000;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px;
+  max-width: calc(100vw - 24px); padding: 12px; background: var(--comic-paper); color: var(--comic-ink);
+  border: 4px solid var(--comic-ink); box-shadow: 5px 5px 0 var(--comic-ink);
+}
+.facility-web-controls[hidden], .facility-web-controls button[hidden] { display: none; }
+.facility-web-controls span { overflow-wrap: anywhere; font: 700 14px var(--comic-body); }
+.facility-web-controls button, .facility-web-controls a {
+  padding: 8px 12px; border: 3px solid var(--comic-ink); box-shadow: 3px 3px 0 var(--comic-ink); cursor: pointer;
+  background: var(--comic-yellow); color: var(--comic-ink); font: 700 14px var(--comic-body); text-decoration: none;
+}
+.facility-web-controls button:focus-visible, .facility-web-controls a:focus-visible { outline: 3px solid var(--comic-cyan); outline-offset: 3px; }
+body.facility-browser-open #touch-controls { display: none !important; }
 body[data-scene="living-quarters"] #health-bar, body[data-scene="living-quarters"] #shield-bar { visibility: hidden; }
 body.quarters-cinematic #quarters-status, body.quarters-cinematic #look-reticle,
 body.quarters-cinematic #quarters-notice, body.quarters-cinematic #quarters-room-name, body.quarters-cinematic #view-toggle-btn,
@@ -2268,8 +2322,8 @@ body.quick-menu-open #living-quarters-ui { visibility: hidden; }
 @media (max-width: 700px), (max-height: 540px) {
   #quarters-status { top: 10px; left: 10px; padding: 6px 10px; max-width: calc(100vw - 162px); }
   #quarters-location { font-size: 18px; }
-  #quarters-subtitle { padding: 8px 12px; bottom: 9%; }
-  #quarters-subtitle-text { font-size: 12px; line-height: 1.45; }
+  #quarters-subtitle, .facility-dialogue, .facility-message { padding: 8px 12px; bottom: 9%; }
+  #quarters-subtitle-text, .facility-dialogue p, .facility-message { font-size: 12px; line-height: 1.45; }
   #quarters-skip { right: 12px; font-size: 10px; }
   #quarters-interact { bottom: 30%; font-size: 11px; }
   #quarters-notice { bottom: 25%; font-size: 11px; }

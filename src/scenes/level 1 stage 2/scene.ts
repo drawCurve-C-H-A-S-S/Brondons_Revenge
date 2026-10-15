@@ -162,7 +162,7 @@ export function createScene(options: StageTwoOptions) {
   box(surveillance, [0.18, height, 16], [room.minX, height / 2, -56]);
   box(surveillance, [0.18, height, 2], [room.minX, height / 2, -43]);
   const returnAirlock = createSlidingPortal(scene, physics, { x: room.minX, y: 0, z: -46, yaw: Math.PI / 2 },
-    4, height, 'HANGAR AIRLOCK', { doorHeight: 2.65, sign: false });
+    4, height, 'HANGAR AIRLOCK', { doorHeight: 2.65, sign: false, landingFloor: false });
   surveillance.add(returnAirlock.group);
   returnAirlock.setLocked(!progress.airlockUnlocked);
   box(surveillance, [2, 0.2, 3], [18, -0.1, -46], materials.deck);
@@ -185,13 +185,13 @@ export function createScene(options: StageTwoOptions) {
     physics.addBox({ x: 0.8, y: 2.65, z: 0.86 }, { x, y: 1.325, z });
   }
   const frontDoor = createSlidingPortal(scene, physics, { x: liftX, y: 0, z: room.minZ, yaw: 0 }, 4, height,
-    'SERVICE ELEVATOR', { doorHeight: 2.65, sign: false }); surveillance.add(frontDoor.group);
+    'SERVICE ELEVATOR', { doorHeight: 2.65, sign: false, landingFloor: false }); surveillance.add(frontDoor.group);
   box(lift, [4, 0.2, 6.8], [liftX, -0.1, liftZ - 1], materials.deck);
   for (const x of [liftX - 2, liftX + 2]) box(lift, [0.18, height, 6.8], [x, height / 2, liftZ - 1]);
   box(lift, [4, 0.16, 6.8], [liftX, height, liftZ - 1], materials.dark).userData.minimap = false;
   const rearZ = liftZ - 2.4;
   const rearDoor = createSlidingPortal(scene, physics, { x: liftX, y: 0, z: rearZ, yaw: 0 }, 4, height,
-    'BAY 13', { doorHeight: 2.65, sign: false }); lift.add(rearDoor.group);
+    'BAY 13', { doorHeight: 2.65, sign: false, landingFloor: false }); lift.add(rearDoor.group);
   const liftLamp = new THREE.PointLight(0xb6dfec, 16, 8); liftLamp.position.set(liftX, 3.1, liftZ); lift.add(liftLamp);
   const liftStrip = new THREE.MeshBasicMaterial({ color: 0x6ad9e8, toneMapped: false });
   box(lift, [1.8, 0.04, 0.16], [liftX, height - 0.12, liftZ], liftStrip, false);
@@ -267,7 +267,7 @@ export function createScene(options: StageTwoOptions) {
       const position = station.localToWorld(point), body = physics.addBox(size, position);
       body.quaternion.setFromEuler(0, yaw, 0);
     }
-    const size = fitCabinProp(desk.scene, 0.86, 2.55, 1.25);
+    const size = fitCabinProp(desk.scene, 0.86, 2.55, 1.25, Math.PI);
     desk.scene.name = `SurveillanceDesk-${x}-${z}`; station.add(desk.scene);
     collider(size, new THREE.Vector3(0, size.y / 2, 0));
     const chairSize = fitCabinProp(chair.scene, 1.05, 0.68, 0.8, Math.PI);
@@ -543,6 +543,16 @@ export function createScene(options: StageTwoOptions) {
       if (!disposed) { console.error('[StageTwo] Camera teleport failed:', error); setPhase('surveillance'); tell('Camera link interrupted. Try again.'); }
     } finally { transferPending = false; }
   }
+  function returnToStealth() {
+    if (!active || disposed || menuPaused || transferPending || phase !== 'surveillance' || !progress.airlockUnlocked) return;
+    transferPending = true; setPhase('handoff');
+    void options.onAirlockReturn(player.captureTransition({ x: 0, y: 0, z: 0 })).then(entered => {
+      if (!entered) throw new Error('The hangar airlock transfer did not complete');
+    }).catch(error => {
+      if (!disposed) { console.error('[StageTwo] Hangar return failed:', error); setPhase('surveillance'); tell('Airlock connection interrupted. Try again.'); }
+    }).finally(() => { transferPending = false; });
+  }
+  returnAirlock.setTrigger(returnToStealth);
   function retryCheckpoint() {
     if (menuPaused) return;
     if (phase === 'load-error') { if (loadError === 'hub') void loadHub(); else void exitToBay13(); }
@@ -568,13 +578,7 @@ export function createScene(options: StageTwoOptions) {
     if (returnAirlock.near(player)) {
       event.preventDefault(); event.stopImmediatePropagation();
       if (!progress.airlockUnlocked) { tell('The airlock is locked.'); return; }
-      if (transferPending) return;
-      transferPending = true; setPhase('handoff');
-      void options.onAirlockReturn(player.captureTransition({ x: 0, y: 0, z: 0 })).then(entered => {
-        if (!entered) throw new Error('The hangar airlock transfer did not complete');
-      }).catch(error => {
-        if (!disposed) { console.error('[StageTwo] Hangar return failed:', error); setPhase('surveillance'); tell('Airlock connection interrupted. Try again.'); }
-      }).finally(() => { transferPending = false; });
+      returnToStealth();
       return;
     }
     if (readerFocused() || nearLiftDoor()) {

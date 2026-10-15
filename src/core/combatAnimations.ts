@@ -7,7 +7,7 @@ export const UNARMED_ATTACK_CLIPS = ['Punch_Jab', 'Punch_Cross', 'Melee_Hook_Wit
 export type UnarmedAttackName = typeof UNARMED_ATTACK_CLIPS[number];
 export const UNARMED_ATTACK_SPEED = 1.5;
 type SerializedClip = Parameters<typeof THREE.AnimationClip.parse>[0];
-type CombatSide = 'hero' | 'enemy';
+type CombatSide = 'hero' | 'enemy' | 'brondon';
 interface BindPose { name: string; position: [number, number, number]; quaternion: [number, number, number, number]; }
 interface CombatLibrary { version: number; rigs: Record<CombatSide, SerializedClip[]>; bindPoses: Record<CombatSide, BindPose[]>; }
 interface PreparedLibrary { rigs: Record<CombatSide, THREE.AnimationClip[]>; bindPoses: CombatLibrary['bindPoses']; }
@@ -59,6 +59,7 @@ function prepareCombatAnimations() {
     prepared = fetchAsset(combatUrl).then(async response => {
       const data: CombatLibrary = await response.json();
       if (data.version !== 1 || !Array.isArray(data.rigs?.hero) || !Array.isArray(data.rigs?.enemy)
+        || !Array.isArray(data.rigs?.brondon) || !Array.isArray(data.bindPoses?.brondon)
         || !Array.isArray(data.bindPoses?.hero) || !Array.isArray(data.bindPoses?.enemy))
         throw new Error('The imported Quaternius combat library has an invalid shape');
       for (const poses of Object.values(data.bindPoses)) {
@@ -67,7 +68,8 @@ function prepareCombatAnimations() {
           || [...pose.position, ...pose.quaternion].some(value => !Number.isFinite(value))))
           throw new Error('The combat library contains an invalid rig bind pose');
       }
-      return { rigs: { hero: prepareClips(data.rigs.hero), enemy: prepareClips(data.rigs.enemy) }, bindPoses: data.bindPoses };
+      return { rigs: { hero: prepareClips(data.rigs.hero), enemy: prepareClips(data.rigs.enemy),
+        brondon: prepareClips(data.rigs.brondon) }, bindPoses: data.bindPoses };
     }).catch(error => { prepared = null; throw error; });
   }
   return prepared;
@@ -79,7 +81,7 @@ export async function loadCombatAnimations(side: 'hero' | 'enemy') {
 
 export async function loadCombatAnimationsForRig(model: THREE.Object3D) {
   const library = await prepareCombatAnimations();
-  for (const side of ['hero', 'enemy'] as const) {
+  for (const side of ['hero', 'enemy', 'brondon'] as const) {
     const compatible = library.bindPoses[side].every(pose => {
       const bone = model.getObjectByName(pose.name);
       return bone && bone.position.distanceTo(new THREE.Vector3().fromArray(pose.position)) < 1e-4

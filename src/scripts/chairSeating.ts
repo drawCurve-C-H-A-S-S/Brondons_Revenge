@@ -18,6 +18,8 @@ interface Sitting {
   time: number;
   healTime: number;
   position: THREE.Vector3;
+  surface: THREE.Vector3;
+  floor: number;
   start: THREE.Vector3;
   yaw: number;
   startYaw: number;
@@ -72,15 +74,37 @@ export function createChairSeating({ scene, camera, player, chairs, canInteract,
   }
 
   function sit(seat: ChairSeat) {
+    if (sitting || disposed || !canInteract() || !player.isEnabled() || player.getHealth() <= 0) return false;
     const state = player.getState(), bounds = new THREE.Box3().setFromObject(seat.root);
+    const height = bounds.max.y - bounds.min.y;
+    const surfaceRay = new THREE.Raycaster();
+    const normalMatrix = new THREE.Matrix3(), normal = new THREE.Vector3();
+    let surface: THREE.Vector3 | null = null;
+    const center = bounds.getCenter(new THREE.Vector3());
+    for (const [dx, dz] of [[0, 0], [-0.07, 0], [0.07, 0], [0, -0.07], [0, 0.07]]) {
+      surfaceRay.set(new THREE.Vector3(center.x + dx, bounds.min.y + height * 0.72, center.z + dz), new THREE.Vector3(0, -1, 0));
+      for (const hit of surfaceRay.intersectObject(seat.root, true)) {
+        if (!hit.face || hit.point.y < bounds.min.y + height * 0.28) continue;
+        normalMatrix.getNormalMatrix(hit.object.matrixWorld);
+        normal.copy(hit.face.normal).applyMatrix3(normalMatrix).normalize();
+        if (normal.y > 0.75) { surface = hit.point.clone(); break; }
+      }
+      if (surface) break;
+    }
+    if (!surface) {
+      console.error('[ChairSeating] No usable cushion surface:', seat.root.name);
+      if (prompt) { prompt.textContent = 'Unable to sit on this chair.'; prompt.classList.remove('hidden'); }
+      return false;
+    }
     const position = bounds.getCenter(new THREE.Vector3()); position.y = bounds.min.y + player.radius;
     sitting = {
-      phase: 'enter', time: 0, healTime: 0, position,
+      phase: 'enter', time: 0, healTime: 0, position, surface, floor: bounds.min.y,
       start: new THREE.Vector3().copy(player.body.position), yaw: seat.yaw, startYaw: state.yaw, startPitch: state.pitch,
       bodyType: player.body.type, cameraPosition: camera.position.clone(), cameraRotation: camera.quaternion.clone(), cameraFov: camera.fov,
     };
     player.setInputLocked(true); player.body.type = CANNON.Body.KINEMATIC; player.body.updateMassProperties();
     player.body.velocity.set(0, 0, 0); player.body.force.set(0, 0, 0);
+    return true;
   }
 
   function onKey(event: KeyboardEvent) {
@@ -99,6 +123,9 @@ export function createChairSeating({ scene, camera, player, chairs, canInteract,
 
   return {
     get active() { return sitting !== null; },
+    get resting() { return sitting?.phase === 'rest'; },
+    sit,
+    stand() { if (sitting?.phase === 'rest') { sitting.phase = 'exit'; sitting.time = 0; } },
     get delta() { return lastDelta; },
     update(dt: number) {
       lastDelta = Math.max(0, Math.min(0.1, dt));
@@ -136,13 +163,22 @@ export function createChairSeating({ scene, camera, player, chairs, canInteract,
     },
     getPose(): CinematicPose | null {
       if (!sitting) return null;
-      return sitting.phase === 'enter' ? { clip: 'Sitting_Enter', time: sitting.time, duration: ENTER_SECONDS }
+      const pose: CinematicPose = sitting.phase === 'enter' ? { clip: 'Sitting_Enter', time: sitting.time, duration: ENTER_SECONDS }
         : sitting.phase === 'exit' ? { clip: 'Sitting_Exit', time: sitting.time, duration: EXIT_SECONDS }
         : { clip: 'Sitting_Idle_Loop', time: sitting.time, loop: true };
+      const weight = sitting.phase === 'enter' ? THREE.MathUtils.smootherstep(sitting.time, ENTER_SECONDS * 0.25, ENTER_SECONDS * 0.9)
+        : sitting.phase === 'exit' ? 1 - THREE.MathUtils.smootherstep(sitting.time, 0, EXIT_SECONDS * 0.65) : 1;
+      pose.seatContact = { position: sitting.surface, weight };
+      const forward = new THREE.Vector3(-Math.sin(sitting.yaw), 0, -Math.cos(sitting.yaw));
+      const right = new THREE.Vector3(Math.cos(sitting.yaw), 0, -Math.sin(sitting.yaw));
+      const feet = sitting.surface.clone().addScaledVector(forward, 0.43); feet.y = sitting.floor + 0.055;
+      pose.footTargets = { left: feet.clone().addScaledVector(right, -0.14),
+        right: feet.clone().addScaledVector(right, 0.14), weight };
+      return pose;
     },
     applyCamera() {
       const state = sitting; if (!state) return false;
-      const focus = new THREE.Vector3(player.body.position.x, state.position.y - player.radius + 1.1, player.body.position.z);
+      const focus = state.surface.clone().add(new THREE.Vector3(0, 0.45, 0));
       const offset = new THREE.Vector3(Math.sin(state.yaw) * 2.5 + Math.cos(state.yaw) * 0.6, 0.9,
         Math.cos(state.yaw) * 2.5 - Math.sin(state.yaw) * 0.6);
       const destination = focus.clone().add(offset), distance = offset.length();

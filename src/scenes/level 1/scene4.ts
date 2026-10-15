@@ -489,7 +489,6 @@ export function createScene({ audioManager, entryState, entryDoor = 'back', cafe
   function openChest() {
     if (chestInteractionStarted) return;
     chestInteractionStarted = true;
-    player.requestAction('Interact');
     chestLooted = true;
     cafeteriaUnlocked = true;
     frontDoorTarget.visible = true;

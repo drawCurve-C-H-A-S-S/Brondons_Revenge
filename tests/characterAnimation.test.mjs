@@ -73,6 +73,31 @@ async function fixture(t, asset) {
     window.dispatchEvent(event);
   }
 
+  test('night vision switches cel shading on original, silhouette and hologram materials together', async t => {
+    const { character } = await fixture(t);
+    const shaders = [];
+    function compileMaterials() {
+      character.model.traverse(node => {
+        if (!node.isMesh) return;
+        for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
+          const shader = { uniforms: {}, vertexShader: '#include <project_vertex>',
+            fragmentShader: '#include <common>\n#include <opaque_fragment>\n#include <dithering_fragment>' };
+          material.onBeforeCompile(shader, null);
+          if (shader.uniforms.uCellShadingEnabled) shaders.push(shader);
+        }
+      });
+    }
+    compileMaterials(); assert.ok(shaders.length > 0);
+    character.setCellShadingEnabled(false);
+    assert.ok(shaders.every(shader => shader.uniforms.uCellShadingEnabled.value === 0));
+    character.setSilhouetteEnabled(true); compileMaterials();
+    character.setHologramTransition({ blend: 0.5, opacity: 1, time: 0.1 }); compileMaterials();
+    assert.ok(shaders.every(shader => shader.uniforms.uCellShadingEnabled.value === 0));
+    character.setCellShadingEnabled(true);
+    assert.ok(shaders.every(shader => shader.uniforms.uCellShadingEnabled.value === 1));
+    assert.ok(shaders.every(shader => shader.fragmentShader.includes('uCellShadingEnabled < 0.5 ? 0.3')));
+  });
+
   function frame(frames = 1, thirdPerson = true) {
     for (let i = 0; i < frames; i++) {
       physics.step(1 / 60, player);
@@ -96,6 +121,73 @@ async function fixture(t, asset) {
 
   return { player, character, camera, world, physics, key, frame, weight, actionTime };
 }
+
+test('latest Brondon model loads with retargeted combat and preserves gameplay scale and locomotion', async t => {
+  const { character, frame, key, weight } = await fixture(t, 'Don.glb');
+  const bounds = new THREE.Box3().setFromObject(character.model);
+  assert.ok(Math.abs(bounds.getSize(new THREE.Vector3()).y - 1.83) < 0.001);
+  const skins = [];
+  character.model.traverse(node => { if (node.isSkinnedMesh) skins.push(node); });
+  assert.ok(skins.length > 0);
+  assert.ok(skins.some(mesh => mesh.material.name === 'faceskin'), 'Use the new authored Brondon mesh');
+  for (const name of ['Slide_Tackle', 'Sword_Attack', 'Punch_Jab', 'Punch_Cross', 'Melee_Hook_WithRecovery']) {
+    const clip = character.mixer._actions.find(action => action.getClip().name === name)?.getClip();
+    assert.ok(clip, `${name} must remain available on the new rig`);
+    for (const track of clip.tracks) {
+      const { nodeName } = THREE.PropertyBinding.parseTrackName(track.name);
+      const bone = THREE.PropertyBinding.findNode(character.model, nodeName);
+      assert.ok(skins.some(mesh => mesh.skeleton.bones.includes(bone)), `${track.name} must deform the new skin`);
+      assert.ok(Array.from(track.values).every(Number.isFinite));
+    }
+  }
+  frame(15);
+  assert.ok(weight('Idle_Loop') > 0.99);
+  key('keydown', 'KeyW');
+  frame(30);
+  assert.ok(weight('Walk_Loop') > 0.99);
+  const thigh = character.model.getObjectByName('thigh_l');
+  const before = thigh.quaternion.clone();
+  frame(10);
+  assert.ok(before.angleTo(thigh.quaternion) > 0.01);
+  key('keyup', 'KeyW');
+  frame(30);
+  assert.ok(weight('Idle_Loop') > 0.99);
+});
+
+test('seated character aligns the real animated pelvis and skin with the cushion', async t => {
+  const f = await fixture(t, 'Don.glb');
+  const cushion = new THREE.Vector3(2, 0.49, -3);
+  for (const time of [0, 0.4, 1.2]) {
+    for (let frame = 0; frame < 12; frame++)
+      f.character.update(1 / 60, f.player.body.position, f.player.getState(), true, f.player.radius,
+        { clip: 'Sitting_Idle_Loop', time, loop: true, seatContact: { position: cushion, weight: 1 } });
+    const pelvis = f.character.model.getObjectByName('pelvis').getWorldPosition(new THREE.Vector3());
+    assert.ok(Math.abs(pelvis.x - cushion.x) < 0.001);
+    assert.ok(Math.abs(pelvis.z - cushion.z) < 0.001);
+    const forward = new THREE.Vector3(0, 0, 1).transformDirection(f.character.model.matrixWorld);
+    const point = new THREE.Vector3();
+    let underside = Infinity;
+    f.character.model.traverse(mesh => {
+      if (!mesh.isSkinnedMesh) return;
+      mesh.skeleton.update();
+      const { position, skinIndex, skinWeight } = mesh.geometry.attributes;
+      for (let index = 0; index < position.count; index++) {
+        let weight = 0;
+        for (let component = 0; component < 4; component++)
+          if (/pelvis|hips|thigh|upleg/i.test(mesh.skeleton.bones[skinIndex.getComponent(index, component)].name))
+            weight += skinWeight.getComponent(index, component);
+        if (weight < 0.6) continue;
+        mesh.getVertexPosition(index, point); mesh.localToWorld(point);
+        const relative = point.clone().sub(pelvis);
+        if (relative.dot(forward) <= 0.035 && relative.y > -0.25 && relative.y < 0.04)
+          underside = Math.min(underside, point.y);
+      }
+    });
+    assert.ok(Math.abs(underside - cushion.y - 0.002) < 0.001, `skin must contact the seat: ${underside}`);
+  }
+  assert.ok(f.character.mixer._actions.some(action => action.getClip().name === 'Sitting_Idle_Loop'
+    && action.getEffectiveWeight() === 1));
+});
 
 test('actual GLB binds idle/walk to the skeleton and deforms the skin', async t => {
   const { scene, animations } = await new GLTFLoader().parseAsync(modelData.slice(0), '');

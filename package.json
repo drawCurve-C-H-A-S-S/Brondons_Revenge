@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@gltf-transform/core": "^4.5.1",
     "cannon-es": "^0.20.0",
     "gifuct-js": "^2.1.2",
     "pathfinding": "^0.4.18",

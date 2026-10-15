@@ -4,6 +4,7 @@ import { createArmorTextures, createEnergyMaterial } from './finaleMaterials.js'
 import { SUDOERS_5 } from './finaleActors.js';
 import { PLANET_RUPTURE, activeStudent, samplePlanetBreaker } from '../../scripts/finaleChoreography.js';
 import { createEarthTextures, createEarthGroup } from '../../scripts/earthTexture.js';
+import { createFacilityCoreCutaway, createPlanetBreakerCore } from './facilityCore.js';
 
 export const PLANET_RADIUS = 340;
 export const SPACE_ALTITUDE = 95;
@@ -242,14 +243,9 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
   root.add(debris);
   const dummy = new THREE.Object3D();
 
-  const bomb = new THREE.Group(); bomb.name = 'Sudoers5PlanetBreaker'; bomb.visible = false;
-  const bombCore = new THREE.Mesh(new THREE.IcosahedronGeometry(2.8, 2), black);
-  const bombEnergy = createEnergyMaterial(0xc74738);
-  bomb.add(bombCore);
-  for (let i = 0; i < 3; i++) {
-    const band = new THREE.Mesh(new THREE.TorusGeometry(2.82, 0.12, 8, 40), bombEnergy);
-    band.rotation.set(i * Math.PI / 3, i * Math.PI / 2, i * 0.5); bomb.add(band);
-  }
+  const breaker = createPlanetBreakerCore(), bomb = breaker.root;
+  bomb.name = 'Sudoers5PlanetBreaker'; bomb.visible = false;
+  const facilityInterior = createFacilityCoreCutaway(scene); root.add(facilityInterior.root);
   root.add(bomb);
   const bombTrail = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.55, 1, 12, 1, true), createEnergyMaterial(0xff8c39));
   bombTrail.visible = false; root.add(bombTrail);
@@ -260,7 +256,7 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
   const impactPosition = PLANET_CENTER.clone().add(new THREE.Vector3(0, PLANET_RADIUS, 0));
   const bombDirection = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
 
-  return { root, floor, planet, planetRoot, bomb, studentLights,
+  return { root, floor, planet, planetRoot, bomb, studentLights, facilityInterior,
     lightStudent(index: number, position: THREE.Vector3) {
       const spot = studentLights[index], beam = beams[index];
       if (!spot || !beam) throw new RangeError(`Missing ceiling spotlight for student ${index}`);
@@ -270,7 +266,11 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
       beam.quaternion.setFromUnitVectors(up, direction.normalize());
     },
     updateBomb(phaseTime: number, hands: THREE.Vector3) {
+      const materialized = smooth(phaseTime, PLANET_RUPTURE.materialize, PLANET_RUPTURE.release - 0.3);
+      breaker.update(Math.max(0, phaseTime), materialized, materialized);
       bomb.visible = phaseTime >= PLANET_RUPTURE.materialize && phaseTime < PLANET_RUPTURE.impact;
+      facilityInterior.update(Math.max(0, phaseTime), 1 - smooth(phaseTime, PLANET_RUPTURE.coreTransfer, PLANET_RUPTURE.coreGone),
+        phaseTime >= PLANET_RUPTURE.facilityCut && phaseTime < PLANET_RUPTURE.materialize);
       bombTrail.visible = meteorStreaks.visible = false;
       if (phaseTime < 0) { releasePosition = null; return; }
       if (phaseTime < PLANET_RUPTURE.release) {
@@ -305,10 +305,7 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
           meteorStreaks.instanceMatrix.needsUpdate = true;
         }
       }
-      bomb.rotation.set(phaseTime * 0.5, phaseTime * 1.1, phaseTime * 0.28);
-      bombEnergy.uniforms.uTime.value = phaseTime;
-      bomb.scale.setScalar(smooth(phaseTime, PLANET_RUPTURE.materialize, PLANET_RUPTURE.release - 0.3)
-        * (1.1 + smooth(phaseTime, PLANET_RUPTURE.release, PLANET_RUPTURE.apex) * 2.8));
+      bomb.scale.setScalar(1.1 + smooth(phaseTime, PLANET_RUPTURE.release, PLANET_RUPTURE.apex) * 2.8);
     },
     getBombPosition: () => bomb.position.clone(),
     getPlanetImpact: () => impactPosition.clone(),

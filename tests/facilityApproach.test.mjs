@@ -23,13 +23,23 @@ function asset() {
   scene.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial()));
   return { scene, animations: ['Idle', 'Walk', 'Hit', 'Attack', 'Charge', 'TurnOff'].map(name => new THREE.AnimationClip(name, 1, [])) };
 }
+function officeStudent() {
+  const result = asset(), pelvis = new THREE.Bone(); pelvis.name = 'pelvis'; pelvis.position.y = 0.6;
+  result.scene.add(pelvis);
+  result.animations.push(new THREE.AnimationClip('Sitting_Idle_Loop', 1, []),
+    new THREE.AnimationClip('Sitting_Talking_Loop', 1, []));
+  return result;
+}
 function dom(t) {
   const old = Object.fromEntries(['window', 'document', 'HTMLElement', 'HTMLCanvasElement', 'KeyboardEvent', 'MouseEvent']
     .map(name => [name, globalThis[name]]));
-  const context = new Proxy({ measureText: text => ({ width: text.length * 60 }) }, { get: (target, key) => target[key] ?? (() => {}) });
+  const context = new Proxy({ measureText: text => ({ width: text.length * 60 }),
+    createRadialGradient: () => ({ addColorStop() {} }), createLinearGradient: () => ({ addColorStop() {} }) },
+    { get: (target, key) => target[key] ?? (() => {}) });
   class Element extends EventTarget {
     constructor(tag = 'div') {
       super(); this.tag = tag; this.children = []; this.style = { setProperty(name, value) { this[name] = value; } };
+      this.ownerDocument = { defaultView: { Element } };
       this.dataset = {}; this.textContent = ''; this.classes = new Set();
       this.classList = {
         add: (...names) => names.forEach(name => this.classes.add(name)),
@@ -71,6 +81,10 @@ function dom(t) {
   globalThis.document = Object.assign(new EventTarget(), { body, hidden: false, pointerLockElement: null,
     getElementById: id => elements.get(id) ?? null, createElement: tag => tag === 'canvas' ? new Canvas() : new Element(tag) });
   t.mock.method(GLTFLoader.prototype, 'loadAsync', async () => asset());
+  t.mock.method(THREE.TextureLoader.prototype, 'load', (url, onLoad) => {
+    const texture = new THREE.Texture({ width: 1024, height: 768 });
+    queueMicrotask(() => onLoad(texture)); return texture;
+  });
   const cleanup = [];
   t.cleanup = fn => cleanup.push(fn);
   t.after(() => { for (const fn of cleanup.reverse()) fn(); Object.assign(globalThis, old); });
@@ -134,7 +148,7 @@ for (const fps of [30, 60, 144]) {
     assert.ok(data.sharks.every(shark => Math.abs(shark.root.position.z - RESCUE_SITE.riverZ) < RESCUE_SITE.riverHalfWidth));
   });
 
-  test(`optional waterfall locks for its VS and hopping fight, then awards one core at ${fps} FPS`, async t => {
+  test(`optional waterfall locks for its VS and hopping fight, then awards a secret achievement at ${fps} FPS`, async t => {
     const { data, body } = await fixture(t);
     assert.equal(data.miniboss.getStatus().phase, 'dormant');
     data.player.setPosition(-88, 0.3, 17); data.updatePhysics(1 / fps);
@@ -158,12 +172,11 @@ for (const fps of [30, 60, 144]) {
     assert.ok(data.miniboss.body.position.y > 1.4, 'Miniboss actually hops using vertical physics');
     assert.equal(boss.damage(1000, 'lightsaber'), true);
     assert.equal(data.site.waterfall.locked, false);
-    const chest = data.scene.getObjectByName('aegisChest'); assert.ok(chest);
-    data.player.setPosition(chest.position.x + 1.5, 0.3, chest.position.z);
-    key('KeyE'); key('KeyE', 'keyup'); step(data, 1, fps);
-    assert.equal(data.miniboss.getStatus().collected, true);
-    key('KeyE'); key('KeyE', 'keyup'); step(data, 1, fps);
-    assert.equal(data.miniboss.getStatus().collected, true, 'Reward stays single-use');
+    assert.equal(data.scene.getObjectByName('aegisChest'), undefined);
+    assert.equal(data.miniboss.getStatus().achievementUnlocked, true);
+    assert.equal(body.querySelector('.secret-achievement').classList.contains('hidden'), false);
+    step(data, 6.6, fps);
+    assert.equal(body.querySelector('.secret-achievement').classList.contains('hidden'), true);
     assert.equal(data.getDamageTargets().some(item => item.root.name === 'WaterfallSpiderRobobot'), false);
   });
 }
@@ -206,14 +219,16 @@ test('skipping the optional fight still enters the facility smoothly and once', 
   step(data, 1); assert.equal(finishes.length, 1);
 });
 
-test('miniboss victory and the collected core survive exterior respawning', async t => {
-  const { data, respawns } = await fixture(t, { entryState: { waterfallDefeated: true, bossImmunityCollected: true } });
+test('secret achievement survives exterior respawning without granting old waterfall immunity', async t => {
+  const { data, respawns } = await fixture(t, { entryState: {
+    waterfallDefeated: true, waterfallAchievementUnlocked: true, bossImmunityCollected: true } });
   assert.equal(data.miniboss.getStatus().phase, 'defeated');
-  assert.equal(data.miniboss.getStatus().collected, true);
+  assert.equal(data.miniboss.getStatus().achievementUnlocked, true);
   assert.equal(data.scene.getObjectByName('aegisChest'), undefined);
   data.player.takeDamage(1000); data.onPlayerDeath(); step(data, 2.6);
   assert.equal(respawns.length, 1);
-  assert.equal(respawns[0].waterfallDefeated, true); assert.equal(respawns[0].bossImmunityCollected, true);
+  assert.equal(respawns[0].waterfallDefeated, true);
+  assert.equal(respawns[0].waterfallAchievementUnlocked, true); assert.equal(respawns[0].bossImmunityCollected, false);
 });
 
 test('waterfall has lit flowing water, shared foam/spray timing, and world-space textured mountain rock', async t => {
@@ -270,27 +285,117 @@ for (const fps of [30, 60, 144]) test(`submerged sharks show only their tops and
   step(data, 1, fps); assert.equal(respawns.length, 1);
 });
 
-test('facility entry speaks Prime dialogue, blends its view, pauses, and passes the core onward', t => {
+test('facility requires E at the glass office before the seated five notice Brondon and end the scene', async t => {
   const { body } = dom(t), finishes = [];
   const entryState = { waterfallDefeated: true, bossImmunityCollected: true,
     cameraPosition: new THREE.Vector3(0, 1.5, -61), cameraQuaternion: new THREE.Quaternion(), cameraFov: 75 };
-  const data = createFacility({ entryState, onFinished: state => finishes.push(state) });
+  const data = createFacility({ entryState, onFinished: state => finishes.push(state), loadModel: async () => asset(),
+    loadStudents: async () => officeStudent() });
   t.cleanup(() => data.dispose());
-  assert.ok(body.children.some(child => child.textContent === 'PRIME: I expected more security.'));
-  data.applyEntryCamera(); assert.ok(data.camera.position.distanceTo(new THREE.Vector3(0, 1.5, 10)) < 1e-6);
+  await data.ready;
+  const dialogue = body.querySelector('.facility-dialogue');
+  assert.equal(dialogue.children[0].textContent, 'BRONDON');
+  assert.equal(dialogue.children[1].textContent, 'This looks more like a resort than a prison.');
   document.body.classList.add('quick-menu-open'); step(data, 4); document.body.classList.remove('quick-menu-open');
-  assert.ok(body.children.some(child => child.textContent.startsWith('PRIME:') && child.style.display === 'block'));
-  step(data, 0.8); data.player.updateCamera(0); data.applyEntryCamera();
+  assert.equal(dialogue.children[0].textContent, 'BRONDON', 'arrival exchange pauses with the menu');
+  step(data, 0.8); data.player.updateCamera(0);
   assert.ok(data.camera.position.toArray().every(Number.isFinite));
-  for (const x of [-6, -2, 2, 6]) {
+  for (const x of [2, -6, 6, -2]) {
     data.player.setPosition(x, 0.3, -16.6); key('KeyE'); key('KeyE', 'keyup'); data.updatePhysics(1 / 60);
   }
   assert.ok(body.children.some(child => child.textContent.includes('STAIRWELL POWER RESTORED')));
-  data.player.setPosition(0, 4.5, -16); step(data, 3.6);
+  const office = data.scene.getObjectByName('FacilityGlassOffice');
+  assert.ok(office); assert.ok(office.getObjectByName('OfficeMeetingTable'));
+  const glass = office.children.filter(node => node.name === 'OfficeGlassPanel' || node.name === 'OfficeGlassDoor');
+  assert.equal(glass.length, 10);
+  assert.ok(glass.every(node => node.position.z === 4), 'glass must follow the balcony edge, not enclose an inner room');
+  assert.equal(office.getObjectByName('OfficeMeetingTable').position.z, -5);
+  assert.ok(data.scene.getObjectByName('FacilityObservationLab'), 'Earth upstairs fit-out is present');
+  assert.ok(data.scene.getObjectByName('FacilityCoreDisplay'), 'the floating finale core is present in the lab');
+  assert.equal(office.children.filter(node => node.children.some(child => child.children.some(grandchild =>
+    grandchild.getObjectByName('pelvis')))).length, 5);
+  data.player.setPosition(11, 4.5, 5.1); step(data, 3.6);
+  assert.equal(finishes.length, 0, 'walking upstairs must not automatically end the scene');
+  key('KeyE'); key('KeyE', 'keyup'); assert.equal(data.isCinematic(), true);
+  step(data, 6.1);
   assert.equal(finishes.length, 1);
   assert.equal(finishes[0].bossImmunityCollected, true);
   assert.equal(finishes[0].waterfallDefeated, true);
   assert.equal(finishes[0].cameraPosition, undefined, 'Exterior camera does not leak into the finale');
+});
+
+test('earth facility has a real entrance opening, matching exterior coordinates and a planet dome', async t => {
+  dom(t);
+  const data = createFacility({ onFinished() {}, loadModel: async () => asset(), loadStudents: async () => officeStudent() }); t.cleanup(() => data.dispose());
+  await data.ready;
+  assert.ok(data.scene.getObjectByName('FacilityHolographicPlanetDome'));
+  assert.ok(data.scene.getObjectByName('FacilityEntranceDoor'));
+  const upperWindow = data.scene.getObjectByName('FacilityEntranceWindow');
+  assert.ok(upperWindow.position.y - upperWindow.geometry.parameters.height / 2 > 3.93,
+    'entrance window clears both the door and its sign');
+  const roundWindows = [];
+  data.scene.traverse(node => { if (node.name === 'FacilityRoundWindow') roundWindows.push(node); });
+  assert.equal(roundWindows.length, 4);
+  assert.ok(roundWindows.every(node => node.position.y + 0.96 < 3.8), 'round windows clear the mezzanine slab');
+  assert.ok(data.scene.getObjectByName('FacilityHideoutWallScreen'));
+  assert.equal(data.entrance.frame.z - data.player.body.position.z, 6,
+    'spawn must be six metres beyond the door, matching scene 17');
+  data.player.setPosition(0, 0.3, 16); step(data, 0.8);
+  assert.ok(data.entrance.open > 0.95);
+  data.player.setRotation(Math.PI); key('KeyW'); step(data, 0.9); key('KeyW', 'keyup');
+  assert.ok(data.player.body.position.z > 18.5, 'the south wall must leave a physically passable doorway');
+  assert.ok(data.player.body.position.y > 0.25, 'the entrance vestibule must have a supporting floor');
+});
+
+test('facility furniture uses grounded, uniformly scaled models with rotated matching colliders', async t => {
+  dom(t);
+  const requested = [];
+  const data = createFacility({ onFinished() {}, loadStudents: async () => officeStudent(), loadModel: async name => {
+    requested.push(name);
+    const size = name === 'Prop_Chair' ? [0.88, 1.64, 1.12] : [2.06, 0.94, 1.03];
+    const scene = new THREE.Group();
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), new THREE.MeshStandardMaterial());
+    mesh.position.set(0.2, size[1] / 2, -0.15); scene.add(mesh);
+    return { scene };
+  } });
+  t.cleanup(() => data.dispose()); await data.ready;
+  assert.equal(requested.filter(name => name === 'Prop_Desk_Small').length, 8);
+  assert.equal(requested.filter(name => name === 'Prop_Chair').length, 13);
+  let computers = 0;
+  data.scene.traverse(node => { if (node.userData.website) computers++; });
+  assert.equal(computers, 8, 'only workstation computer screens may embed the website');
+  for (const group of data.scene.children.filter(node => node.name === 'FacilityWorkstation')) {
+    for (const name of ['FacilityDesk', 'FacilityChair']) {
+      const model = group.getObjectByName(name), bounds = new THREE.Box3().setFromObject(model);
+      assert.ok(Math.abs(bounds.min.y) < 1e-6, `${name} must stand on the deck`);
+      assert.equal(model.scale.x, model.scale.y); assert.equal(model.scale.y, model.scale.z);
+      const center = bounds.getCenter(new THREE.Vector3());
+      const body = data.physicsWorld.bodies.find(body => Math.hypot(body.position.x - center.x,
+        body.position.y - center.y, body.position.z - center.z) < 1e-6);
+      assert.ok(body, `${name} needs a collider matching its rotated position`);
+      assert.ok(Math.abs(body.quaternion.y - group.quaternion.y) < 1e-6);
+    }
+  }
+});
+
+test('facility furniture load errors reject readiness rather than silently using box props', async t => {
+  dom(t);
+  const data = createFacility({ onFinished() {}, loadStudents: async () => officeStudent(),
+    loadModel: async () => { throw new Error('missing furniture'); } });
+  t.cleanup(() => data.dispose());
+  await assert.rejects(data.ready, /Facility furniture failed to load.*missing furniture/);
+});
+
+test('facility uses standard portal transfers and chapter loading in both directions', async () => {
+  const main = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8');
+  const handoff = main.slice(main.indexOf('async function loadFacility20('), main.indexOf('async function loadScene21('));
+  assert.match(handoff, /activeSceneId === 'scene17'/);
+  assert.match(handoff, /onReturn: next => \{ void loadGround17\(next, true\); \}/);
+  assert.doesNotMatch(handoff, /seamless|!seamless/);
+  const exterior = await readFile(new URL('../src/scenes/level 3/scene17.ts', import.meta.url), 'utf8');
+  assert.match(exterior, /door\.setTrigger\(finish\)/);
+  assert.match(exterior, /player\.restoreTransition\(entryState\.pilotState, door\.frame\)/);
+  assert.doesNotMatch(exterior, /function updateEntry/);
 });
 
 test('Aegis grants exactly thirty seconds, is not cancelled by boost, and cannot be used twice', () => {

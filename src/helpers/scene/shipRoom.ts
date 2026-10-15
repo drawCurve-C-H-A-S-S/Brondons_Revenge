@@ -6,6 +6,19 @@ import { createPlayer, type Player, type PlayerTransitionState } from '../../scr
 export interface PortalFrame { x: number; y: number; z: number; yaw: number; }
 type Physics = ReturnType<typeof createScenePhysics>;
 
+export function fitRoomProp(model: THREE.Group, height: number, maxWidth: number, maxDepth: number, yaw = 0) {
+  model.rotation.y = yaw;
+  let bounds = new THREE.Box3().setFromObject(model);
+  const size = bounds.getSize(new THREE.Vector3());
+  if (size.toArray().some(value => !Number.isFinite(value) || value <= 0)) throw new Error('Room prop has invalid dimensions');
+  model.scale.multiplyScalar(Math.min(height / size.y, maxWidth / size.x, maxDepth / size.z));
+  bounds = new THREE.Box3().setFromObject(model);
+  const center = bounds.getCenter(new THREE.Vector3());
+  model.position.add(new THREE.Vector3(-center.x, -bounds.min.y, -center.z));
+  model.traverse(node => { if (node instanceof THREE.Mesh) node.castShadow = node.receiveShadow = true; });
+  return bounds.getSize(new THREE.Vector3());
+}
+
 export function roomBox(scene: THREE.Scene, physics: Physics, size: [number, number, number], position: [number, number, number], material: THREE.Material, solid = true) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), material);
   mesh.position.set(...position); mesh.castShadow = true; mesh.receiveShadow = true; scene.add(mesh);
@@ -14,7 +27,7 @@ export function roomBox(scene: THREE.Scene, physics: Physics, size: [number, num
 }
 
 /** Frames point out of their room. Panels and colliders retract into solid wall pockets. */
-export function createSlidingPortal(scene: THREE.Scene, physics: Physics, frame: PortalFrame, span: number, height: number, label: string, options: { doorHeight?: number; closeSpeed?: number; sign?: boolean; cargo?: () => Array<{ position: { x: number; y: number; z: number } }> } = {}) {
+export function createSlidingPortal(scene: THREE.Scene, physics: Physics, frame: PortalFrame, span: number, height: number, label: string, options: { doorHeight?: number; closeSpeed?: number; sign?: boolean; landingFloor?: boolean; cargo?: () => Array<{ position: { x: number; y: number; z: number } }> } = {}) {
   const group = new THREE.Group(); group.position.set(frame.x, frame.y, frame.z); group.rotation.y = frame.yaw;
   group.name = `Door-${label}`; scene.add(group);
   const wall = new THREE.MeshStandardMaterial({ color: 0x52616a, roughness: 0.78, metalness: 0.25 });
@@ -29,7 +42,14 @@ export function createSlidingPortal(scene: THREE.Scene, physics: Physics, frame:
   localBox([side, height, 0.5], [-(w + side) / 2, height / 2, 0], wall);
   localBox([side, height, 0.5], [(w + side) / 2, height / 2, 0], wall);
   localBox([w, height - h, 0.5], [0, (height + h) / 2, 0], wall);
-  localBox([w, 0.4, options.cargo ? 6 : 2.4], [0, -0.2, options.cargo ? 0 : -0.8], steel);
+  // Collision extends inside the room; visible decking must not duplicate its floor.
+  const support = localBox([w, 0.4, options.cargo ? 6 : 2.4], [0, -0.2, options.cargo ? 0 : -0.8], steel);
+  support.mesh.name = 'PortalThresholdSupport'; support.mesh.visible = false;
+  if (options.landingFloor !== false) {
+    const depth = options.cargo ? 3 : 2;
+    const landing = localBox([w, 0.4, depth], [0, -0.2, -depth / 2], steel, false);
+    landing.mesh.name = 'PortalExteriorLanding';
+  }
   for (const x of [-1.56, 1.56]) localBox([0.12, h, 0.62], [x, h / 2, 0], steel, false);
   const panels = [-1, 1].map(sign => ({ ...localBox([1.5, h, 0.12], [sign * 0.75, h / 2, 0], steel), sign }));
   localBox([2.6, 0.055, 0.04], [0, h + 0.07, 0.28], indicator, false);

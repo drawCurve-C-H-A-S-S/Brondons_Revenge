@@ -2,7 +2,6 @@ import type { Player } from './player.js';
 
 interface GogglesContext {
   player: Player | null;
-  scene: { setGogglesActive?: (active: boolean) => void } | null;
   setCharacterEquipped: (active: boolean) => void;
   onToggle?: (active: boolean) => void;
 }
@@ -11,7 +10,6 @@ interface GogglesContext {
 export class GogglesController {
   private collected = false;
   private equipped = false;
-  private previousScene: GogglesContext['scene'] = null;
   private previousActive = false;
   constructor(private context: () => GogglesContext) { window.addEventListener('keydown', this.onKeyDown); }
   isCollected() { return this.collected; }
@@ -25,23 +23,19 @@ export class GogglesController {
     event.preventDefault(); this.equipped = !this.equipped; this.update();
   };
   update() {
-    const { player, scene, setCharacterEquipped, onToggle } = this.context();
+    const { player, setCharacterEquipped, onToggle } = this.context();
     const active = this.equipped && !!player?.isEnabled() && player.getHealth() > 0;
-    if (scene !== this.previousScene || active !== this.previousActive) {
-      this.previousScene?.setGogglesActive?.(false);
-      scene?.setGogglesActive?.(active);
-      this.previousScene = scene; this.previousActive = active;
+    if (active !== this.previousActive) {
+      this.previousActive = active;
       onToggle?.(active);
     }
     setCharacterEquipped(active);
-    document.getElementById('goggles-overlay')?.classList.toggle('hidden', !active);
   }
   dispose() {
     window.removeEventListener('keydown', this.onKeyDown);
-    this.previousScene?.setGogglesActive?.(false);
     this.context().setCharacterEquipped(false);
     this.context().onToggle?.(false);
-    this.previousScene = null; this.previousActive = false;
+    this.previousActive = false;
     document.getElementById('goggles-overlay')?.classList.add('hidden');
   }
 }

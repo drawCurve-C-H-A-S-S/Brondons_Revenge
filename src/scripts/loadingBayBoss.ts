@@ -6,6 +6,7 @@ import { registerPhysicsActor } from '../helpers/physics/scenePhysics.js';
 import { PLAYER_MAX_HEALTH, type Player } from './player.js';
 import type { DamageTarget } from './pistol.js';
 import { loadToolModel } from '../core/loader.js';
+import { BreakableMaterial } from './breakableMaterial.js';
 
 export const BOSS_RULES = Object.freeze({ health: 980, headDamage: 35, headCooldown: 1,
   exposedSeconds: 10, laserSpeed: 14, laserDamage: 12, chargeSeconds: 0.8, shotInterval: 1.8,
@@ -41,10 +42,9 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   const core = new THREE.MeshStandardMaterial({ color: 0x71838a, metalness: 0.6, roughness: 0.35 });
   const hornMaterial = new THREE.MeshStandardMaterial({ color: 0x1c2126, metalness: 0.4, roughness: 0.55 });
   const phaseThreeHorn = new THREE.MeshStandardMaterial({ color: 0x2c0e0e, emissive: 0xff2c10, emissiveIntensity: 0.9, metalness: 0.35, roughness: 0.4 });
-  const targetMaterial = new THREE.MeshStandardMaterial({ color: 0xe5e5ce, emissive: 0x587c5b, emissiveIntensity: 0.4 });
-  const red = new THREE.MeshStandardMaterial({ color: 0xff2828, emissive: 0xff1515, emissiveIntensity: 0.85 });
+  const targetMaterial = new BreakableMaterial('pistol');
+  const meleeCore = new BreakableMaterial('crowbar');
   const eyeRed = new THREE.MeshStandardMaterial({ color: 0xff3028, emissive: 0xff1008, emissiveIntensity: 2.8, metalness: 0.25, roughness: 0.2 });
-  const yellow = new THREE.MeshStandardMaterial({ color: 0xffd126, emissive: 0xffb300, emissiveIntensity: 0.9 });
   const green = new THREE.MeshBasicMaterial({ color: 0x59ff79 });
   const phaseThreeRed = new THREE.MeshStandardMaterial({ color: 0x721b21, emissive: 0xff160d, emissiveIntensity: 1.8, roughness: 0.24, metalness: 0.5 });
   const auraMaterial = new THREE.MeshBasicMaterial({ color: 0x65dfff, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
@@ -99,7 +99,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   const muzzles = [-1, 1].map(side => block('LaserMuzzle', [0.55, 0.55, 0.32], [side * 2.8, 4.1, 0.95], green, false, roundGeometry));
   const thrusters = [-1, 1].map(side => block('BossThruster', [0.6, 0.85, 0.6], [side * 1.1, 1.6, -0.25], green, false, limbGeometry));
   let phase: BossPhase = 'dormant', health = BOSS_RULES.health as number, round = 1, remaining = 0;
-  let phaseTime = 0, elapsed = 0, shotClock = 0, headCooldown = 0, scanning = false, disposed = false, muzzleIndex = 0;
+  let phaseTime = 0, elapsed = 0, shotClock = 0, headCooldown = 0, disposed = false, muzzleIndex = 0;
   let phaseThree = false, phaseThreeReturnClock = 0, gravityActive = false;
   const previousGravity = world.gravity.clone();
   let droneTemplate: THREE.Group | null = null, droneLoadError = false, droneExplosionClock = 0;
@@ -173,7 +173,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     let hits = 1;
     const target: DamageTarget = { root: mesh, damage(amount, weapon) {
       if (disposed || phaseThree || (phase !== 'flying' && phase !== 'windup') || !player.isEnabled() || weapon !== 'pistol' || hits <= 0 || !Number.isFinite(amount) || amount <= 0) return false;
-      hits--; cross.visible = false;
+      hits--; cross.visible = false; targetMaterial.hit();
       emitComicEffect(scene, 'hit', { source: mesh, weapon });
       if (!hits) {
         burst(mesh); mesh.visible = false;
@@ -188,6 +188,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     if (disposed || !player.isEnabled() || headCooldown > 0 || !Number.isFinite(amount) || amount <= 0
       || (phaseThreeOpen ? weapon !== 'pistol' : phase !== 'exposed' || (weapon !== 'crowbar' && weapon !== 'lightsaber'))) return false;
     health = Math.max(0, health - (phaseThreeOpen ? amount : BOSS_RULES.headDamage)); headCooldown = BOSS_RULES.headCooldown; burst(head);
+    (phaseThreeOpen ? targetMaterial : meleeCore).hit();
     if (health > 0 || !phaseThree) emitComicEffect(scene, 'hit', { source: head, weapon });
     if (!health) {
       if (!phaseThree) {
@@ -464,7 +465,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
         head.position.set(0, THREE.MathUtils.lerp(headLanding.y, 7.75, t), THREE.MathUtils.lerp(0, 0.25, t));
       }
     }
-    head.material = scanning && phase === 'exposed' ? yellow : core;
+    head.material = phaseThree ? targetMaterial : phase === 'exposed' ? meleeCore : core;
     core.emissive.setHex(headCooldown > 0.65 ? 0xffffff : 0x000000);
     root.updateMatrixWorld(true);
     for (const { mesh, body } of bodies) {
@@ -500,6 +501,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   function update(dt: number) {
     if (disposed) return;
     elapsed += dt; phaseTime += dt; headCooldown = Math.max(0, headCooldown - dt);
+    targetMaterial.update(dt); meleeCore.update(dt);
     for (let i = fragments.length - 1; i >= 0; i--) {
       const shard = fragments[i]; shard.life -= dt; shard.velocity.y -= 9.82 * dt; shard.mesh.position.addScaledVector(shard.velocity, dt);
       if (shard.mesh.position.y < 0.1) { shard.mesh.position.y = 0.1; shard.velocity.set(0, 0, 0); }
@@ -577,7 +579,9 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     getDamageTargets: (): DamageTarget[] => disposed || phase === 'defeated' || phase === 'droneExplosion' ? [] : phaseThree
       ? phase === 'gravity' ? [...droneTargets(), headTarget] : [headTarget]
       : phase === 'flying' || phase === 'windup' ? targets.filter(t => t.hits() > 0) : phase === 'exposed' ? [headTarget] : [],
-    setGogglesActive(active: boolean) { scanning = active; for (const t of targets) t.mesh.material = active ? red : targetMaterial; head.material = active && phase === 'exposed' ? yellow : core; },
+    setGogglesActive(active: boolean) {
+      targetMaterial.setHighlighted(active); meleeCore.setHighlighted(active);
+    },
     getStatus: () => ({ phase, phaseThree, health, maxHealth: phaseThree ? BOSS_RULES.phaseThreeHealth : BOSS_RULES.health, round, remaining, targets: targets.map(t => t.hits()), charging, drones: drones.filter(drone => drone.active).length, droneLoadError, projectiles: bolts.length, pillarsRemaining: pillars.filter(p => p.intact()).length }),
     dispose() {
       if (disposed) return; disposed = true; if (phase === 'droneExplosion') options.onDroneExplosionEnd?.();
@@ -589,7 +593,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
       for (const material of [flashMaterial, fireballMaterial, shockwaveMaterial, smokeMaterial, sparkMaterial]) material.dispose();
       for (const mesh of [...smokePuffs, ...sparks]) (mesh.material as THREE.Material).dispose();
       if (droneTemplate) { disposeTemplate(droneTemplate); droneTemplate = null; }
-      for (const material of [armor, trim, core, hornMaterial, phaseThreeHorn, targetMaterial, red, yellow, green, phaseThreeRed, eyeRed,
+      for (const material of [armor, trim, core, hornMaterial, phaseThreeHorn, targetMaterial, meleeCore, green, phaseThreeRed, eyeRed,
         auraMaterial, phaseThreeAuraMaterial, shardMaterial]) material.dispose();
       chestPlate.geometry.dispose(); brow.geometry.dispose();
       phaseThreeEyes.forEach(eye => eye.geometry.dispose()); auraRings.forEach(ring => ring.geometry.dispose());

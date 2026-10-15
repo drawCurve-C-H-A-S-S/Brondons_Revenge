@@ -148,6 +148,15 @@ export function createKeypad({ code, title, isUnlocked, onUnlock, validate }: {
       context.fillStyle = '#eff7fc'; context.font = `bold ${button.label.length > 1 ? 23 : 35}px monospace`;
       context.fillText(button.label, button.x + button.width / 2, y + 51);
     }
+    if (focused) {
+      context.save();
+      context.shadowColor = '#73eaff'; context.shadowBlur = 18;
+      context.fillStyle = pressTime > 0 ? '#ffffff' : '#9af1ff';
+      context.beginPath(); context.arc(cursor.x, cursor.y, pressTime > 0 ? 8 : 5, 0, Math.PI * 2); context.fill();
+      context.strokeStyle = '#73eaff'; context.lineWidth = 2;
+      context.beginPath(); context.arc(cursor.x, cursor.y, 12, 0, Math.PI * 2); context.stroke();
+      context.restore();
+    }
     texture.needsUpdate = true;
   }
   function press(label: string): SurfaceAction | null {

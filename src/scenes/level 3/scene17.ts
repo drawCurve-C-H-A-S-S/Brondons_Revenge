@@ -3,7 +3,7 @@ import * as CANNON from 'cannon-es';
 import { createScenePhysics, createGroundMotor, PHYSICS, registerPhysicsActor } from '../../helpers/physics/scenePhysics.js';
 import { createRescueSite, RESCUE_SITE, JUNGLE_PATH, JUNGLE_ROUTE, JUNGLE_ENTRY_YAW,
   type RescueArrival, type WaterfallCharacterContact } from '../../helpers/scene/rescueSite.js';
-import { createPlayer } from '../../scripts/player.js';
+import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { loadToolModel, loadDinoModel, loadSharkModel } from '../../core/loader.js';
 import { disposeRoom } from '../../helpers/scene/shipRoom.js';
@@ -18,8 +18,9 @@ import { KNOCKDOWN_DURATION, knockdownTilt } from '../../helpers/animation/knock
 const MURAL_DISCOVERY_SECONDS = 10;
 
 /** One uninterrupted landing-site, bridge, waterfall and facility exterior. */
-export function createScene({ entryState, onRespawn, onFinished, loadModel = loadToolModel, loadDinosaur = loadDinoModel, loadShark = loadSharkModel }: {
+export function createScene({ entryState, fromFacility = false, onRespawn, onFinished, loadModel = loadToolModel, loadDinosaur = loadDinoModel, loadShark = loadSharkModel }: {
   entryState?: RescueArrival; onRespawn: (state: RescueArrival) => void;
+  fromFacility?: boolean;
   onFinished?: (state: RescueArrival) => void;
   loadModel?: typeof loadToolModel; loadDinosaur?: typeof loadDinoModel; loadShark?: typeof loadSharkModel;
 }) {
@@ -27,15 +28,21 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   const spawnYaw = JUNGLE_ENTRY_YAW;
   const physics = createScenePhysics(), physicsWorld = physics.world;
   const site = createRescueSite(physics, { culling: true }), { scene, door, ship, pod, boy } = site;
+  const doorwayVoid = new THREE.Mesh(new THREE.PlaneGeometry(3, 3.2),
+    new THREE.MeshBasicMaterial({ color: 0x000000, fog: false, toneMapped: false, side: THREE.DoubleSide }));
+  doorwayVoid.name = 'FacilityDoorwayBlackVoid'; doorwayVoid.position.set(0, 1.6, -0.18); door.group.add(doorwayVoid);
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 650);
   const player = createPlayer({ camera, physicsWorld, spawnPosition: spawn });
   const waterfallContact: WaterfallCharacterContact = { position: player.body.position, headY: player.getHeadY(), radius: player.radius };
-  if (entryState?.pilotState) player.restoreTransition({
+  if (entryState?.pilotState && fromFacility) {
+    player.restoreTransition(entryState.pilotState, door.frame); door.openImmediately();
+  } else if (entryState?.pilotState) player.restoreTransition({
     ...entryState.pilotState, position: spawn, velocity: { x: 0, y: 0, z: 0 },
     yaw: spawnYaw, pitch: 0, heldKeys: [], blockedKeys: [], crouching: false, sprinting: false,
     intentionalJump: false, jumpQueued: false, bobTime: 0, bobIntensity: 0,
   }, { x: 0, y: 0, z: 0, yaw: -Math.PI });
-  player.setRotation(spawnYaw); player.enable(); player.updateCamera(0);
+  if (!fromFacility) player.setRotation(spawnYaw);
+  player.enable(); player.updateCamera(0);
   ship.setCanopyOpen(1); ship.setFlying(false, true); ship.root.userData.hullHealth = entryState?.hullHealth;
   pod.getObjectByName('PodHatch')!.rotation.z = -1.5;
   boy.rotation.y = Math.atan2(RESCUE_SITE.player.x - boy.position.x, RESCUE_SITE.player.z - boy.position.z); site.setImpact(30);
@@ -67,8 +74,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   document.body.classList.remove('space-cinematic');
   status?.classList.remove('hidden', 'restored'); caption?.classList.add('hidden'); prompt?.classList.add('hidden');
   let disposed = false, alerted = false, doorLatched = false, completed = false, deathClock = 0;
-  let elapsed = 0, arrivalClock = 0, paused = false, animationDelta = 0, entryClock = -1;
-  const entryStart = new THREE.Vector3(), entryView = new THREE.Vector3(), entryRotation = new THREE.Quaternion();
+  let elapsed = 0, arrivalClock = 0, paused = false, animationDelta = 0;
   let muralDiscovered = !!entryState?.muralDiscovered, muralClock = -1, muralFov = camera.fov, muralFacing = 0;
   let muralEntry: ReturnType<typeof player.captureTransition> | null = null;
   const muralView = new THREE.Vector3(), muralRotation = new THREE.Quaternion(), muralLook = new THREE.Quaternion();
@@ -76,7 +82,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
   const sharkDeathAt = 4.2;
   const riverEntry = new THREE.Vector3(), riverCamera = new THREE.Vector3(), riverRotation = new THREE.Quaternion();
   const miniboss = createWaterfallMiniboss({ scene, world: physicsWorld, player, camera, arena: site.waterfall,
-    defeated: entryState?.waterfallDefeated, collected: entryState?.bossImmunityCollected, loadModel });
+    defeated: entryState?.waterfallDefeated, achievementUnlocked: entryState?.waterfallAchievementUnlocked, loadModel });
   const landSquad = createRiverAmbushers(scene, [125, 125, 125], loadModel);
   const sentries = landSquad.actors.map((actor, index) => {
     const home = JUNGLE_PATH.getPointAt([0.63, 0.74, 0.84][index]);
@@ -281,7 +287,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
     enemy.root.visible = false; enemy.root.rotation.z = 0; enemy.ring.visible = false; enemy.phase = 'dormant'; enemy.mixer.stopAllAction(); enemy.action = '';
   }
   function updatePatrols(dt: number) {
-    if (disposed || completed || entryClock >= 0 || sharkClock >= 0 || miniboss.isCinematic() || site.waterfall.locked || deathClock > 0 || !player.isEnabled() || player.getHealth() <= 0) return;
+    if (disposed || completed || sharkClock >= 0 || miniboss.isCinematic() || site.waterfall.locked || deathClock > 0 || !player.isEnabled() || player.getHealth() <= 0) return;
     const p = player.body.position;
     const nearLanding = Math.hypot(p.x - RESCUE_SITE.clearing.x, p.z - RESCUE_SITE.clearing.z) < 27;
     const nearFacility = Math.hypot(p.x, p.z - RESCUE_SITE.doorZ) < 21;
@@ -459,7 +465,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
     ];
   }
   function updateSentries(dt: number) {
-    if (disposed || completed || site.waterfall.locked || entryClock >= 0 || deathClock > 0 || !player.isEnabled() || player.getHealth() <= 0) return;
+    if (disposed || completed || site.waterfall.locked || deathClock > 0 || !player.isEnabled() || player.getHealth() <= 0) return;
     const p = new THREE.Vector3().copy(player.body.position), target = p.clone().add(new THREE.Vector3(0, 0.8, 0));
     for (const [index, sentry] of sentries.entries()) {
       const { actor, body, home } = sentry;
@@ -528,7 +534,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
     }
   }
   function updateDefense(dt: number) {
-    if (disposed || completed || entryClock >= 0 || sharkClock >= 0 || site.waterfall.locked || deathClock > 0 || !player.isEnabled() || player.getHealth() <= 0) return;
+    if (disposed || completed || sharkClock >= 0 || site.waterfall.locked || deathClock > 0 || !player.isEnabled() || player.getHealth() <= 0) return;
     elapsed += dt;
     const p = player.body.position, distance = Math.hypot(p.x, p.z - RESCUE_SITE.doorZ);
     if (!alerted && distance < 34 && p.z > RESCUE_SITE.doorZ) alerted = true;
@@ -616,18 +622,19 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
     },
   });
   function updateHud() {
-    if (completed || deathClock > 0 || entryClock >= 0 || sharkClock >= 0 || muralClock >= 0) return;
+    if (completed || deathClock > 0 || sharkClock >= 0 || muralClock >= 0) return;
     const nearBoy = arrivalClock < 7 && Math.hypot(player.body.position.x - boy.position.x, player.body.position.z - boy.position.z) < 12;
     caption?.classList.toggle('hidden', !nearBoy);
     if (nearBoy && caption) caption.textContent = '"I will stay with the ships. The facility is ahead. Follow the stone path; the waterfall may hide something."';
     if (status) status.textContent = patrolLoadError || dinoLoadError || sharkLoadError ? 'JUNGLE ASSETS COULD NOT LOAD / RESTART THIS CHECKPOINT'
       : site.waterfall.locked ? 'WATERFALL WARDEN / DEFEAT IT TO UNSEAL THE ARENA'
-        : miniboss.getStatus().collected ? 'AEGIS CORE ACQUIRED / ONE 30-SECOND BOSS IMMUNITY'
+        : miniboss.getStatus().achievementUnlocked ? 'SECRET FOUND / BEHIND THE FALLS'
           : 'FACILITY APPROACH / FOLLOW THE STONE PATH\nWaterfall detour optional. Spider bots patrol beyond the bridge.';
   }
   function captureArrival(): RescueArrival {
     const reward = miniboss.getStatus();
-    return { ...entryState, waterfallDefeated: reward.defeated, bossImmunityCollected: reward.collected, muralDiscovered,
+    return { ...entryState, waterfallDefeated: reward.defeated, waterfallAchievementUnlocked: reward.achievementUnlocked,
+      bossImmunityCollected: false, muralDiscovered,
       pilotState: player.captureTransition({ x: 0, y: 0, z: 0 }) };
   }
   function beginMuralDiscovery() {
@@ -678,27 +685,17 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
     muralClock = -1; muralEntry = null; status?.classList.remove('hidden'); caption?.classList.add('hidden');
     updateHud();
   }
-  function finish() {
+  function finish(state: PlayerTransitionState) {
+    const arrival = { ...captureArrival(), pilotState: state, cameraPosition: undefined, cameraQuaternion: undefined, cameraFov: undefined };
     completed = true; stopDefense(); freezePlayer(); status?.classList.add('hidden'); prompt?.classList.add('hidden');
     caption?.classList.add('hidden');
-    onFinished?.({ ...captureArrival(), cameraPosition: camera.position.clone(), cameraQuaternion: camera.quaternion.clone(), cameraFov: camera.fov });
+    onFinished?.(arrival);
   }
+  door.setTrigger(finish);
   function entryViewCamera() {
     if (sharkClock >= 0) return sharkViewCamera();
     if (muralClock >= 0) return muralViewCamera();
-    if (entryClock < 0) return miniboss.applyCinematicCamera();
-    const progress = THREE.MathUtils.smootherstep(entryClock, 0, 0.9);
-    camera.position.lerpVectors(entryView, new THREE.Vector3().copy(player.body.position).add(new THREE.Vector3(0, 1.2, 0)), progress);
-    const target = camera.clone(); target.position.copy(camera.position); target.lookAt(new THREE.Vector3(0, 1.5, -70));
-    camera.quaternion.slerpQuaternions(entryRotation, target.quaternion, progress); camera.updateMatrixWorld(true);
-    return true;
-  }
-  function updateEntry(dt: number) {
-    entryClock += dt;
-    const progress = THREE.MathUtils.smootherstep(entryClock, 0, 0.9);
-    const p = entryStart.clone().lerp(new THREE.Vector3(0, player.radius, RESCUE_SITE.doorZ - 6), progress);
-    player.setPosition(p.x, p.y, p.z); door.update(dt, player, true); entryViewCamera();
-    if (entryClock >= 0.9) finish();
+    return miniboss.applyCinematicCamera();
   }
   function updateSharks(dt: number) {
     for (const shark of sharks) {
@@ -759,15 +756,15 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
     minimap: { radius: 48, floor: 0, prepare: site.prepareMinimap },
     get robots() { return enemies.filter(enemy => enemy.kind === 'robot'); },
     get dinosaurs() { return enemies.filter(enemy => enemy.kind === 'dino'); },
-    getDamageTargets: (): DamageTarget[] => completed || entryClock >= 0 || sharkClock >= 0 || muralClock >= 0 || miniboss.isCinematic() || deathClock > 0 ? [] : damageTargets(),
+    getDamageTargets: (): DamageTarget[] => completed || sharkClock >= 0 || muralClock >= 0 || miniboss.isCinematic() || deathClock > 0 ? [] : damageTargets(),
     getParryableBolts: (): ParryableBolt[] =>
-      completed || entryClock >= 0 || sharkClock >= 0 || muralClock >= 0 || deathClock > 0 ? [] : bolts.filter(bolt => bolt.life > 0),
-    isCinematic: () => completed || entryClock >= 0 || sharkClock >= 0 || muralClock >= 0 || miniboss.isCinematic() || deathClock > 0,
+      completed || sharkClock >= 0 || muralClock >= 0 || deathClock > 0 ? [] : bolts.filter(bolt => bolt.life > 0),
+    isCinematic: () => completed || sharkClock >= 0 || muralClock >= 0 || miniboss.isCinematic() || deathClock > 0,
     isArenaLocked: () => site.waterfall.locked,
     getRiverStatus: () => ({ swarming: sharkClock >= 0, time: sharkClock, sharks: sharks.filter(shark => shark.attackIndex >= 0).length }),
     getCinematicDelta: () => animationDelta,
-    getCinematicState: () => completed || entryClock >= 0 || sharkClock >= 0 || muralClock >= 0 || miniboss.isCinematic() || deathClock > 0 ? { ...player.getState(),
-      isMoving: entryClock >= 0 && !completed, sprinting: false, isOnGround: sharkClock < 0, floating: sharkClock >= 0, jumping: false, climbing: false } : null,
+    getCinematicState: () => completed || sharkClock >= 0 || muralClock >= 0 || miniboss.isCinematic() || deathClock > 0 ? { ...player.getState(),
+      isMoving: false, sprinting: false, isOnGround: sharkClock < 0, floating: sharkClock >= 0, jumping: false, climbing: false } : null,
     getCinematicPose(): CinematicPose | null {
       if (sharkClock >= 0) {
         const death = sharkClock - sharkDeathAt;
@@ -775,7 +772,6 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
           : { clip: 'Float_Loop', time: sharkClock, loop: true, swimming: true };
       }
       if (deathClock > 0) return { clip: 'Death01', time: 2.5 - deathClock };
-      if (entryClock >= 0) return { clip: 'Walk_Loop', time: entryClock, loop: true };
       if (muralClock >= 0) return { clip: 'Idle_Loop', time: muralClock, loop: true };
       return miniboss.getCinematicPose();
     },
@@ -810,7 +806,6 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
       }
       if (completed) { door.update(dt, player, false); return; }
       if (sharkClock >= 0) { updateSharkSwarm(dt); return; }
-      if (entryClock >= 0) { updateEntry(dt); return; }
       if (muralClock >= 0) { updateMuralDiscovery(dt); return; }
       arrivalClock += dt;
       if (beginMuralDiscovery()) { updateMuralDiscovery(0); return; }
@@ -824,6 +819,7 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
       }
       if (Math.abs(p.x) < 5 && Math.abs(p.z - RESCUE_SITE.doorZ) < 10) doorLatched = true;
       door.update(dt, player, doorLatched);
+      if (completed) return;
       syncNearbyPhysics();
       physics.step(dt, player, thirdPerson);
       for (const sentry of sentries) if (sentry.active) {
@@ -846,11 +842,6 @@ export function createScene({ entryState, onRespawn, onFinished, loadModel = loa
             enemy.legs[0].rotateX(swing); enemy.legs[1].rotateX(-swing);
           }
         }
-      }
-      if (player.getHealth() > 0 && doorLatched && Math.abs(p.x) < 3.8 && p.z < RESCUE_SITE.doorZ - 0.5 && p.z > RESCUE_SITE.doorZ - 7) {
-        entryStart.copy(p); entryView.copy(camera.position); entryRotation.copy(camera.quaternion);
-        entryClock = 0; stopDefense(); freezePlayer(); status?.classList.add('hidden'); prompt?.classList.add('hidden');
-        updateEntry(0); return;
       }
       updateHud();
     },

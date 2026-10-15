@@ -17,6 +17,13 @@ import { teleportPlayer } from '../../scripts/teleportationDevice.js';
 import { cameraVisitMap, type CameraRoomProgress } from '../level 1 stage 2/stageTwoLayout.js';
 import { loadToolModel } from '../../core/loader.js';
 
+const CARGO_POEM = [
+  'A crow may crow, a bar may bar,',
+  'But neither gets you very far.',
+  'When crow and bar and oranges meet,',
+  'The stubborn shells admit defeat.',
+];
+
 export function createScene({ audioManager, entryState, remoteVisit = false, preview = false, deferActivation = false, loot,
   hasReturnMarker, onRestart, onKeycardCollected, modelLoader = loadToolModel }: {
   audioManager?: unknown; entryState?: PlayerTransitionState;
@@ -202,6 +209,59 @@ export function createScene({ audioManager, entryState, remoteVisit = false, pre
   cratePositions.forEach(([x, y, z], i) => breakables.add(`CargoCrate${i}`, 'crowbar', new THREE.Vector3(x, y, z),
     new THREE.Vector3(1.5, 1.2, 1.2), id => { loot?.cleared.add(id); }));
   if (loot) breakables.restoreBroken(loot.cleared);
+
+  const posterCanvas = document.createElement('canvas');
+  posterCanvas.width = 1024; posterCanvas.height = 1408;
+  const posterCtx = posterCanvas.getContext('2d')!;
+  posterCtx.fillStyle = '#e8d6af'; posterCtx.fillRect(0, 0, 1024, 1408);
+  posterCtx.fillStyle = '#ddc79e';
+  for (let i = 0; i < 180; i++) {
+    posterCtx.fillRect((i * 139 + 17) % 1024, (i * 271 + 53) % 1408, 2 + i % 6, 2);
+  }
+  posterCtx.strokeStyle = '#263b43'; posterCtx.lineWidth = 12; posterCtx.strokeRect(26, 26, 972, 1356);
+  posterCtx.textAlign = 'center'; posterCtx.textBaseline = 'middle';
+  posterCtx.fillStyle = '#a94d24'; posterCtx.font = 'bold 78px Georgia, serif';
+  posterCtx.fillText('A CROW & A BAR', 512, 220);
+  posterCtx.strokeStyle = '#a94d24'; posterCtx.lineWidth = 3;
+  posterCtx.beginPath(); posterCtx.moveTo(135, 331); posterCtx.lineTo(889, 331); posterCtx.stroke();
+
+  // The rebus uses a drinks bar, not the tool it hints at.
+  posterCtx.fillStyle = '#263b43';
+  posterCtx.beginPath(); posterCtx.ellipse(380, 450, 74, 47, -0.25, 0, Math.PI * 2); posterCtx.fill();
+  posterCtx.beginPath(); posterCtx.arc(435, 402, 33, 0, Math.PI * 2); posterCtx.fill();
+  posterCtx.beginPath(); posterCtx.moveTo(460, 397); posterCtx.lineTo(502, 412); posterCtx.lineTo(456, 420); posterCtx.fill();
+  posterCtx.beginPath(); posterCtx.moveTo(331, 441); posterCtx.lineTo(271, 490); posterCtx.lineTo(356, 476); posterCtx.fill();
+  posterCtx.strokeStyle = '#263b43'; posterCtx.lineWidth = 7;
+  for (const x of [372, 404]) {
+    posterCtx.beginPath(); posterCtx.moveTo(x, 482); posterCtx.lineTo(x - 4, 519); posterCtx.lineTo(x + 14, 519); posterCtx.stroke();
+  }
+  posterCtx.fillStyle = '#e8d6af'; posterCtx.beginPath(); posterCtx.arc(445, 398, 4, 0, Math.PI * 2); posterCtx.fill();
+  posterCtx.fillStyle = '#a94d24'; posterCtx.font = '48px Georgia, serif'; posterCtx.fillText('+', 543, 453);
+  posterCtx.fillStyle = '#a94d24'; posterCtx.fillRect(600, 468, 240, 84);
+  posterCtx.fillStyle = '#263b43'; posterCtx.fillRect(586, 452, 268, 16);
+  for (const x of [706, 758]) {
+    posterCtx.fillRect(x, 392, 23, 60); posterCtx.fillRect(x + 6, 376, 11, 19);
+    posterCtx.fillStyle = '#e8d6af'; posterCtx.fillRect(x + 4, 413, 15, 22); posterCtx.fillStyle = '#263b43';
+  }
+  posterCtx.strokeStyle = '#263b43'; posterCtx.lineWidth = 5;
+  posterCtx.beginPath(); posterCtx.moveTo(612, 397); posterCtx.lineTo(652, 397); posterCtx.lineTo(632, 424);
+  posterCtx.closePath(); posterCtx.stroke();
+  posterCtx.beginPath(); posterCtx.moveTo(632, 424); posterCtx.lineTo(632, 450);
+  posterCtx.moveTo(620, 450); posterCtx.lineTo(644, 450); posterCtx.stroke();
+
+  posterCtx.fillStyle = '#263b43'; posterCtx.font = 'italic 40px Georgia, serif';
+  CARGO_POEM.forEach((line, index) => posterCtx.fillText(line, 512, 720 + index * 100));
+  posterCtx.fillStyle = '#a94d24'; posterCtx.font = '24px monospace';
+  posterCtx.fillText('CARGO HOLD / 05', 512, 1240);
+  const posterTexture = new THREE.CanvasTexture(posterCanvas); posterTexture.colorSpace = THREE.SRGBColorSpace;
+  const poster = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 2.9),
+    new THREE.MeshBasicMaterial({ map: posterTexture, toneMapped: false }));
+  poster.name = 'CargoPoemPoster'; poster.userData.text = CARGO_POEM.join('\n');
+  poster.userData.illustration = 'crow + drinks bar';
+  poster.position.set(-4.81, 2.6, -2); poster.rotation.y = Math.PI / 2; scene.add(poster);
+  const posterFrame = new THREE.Mesh(new THREE.BoxGeometry(0.08, 3.02, 2.22),
+    new THREE.MeshStandardMaterial({ color: 0x263b43, metalness: 0.5, roughness: 0.6 }));
+  posterFrame.name = 'CargoPoemPosterFrame'; posterFrame.position.set(-4.87, 2.6, -2); scene.add(posterFrame);
 
   // --- Wall pipes ---
   const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, roomDepth - 1, 8), pipeMat);

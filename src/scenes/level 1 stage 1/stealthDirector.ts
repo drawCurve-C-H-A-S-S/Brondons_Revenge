@@ -57,9 +57,9 @@ export interface StealthActor {
   scanTarget: THREE.Vector3 | null;
 }
 
-export function isBehindDrone(drone: Point, forward: Point, shooter: Point) {
-  const dx = shooter.x - drone.x, dz = shooter.z - drone.z, distance = Math.hypot(dx, dz);
-  return distance > 0.1 && distance < 20 && (dx * forward.x + dz * forward.z) / distance < -0.9;
+export function isInDroneView(drone: Point, forward: Point, target: Point, halfAngle = 0.72) {
+  const dx = target.x - drone.x, dz = target.z - drone.z, distance = Math.hypot(dx, dz);
+  return distance >= 0.01 && (dx * forward.x + dz * forward.z) / distance >= Math.cos(halfAngle);
 }
 
 export function createHangarNavigation(hangar: StealthHangar) {
@@ -113,7 +113,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
   const facing = new THREE.Vector3(), eye = new THREE.Vector3(), target = new THREE.Vector3();
   const up = new THREE.Vector3(0, 1, 0), direction = new THREE.Vector3(), desiredRotation = new THREE.Quaternion();
   let elapsed = 0, disposed = false, alarmed = false, stepNoiseTime = 0, distractions = 0;
-  let observerPosition: Point | null = null, silentDroneShot = false;
+  let observer: StealthObservation | null = null, silentDroneShot = false;
   let encirclement: THREE.Vector3 | null = null, firing = false;
   const volleyGeometry = new THREE.CylinderGeometry(0.022, 0.022, 1, 6);
   const volleyMaterial = new THREE.MeshBasicMaterial({ color: 0xff5266, transparent: true, opacity: 0.95,
@@ -234,9 +234,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
     const range = actor.range * (observation.crouching ? 0.78 : 1);
     if (length > range || length < 0.01) return false;
     const forward = actorFacing(actor);
-    const alignment = ((observation.position.x - actor.root.position.x) * forward.x
-      + (observation.position.z - actor.root.position.z) * forward.z) / length;
-    if (alignment < Math.cos(actor.kind === 'eye' ? 0.72 : 0.62)) return false;
+    if (!isInDroneView(actor.root.position, forward, observation.position, actor.kind === 'eye' ? 0.72 : 0.62)) return false;
     eye.copy(actor.root.position); eye.y += eyeHeight(actor);
     target.set(observation.position.x, observation.position.y + (observation.crouching ? 0.5 : 1.05), observation.position.z);
     return hasSight(eye, target, actor.body);
@@ -334,8 +332,10 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
     damage(amount, weapon) {
       if (actor.mode === 'down' || actor.mode === 'reserve' || !Number.isFinite(amount) || amount <= 0) return false;
       if (actor.kind === 'eye') {
-        const shooter = callbacks.getPlayerPosition?.() ?? observerPosition;
-        if (weapon !== 'pistol' || !shooter || !isBehindDrone(actor.root.position, actorFacing(actor), shooter)) {
+        const shooter = callbacks.getPlayerPosition?.() ?? observer?.position;
+        const visible = shooter && canSee(actor, { position: shooter, crouching: observer?.crouching ?? false,
+          sprinting: observer?.sprinting ?? false, moving: observer?.moving ?? false, protected: isProtected(shooter), enabled: true });
+        if (weapon !== 'pistol' || !shooter || visible) {
           callbacks.onDroneShotBlocked?.();
           if (!shooter) console.warn('[Stealth] Cannot resolve shooter position for the eye drone');
           forceAlarm(actor.id); return false;
@@ -436,7 +436,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
   }
   function update(dt: number, observation: StealthObservation) {
     if (disposed) return;
-    observerPosition = observation.position;
+    observer = observation;
     elapsed += dt; stepNoiseTime -= dt;
     for (let index = volleys.length - 1; index >= 0; index--) {
       volleys[index].life -= dt;

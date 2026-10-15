@@ -18,6 +18,7 @@ const THREE_ADDONS = [
   'postprocessing/Pass',
   'postprocessing/RenderPass',
   'postprocessing/UnrealBloomPass',
+  'renderers/CSS3DRenderer',
   'utils/BufferGeometryUtils',
   'utils/SkeletonUtils',
 ].map(path => `three/addons/${path}.js`);
@@ -25,13 +26,18 @@ const THREE_ADDONS = [
 export default defineConfig({
   root: 'src',
   base: './',
+  // Test SSR servers disable optimization and must not overwrite the live game's metadata.
+  cacheDir: process.env.NODE_TEST_CONTEXT
+    ? `node_modules/.vite-tests/${process.pid}` : 'node_modules/.vite-game',
   assetsInclude: ['**/*.glb', '**/*.obj', '**/*.fbx', '**/*.gltf', '**/*.bin'],
   resolve: {
     dedupe: ['three'],
   },
   optimizeDeps: {
+    noDiscovery: true,
     entries: ['index.html', 'finale-preview.html'],
-    include: ['three', ...THREE_ADDONS, 'cannon-es', 'pathfinding', 'three-bvh-csg', 'gifuct-js'],
+    include: ['three', ...THREE_ADDONS, 'three/examples/jsm/loaders/GLTFLoader.js',
+      'cannon-es', 'pathfinding', 'three-bvh-csg', 'gifuct-js'],
   },
   build: {
     outDir: '../dist',

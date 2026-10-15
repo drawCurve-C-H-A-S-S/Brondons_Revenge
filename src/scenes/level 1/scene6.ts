@@ -1,5 +1,5 @@
 /**
- * Scene 6 - Engine room, reached via the passageway's right-hand door.
+ * Scene 6 - Target range, reached via the surveillance camera.
  * Same door/threshold mechanics as scene4, entered from a single back door.
  */
 import * as THREE from 'three';
@@ -16,6 +16,20 @@ import { SHIP_INTERIOR_PALETTE } from '../../helpers/scene/shipInterior.js';
 import { teleportPlayer } from '../../scripts/teleportationDevice.js';
 import { cameraVisitMap, type CameraRoomProgress } from '../level 1 stage 2/stageTwoLayout.js';
 import { loadToolModel } from '../../core/loader.js';
+import fireVertexShader from '../../shaders/fireExplosion.vert.glsl?raw';
+import fireFragmentShader from '../../shaders/fireExplosion.frag.glsl?raw';
+import { GOGGLES_READABLE_LAYER } from '../../scripts/gogglesPostProcess.js';
+
+const RANGE_WORD = 'BRONDON';
+const RANGE_LETTERS = ['N', 'O', 'B', 'N', 'D', 'R', 'O'];
+const RANGE_POEM = [
+  'Borrow new eyes to see our game;',
+  'Read hidden marks and spell your name.',
+  'One shot, one letter, keep them true;',
+  'No step astray, or flames find you.',
+  'Double echoes share their sound;',
+  'Only in order is treasure found.',
+];
 
 export function createScene({ audioManager, entryState, gogglesCollected = false, onGogglesCollected,
   remoteVisit = false, preview = false, deferActivation = false, loot, hasReturnMarker, onRestart,
@@ -216,13 +230,106 @@ export function createScene({ audioManager, entryState, gogglesCollected = false
   scene.add(pipe);
 
   const breakables = createBreakables(scene, physicsWorld);
-  for (const side of [-1, 1]) {
-    for (const z of [-0.5, 3.4]) breakables.add(`WallTarget${side}_${z}`, 'pistol', new THREE.Vector3(side * 4.7, 1.8, z),
-      new THREE.Vector3(0.18, 0.85, 0.85), id => { loot?.cleared.add(id); });
-    breakables.add(`EndTarget${side}`, 'pistol', new THREE.Vector3(side * 1.7, 2.1, 4.7),
-      new THREE.Vector3(0.85, 0.85, 0.18), id => { loot?.cleared.add(id); });
+  let sequence = '', exploding = false, blastTime = 0, greeted = false, captionTime = 0;
+  const caption = document.createElement('div');
+  caption.className = 'stage-two-dialogue hidden'; caption.setAttribute('role', 'status');
+  if (!preview) document.body.append(caption);
+  function tell(text: string, seconds = 5) {
+    caption.textContent = text; captionTime = seconds; caption.classList.remove('hidden');
   }
-  if (loot) breakables.restoreBroken(loot.cleared);
+  function wallText(name: string, lines: string[], width: number, height: number, color: string) {
+    const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 768;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error(`Unable to draw ${name}`);
+    ctx.fillStyle = '#13232c'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = color; ctx.lineWidth = 10; ctx.strokeRect(12, 12, 1000, 744);
+    ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = lines.length === 1 ? 'bold 540px monospace' : 'bold 38px monospace';
+    lines.forEach((line, index) => ctx.fillText(line, 512, (index + 1) * 768 / (lines.length + 1)));
+    const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 8;
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height),
+      new THREE.MeshBasicMaterial({ map: texture, toneMapped: false }));
+    mesh.name = name; mesh.userData.text = lines.join('\n'); scene.add(mesh); return mesh;
+  }
+  const letters = RANGE_LETTERS.map((letter, index) => {
+    const x = (index - 3) * 1.15;
+    const label = wallText(`RangeLetter-${index}`, [letter], 0.85, 0.85, '#f4fff8');
+    label.position.set(x, 3.12, 4.79); label.rotation.y = Math.PI; label.visible = false;
+    label.layers.enable(GOGGLES_READABLE_LAYER);
+    const target = breakables.add(`RangeTarget-${index}`, 'pistol', new THREE.Vector3(x, 2.1, 4.7),
+      new THREE.Vector3(0.8, 0.8, 0.18));
+    target.root.userData.rangeLetter = letter;
+    const damage = target.damage.bind(target);
+    target.damage = (amount, weapon) => {
+      if (!active || preview || exploding || target.broken || weapon !== 'pistol' || !Number.isFinite(amount) || amount <= 0) return false;
+      if (letter !== RANGE_WORD[sequence.length]) {
+        exploding = true; blastTime = 0; blast.position.copy(target.root.position);
+        blast.scale.setScalar(0.15); blast.visible = true; blastLight.position.copy(blast.position);
+        player.disable(); tell('Wrong order! The range is exploding!', 3);
+        return true;
+      }
+      if (!damage(amount, weapon)) return false;
+      sequence += letter;
+      if (sequence === RANGE_WORD) {
+        for (const item of breakables.objects) loot?.cleared.add(item.id);
+        tell('BRONDON / Sequence complete. The chest is unlocked.');
+      } else tell(`${sequence} / ${RANGE_WORD.length} letters`, 2);
+      return true;
+    };
+    return label;
+  });
+  const poem = wallText('RangeWallPoem', ["THE STUDENTS' GAME", ...RANGE_POEM], 3.8, 2.6, '#ffe6ac');
+  const posterCanvas = poem.material.map!.image as HTMLCanvasElement;
+  const posterContext = posterCanvas.getContext('2d');
+  if (!posterContext) throw new Error('Unable to draw the target range poster');
+  posterContext.fillStyle = '#ead9ae'; posterContext.fillRect(0, 0, 1024, 768);
+  posterContext.fillStyle = '#203540'; posterContext.fillRect(34, 34, 956, 152);
+  posterContext.strokeStyle = '#a2763c'; posterContext.lineWidth = 4; posterContext.strokeRect(18, 18, 988, 732);
+  posterContext.textAlign = 'center'; posterContext.textBaseline = 'middle';
+  posterContext.font = '20px monospace'; posterContext.fillStyle = '#e7c78e';
+  posterContext.fillText('CREW RECREATION / TARGET RANGE', 512, 70);
+  posterContext.font = 'bold 52px Georgia, serif'; posterContext.fillStyle = '#fff1d1';
+  posterContext.fillText("THE STUDENTS' GAME", 512, 132);
+  posterContext.fillStyle = '#263840'; posterContext.font = 'italic 38px Georgia, serif';
+  RANGE_POEM.forEach((line, index) => posterContext.fillText(line, 512, 265 + index * 68));
+  posterContext.strokeStyle = '#a2763c'; posterContext.lineWidth = 2;
+  posterContext.beginPath(); posterContext.moveTo(180, 690); posterContext.lineTo(844, 690); posterContext.stroke();
+  posterContext.font = '18px monospace'; posterContext.fillText('BORROW NEW EYES. TAKE YOUR SHOT.', 512, 723);
+  poem.material.map!.needsUpdate = true;
+  poem.position.set(4.81, 2.5, 0); poem.rotation.y = -Math.PI / 2;
+  const posterFrame = new THREE.Group(); posterFrame.name = 'RangeWallPoemFrame';
+  posterFrame.position.copy(poem.position); posterFrame.rotation.copy(poem.rotation); scene.add(posterFrame);
+  const posterFrameMaterial = new THREE.MeshStandardMaterial({ color: 0x35434a, metalness: 0.65, roughness: 0.48 });
+  for (const x of [-1.96, 1.96]) {
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.82, 0.1), posterFrameMaterial);
+    edge.position.x = x; posterFrame.add(edge);
+  }
+  for (const y of [-1.36, 1.36]) {
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(4.02, 0.1, 0.1), posterFrameMaterial);
+    edge.position.y = y; posterFrame.add(edge);
+  }
+  const blastUniforms = {
+    uTime: { value: 0 }, uProgress: { value: 0 }, uIntensity: { value: 1 }, uCameraLocal: { value: new THREE.Vector3() },
+    uColorCore: { value: new THREE.Color(0xfff2b0) }, uColorMid: { value: new THREE.Color(0xff8a1f) },
+    uColorEdge: { value: new THREE.Color(0xc41608) }, uColorSmoke: { value: new THREE.Color(0x1a1613) },
+  };
+  const blast = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 24), new THREE.ShaderMaterial({
+    uniforms: blastUniforms, vertexShader: fireVertexShader, fragmentShader: fireFragmentShader,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide, toneMapped: false,
+  }));
+  blast.name = 'RangeFireExplosion'; blast.visible = false; blast.frustumCulled = false; scene.add(blast);
+  blast.onBeforeRender = (_renderer, _scene, viewCamera) => {
+    viewCamera.getWorldPosition(blastUniforms.uCameraLocal.value); blast.worldToLocal(blastUniforms.uCameraLocal.value);
+  };
+  const blastLight = new THREE.PointLight(0xff6a14, 0, 25); scene.add(blastLight);
+  function syncProgress() {
+    if (loot?.rewardCollected || breakables.objects.every(item => loot?.cleared.has(item.id))) {
+      sequence = RANGE_WORD;
+      breakables.restoreBroken(new Set(breakables.objects.map(item => item.id)));
+    }
+  }
+  syncProgress();
 
   // --- Camera ---
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
@@ -243,11 +350,12 @@ export function createScene({ audioManager, entryState, gogglesCollected = false
     doorBack.panelR.position.x = doorPanelW / 2 + doorSlideDistance;
     doorBack.seam.visible = false;
   }
+  const entranceState = player.captureTransition({ x: 0, y: 0, z: 0 });
 
   const chest = !remoteVisit && gogglesCollected ? null : createRewardChest({ scene, world: physicsWorld, player,
     position: new THREE.Vector3(0, 0, 3.7), reward: remoteVisit ? 'keycard' : 'goggles', style: 'crew',
-    initialCollected: loot?.rewardCollected, canInteract: () => active, unlocked: () => breakables.remaining() === 0,
-    lockedPrompt: 'Destroy every wall target with the pistol',
+    initialCollected: loot?.rewardCollected, canInteract: () => active && !exploding, unlocked: () => sequence === RANGE_WORD,
+    lockedPrompt: 'Read the wall poem. Goggles reveal the target letters; shoot your name in order.',
     removeOnCollect: !remoteVisit, onCollect: () => {
       if (!remoteVisit) { onGogglesCollected?.(); return true; }
       onKeycardCollected?.(); if (loot) loot.rewardCollected = true; player.addShield(25); return true;
@@ -266,6 +374,27 @@ export function createScene({ audioManager, entryState, gogglesCollected = false
   function updatePhysics(dt: number, thirdPerson: boolean = false) {
     if (disposed) return;
     dt = Number.isFinite(dt) ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime)) : 0;
+    if (active && !greeted) {
+      greeted = true; tell('Prime: The students would always play in here.');
+    }
+    captionTime = Math.max(0, captionTime - dt);
+    if (!captionTime) caption.classList.add('hidden');
+    if (exploding) {
+      blastTime += dt;
+      const progress = Math.min(blastTime / 2.4, 1);
+      blastUniforms.uTime.value = blastTime; blastUniforms.uProgress.value = progress;
+      blast.scale.setScalar(0.15 + 14 * Math.min(blastTime / 1.1, 1));
+      blastLight.intensity = 90 * Math.sin(progress * Math.PI);
+      breakables.update(dt);
+      if (progress === 1) {
+        exploding = false; blast.visible = false; blastLight.intensity = 0; sequence = '';
+        breakables.reset();
+        teleportPlayer(player, { x: 0, y: spawnY, z: spawnZ }, remoteVisit ? Math.PI : 0, entranceState);
+        player.clearInput(); if (active) player.enable();
+        tell('Range reset. Read the poem and try again.');
+      }
+      return;
+    }
     physics.step(dt, player, thirdPerson);
     breakables.update(dt); chest?.update(dt); visitUI?.update();
 
@@ -299,9 +428,12 @@ export function createScene({ audioManager, entryState, gogglesCollected = false
     roomId: 'camera-range', getSceneId: () => 'scene6', getMapLayout: () => cameraVisitMap(6),
     minimap: { bounds: { minX: -5, maxX: 5, minZ: -5, maxZ: 5 }, floor: 0 },
     activate() { active = true; visitUI?.setVisible(true); player.clearInput(); player.enable(); },
-    syncProgress() { if (loot) { breakables.restoreBroken(loot.cleared); if (loot.rewardCollected) chest?.setCollected(); } },
-    setBackTrigger, breakables, chest, getDamageTargets: breakables.getDamageTargets,
-    setGogglesActive: breakables.setHighlighted,
-    dispose: () => { if (disposed) return; disposed = true; visitUI?.dispose(); chest?.dispose(); breakables.dispose(); player.dispose(); physics.dispose(); disposeRoom(scene); },
+    syncProgress() { syncProgress(); if (loot?.rewardCollected) chest?.setCollected(); },
+    isCinematic: () => exploding,
+    getRangeState: () => ({ sequence, exploding }),
+    setBackTrigger, breakables, chest,
+    getDamageTargets: () => active && !preview && !exploding ? breakables.getDamageTargets() : [],
+    setGogglesActive(value: boolean) { for (const letter of letters) letter.visible = value && !preview; },
+    dispose: () => { if (disposed) return; disposed = true; caption.remove(); visitUI?.dispose(); chest?.dispose(); breakables.dispose(); player.dispose(); physics.dispose(); disposeRoom(scene); },
   };
 }

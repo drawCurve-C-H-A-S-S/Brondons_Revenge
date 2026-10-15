@@ -39,6 +39,7 @@ export function traceShot(scene: THREE.Scene, world: CANNON.World | null, ray: T
   scene.updateMatrixWorld(true);
   const raycaster = new THREE.Raycaster(ray.origin, ray.direction, 0, range);
   const surfaces: THREE.Mesh[] = [], excluded = new Set(ignored);
+  const excludedBodies = new Set(targets.filter(target => excluded.has(target.root)).map(target => target.body));
   function collect(object: THREE.Object3D) {
     if (!object.visible || excluded.has(object) || object.name === 'BreakableDebris') return;
     if (object instanceof THREE.Mesh) {
@@ -56,7 +57,8 @@ export function traceShot(scene: THREE.Scene, world: CANNON.World | null, ray: T
   world?.raycastAll(new CANNON.Vec3(ray.origin.x, ray.origin.y, ray.origin.z),
     new CANNON.Vec3(ray.origin.x + ray.direction.x * range, ray.origin.y + ray.direction.y * range, ray.origin.z + ray.direction.z * range),
     { skipBackfaces: false, checkCollisionResponse: true }, hit => {
-      if (hit.body?.type === CANNON.Body.STATIC && hit.body !== target?.body && hit.distance < distance - 0.001) {
+      if (hit.body?.type === CANNON.Body.STATIC && !excludedBodies.has(hit.body)
+        && hit.body !== target?.body && hit.distance < distance - 0.001) {
         distance = hit.distance;
         target = undefined;
       }

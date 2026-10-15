@@ -14,6 +14,7 @@ export interface FinaleCameraContext {
   ship: THREE.Object3D; mothership: THREE.Object3D; bomb: THREE.Vector3; heroChest: THREE.Vector3; enemyChest: THREE.Vector3;
   heroMuzzle: THREE.Vector3; enemyMuzzle: THREE.Vector3; clash: THREE.Vector3;
   heroBladeBase: THREE.Vector3; heroBladeTip: THREE.Vector3; enemyBladeTip: THREE.Vector3;
+  facilityInterior?: { cameraPosition: THREE.Vector3; target: THREE.Vector3 };
   special: { owner: MechSide; kind: 'missiles' | 'overdrive' | 'verdict' | 'orbitalCut'; time: number; duration: number } | null;
   qte: { beat: FinisherBeat; clock: number };
 }
@@ -118,7 +119,10 @@ export function createFinaleCamera(camera: THREE.PerspectiveCamera, reducedMotio
       } else if (phase === 'versus') {
         frame(combat.position, combat.center, 51);
       } else if (phase === 'rupture') {
-        if (t < PLANET_RUPTURE.raise) {
+        if (t >= PLANET_RUPTURE.facilityCut && t < PLANET_RUPTURE.materialize && context.facilityInterior) {
+          id += '-facility-core';
+          frame(context.facilityInterior.cameraPosition, context.facilityInterior.target, 44);
+        } else if (t < PLANET_RUPTURE.raise) {
           id += '-verdict-pose';
           frame(enemy.position.clone().add(V(-18, 4, 26)), context.enemyChest, 55, -0.018);
         } else if (t < PLANET_RUPTURE.release) {
@@ -313,7 +317,8 @@ export function createFinaleCamera(camera: THREE.PerspectiveCamera, reducedMotio
         lastFov = camera.fov;
         const editorialCut = phase === 'finisher' && shotId.startsWith('finisher')
           && (id.endsWith('-behind') || id.endsWith('-empty-blade'));
-        const locationCut = phase === 'rupture' && (id.endsWith('-brendan') || id.endsWith('-brendan-head-fire') || id.endsWith('-cockpit'))
+        const locationCut = phase === 'rupture' && (id.endsWith('-brendan') || id.endsWith('-brendan-head-fire') || id.endsWith('-cockpit')
+          || id.endsWith('-facility-core') || shotId.endsWith('-facility-core'))
           || phase === 'heroTransform' && id.endsWith('-forest-liftoff');
         shotId = id; transition = reducedMotion || editorialCut || locationCut ? 1 : 0;
       }

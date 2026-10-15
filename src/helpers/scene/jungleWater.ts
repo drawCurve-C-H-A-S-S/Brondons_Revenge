@@ -8,7 +8,7 @@ export const JUNGLE_WATER_COLORS = {
 } as const;
 
 /** GPU-driven river surface; the owning scene disposes its geometry and material. */
-export function createJungleWater(scene: THREE.Scene, options: { y: number; z: number; halfWidth: number; length: number }) {
+export function createJungleWater(scene: THREE.Scene, options: { x?: number; y: number; z: number; halfWidth: number; length: number }) {
   const uniforms = {
     ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog),
     uTime: { value: 0 },
@@ -36,7 +36,7 @@ export function createJungleWater(scene: THREE.Scene, options: { y: number; z: n
   geometry.computeBoundingSphere();
   geometry.boundingSphere!.radius += 0.13;
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.name = 'JungleRiver'; mesh.position.set(0, options.y, options.z); scene.add(mesh);
+  mesh.name = 'JungleRiver'; mesh.position.set(options.x ?? 0, options.y, options.z); scene.add(mesh);
 
   const obstacles: THREE.Mesh[] = [];
   const bounds = new THREE.Box3(), center = new THREE.Vector3(), size = new THREE.Vector3();

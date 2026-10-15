@@ -172,6 +172,7 @@ export const HERO_TRANSFORM = Object.freeze({
   assembled: 11.8, sword: 12.2, lock: 14.2,
 });
 export const PLANET_RUPTURE = Object.freeze({
+  facilityCut: 0.85, coreTransfer: 1.15, coreGone: 2.35,
   jump: 0.85, land: 1.75, raise: 1.9, materialize: 2.45, release: 3.8, apex: 5.2,
   slam: 5.2, escape: 5.85, wide: 7.6, impact: 8.65, burst: 10.25,
   forest: 11, scorch: 12.1, forestEnd: 15.8, cockpit: 15.4, resolve: 19,

@@ -332,7 +332,7 @@ export function createStealthHangar(scene: THREE.Scene, physics: Physics, deckY:
     return { group, leaves, update, get open() { return open; } };
   }
   const entrance = bulkhead(14, -2.5), exit = bulkhead(86, 20);
-  box([3, 0.2, 3.2], [87.2, -0.1, 20], floor);
+  box([2.8, 0.2, 3.2], [87.4, -0.1, 20], floor);
   box([3, 3.4, 0.25], [87.4, 1.7, 18.28], dark);
   box([3, 3.4, 0.25], [87.4, 1.7, 21.72], dark);
   box([0.25, 3.4, 3.7], [88.85, 1.7, 20], dark);

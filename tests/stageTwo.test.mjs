@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'vite';
 
 let server, THREE, CANNON, GLTFLoader, layout, createStage, createStorage, createHangar, hangarLayout;
-let createPhysics, createPlayer, createCctv, createEquipment, keycardJSON, corridorMonitor, droneStrategy;
+let createPhysics, createPlayer, createCctv, createEquipment, createRust, keycardJSON, corridorMonitor, droneStrategy;
 const rooms = {};
 before(async () => {
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom',
@@ -23,6 +23,7 @@ before(async () => {
   ({ createPlayer } = await server.ssrLoadModule('/scripts/player.ts'));
   ({ createCctvSystem: createCctv } = await server.ssrLoadModule('/scripts/cctv.ts'));
   ({ createScene: createEquipment } = await server.ssrLoadModule('/scenes/level 1 stage 2/equipmentRoom.ts'));
+  ({ createScene: createRust } = await server.ssrLoadModule('/scenes/level 1 stage 2/rustChamber.ts'));
   corridorMonitor = await server.ssrLoadModule('/helpers/scene/corridorMonitor.ts');
   droneStrategy = await server.ssrLoadModule('/scenes/level 1 stage 1/stealthDirector.ts');
   for (const id of [5, 6]) rooms[id] = (await server.ssrLoadModule(`/scenes/level 1/scene${id}.ts`)).createScene;
@@ -39,6 +40,7 @@ function browser(t) {
   const previous = Object.fromEntries(['window', 'document', 'HTMLElement', 'ProgressEvent'].map(key => [key, globalThis[key]]));
   const elements = new Map();
   const context = new Proxy({ measureText: text => ({ width: text.length * 14 }),
+    createLinearGradient: () => ({ addColorStop() {} }),
     createImageData: (width, height) => ({ data: new Uint8ClampedArray(width * height * 4) }) },
     { get: (target, name) => target[name] ?? (() => {}) });
   class Element extends EventTarget {
@@ -98,7 +100,7 @@ async function stage(t, progress = layout.createStageTwoProgress(), overrides = 
 }
 
 function permutations(items) { return items.length ? items.flatMap((item, i) => permutations(items.filter((_value, j) => i !== j)).map(rest => [item, ...rest])) : [[]]; }
-for (const order of permutations(['scene5', 'scene6', 'stage2-armory'])) {
+for (const order of permutations(['scene5', 'scene6', 'stage2-armory', 'stage2-rust'])) {
   test(`only the final chest keycard works in order ${order.join(' -> ')}`, () => {
     const progress = layout.createStageTwoProgress();
     assert.equal(layout.swipeStageTwoKeycard(progress), 'missing');
@@ -108,14 +110,14 @@ for (const order of permutations(['scene5', 'scene6', 'stage2-armory'])) {
       assert.equal(layout.collectStageTwoKeycard(progress, id), true);
       assert.equal(layout.collectStageTwoKeycard(progress, id), false, 'no duplicate cards on revisits');
       assert.equal(progress.elevatorUnlocked, false, 'collecting a card never opens the door automatically');
-      assert.equal(layout.swipeStageTwoKeycard(progress), index === 2 ? 'accepted' : 'rejected');
+      assert.equal(layout.swipeStageTwoKeycard(progress), index === order.length - 1 ? 'accepted' : 'rejected');
     });
-    assert.deepEqual(progress.keycards, ['stage2-vents', ...order]); assert.equal(progress.acceptedKeycard, order[2]);
+    assert.deepEqual(progress.keycards, ['stage2-vents', ...order]); assert.equal(progress.acceptedKeycard, order.at(-1));
     assert.equal(progress.elevatorUnlocked, true);
   });
 }
 
-test('large branching maze is connected, has a long solution and places every sensor/checkpoint on floor', () => {
+test('branching maze has a shorter solution and places every sensor/checkpoint on connected floor', () => {
   const { VENT_MAZE: maze, VENT_START: start, VENT_EXIT: exit } = layout;
   assert.equal(maze.length, 25); assert.ok(maze.every(row => row.length === 17));
   const queue = [[start.column, start.row, 0]], seen = new Set([`${start.column},${start.row}`]);
@@ -127,7 +129,7 @@ test('large branching maze is connected, has a long solution and places every se
     if (next.length > 2) junctions++;
     for (const [nx, nz] of next) if (!seen.has(`${nx},${nz}`)) { seen.add(`${nx},${nz}`); queue.push([nx, nz, steps + 1]); }
   }
-  assert.ok(distance >= 100, `maze must not be a short edge shortcut (${distance})`);
+  assert.ok(distance >= 40 && distance <= 64, `maze should take about half the original 128 steps (${distance})`);
   assert.ok(junctions >= 8); assert.equal(seen.size, maze.join('').replaceAll('#', '').length);
   for (const cell of [...layout.VENT_SAFE_CELLS, ...layout.VENT_SENSORS]) assert.ok(seen.has(`${cell.column},${cell.row}`));
   assert.ok(layout.ventPoint(exit.column, exit.row).x === layout.STAGE_TWO.drop.x);
@@ -258,7 +260,7 @@ test('hub has many desks/computers and a centrally aligned keycard elevator; swi
   browser(t); const progress = layout.createStageTwoProgress(); progress.checkpoint = 'surveillance'; progress.guardDown = true;
   progress.ventCleared = true; let exits = 0;
   layout.collectStageTwoKeycard(progress, 'stage2-vents');
-  for (const id of ['scene5', 'scene6', 'stage2-armory']) layout.collectStageTwoKeycard(progress, id);
+  for (const { id } of layout.STAGE_TWO_MINIGAMES) layout.collectStageTwoKeycard(progress, id);
   const data = await stage(t, progress, { onExitToBay13: async () => { exits++; return true; } });
   let desks = 0, computers = 0;
   data.scene.traverse(item => { if (/^SurveillanceDesk-/.test(item.name)) desks++; if (/^SurveillanceComputer-/.test(item.name)) computers++; });
@@ -283,7 +285,9 @@ for (const id of [5, 6, 37]) {
     const data = id === 37 ? createEquipment({ ...options, progress })
       : rooms[id]({ ...options, remoteVisit: true, loot: progress.remoteRooms[feedId] });
     t.cleanup(() => data.dispose()); await data.ready; data.player.addShield(50);
-    data.breakables?.objects.forEach(item => item.damage(100, id === 5 ? 'crowbar' : 'pistol'));
+    if (id === 6) {
+      for (const letter of 'BRONDON') data.getDamageTargets().find(item => item.root.userData.rangeLetter === letter).damage(100, 'pistol');
+    } else data.breakables?.objects.forEach(item => item.damage(100, 'crowbar'));
     const asset = data.chest.root.getObjectByName('ChestKeycardAsset'); assert.ok(asset);
     assert.ok(new THREE.Box3().setFromObject(asset).getSize(new THREE.Vector3()).length() > 0.3);
     data.player.setPosition(id === 37 ? -2 : 0, 0.3, id === 37 ? -1.3 : id === 5 ? 2.7 : 3.7);
@@ -295,7 +299,373 @@ for (const id of [5, 6, 37]) {
   });
 }
 
-test('camera wall has five active feeds and seven off screens; vents and prison are cleared view-only feeds', async t => {
+test('cargo poem is a framed, readable wall poster and hints at the crowbar and orange crates', async t => {
+  browser(t);
+  const data = rooms[5]({ preview: true, remoteVisit: true, modelLoader });
+  t.cleanup(() => data.dispose()); await data.ready;
+  const poster = data.scene.getObjectByName('CargoPoemPoster');
+  assert.ok(poster?.isMesh); assert.ok(data.scene.getObjectByName('CargoPoemPosterFrame'));
+  assert.match(poster.userData.text, /A crow may crow, a bar may bar/);
+  assert.match(poster.userData.text, /crow and bar and oranges meet/);
+  assert.equal(poster.userData.text.split('\n').length, 4);
+  assert.equal(poster.userData.illustration, 'crow + drinks bar');
+  assert.ok(poster.material.map.isCanvasTexture);
+  assert.equal(poster.material.map.colorSpace, THREE.SRGBColorSpace);
+  assert.ok(poster.position.x > -5 && poster.position.y > 2);
+  assert.equal(poster.rotation.y, Math.PI / 2);
+});
+
+test('range goggles reveal seven shuffled wall letters and Prime greets only an active arrival', async t => {
+  browser(t);
+  const data = rooms[6]({ remoteVisit: true, deferActivation: true, loot: { cleared: new Set(), rewardCollected: false },
+    modelLoader, hasReturnMarker: () => true, onRestart: async () => true, onKeycardCollected() {} });
+  t.cleanup(() => data.dispose()); await data.ready;
+  const labels = data.scene.children.filter(item => item.name.startsWith('RangeLetter-'));
+  assert.equal(labels.length, 7);
+  assert.equal(labels.map(item => item.userData.text).sort().join(''), [...'BRONDON'].sort().join(''));
+  assert.notEqual(labels.map(item => item.userData.text).join(''), 'BRONDON');
+  assert.ok(labels.every(item => !item.visible && item.position.y > 2.5));
+  const caption = document.body.children.find(item => item.className.includes('stage-two-dialogue'));
+  step(data, 0.1); assert.equal(caption.textContent, '');
+  assert.equal(data.getDamageTargets().length, 0);
+  data.activate(); step(data, 0.1);
+  assert.equal(caption.textContent, 'Prime: The students would always play in here.');
+  data.setGogglesActive(true); assert.ok(labels.every(item => item.visible));
+  assert.ok(labels.every(item => item.layers.isEnabled(2) && item.geometry.parameters.width >= 0.85
+    && item.material.map.colorSpace === THREE.SRGBColorSpace && !item.material.toneMapped));
+  data.setGogglesActive(false); assert.ok(labels.every(item => !item.visible));
+  const poem = data.scene.getObjectByName('RangeWallPoem');
+  assert.match(poem.userData.text, /Borrow new eyes/);
+  assert.match(poem.userData.text, /flames find you/);
+  assert.doesNotMatch(poem.userData.text, /Name yourself/);
+  assert.ok(data.scene.getObjectByName('RangeWallPoemFrame'));
+});
+
+for (const correctHits of [0, 1, 3, 5]) {
+  test(`range wrong hit after ${correctHits} letters fills the room with fire and respawns locally`, async t => {
+    browser(t);
+    const loot = { cleared: new Set(), rewardCollected: false };
+    const data = rooms[6]({ remoteVisit: true, loot, modelLoader, hasReturnMarker: () => true,
+      onRestart: async () => { assert.fail('Failure must respawn in the range, not surveillance'); }, onKeycardCollected() {} });
+    t.cleanup(() => data.dispose()); await data.ready;
+    for (const letter of 'BRONDON'.slice(0, correctHits))
+      data.getDamageTargets().find(item => item.root.userData.rangeLetter === letter).damage(25, 'pistol');
+    const expected = 'BRONDON'[correctHits];
+    const wrong = data.getDamageTargets().find(item => item.root.userData.rangeLetter !== expected);
+    assert.equal(wrong.damage(25, 'crowbar'), false);
+    assert.equal(wrong.damage(0, 'pistol'), false);
+    data.player.setPosition(1, 0.3, 1); data.player.body.velocity.set(4, 0, 3);
+    assert.equal(wrong.damage(25, 'pistol'), true);
+    assert.equal(data.isCinematic(), true); assert.equal(data.player.isEnabled(), false);
+    assert.equal(data.getDamageTargets().length, 0);
+    const blast = data.scene.getObjectByName('RangeFireExplosion');
+    assert.equal(blast.visible, true); assert.ok(blast.material.isShaderMaterial);
+    assert.match(blast.material.fragmentShader, /radiance/);
+    step(data, 1.2); assert.ok(blast.scale.x > 10, 'the fire must engulf the 10m room');
+    step(data, 1.3);
+    assert.deepEqual(data.getRangeState(), { sequence: '', exploding: false });
+    assert.equal(blast.visible, false); assert.equal(data.player.isEnabled(), true);
+    assert.equal(data.getDamageTargets().length, 7); assert.equal(loot.cleared.size, 0);
+    assert.equal(data.player.body.position.x, 0); assert.equal(data.player.body.position.z, -3);
+    assert.ok(Math.abs(data.player.body.velocity.x) < 1e-9 && Math.abs(data.player.body.velocity.z) < 1e-9);
+    assert.equal(data.chest.isCollected(), false);
+  });
+}
+
+test('range accepts interchangeable repeated letters and persists only a complete solution', async t => {
+  browser(t);
+  const loot = { cleared: new Set(), rewardCollected: false };
+  const options = { remoteVisit: true, loot, modelLoader, hasReturnMarker: () => true,
+    onRestart: async () => true, onKeycardCollected() {} };
+  const data = rooms[6](options); t.cleanup(() => data.dispose()); await data.ready;
+  for (const letter of 'BRONDON') {
+    const matches = data.getDamageTargets().filter(item => item.root.userData.rangeLetter === letter);
+    assert.equal(matches.at(-1).damage(25, 'pistol'), true);
+    if (data.getRangeState().sequence.length < 7) assert.equal(loot.cleared.size, 0);
+  }
+  assert.equal(data.getRangeState().sequence, 'BRONDON'); assert.equal(loot.cleared.size, 7);
+  assert.equal(data.getDamageTargets().length, 0); assert.equal(data.isCinematic(), false);
+  const revisit = rooms[6](options); t.cleanup(() => revisit.dispose()); await revisit.ready;
+  assert.equal(revisit.getRangeState().sequence, 'BRONDON'); assert.equal(revisit.getDamageTargets().length, 0);
+  const preview = rooms[6]({ ...options, preview: true }); t.cleanup(() => preview.dispose()); await preview.ready;
+  preview.setGogglesActive(true);
+  assert.ok(preview.scene.children.filter(item => item.name.startsWith('RangeLetter-')).every(item => !item.visible));
+});
+
+test('rust chamber releases animate, reset correctly, and award one persistent keycard', async t => {
+  const elements = browser(t), progress = layout.createStageTwoProgress();
+  const loot = progress.remoteRooms['stage2-rust'];
+  const data = createRust({ modelLoader, loot, hasReturnMarker: () => true, onRestart: async () => true,
+    onKeycardCollected: () => layout.collectStageTwoKeycard(progress, 'stage2-rust') });
+  t.cleanup(() => data.dispose()); await data.ready; step(data, 0.2);
+  const targets = data.getDamageTargets();
+  assert.equal(targets.length, 9);
+  const bars = targets.find(item => item.id === 'rust:winch-bars');
+  const chain = targets.find(item => item.id === 'rust:winch-chain');
+  assert.equal(bars.root.children.filter(item => item.visible).length, 7, 'custom bars must render');
+  assert.equal(chain.root.children.filter(item => item.visible).length, 15, 'custom chain must render');
+  assert.equal(bars.damage(1, 'pistol'), false);
+  assert.equal(bars.damage(1, 'lightsaber'), true);
+  assert.equal(data.isCinematic(), false); assert.equal(data.getDamageTargets().length, 8);
+  assert.equal(data.applyCinematicCamera(), false);
+  assert.equal(data.isCinematic(), false); assert.equal(loot.cleared.has(bars.id), true);
+  const rebuild = data.scene.getObjectByName('RustChamberRebuildControl');
+  assert.equal(rebuild.position.z, 6.55, 'rebuild control is on the wall opposite the door');
+  data.player.setPosition(23, 0.3, 7.5); tap('KeyE'); step(data, 0.2);
+  assert.equal(data.getDamageTargets().length, 9); assert.equal(loot.cleared.size, 0);
+  assert.equal(chain.hitsRemaining, 3);
+  const shutter = data.scene.getObjectByName('RustChamberCounterweightedShutter');
+  const gear = data.scene.getObjectByName('RustChamberDriveGear');
+  const initialGearRotation = gear.rotation.z;
+  assert.equal(data.scene.getObjectByName('RustChamberDoorStatus').userData.text, 'LOCKED');
+  for (const item of targets) {
+    for (let hit = 0, hits = item.hitsRemaining; hit < hits; hit++) {
+      assert.equal(item.damage(1, item.weapon), true);
+      if (hit < hits - 1) assert.equal(item.broken, false);
+    }
+    if (item.id === 'rust:bolt-1') {
+      step(data, 1.1); assert.equal(shutter.position.y, 2.5, 'door waits for the mechanism camera');
+      data.applyCinematicCamera(); const before = data.camera.position.clone();
+      step(data, 1 / 60); data.applyCinematicCamera();
+      assert.ok(data.camera.position.distanceTo(before) < 0.3, 'mechanism transition must not jump');
+      step(data, 2.9);
+    } else step(data, 4);
+    if (item.id === 'rust:bolt-1') assert.ok(Math.abs(shutter.position.y - (2.5 + 5.35 / 7)) < 0.01);
+  }
+  assert.equal(loot.cleared.size, 9); assert.ok(shutter.position.y > 7.8);
+  const fence = data.scene.getObjectByName('RustChamberSafetyGrille');
+  assert.ok(Math.abs(fence.rotation.x + Math.PI / 2) < 0.001);
+  assert.equal(fence.position.x, 17, 'the fence falls flat, never slides sideways');
+  assert.notEqual(gear.rotation.z, initialGearRotation);
+  assert.equal(data.scene.getObjectByName('RustChamberDoorStatus').userData.text, 'UNLOCKED');
+  assert.ok(data.scene.getObjectByName('RustChamberCounterweightChain'));
+  assert.ok(data.scene.getObjectByName('RustChamberWinchDrive'));
+  const obstruction = new CANNON.RaycastResult();
+  data.physicsWorld.raycastClosest(new CANNON.Vec3(17, 1, 26), new CANNON.Vec3(17, 1, 29), {}, obstruction);
+  assert.equal(obstruction.hasHit, false, 'grille, shutter and reward door must clear the passage');
+  data.player.setPosition(17, 0.3, 31); tap('KeyE'); step(data, 1);
+  assert.equal(loot.rewardCollected, true); assert.deepEqual(progress.keycards, ['stage2-rust']);
+  data.player.setPosition(23, 0.3, 7.5); tap('KeyE'); step(data, 0.2);
+  assert.equal(loot.rewardCollected, true); assert.equal(data.getDamageTargets().length, 9);
+  assert.equal(shutter.position.y, 2.5);
+  data.player.setPosition(17, 0.3, 31); tap('KeyE'); step(data, 1);
+  assert.deepEqual(progress.keycards, ['stage2-rust'], 'reset cannot duplicate the reward');
+  data.player.setPosition(17, 0.3, 2.2); data.player.setRotation(0, 0); step(data, 0.2);
+  data.updateInteractionFocus(); assert.match(elements.get('interact-prompt').textContent, /Read inscription/);
+  tap('KeyE'); step(data, 1); assert.equal(data.isCinematic(), true);
+  assert.equal(data.applyCinematicCamera(), true);
+  tap('KeyE'); step(data, 1); assert.equal(data.isCinematic(), false);
+  assert.equal(data.controlsReady(), true);
+});
+
+test('rust mechanisms respond to actual melee sweeps and pistol traces', async t => {
+  browser(t);
+  const { MeleeSwing, getAttackSegment } = await server.ssrLoadModule('/scripts/melee.ts');
+  const { traceShot } = await server.ssrLoadModule('/scripts/pistol.ts');
+  const data = createRust({ modelLoader, hasReturnMarker: () => true, onRestart: async () => true,
+    onKeycardCollected() {} });
+  t.cleanup(() => data.dispose()); await data.ready;
+  const targets = data.getDamageTargets();
+  for (const id of ['rust:bolt-1', 'rust:bolt-2', 'rust:bolt-3', 'rust:winch-bars', 'rust:winch-chain']) {
+    const target = targets.find(item => item.id === id);
+    const bolt = id.startsWith('rust:bolt-');
+    data.player.setPosition(bolt ? 17 : id.endsWith('bars') ? 29.9 : 31.5, bolt ? 8.9 : 0.3, bolt ? 25.9 : 20.1);
+    const origin = new THREE.Vector3(data.player.body.position.x, data.player.body.position.y + 0.8, data.player.body.position.z);
+    const direction = target.root.position.clone().sub(origin);
+    data.player.setRotation(Math.atan2(-direction.x, -direction.z),
+      Math.atan2(direction.y, Math.hypot(direction.x, direction.z)));
+    for (let hit = 0, hits = target.hitsRemaining; hit < hits; hit++) {
+      const swing = new MeleeSwing('crowbar');
+      for (let sample = 0; sample <= 20; sample++)
+        swing.update({ scene: data.scene, world: data.physicsWorld, player: data.player,
+          character: null, targets: data.getDamageTargets() }, getAttackSegment(data.player, sample / 20));
+      assert.equal(target.hitsRemaining, hits - hit - 1, `${id} must accept one hit per real swing`);
+    }
+    assert.equal(target.broken, true); step(data, 4);
+  }
+  const clamp = targets.find(item => item.id === 'rust:blue-clamp');
+  const origin = new THREE.Vector3(27, 5.8, 19);
+  const shot = traceShot(data.scene, data.physicsWorld,
+    new THREE.Ray(origin, clamp.root.position.clone().sub(origin).normalize()), data.getDamageTargets());
+  assert.equal(shot.target, clamp, 'the visible blue clasp must be reachable by gunfire');
+  assert.equal(shot.target.damage(25, 'pistol'), true); step(data, 4);
+  assert.ok(data.scene.getObjectByName('RustChamberCounterweightedShutter').position.y > 6,
+    'the remaining hanging and far-blue locks must still hold the last stages');
+});
+
+test('rust mirrors reflect one real pistol ray through both blue locks and drop the fence', async t => {
+  browser(t);
+  const { traceShot } = await server.ssrLoadModule('/scripts/pistol.ts');
+  const data = createRust({ modelLoader, hasReturnMarker: () => true, onRestart: async () => true, onKeycardCollected() {} });
+  t.cleanup(() => data.dispose()); await data.ready;
+  const origin = new THREE.Vector3(17.5, 1.4, 8);
+  const mirror = data.scene.getObjectByName('RustChamberMirror-1');
+  const shot = traceShot(data.scene, data.physicsWorld,
+    new THREE.Ray(origin, mirror.position.clone().sub(origin).normalize()), data.getDamageTargets());
+  assert.equal(shot.object, mirror, 'the real first mirror must be shootable from the deck');
+  data.onPistolShot(shot.point, origin);
+  const beams = [];
+  data.scene.traverse(node => { if (node.name === 'RustReflectedShot' && node.visible) beams.push(node); });
+  assert.equal(beams.length, 1, 'the beam begins at the first mirror');
+  const fence = data.scene.getObjectByName('RustChamberSafetyGrille');
+  const first = data.scene.getObjectByName('rust:blue-clamp'), far = data.scene.getObjectByName('rust:far-blue-clamp');
+  assert.ok(first && far, 'both boxes are still visible when the shot presentation begins');
+  step(data, 0.8); data.applyCinematicCamera();
+  assert.equal(first.parent, null); assert.equal(far.parent, data.scene);
+  assert.equal(fence.rotation.x, 0, 'fence stays up after the first impact');
+  const firstView = data.camera.position.clone();
+  step(data, 1); data.applyCinematicCamera();
+  assert.equal(far.parent, null, 'the second box breaks in its own shot');
+  assert.equal(fence.rotation.x, 0, 'both impacts precede the fence falling');
+  assert.ok(data.camera.position.distanceTo(firstView) > 15, 'camera visits both sides of the hall');
+  step(data, 0.4); assert.equal(fence.rotation.x, 0);
+  step(data, 0.6); data.applyCinematicCamera();
+  assert.ok(fence.rotation.x < -0.1, 'fence falls only after the two impacts');
+  step(data, 3.3);
+  const remaining = data.getDamageTargets();
+  assert.ok(!remaining.some(item => item.id === 'rust:blue-clamp'));
+  assert.ok(!remaining.some(item => item.id === 'rust:far-blue-clamp'));
+  assert.ok(Math.abs(fence.rotation.x + Math.PI / 2) < 0.001); assert.equal(fence.position.x, 17);
+  assert.ok(data.scene.getObjectByName('RustChamberCounterweightedShutter').position.y < 4.1,
+    'the mirror shot must not bypass the orange releases');
+  data.player.setPosition(23, 0.3, 7.5); tap('KeyE'); step(data, 0.2);
+  assert.equal(data.getDamageTargets().length, 9); assert.ok(Math.abs(fence.rotation.x) < 0.001);
+  assert.ok(beams.every(beam => !beam.visible), 'reset clears transient reflected beams');
+  assert.equal(data.scene.getObjectByName('keycardChest').rotation.y, 0, 'chest latch faces the room entrance');
+});
+
+test('rust corrosive water melts a falling player and returns them without erasing puzzle progress', async t => {
+  browser(t); const loot = { cleared: new Set(['rust:bolt-1']), rewardCollected: false };
+  const data = createRust({ modelLoader, loot, hasReturnMarker: () => true, onRestart: async () => true, onKeycardCollected() {} });
+  t.cleanup(() => data.dispose()); await data.ready;
+  data.player.setPosition(11, 3, 18);
+  step(data, 1.2);
+  assert.equal(data.isCinematic(), true); assert.ok(data.getHologramTransition().melt > 0);
+  assert.equal(data.getDamageTargets().length, 0); assert.equal(data.applyCinematicCamera(), true);
+  const firstMelt = data.getHologramTransition().melt;
+  step(data, 0.6); assert.ok(data.getHologramTransition().melt > firstMelt);
+  step(data, 3);
+  assert.equal(data.isCinematic(), false); assert.equal(data.getHologramTransition(), null);
+  assert.ok(Math.abs(data.player.body.position.x - 17) < 0.01);
+  assert.ok(Math.abs(data.player.body.position.z - 2.2) < 0.01);
+  assert.equal(loot.cleared.has('rust:bolt-1'), true); assert.equal(data.controlsReady(), true);
+});
+
+test('rust tightrope is a walkable narrow collider and its orange lock is within melee reach', async t => {
+  browser(t);
+  const { MeleeSwing, getAttackSegment } = await server.ssrLoadModule('/scripts/melee.ts');
+  const data = createRust({ modelLoader, hasReturnMarker: () => true, onRestart: async () => true, onKeycardCollected() {} });
+  t.cleanup(() => data.dispose()); await data.ready;
+  const start = new THREE.Vector3(5.1, 8.63, 16.6), end = new THREE.Vector3(17.4, 8.63, 24.8);
+  const direction = end.clone().sub(start).normalize();
+  data.player.setPosition(start.x, 8.96, start.z);
+  data.player.setRotation(Math.atan2(-direction.x, -direction.z), 0); step(data, 0.2);
+  key('KeyW'); step(data, 1.6); key('KeyW', 'keyup'); step(data, 0.1);
+  assert.ok(data.player.body.position.y > 8.8, 'the player must stand on the rope, not fall through it');
+  const lock = data.getDamageTargets().find(item => item.id === 'rust:hanging-lock');
+  const swing = new MeleeSwing('crowbar');
+  for (let i = 0; i <= 20; i++) swing.update({ scene: data.scene, world: data.physicsWorld, player: data.player,
+    character: null, targets: data.getDamageTargets() }, getAttackSegment(data.player, i / 20));
+  assert.equal(lock.broken, true, 'the hanging lock is reachable while standing halfway across the rope');
+});
+
+for (const reduced of [false, true]) {
+  test(`rust tightrope has braided fibres and bounded camera-only wobble (reduced motion: ${reduced})`, async t => {
+    browser(t); window.matchMedia = () => ({ matches: reduced });
+    const data = createRust({ modelLoader, hasReturnMarker: () => true, onRestart: async () => true, onKeycardCollected() {} });
+    t.cleanup(() => data.dispose()); await data.ready;
+    const rope = data.scene.getObjectByName('RustChamberTightrope');
+    assert.equal(rope.geometry.type, 'TubeGeometry');
+    assert.equal(data.scene.children.filter(item => item.name.startsWith('RustTightropeStrand-')).length, 3);
+    assert.equal(data.scene.children.filter(item => item.name === 'RustTightropeAnchorKnot').length, 8);
+    data.player.setPosition(11.25, 8.96, 20.7); step(data, 0.3);
+    const balance = data.getTightropeState();
+    assert.ok(balance.balance > 0.7); assert.ok(Math.abs(balance.progress - 0.5) < 0.01);
+    assert.ok(Math.abs(balance.roll) <= 0.05 && Math.abs(balance.sway) <= 0.08);
+    const position = data.player.body.position.clone();
+    data.camera.position.set(0, 0, 0); data.camera.quaternion.identity();
+    data.applyCameraEffects();
+    assert.equal(data.player.body.position.distanceTo(position), 0, 'wobble must never push the player off the rope');
+    if (reduced) {
+      assert.equal(data.camera.position.length(), 0); assert.equal(data.camera.rotation.z, 0);
+    } else {
+      assert.ok(Math.abs(data.camera.rotation.z) > 0.001);
+      assert.ok(data.camera.position.length() > 0.001);
+    }
+    data.player.setPosition(17, 0.3, 2.2); step(data, 1);
+    assert.ok(data.getTightropeState().balance < 0.001, 'the effect must ease away off the rope');
+  });
+}
+
+test('rust railings physically block walking off the gantry outside the rope opening', async t => {
+  browser(t);
+  const data = createRust({ modelLoader, hasReturnMarker: () => true, onRestart: async () => true, onKeycardCollected() {} });
+  t.cleanup(() => data.dispose()); await data.ready;
+  data.player.setPosition(10, 8.9, 25.5); data.player.setRotation(0, 0); step(data, 0.2);
+  key('KeyW'); step(data, 1); key('KeyW', 'keyup');
+  assert.ok(data.player.body.position.z > 24.6, 'the guardrail must stop the player at the edge');
+  assert.ok(data.player.body.position.y > 8.7);
+});
+
+test('rust chamber stairs reach the bolt gantry using normal walking physics', async t => {
+  browser(t);
+  const data = createRust({ modelLoader, hasReturnMarker: () => true, onRestart: async () => true,
+    onKeycardCollected() {} });
+  t.cleanup(() => data.dispose()); await data.ready;
+  data.player.setPosition(3.6, 0.3, 9); data.player.setRotation(Math.PI, 0); step(data, 0.2);
+  key('KeyW'); step(data, 5.5); key('KeyW', 'keyup'); step(data, 0.2);
+  assert.ok(data.player.body.position.y > 8.7, `gantry must be reachable: ${data.player.body.position.y}`);
+  assert.ok(data.player.body.position.z > 24, 'stairs must connect to the gantry');
+  assert.ok(data.player.body.position.y < 9, 'player must stand on the platform, not float');
+});
+
+test('camera-room seating finds the cushion on the real chair asset', async t => {
+  const elements = browser(t);
+  const base = new URL('../src/assets/models/Tools/', import.meta.url);
+  const json = JSON.parse(await readFile(new URL('Prop_Chair.gltf', base), 'utf8'));
+  for (const buffer of json.buffers)
+    buffer.uri = `data:application/octet-stream;base64,${(await readFile(new URL(buffer.uri, base))).toString('base64')}`;
+  delete json.materials; delete json.textures; delete json.images;
+  for (const mesh of json.meshes) for (const primitive of mesh.primitives) delete primitive.material;
+  const chair = (await new GLTFLoader().parseAsync(JSON.stringify(json), '')).scene;
+  const { fitCabinProp } = await server.ssrLoadModule('/scenes/living quarters/furnishings.ts');
+  const { createChairSeating } = await server.ssrLoadModule('/scripts/chairSeating.ts');
+  fitCabinProp(chair, 1.05, 0.68, 0.8, Math.PI);
+  const scene = new THREE.Scene(), physics = createPhysics(), camera = new THREE.PerspectiveCamera(68, 16 / 9, 0.05, 100);
+  scene.add(chair); physics.addBox({ x: 10, y: 0.2, z: 10 }, { x: 0, y: -0.1, z: 0 });
+  const player = createPlayer({ camera, physicsWorld: physics.world, spawnPosition: { x: 0, y: 0.3, z: -1.2 } });
+  player.enable(); step({ updatePhysics: dt => physics.step(dt, player) }, 0.2);
+  camera.position.set(0, 1.3, -1.2); camera.lookAt(0, 0.5, 0);
+  const seating = createChairSeating({ scene, camera, player, prompt: elements.get('interact-prompt'),
+    chairs: () => [{ root: chair, yaw: Math.PI }], canInteract: () => true });
+  t.cleanup(() => { seating.dispose(); player.dispose(); physics.dispose(); });
+  tap('KeyE'); assert.equal(seating.active, true);
+  for (let i = 0; i < 72; i++) seating.update(1 / 60);
+  const pose = seating.getPose();
+  assert.equal(pose.clip, 'Sitting_Idle_Loop'); assert.equal(pose.seatContact.weight, 1);
+  assert.ok(pose.seatContact.position.y > 0.3 && pose.seatContact.position.y < 0.7);
+  assert.equal(pose.footTargets.left.y, 0.055); assert.equal(seating.applyCamera(), true);
+  tap('KeyE'); for (let i = 0; i < 72; i++) seating.update(1 / 60);
+  assert.equal(seating.active, false); assert.equal(player.body.type, CANNON.Body.DYNAMIC);
+  const startZ = player.body.position.z;
+  key('KeyW'); step({ updatePhysics: dt => physics.step(dt, player) }, 0.3); key('KeyW', 'keyup');
+  assert.ok(Math.abs(player.body.position.z - startZ) > 0.5, 'standing must restore movement');
+});
+
+test('rust surveillance preview follows puzzle resets and completion without input', async t => {
+  browser(t); const loot = { cleared: new Set(), rewardCollected: false };
+  const data = createRust({ modelLoader, preview: true, loot });
+  t.cleanup(() => data.dispose()); await data.ready;
+  const bars = data.scene.getObjectByName('rust:winch-bars');
+  assert.ok(bars);
+  loot.cleared.add('rust:winch-bars'); data.syncProgress();
+  assert.equal(bars.parent, null);
+  loot.cleared.clear(); data.syncProgress();
+  assert.equal(bars.parent, data.scene); assert.equal(data.isCinematic(), false);
+  assert.equal(data.player.isEnabled(), false);
+});
+
+test('camera wall has six active feeds and six off screens; vents and prison are cleared view-only feeds', async t => {
   browser(t); const rendered = [];
   const renderer = { shadowMap: { autoUpdate: true }, getRenderTarget: () => null, setRenderTarget() {}, render: (_scene, camera) => rendered.push(camera) };
   const feedCamera = new THREE.PerspectiveCamera();
@@ -304,9 +674,9 @@ test('camera wall has five active feeds and seven off screens; vents and prison 
       load: async () => ({ scene: new THREE.Scene(), camera: feedCamera, dispose() {} }) }));
   const cctv = createCctv(renderer, definitions); t.cleanup(() => cctv.dispose()); await cctv.prepareFeeds();
   const scene = new THREE.Scene(); cctv.update(0.2, scene, true);
-  assert.equal(cctv.panel.children.filter(item => /^cctv-screen-/.test(item.name)).length, 5);
-  assert.equal(cctv.panel.children.filter(item => /^cctv-standby-/.test(item.name)).length, 7);
-  assert.equal(rendered.length, 5); assert.ok(rendered.every(camera => camera === feedCamera));
+  assert.equal(cctv.panel.children.filter(item => /^cctv-screen-/.test(item.name)).length, 6);
+  assert.equal(cctv.panel.children.filter(item => /^cctv-standby-/.test(item.name)).length, 6);
+  assert.equal(rendered.length, 6); assert.ok(rendered.every(camera => camera === feedCamera));
   const ventScreen = cctv.panel.getObjectByName('cctv-screen-stage2-vents'); scene.updateMatrixWorld(true);
   const targetPoint = ventScreen.getWorldPosition(new THREE.Vector3()), camera = new THREE.PerspectiveCamera();
   camera.position.set(targetPoint.x, targetPoint.y, targetPoint.z - 3); camera.lookAt(targetPoint); camera.updateMatrixWorld(true);
@@ -363,6 +733,26 @@ test('locked airlock gives its two short messages and the cleared hub can be ent
   linked.player.setPosition(84.5, 12.3, 20); tap('KeyE'); await Promise.resolve(); await Promise.resolve();
   assert.equal(entered, 1); assert.equal(linked.getStageState().phase, 'complete');
 });
+
+for (const entry of ['checkpoint', 'teleport', 'airlock']) {
+  test(`walking through the surveillance airlock returns to stealth after ${entry} entry`, async t => {
+    browser(t);
+    const progress = layout.createStageTwoProgress();
+    progress.checkpoint = 'surveillance'; progress.guardDown = true; progress.airlockUnlocked = true;
+    let returns = 0;
+    const data = await stage(t, progress, { fromAirlock: entry === 'airlock',
+      onAirlockReturn: async () => { returns++; return true; } });
+    if (entry === 'teleport') {
+      const { teleportPlayer } = await server.ssrLoadModule('/scripts/teleportationDevice.ts');
+      teleportPlayer(data.player, { x: 20.1, y: 0.3, z: -46 }, Math.PI / 2);
+    } else data.player.setPosition(20.1, 0.3, -46);
+    step(data, 0.8);
+    data.player.setPosition(18.9, 0.3, -46); step(data, 0.1);
+    await Promise.resolve();
+    assert.equal(returns, 1); assert.equal(data.getStageState().phase, 'handoff');
+    tap('KeyE'); step(data, 0.1); assert.equal(returns, 1, 'crossing and E must not duplicate the transfer');
+  });
+}
 
 test('silent takedown takes priority over a ladder and freezes every other bot for its short animation', async t => {
   browser(t); const data = createStorage({ modelLoader, restoreCheckpoint: true }); t.cleanup(() => data.dispose()); await data.ready;

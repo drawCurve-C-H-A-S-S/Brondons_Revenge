@@ -1,19 +1,30 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import type { DamageTarget, DamageWeapon } from './pistol.js';
+import { BreakableMaterial } from './breakableMaterial.js';
 
 export interface Breakable extends DamageTarget {
   id: string;
   weapon: DamageWeapon;
   body: CANNON.Body;
   broken: boolean;
+  material: BreakableMaterial;
+  hitsRemaining: number;
+}
+
+interface BreakableOptions {
+  hits?: number;
+  showBox?: boolean;
+  decorate?: (root: THREE.Group, material: BreakableMaterial) => void;
 }
 
 export function createBreakableDebris(scene: THREE.Scene, color = 0x998575) {
   const debris: Array<{ mesh: THREE.Mesh; velocity: THREE.Vector3; life: number }> = [];
   const geometry = new THREE.BoxGeometry(1, 1, 1);
   const material = new THREE.MeshStandardMaterial({ color, roughness: 0.9 });
+  function clear() { for (const piece of debris) piece.mesh.removeFromParent(); debris.length = 0; }
   return {
+    clear,
     emit(position: THREE.Vector3, size: THREE.Vector3) {
       for (let i = 0; i < 10; i++) {
         const shard = new THREE.Mesh(geometry, material);
@@ -38,8 +49,7 @@ export function createBreakableDebris(scene: THREE.Scene, color = 0x998575) {
       }
     },
     dispose() {
-      for (const piece of debris) piece.mesh.removeFromParent();
-      debris.length = 0; geometry.dispose(); material.dispose();
+      clear(); geometry.dispose(); material.dispose();
     },
   };
 }
@@ -48,28 +58,27 @@ export function createBreakableDebris(scene: THREE.Scene, color = 0x998575) {
 export function createBreakables(scene: THREE.Scene, world: CANNON.World) {
   const objects: Breakable[] = [];
   const debris = createBreakableDebris(scene);
-  const originals = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
-  const red = new THREE.MeshStandardMaterial({ color: 0xff2424, emissive: 0xff0808, emissiveIntensity: 0.65 });
-  const yellow = new THREE.MeshStandardMaterial({ color: 0xffd629, emissive: 0xffb800, emissiveIntensity: 0.6 });
   let disposed = false;
   let scanning = false;
 
   function add(id: string, weapon: DamageWeapon, position: THREE.Vector3, size: THREE.Vector3,
-    onBreak?: (id: string) => void): Breakable {
+    onBreak?: (id: string) => void, options: BreakableOptions = {}): Breakable {
+    const hits = options.hits ?? 1;
+    if (!Number.isInteger(hits) || hits < 1) throw new Error('Breakables require a positive integer hit count');
     const root = new THREE.Group();
     root.name = id;
     root.position.copy(position);
     root.userData.breakableWeapon = weapon;
-    const material = new THREE.MeshStandardMaterial({ color: weapon === 'pistol' ? 0x71828b : 0x8a6742, roughness: 0.72 });
+    const material = new BreakableMaterial(weapon);
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), material);
-    mesh.castShadow = true; mesh.receiveShadow = true; root.add(mesh);
+    mesh.castShadow = true; mesh.receiveShadow = true; mesh.visible = options.showBox !== false; root.add(mesh);
     const trim = new THREE.MeshStandardMaterial({ color: weapon === 'pistol' ? 0xe1e8e9 : 0x342f29, metalness: 0.35, roughness: 0.65 });
-    if (weapon === 'crowbar') {
+    if (options.showBox !== false && weapon !== 'pistol') {
       for (const x of [-0.32, 0.32]) {
         const band = new THREE.Mesh(new THREE.BoxGeometry(size.x * 0.08, size.y * 1.015, size.z * 1.015), trim);
         band.position.x = size.x * x; root.add(band);
       }
-    } else {
+    } else if (options.showBox !== false) {
       // Thin targets face inward; a contrasting cross is visible without the goggles.
       const sideWall = size.x < size.z;
       for (const vertical of [true, false]) {
@@ -80,26 +89,31 @@ export function createBreakables(scene: THREE.Scene, world: CANNON.World) {
         root.add(cross);
       }
     }
+    options.decorate?.(root, material);
+    if (options.showBox === false) trim.dispose();
     scene.add(root);
     const body = new CANNON.Body({ mass: 0 });
     body.addShape(new CANNON.Box(new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)));
     body.position.set(position.x, position.y, position.z);
     world.addBody(body);
     const item: Breakable = {
-      id, root, body, weapon, broken: false,
+      id, root, body, weapon, material, broken: false, hitsRemaining: hits,
       damage(amount, usedWeapon) {
         const matchesWeapon = usedWeapon === weapon || (weapon === 'crowbar' && usedWeapon === 'lightsaber');
         if (disposed || item.broken || !matchesWeapon || !Number.isFinite(amount) || amount <= 0) return false;
+        item.hitsRemaining--;
+        material.hit(hits - item.hitsRemaining);
+        if (item.hitsRemaining > 0) return true;
         item.broken = true;
         root.removeFromParent();
         world.removeBody(body);
-        debris.emit(position, size);
+        debris.emit(root.getWorldPosition(new THREE.Vector3()), size);
         onBreak?.(id);
         return true;
       },
     };
-    root.traverse(node => { if (node instanceof THREE.Mesh) originals.set(node, node.material); });
     objects.push(item);
+    root.userData.breakableHits = hits;
     if (scanning) setHighlighted(true);
     return item;
   }
@@ -107,19 +121,29 @@ export function createBreakables(scene: THREE.Scene, world: CANNON.World) {
   function setHighlighted(active: boolean) {
     if (disposed) return;
     scanning = active;
-    for (const item of objects) item.root.traverse(node => {
-      if (node instanceof THREE.Mesh) node.material = active ? (item.weapon === 'pistol' ? red : yellow) : originals.get(node)!;
-    });
+    for (const item of objects) item.material.setHighlighted(active);
   }
 
   function update(dt: number) {
     debris.update(dt);
+    for (const item of objects) item.material.update(Number.isFinite(dt) ? THREE.MathUtils.clamp(dt, 0, 0.1) : 0);
   }
 
   function restoreBroken(ids: ReadonlySet<string>) {
     for (const item of objects) if (ids.has(item.id) && !item.broken) {
       item.broken = true; item.root.removeFromParent();
+      item.hitsRemaining = 0;
       if (item.body.world === world) world.removeBody(item.body);
+    }
+  }
+
+  function reset() {
+    if (disposed) return;
+    debris.clear();
+    for (const item of objects) {
+      item.broken = false; item.hitsRemaining = item.root.userData.breakableHits;
+      item.material.reset(); scene.add(item.root);
+      if (item.body.world !== world) world.addBody(item.body);
     }
   }
 
@@ -134,15 +158,13 @@ export function createBreakables(scene: THREE.Scene, world: CANNON.World) {
       item.root.traverse(node => {
         if (!(node instanceof THREE.Mesh)) return;
         geometries.add(node.geometry);
-        const original = originals.get(node)!;
-        (Array.isArray(original) ? original : [original]).forEach(mat => materials.add(mat));
+        (Array.isArray(node.material) ? node.material : [node.material]).forEach(mat => materials.add(mat));
       });
     }
     debris.dispose();
     geometries.forEach(geometry => geometry.dispose()); materials.forEach(material => material.dispose());
-    originals.clear(); red.dispose(); yellow.dispose();
   }
 
   return { add, objects, getDamageTargets: () => objects.filter(item => !item.broken),
-    remaining: () => objects.filter(item => !item.broken).length, restoreBroken, setHighlighted, update, dispose };
+    remaining: () => objects.filter(item => !item.broken).length, restoreBroken, reset, setHighlighted, update, dispose };
 }

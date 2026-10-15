@@ -166,7 +166,7 @@ test('scene 16 enters the merged approach, then the facility interior and finale
 test('the finale reuses the facility roof and assigns guarding to R', async () => {
   const boss = await readFile(new URL('../src/scenes/level 3/scene21.ts', import.meta.url), 'utf8');
 
-  assert.match(boss, /createRescueSite\(physics, \{ culling: true \}\)/);
+  assert.match(boss, /createRescueSite\(physics, \{ culling: true,[\s\S]*facilityFootprint: \{ width: FINALE_ROOFTOP\.width, depth: FINALE_ROOFTOP\.depth - 1 \}/);
   assert.match(boss, /site\.disintegrateTrees/);
   assert.match(boss, /guard: keys\.has\('KeyR'\)/);
   assert.doesNotMatch(boss, /getCockpitPoint/);

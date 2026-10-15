@@ -67,6 +67,8 @@ export function createHangarVersus({ singleOpponent = false, playerName, opponen
         if (!material) {
           const surface = original as THREE.MeshStandardMaterial;
           material = new THREE.MeshToonMaterial({ color: surface.color?.clone() ?? new THREE.Color(0xffffff),
+            emissive: surface.emissive?.clone() ?? new THREE.Color(0x000000),
+            emissiveMap: surface.emissiveMap ?? null, emissiveIntensity: surface.emissiveIntensity ?? 1,
             map: surface.map ?? null, gradientMap: ramp, side: original.side, transparent: original.transparent,
             opacity: original.opacity, alphaTest: original.alphaTest, visible: original.visible });
           materials.set(original, material);

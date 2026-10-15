@@ -126,7 +126,7 @@ export function createRewardChest({ scene, world, player, position, yaw = 0, rew
       (event.target instanceof HTMLElement && event.target.closest('button, dialog, input, textarea, select, [contenteditable="true"]'))) return;
     if (reward === 'health' && player.getHealth() >= 100) return;
     if (reward === 'shield' && player.getShield() >= player.getMaxShield()) return;
-    event.preventDefault(); event.stopImmediatePropagation(); player.requestAction('Interact');
+    event.preventDefault(); event.stopImmediatePropagation();
     opening = 0.001; loot.visible = true; hidePrompt();
     if (openAction && mixer) { mixer.stopAllAction(); openAction.reset().play(); }
   }

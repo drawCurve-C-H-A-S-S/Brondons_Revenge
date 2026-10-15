@@ -118,7 +118,8 @@ const LINES: Partial<Record<FinalePhase, { start: number; end: number; speaker: 
 export function createScene({ entryState, checkpoint, renderer, onFinished, onRetry,
   mechFactories, loadStudents = loadSubjectModel }: FinaleOptions) {
   const physics = createScenePhysics();
-  const site = createRescueSite(physics, { culling: true });
+  const site = createRescueSite(physics, { culling: true,
+    facilityFootprint: { width: FINALE_ROOFTOP.width, depth: FINALE_ROOFTOP.depth - 1 } });
   const scene = site.scene;
   const ceilingLift = FINALE_ROOFTOP.y - (site.facilityRoof.position.y + 0.4);
   site.facilityRoof.position.y += ceilingLift;
@@ -1127,6 +1128,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
       ship: site.ship.root,
       mothership: mothership.root,
       bomb: world.getBombPosition(),
+      facilityInterior: world.facilityInterior,
       heroChest: heroMech.getChest(), enemyChest: enemyMech.getChest(),
       heroMuzzle: heroMech.getMuzzle(), enemyMuzzle: enemyMech.getMuzzle(), clash: clashContact,
       heroBladeBase: heroBlade.base, heroBladeTip: heroBlade.tip, enemyBladeTip: enemyBlade.tip,
@@ -1167,6 +1169,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     const original = director.getState(), previousSpace = reachedSpace, previousPaused = paused;
     const samples: Array<[FinalePhase, number]> = [
       ['reveal', 3], ['enemyTransform', 4], ['heroTransform', 7], ['ground', 1],
+      ['rupture', PLANET_RUPTURE.coreTransfer], ['rupture', PLANET_RUPTURE.materialize + 0.4],
       ['rupture', PLANET_RUPTURE.slam], ['rupture', PLANET_RUPTURE.wide + 0.1],
       ['rupture', PLANET_RUPTURE.burst + 0.2], ['rupture', PLANET_RUPTURE.forest + 1],
       ['rupture', PLANET_RUPTURE.scorch + 0.5],
@@ -1183,6 +1186,9 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
         const ruptureTime = phase === 'rupture' ? time : -1;
         aftermath.update(ruptureTime, time, heroMech.root);
         updateEnvironment(phase, time, time);
+        if (phase === 'rupture' && time >= PLANET_RUPTURE.facilityCut && time < PLANET_RUPTURE.materialize) {
+          camera.position.copy(world.facilityInterior.cameraPosition); camera.lookAt(world.facilityInterior.target);
+        }
         await prepareSceneRendering(activeRenderer, scene, camera);
       }
     } finally {
