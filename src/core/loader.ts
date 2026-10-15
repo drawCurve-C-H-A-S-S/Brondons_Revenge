@@ -206,10 +206,13 @@ export async function loadPlayerModel(loader = playerLoader) {
         const fragmentShader = `
           uniform vec3 uEmissive;
           uniform float uUnshaded;
+          uniform float uCellShadingEnabled;
           varying vec3 vNormal;
 
           void main() {
-            if (uUnshaded > 0.5) {
+            if (uCellShadingEnabled < 0.5) {
+              gl_FragColor = vec4(uEmissive * 0.3, 1.0);
+            } else if (uUnshaded > 0.5) {
               gl_FragColor = vec4(uEmissive, 1.0);
             } else {
               vec3 lightDir = normalize(vec3(0.5, 1.0, 0.5));
@@ -223,14 +226,16 @@ export async function loadPlayerModel(loader = playerLoader) {
         node.material = new THREE.ShaderMaterial({
           uniforms: {
             uEmissive: { value: baseColor },
-            uUnshaded: { value: isUnshaded ? 1.0 : 0.0 }
+            uUnshaded: { value: isUnshaded ? 1.0 : 0.0 },
+            uCellShadingEnabled: { value: 1.0 }
           },
           vertexShader,
           fragmentShader,
           ...(isSkinned ? { defines: { USE_SKINNING: '' } } : {})
         });
+        node.material.name = originalMaterial.name;
       });
-      
+
       const scene = new THREE.Group();
       scene.name = 'MC Player';
       scene.add(template.scene);

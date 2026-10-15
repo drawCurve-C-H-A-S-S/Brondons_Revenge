@@ -318,7 +318,10 @@ const unarmedCombat = new UnarmedCombatController(() => ({
 const goggles = new GogglesController(() => ({
   player: currentSceneData?.ownsWeaponInput || currentSceneData?.isCinematic?.() || deathPresentation ? null : currentPlayer, scene: currentSceneData,
   setCharacterEquipped: active => globalCharacter?.setGogglesEquipped(active),
-  onToggle: active => gogglesPostProcess.setActive(active),
+  onToggle: active => {
+    gogglesPostProcess.setActive(active);
+    globalCharacter?.setCellShadingEnabled(!active);
+  },
 }));
 
 // --- Teleportation Device ---

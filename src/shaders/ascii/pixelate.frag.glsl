@@ -70,14 +70,13 @@ void main() {
     float angle = atan(sobelResult.y, sobelResult.x);
     float absAngle = abs(angle);
     float directionChar;
-    if (absAngle < 0.393 || absAngle > 2.749) directionChar = 7.0;
+    if (absAngle < 0.393 || absAngle > 2.749) directionChar = 8.0;
     else if (absAngle < 1.178) directionChar = 9.0;
-    else if (absAngle < 1.963) directionChar = 8.0;
+    else if (absAngle < 1.963) directionChar = 7.0;
     else directionChar = 10.0;
     vec2 edgeAtlasUV = vec2((directionChar + cellUV.x) / charCount, cellUV.y);
     vec3 edgeCharColor = texture2D(tFontAtlas, edgeAtlasUV).rgb;
-    float edgeIntensity = smoothstep(edgeThreshold, edgeThreshold + 0.1, edgeStrength);
-    finalColor = mix(finalColor, vec3(0.0, 1.0, 0.0) * edgeCharColor, edgeIntensity);
+    finalColor = vec3(0.0, 1.0, 0.0) * edgeCharColor;
   }
   gl_FragColor = vec4(finalColor, 1.0);
   #include <colorspace_fragment>

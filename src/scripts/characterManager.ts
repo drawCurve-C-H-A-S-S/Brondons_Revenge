@@ -992,6 +992,16 @@ export async function loadCharacter(loader?: GLTFLoader) {
     model.visible = state.opacity > 0;
   }
 
+  function setCellShadingEnabled(enabled: boolean) {
+    model.traverse(node => {
+      if (!(node instanceof THREE.Mesh)) return;
+      const material = node.material as THREE.ShaderMaterial;
+      if (material.uniforms?.uCellShadingEnabled) {
+        material.uniforms.uCellShadingEnabled.value = enabled ? 1.0 : 0.0;
+      }
+    });
+  }
+
   function dispose() {
     setHologramTransition(null);
     setSilhouetteEnabled(false);
@@ -1015,7 +1025,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
   }
 
   return {
-    model, mixer, update, setFacing, setHologramTransition, setSilhouetteEnabled, weapon, crowbar, lightsaberAttackClips, unarmedAttackClips,
+    model, mixer, update, setFacing, setHologramTransition, setSilhouetteEnabled, setCellShadingEnabled, weapon, crowbar, lightsaberAttackClips, unarmedAttackClips,
     setCrowbarEquipped: (equipped: boolean) => { crowbarEquipped = equipped; crowbar.visible = equipped; },
     setLightsaberEquipped: (equipped: boolean) => { lightsaberEquipped = equipped; lightsaber.visible = equipped; },
     setGogglesEquipped: (equipped: boolean) => { goggles.visible = equipped; },
