@@ -12,6 +12,13 @@ export interface DamageTarget {
   damage(amount: number, weapon?: DamageWeapon): boolean;
   knockDown?(): boolean;
 }
+interface PistolHands {
+  setPistolEquipped(equipped: boolean): void;
+  setRecoil(amount: number): void;
+  update(attackProgress: number | null): void;
+  getMuzzle(camera: THREE.PerspectiveCamera, position: THREE.Vector3, orientation: THREE.Quaternion): void;
+  render(renderer: THREE.WebGLRenderer): void;
+}
 interface WeaponContext {
   scene: THREE.Scene | null;
   camera: THREE.PerspectiveCamera | null;
@@ -26,6 +33,7 @@ interface WeaponContext {
     setEquipped(equipped: boolean): void;
     shoot(): void;
   };
+  firstPersonHands?: PistolHands | null | (() => PistolHands | null);
   holsterOther?: () => void;
   onShot?: (point: THREE.Vector3, origin: THREE.Vector3) => void;
 }
@@ -79,6 +87,10 @@ export class PistolController {
     new THREE.MeshBasicMaterial({ color: 0xff2b2b, transparent: true, opacity: 0.85, depthWrite: false }));
   private beamLife = 0;
   private lastAvailable: boolean | null = null;
+  private model: THREE.Group | null = null;
+  private muzzlePosition = new THREE.Vector3();
+  private muzzleQuat = new THREE.Quaternion();
+  private cameraQuat = new THREE.Quaternion();
   private crosshair: HTMLElement | null;
   private status: HTMLElement | null;
   private unregisterTouchAttack: () => void;
@@ -103,6 +115,7 @@ export class PistolController {
         if (object instanceof THREE.Mesh) object.castShadow = true;
       });
       this.root.add(gltf.scene);
+      this.model = gltf.scene;
       this.loaded = true;
       this.updateStatus();
     }).catch(error => {
@@ -207,9 +220,19 @@ export class PistolController {
     this.flash.visible = this.recoil > 0.065;
     this.beamLife = Math.max(0, this.beamLife - frame);
     this.beam.visible = this.beamLife > 0;
-    const { scene, camera, player, thirdPerson, weaponAnimation } = this.context();
+    const { scene, camera, player, thirdPerson, weaponAnimation, firstPersonHands: handsSource } = this.context();
+    const firstPersonHands = typeof handsSource === 'function' ? handsSource() : handsSource;
     this.root.visible = this.loaded && this.equipped && !!player?.isEnabled() && !player.getState().sliding && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling;
     weaponAnimation?.setEquipped(this.root.visible);
+    if (firstPersonHands) {
+      const handsActive = this.root.visible && !thirdPerson;
+      firstPersonHands.setPistolEquipped(handsActive);
+      if (handsActive) {
+        // Pose the arms every frame; getMuzzle() below reads the right fist's final position.
+        firstPersonHands.setRecoil(this.recoil / 0.1);
+        firstPersonHands.update(null);
+      }
+    }
     if (!scene || !camera || !this.root.visible) { this.root.removeFromParent(); this.beam.removeFromParent(); return; }
     camera.updateMatrixWorld(true);
     const socket = thirdPerson ? weaponAnimation?.socket : null;
@@ -217,13 +240,30 @@ export class PistolController {
       if (this.root.parent !== socket) socket.add(this.root);
       this.root.position.set(0, 0, 0);
       this.root.quaternion.identity();
-    } else {
+      if (this.model) this.model.visible = true;
+    } else if (thirdPerson || !firstPersonHands) {
       if (this.root.parent !== scene) scene.add(this.root);
       this.root.position.set(0.24, -0.24, -0.48 + this.recoil * 0.4).applyMatrix4(camera.matrixWorld);
       camera.getWorldQuaternion(this.root.quaternion);
       this.root.rotateX(this.recoil * 0.7);
+      if (this.model) this.model.visible = true;
+    } else {
+      // First person: the hands overlay draws the gun; keep flash/tracer at its muzzle.
+      if (this.root.parent !== scene) scene.add(this.root);
+      if (this.model) this.model.visible = false;
+      firstPersonHands.getMuzzle(camera, this.muzzlePosition, this.muzzleQuat);
+      this.root.position.copy(this.muzzlePosition).applyMatrix4(camera.matrixWorld);
+      this.root.quaternion.copy(camera.getWorldQuaternion(this.cameraQuat)).multiply(this.muzzleQuat);
     }
     this.root.updateWorldMatrix(true, true);
+  }
+
+  renderFirstPerson(renderer: THREE.WebGLRenderer) {
+    const { player, thirdPerson, hasPistol, firstPersonHands: handsSource } = this.context();
+    const firstPersonHands = typeof handsSource === 'function' ? handsSource() : handsSource;
+    if (hasPistol !== false && this.equipped && !thirdPerson && player?.isEnabled() && !player.getState().sliding && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling) {
+      firstPersonHands?.render(renderer);
+    }
   }
 
   private clearFeedback = () => {

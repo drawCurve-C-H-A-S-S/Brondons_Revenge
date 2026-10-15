@@ -104,7 +104,8 @@ export class CrowbarController {
     if (!hasCrowbar && this.equipped) this.holster();
     const usable = !!player?.isEnabled() && !player.getState().sliding && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling;
     setCharacterEquipped(this.equipped && usable);
-    this.root.visible = this.equipped && !thirdPerson && usable;
+    // With the hands overlay active, it draws the crowbar; the legacy camera-mounted copy would double it.
+    this.root.visible = this.equipped && !thirdPerson && usable && !firstPersonHands;
     const progress = this.swingTime > 0 ? 1 - this.swingTime / CROWBAR_SWING_DURATION : 1;
     if (this.equipped && usable && !thirdPerson) firstPersonHands?.update(this.swingTime > 0 ? progress : null);
     if (camera && this.root.visible) {

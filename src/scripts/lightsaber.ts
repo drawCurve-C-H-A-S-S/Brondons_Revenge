@@ -26,6 +26,13 @@ const RAPID_CLICK_WINDOW_MS = 450;
 const KEYBOARD_ATTACKS: readonly PlayerSwordStrike[] = ['slash', 'sideSlash', 'reap', 'cleave', 'thrust', 'regularCombo'];
 export const PARRY_DAMAGE = 50;
 
+interface SaberHands {
+  setLightsaberEquipped(equipped: boolean): void;
+  setLightsaberPose(position: THREE.Vector3 | null, quaternion?: THREE.Quaternion, mainFov?: number): void;
+  update(attackProgress: number | null, move?: 'crowbar' | 'jab' | 'cross' | 'hook'): void;
+  render(renderer: THREE.WebGLRenderer): void;
+}
+
 interface LightsaberContext {
   scene: THREE.Scene | null;
   camera: THREE.PerspectiveCamera | null;
@@ -40,6 +47,7 @@ interface LightsaberContext {
   openDoor: () => void;
   holsterOther?: () => void;
   getParryableBolts?: () => ParryableBolt[];
+  firstPersonHands?: SaberHands | null | (() => SaberHands | null);
 }
 
 export class LightsaberController {
@@ -63,6 +71,10 @@ export class LightsaberController {
   private sourceRotation = new THREE.Quaternion();
   private cameraPosition = new THREE.Vector3();
   private characterPosition = new THREE.Vector3();
+  private posePosition = new THREE.Vector3();
+  private poseQuat = new THREE.Quaternion();
+  private yawInverse = new THREE.Quaternion();
+  private yAxis = new THREE.Vector3(0, 1, 0);
   private ignitionTime = 0;
   private parryWindow = 0;
   private parryPerfect = false;
@@ -183,19 +195,40 @@ export class LightsaberController {
       this.parryPerfect = this.parryWindow > PARRY_TOTAL_SECONDS - PARRY_PERFECT_SECONDS;
     }
     const context = this.context();
-    const { scene, camera, player, character, thirdPerson, hasLightsaber, setCharacterEquipped } = context;
+    const { scene, camera, player, character, thirdPerson, hasLightsaber, setCharacterEquipped, firstPersonHands: handsSource } = context;
+    const firstPersonHands = typeof handsSource === 'function' ? handsSource() : handsSource;
     if (!hasLightsaber && this.equipped) this.holster();
     const usable = !!player?.isEnabled() && player.getHealth() > 0 && !player.getState().climbing
       && !player.getState().sliding && !player.getState().ventMode && !player.getState().boxHandling;
     const active = this.equipped && usable;
     setCharacterEquipped(active);
+    if (firstPersonHands) firstPersonHands.setLightsaberEquipped(active && !thirdPerson);
     if (active) {
       this.ignitionTime = Math.max(0, this.ignitionTime - frame);
       if (this.ignitionTime === 0) this.audio.startHum();
     } else this.audio.stopHum();
     this.root.visible = active && !thirdPerson;
     const sourceWeapon = character?.getObjectByName('lightsaber');
-    if (scene && camera && character && sourceWeapon && this.root.visible) {
+    if (firstPersonHands && active && !thirdPerson) {
+      const swinging = this.swingTime > 0;
+      if (swinging && camera && character && sourceWeapon) {
+        // Same character->view mapping the legacy overlay used, so the fist follows the third-person attack clip.
+        camera.getWorldPosition(this.cameraPosition);
+        character.getWorldPosition(this.characterPosition);
+        // Attack clips spin the character but the view does not turn with it, so express the saber's WORLD pose
+        // in the camera's yaw frame (eye height, character x/z) instead of the character's own frame.
+        this.yawInverse.setFromAxisAngle(this.yAxis, -player!.getState().yaw);
+        sourceWeapon.getWorldPosition(this.posePosition);
+        this.posePosition.x -= this.characterPosition.x;
+        this.posePosition.y -= this.cameraPosition.y;
+        this.posePosition.z -= this.characterPosition.z;
+        this.posePosition.applyQuaternion(this.yawInverse);
+        this.poseQuat.copy(this.yawInverse).multiply(sourceWeapon.getWorldQuaternion(this.sourceRotation));
+        firstPersonHands.setLightsaberPose(this.posePosition, this.poseQuat, camera.fov);
+      } else firstPersonHands.setLightsaberPose(null);
+      firstPersonHands.update(swinging ? 1 - this.swingTime / this.swingDuration : null);
+    }
+    if (scene && camera && character && sourceWeapon && this.root.visible && !firstPersonHands) {
       camera.updateMatrixWorld(true);
       scene.add(this.root);
       camera.getWorldPosition(this.cameraPosition);
@@ -215,7 +248,8 @@ export class LightsaberController {
       this.queuedMove = null; this.keyboardClickTimes = [];
       this.previousSegment = null; this.melee.reset(); return;
     }
-    const weapon = thirdPerson ? sourceWeapon : this.root.getObjectByName('lightsaber');
+    // With the hands overlay, this.root is detached (sitting at the world origin), so hit-test the character's saber.
+    const weapon = (thirdPerson || firstPersonHands) ? sourceWeapon : this.root.getObjectByName('lightsaber');
     if (!weapon) return;
     const segment = getWeaponSegment(weapon);
     if (previousSwing > 0) {
@@ -283,6 +317,14 @@ export class LightsaberController {
       this.parryFlash = 0.3;
       this.audio.playParry();
       return;
+    }
+  }
+
+  renderFirstPerson(renderer: THREE.WebGLRenderer) {
+    const { player, thirdPerson, hasLightsaber, firstPersonHands: handsSource } = this.context();
+    const firstPersonHands = typeof handsSource === 'function' ? handsSource() : handsSource;
+    if (hasLightsaber && this.equipped && !thirdPerson && player?.isEnabled() && !player.getState().sliding && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling) {
+      firstPersonHands?.render(renderer);
     }
   }
 }

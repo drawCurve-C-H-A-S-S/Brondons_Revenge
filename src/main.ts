@@ -183,6 +183,8 @@ function renderGameScene(scene: THREE.Scene, camera: THREE.Camera) {
     renderSceneEffects(scene, camera);
     if (!deathPresentation && !currentSceneData?.isCinematic?.() && !currentSceneData?.ownsWeaponInput) {
       crowbar.renderFirstPerson(renderer);
+      pistol.renderFirstPerson(renderer);
+      lightsaber.renderFirstPerson(renderer);
       unarmedCombat.renderFirstPerson(renderer);
     }
   });
@@ -265,6 +267,10 @@ const pistol = new PistolController(() => ({
   weaponAnimation: currentSceneData?.ownsWeaponInput ? undefined : globalCharacter?.weapon,
   holsterOther: () => { crowbarController?.holster(); lightsaberController?.holster(); },
   onShot: (point, origin) => currentSceneData?.onPistolShot?.(point, origin),
+  firstPersonHands: () => {
+    if (hasPistol !== false && !isGameplayThirdPerson()) void prepareFirstPersonHands();
+    return firstPersonHands;
+  },
 }), async () => { await openingMusicReady; return loadToolModel('Gun_Revolver'); });
 
 const crowbar = new CrowbarController(() => ({
@@ -300,6 +306,10 @@ const lightsaber = new LightsaberController(() => ({
   openDoor: () => { currentSceneData?.hitForwardDoor?.(); currentSceneData?.hitCargoDoor?.(); },
   holsterOther: () => { crowbar.holster(); pistol.holster(); },
   getParryableBolts: () => currentSceneData?.getParryableBolts?.() ?? [],
+  firstPersonHands: () => {
+    if (hasLightsaber && !isGameplayThirdPerson()) void prepareFirstPersonHands();
+    return firstPersonHands;
+  },
 }));
 lightsaberController = lightsaber;
 const unarmedCombat = new UnarmedCombatController(() => ({
