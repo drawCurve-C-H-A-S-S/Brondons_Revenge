@@ -35,16 +35,17 @@ export function createScene({ entryState, onRespawn, onFinished }: {
   onFinished: (state: RescueArrival) => void;
 }) {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0a1218);
-  scene.fog = new THREE.Fog(0x0a1218, 20, 70);
+  scene.background = new THREE.Color(0x16333d);
+  scene.fog = new THREE.Fog(0x16333d, 24, 80);
   const physics = createScenePhysics(), physicsWorld = physics.world;
 
-  // ── Materials ──────────────────────────────────────────────────────────────
-  const wall = new THREE.MeshStandardMaterial({ color: 0x3c4a52, metalness: 0.3, roughness: 0.72 });
-  const floorMat = new THREE.MeshStandardMaterial({ color: 0x1d2b34, metalness: 0.4, roughness: 0.66 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x141f27, metalness: 0.6, roughness: 0.5 });
-  const pale = new THREE.MeshStandardMaterial({ color: 0x70808a, metalness: 0.45, roughness: 0.55 });
-  const stripe = new THREE.MeshStandardMaterial({ color: 0x87ddd8, emissive: 0x247c89, emissiveIntensity: 1 });
+  // ── Materials (bright teal / white control-room palette with green accents) ──
+  const wall = new THREE.MeshStandardMaterial({ color: 0x9db4b8, metalness: 0.25, roughness: 0.7 });
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0x2e6076, metalness: 0.35, roughness: 0.6 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x22343c, metalness: 0.5, roughness: 0.5 });
+  const pale = new THREE.MeshStandardMaterial({ color: 0xdfe8ea, metalness: 0.3, roughness: 0.5 });
+  const stripe = new THREE.MeshStandardMaterial({ color: 0x9fe8e0, emissive: 0x2f9c94, emissiveIntensity: 1 });
+  const green = new THREE.MeshStandardMaterial({ color: 0x2f9d63, metalness: 0.2, roughness: 0.6 });
   const glassMat = new THREE.MeshPhysicalMaterial({ color: 0xa4d1d8, transparent: true, opacity: 0.12, roughness: 0.1, metalness: 0.1, side: THREE.DoubleSide, depthWrite: false });
 
   const box = (s: [number, number, number], p: [number, number, number], m: THREE.Material = wall, solid = true) =>
@@ -68,93 +69,192 @@ export function createScene({ entryState, onRespawn, onFinished }: {
   // Floor guide stripes
   for (const x of [-W + 0.24, W - 0.24]) for (const z of [-12, -4, 8, 14]) box([0.025, 0.08, 2.4], [x, 0.04, z], stripe, false);
 
-  // ── Lighting ───────────────────────────────────────────────────────────────
-  scene.add(new THREE.HemisphereLight(0xbce5ff, 0x2a343a, 1.6));
+  // ── Lighting (bright, daylight control room) ───────────────────────────────
+  scene.add(new THREE.HemisphereLight(0xd8f2ff, 0x3a4a50, 2.3));
   const labLights: THREE.PointLight[] = [];
   for (const [lx, lz] of [[-7, 8], [7, 8], [-7, -8], [7, -8]] as const) {
-    const light = new THREE.PointLight(0xc4e8ff, 30, 18);
+    const light = new THREE.PointLight(0xd6f0ff, 30, 18);
     light.position.set(lx, 3.4, lz);
     scene.add(light); labLights.push(light);
   }
-  const mezzLight = new THREE.PointLight(0x9fd8ff, 26, 20);
+  const mezzLight = new THREE.PointLight(0xbfe4ff, 26, 20);
   mezzLight.position.set(0, MEZZ_Y + 3, -10);
   scene.add(mezzLight);
+  // Soft green wash from the ceiling dome hologram above the core
+  const domeGlow = new THREE.PointLight(0x7fe8a8, 22, 26);
+  domeGlow.position.set(0, CEIL - 1.2, 0);
+  scene.add(domeGlow);
 
-  // ── Graphic detail: light fixtures, floor grid, wall ribbing ───────────────
-  const fixtureMat = new THREE.MeshBasicMaterial({ color: 0xdff4ff });
-  const fixtureTrim = new THREE.MeshStandardMaterial({ color: 0x2b3a42, metalness: 0.6, roughness: 0.4 });
-  const fixtureSpots: Array<[number, number, number]> = [[-7, 3.7, 8], [7, 3.7, 8], [-7, 3.7, -8], [7, 3.7, -8], [0, MEZZ_Y + 3.2, -10]];
-  for (const [fx, fy, fz] of fixtureSpots) {
-    const trim = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.16, 1.2), fixtureTrim);
-    trim.position.set(fx, fy + 0.06, fz); scene.add(trim);
-    const panel = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.95), fixtureMat);
-    panel.rotation.x = Math.PI / 2; panel.position.set(fx, fy - 0.03, fz); scene.add(panel);
+  // ── Canvas texture helpers for the control-room decor ─────────────────────
+  const planetTexture = () => {
+    const c = document.createElement('canvas'); c.width = c.height = 512;
+    const g = c.getContext('2d')!;
+    const grad = g.createRadialGradient(256, 256, 40, 256, 256, 250);
+    grad.addColorStop(0, '#b8ffd0'); grad.addColorStop(0.5, '#4fd68a'); grad.addColorStop(1, '#0f7a4a');
+    g.fillStyle = grad; g.beginPath(); g.arc(256, 256, 250, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = 'rgba(230,255,240,0.8)'; g.lineWidth = 3;
+    for (let i = 0; i < 7; i++) { const a = i * 0.9; g.beginPath(); g.moveTo(256 + Math.cos(a) * 60, 256 + Math.sin(a) * 60); g.lineTo(256 + Math.cos(a) * 200, 256 + Math.sin(a) * 200); g.stroke(); }
+    g.strokeStyle = 'rgba(240,255,250,0.9)'; g.lineWidth = 6; g.beginPath(); g.arc(256, 256, 120, 0, Math.PI * 2); g.stroke();
+    g.lineWidth = 3; g.beginPath(); g.arc(256, 256, 150, 0, Math.PI * 2); g.stroke();
+    return new THREE.CanvasTexture(c);
+  };
+  const skylineTexture = () => {
+    const c = document.createElement('canvas'); c.width = 512; c.height = 256;
+    const g = c.getContext('2d')!;
+    const sky = g.createLinearGradient(0, 0, 0, 256); sky.addColorStop(0, '#cfe8f2'); sky.addColorStop(1, '#e8f4f8');
+    g.fillStyle = sky; g.fillRect(0, 0, 512, 256);
+    g.fillStyle = '#b9c8cf';
+    for (let i = 0; i < 14; i++) { const w = 20 + ((i * 37) % 30), h = 60 + ((i * 53) % 120); g.fillRect(i * 36, 256 - h, w, h); }
+    g.fillStyle = '#a8b8c0';
+    for (let i = 0; i < 10; i++) { const w = 16 + ((i * 29) % 24), h = 40 + ((i * 41) % 90); g.fillRect(i * 50 + 10, 256 - h, w, h); }
+    return new THREE.CanvasTexture(c);
+  };
+  const terrainTexture = () => {
+    const c = document.createElement('canvas'); c.width = 256; c.height = 160;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#0d3a34'; g.fillRect(0, 0, 256, 160);
+    for (let i = 0; i < 26; i++) {
+      g.fillStyle = `rgba(${60 + ((i * 13) % 60)},${180 + ((i * 7) % 60)},${120 + ((i * 11) % 60)},0.7)`;
+      g.beginPath(); g.ellipse((i * 37) % 230, (i * 23) % 140, 14 + ((i * 5) % 16), 10 + ((i * 3) % 12), 0, 0, Math.PI * 2); g.fill();
+    }
+    return new THREE.CanvasTexture(c);
+  };
+
+  // ── Ceiling dome with green holographic planet + concentric rings ─────────
+  const domeDisc = new THREE.Mesh(new THREE.CircleGeometry(5, 48), new THREE.MeshBasicMaterial({ map: planetTexture() }));
+  domeDisc.rotation.x = Math.PI / 2; domeDisc.position.set(0, CEIL - 0.06, 0);
+  scene.add(domeDisc);
+  const ringTrimMat = new THREE.MeshStandardMaterial({ color: 0xcfdde0, metalness: 0.3, roughness: 0.5, side: THREE.DoubleSide });
+  for (const [inner, outer, y] of [[5, 5.7, CEIL - 0.12], [5.7, 6.6, CEIL - 0.24], [6.6, 7.6, CEIL - 0.36]] as const) {
+    const trim = new THREE.Mesh(new THREE.RingGeometry(inner, outer, 48), ringTrimMat);
+    trim.rotation.x = Math.PI / 2; trim.position.set(0, y, 0); scene.add(trim);
   }
-  // Subtle emissive floor grid
-  const gridMat = new THREE.MeshBasicMaterial({ color: 0x1d4f57, transparent: true, opacity: 0.55 });
-  for (const gx of [-12, -8, -4, 0, 4, 8, 12]) box([0.06, 0.02, D * 2 - 1], [gx, 0.015, 0], gridMat, false);
-  for (const gz of [-16, -12, -8, -4, 0, 4, 8, 12, 16]) box([W * 2 - 1, 0.02, 0.06], [0, 0.015, gz], gridMat, false);
-  // Vertical wall ribbing on the long walls
-  const ribMat = new THREE.MeshStandardMaterial({ color: 0x2c3a42, metalness: 0.45, roughness: 0.6 });
-  for (const rz of [-15, -11, -7, -3, 1, 5, 9, 13]) for (const rx of [-W + 0.22, W - 0.22]) {
-    box([0.18, CEIL - 0.6, 0.5], [rx, (CEIL - 0.6) / 2, rz], ribMat, false);
+  const ringLightMat = new THREE.MeshBasicMaterial({ color: 0xe8f8ff, side: THREE.DoubleSide });
+  for (const [lx, lz] of [[-7, 8], [7, 8], [-7, -8], [7, -8]] as const) {
+    const rl = new THREE.Mesh(new THREE.RingGeometry(1.1, 1.4, 32), ringLightMat);
+    rl.rotation.x = Math.PI / 2; rl.position.set(lx, CEIL - 0.4, lz); scene.add(rl);
   }
 
-  // ── Central AI hologram ──────────────────────────────────────────────────
+  // ── Concentric floor rings centred on the core dais ───────────────────────
+  const floorRingMat = new THREE.MeshBasicMaterial({ color: 0xcfeef2, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
+  for (const r of [3.4, 5.2, 7.0, 8.8]) {
+    const fr = new THREE.Mesh(new THREE.RingGeometry(r, r + 0.14, 64), floorRingMat);
+    fr.rotation.x = -Math.PI / 2; fr.position.set(0, 0.02, 0); scene.add(fr);
+  }
+
+  // ── Tall skyline windows (south wall + upper side walls) ──────────────────
+  const windowMat = new THREE.MeshBasicMaterial({ map: skylineTexture() });
+  const mullion = new THREE.MeshStandardMaterial({ color: 0xe6eef0, metalness: 0.3, roughness: 0.5 });
+  const southPane = new THREE.Mesh(new THREE.PlaneGeometry(20, 4), windowMat);
+  southPane.position.set(0, 4.2, D - 0.3); southPane.rotation.y = Math.PI; scene.add(southPane);
+  for (let i = 0; i <= 6; i++) { const bar = new THREE.Mesh(new THREE.BoxGeometry(0.14, 4, 0.12), mullion); bar.position.set(-10 + i * (20 / 6), 4.2, D - 0.34); scene.add(bar); }
+  for (const sy of [2.15, 6.25]) { const rail = new THREE.Mesh(new THREE.BoxGeometry(20.4, 0.2, 0.3), mullion); rail.position.set(0, sy, D - 0.34); scene.add(rail); }
+  for (const sx of [-1, 1]) {
+    const pane = new THREE.Mesh(new THREE.PlaneGeometry(24, 2), windowMat);
+    pane.position.set(sx * (W - 0.3), 5.6, 0); pane.rotation.y = sx > 0 ? -Math.PI / 2 : Math.PI / 2; scene.add(pane);
+    for (let i = 0; i <= 8; i++) { const bar = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2, 0.14), mullion); bar.position.set(sx * (W - 0.34), 5.6, -12 + i * 3); scene.add(bar); }
+  }
+
+  // ── Wall screens, bookshelves and circular porthole displays ──────────────
+  const tealScreenMat = new THREE.MeshBasicMaterial({ color: 0x2fb9c9 });
+  for (const [sx, sz] of [[-1, 6], [1, -6]] as const) {
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.0, 3.2), dark);
+    frame.position.set(sx * (W - 0.24), 2.6, sz); scene.add(frame);
+    const scr = new THREE.Mesh(new THREE.PlaneGeometry(3, 1.8), tealScreenMat);
+    scr.position.set(sx * (W - 0.28), 2.6, sz); scr.rotation.y = sx > 0 ? -Math.PI / 2 : Math.PI / 2; scene.add(scr);
+  }
+  const spineColors = [0xc0563f, 0x3f7fc0, 0x4fae62, 0xd0a03f, 0x8a5fc0];
+  const woodMat = new THREE.MeshStandardMaterial({ color: 0xb98a5a, roughness: 0.7 });
+  for (const [sx, sz] of [[-1, -6], [1, 6]] as const) {
+    const shelf = new THREE.Mesh(new THREE.BoxGeometry(0.5, 2.6, 3.4), woodMat);
+    shelf.position.set(sx * (W - 0.4), 1.3, sz); scene.add(shelf);
+    for (let r = 0; r < 3; r++) for (let b = 0; b < 6; b++) {
+      const spine = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.5, 0.3), new THREE.MeshStandardMaterial({ color: spineColors[(r * 6 + b) % 5], roughness: 0.8 }));
+      spine.position.set(sx * (W - 0.62), 0.5 + r * 0.8, sz - 1.4 + b * 0.55); scene.add(spine);
+    }
+  }
+  const portholeRingMat = new THREE.MeshStandardMaterial({ color: 0xdfe8ea, metalness: 0.4, roughness: 0.4, side: THREE.DoubleSide });
+  const portholeGlowMat = new THREE.MeshBasicMaterial({ color: 0x35c8d8 });
+  for (const [sx, sz] of [[-1, 12], [1, -12], [-1, -12], [1, 12]] as const) {
+    const yaw = sx > 0 ? -Math.PI / 2 : Math.PI / 2;
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.7, 0.95, 32), portholeRingMat);
+    ring.position.set(sx * (W - 0.26), 3.4, sz); ring.rotation.y = yaw; scene.add(ring);
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(0.7, 32), portholeGlowMat);
+    disc.position.set(sx * (W - 0.27), 3.4, sz); disc.rotation.y = yaw; scene.add(disc);
+  }
+
+  // ── Central AI hologram on a raised dais ─────────────────────────────────
   // A glowing holographic projection of the AI's "mind" — the room's focal point.
   const holoGroup = new THREE.Group();
   holoGroup.position.set(0, 0, 0);
   scene.add(holoGroup);
 
-  const pedestalMat = new THREE.MeshStandardMaterial({ color: 0x1a2a33, metalness: 0.7, roughness: 0.3 });
+  // Raised circular dais with two steps (the reference's central platform)
+  const daisMat = new THREE.MeshStandardMaterial({ color: 0xe8eef0, metalness: 0.25, roughness: 0.5 });
+  const dais1 = new THREE.Mesh(new THREE.CylinderGeometry(2.7, 2.9, 0.25, 40), daisMat);
+  dais1.position.y = 0.125; dais1.receiveShadow = true; holoGroup.add(dais1);
+  physics.addBox({ x: 2.8, y: 0.125, z: 2.8 }, { x: 0, y: 0.125, z: 0 });
+  const dais2 = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.4, 0.25, 40), daisMat);
+  dais2.position.y = 0.375; dais2.receiveShadow = true; holoGroup.add(dais2);
+  physics.addBox({ x: 2.3, y: 0.125, z: 2.3 }, { x: 0, y: 0.375, z: 0 });
+  for (const a of [0.6, 2.6, 4.4]) {
+    const plant = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 8), green);
+    plant.position.set(Math.cos(a) * 2.45, 0.62, Math.sin(a) * 2.45);
+    plant.scale.y = 1.3; holoGroup.add(plant);
+  }
+
+  const pedestalMat = new THREE.MeshStandardMaterial({ color: 0x2a3a42, metalness: 0.7, roughness: 0.3 });
   const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.3, 1.4, 24), pedestalMat);
-  pedestal.position.y = 0.7;
+  pedestal.position.y = 1.2;
   pedestal.castShadow = pedestal.receiveShadow = true;
   holoGroup.add(pedestal);
-  physics.addBox({ x: 1.3, y: 0.7, z: 1.3 }, { x: 0, y: 0.7, z: 0 });
+  physics.addBox({ x: 1.3, y: 0.7, z: 1.3 }, { x: 0, y: 1.2, z: 0 });
 
   const holoMat = new THREE.MeshBasicMaterial({ color: 0x66ddff, wireframe: true, transparent: true, opacity: 0.55 });
   const holoSphere = new THREE.Mesh(new THREE.IcosahedronGeometry(1.1, 1), holoMat);
-  holoSphere.position.y = 2.6;
+  holoSphere.position.y = 3.1;
   holoGroup.add(holoSphere);
 
   const coreMat = new THREE.MeshBasicMaterial({ color: 0xaaffee, transparent: true, opacity: 0.3 });
   const core = new THREE.Mesh(new THREE.SphereGeometry(0.55, 16, 12), coreMat);
-  core.position.y = 2.6;
+  core.position.y = 3.1;
   holoGroup.add(core);
 
   const holoLight = new THREE.PointLight(0x66ddff, 14, 12);
-  holoLight.position.set(0, 2.6, 0);
+  holoLight.position.set(0, 3.1, 0);
   holoGroup.add(holoLight);
 
   const ringMat = new THREE.MeshBasicMaterial({ color: 0x2a6a77, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
   const ring = new THREE.Mesh(new THREE.RingGeometry(1.6, 1.8, 32), ringMat);
   ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.02;
+  ring.position.y = 0.52;
   holoGroup.add(ring);
 
-  // ── Server racks around the core ────────────────────────────────────────
-  const rackMat = new THREE.MeshStandardMaterial({ color: 0x0d1820, metalness: 0.5, roughness: 0.5 });
-  const rackLedMat = new THREE.MeshBasicMaterial({ color: 0x44ff88 });
-  for (const [rx, rz] of [[-5, -3], [5, -3], [-5, 4], [5, 4]] as const) {
-    const rack = new THREE.Mesh(new THREE.BoxGeometry(1.0, 2.4, 0.7), rackMat);
-    rack.position.set(rx, 1.2, rz);
-    rack.castShadow = rack.receiveShadow = true;
-    scene.add(rack);
-    physics.addBox({ x: 0.5, y: 1.2, z: 0.35 }, { x: rx, y: 1.2, z: rz });
-    const led = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.6, 0.02), rackLedMat);
-    led.position.set(rx + 0.42, 1.2, rz + 0.36);
-    scene.add(led);
+  // ── Workstation desks with terrain monitors and green chairs ─────────────
+  const monitorTerrain = terrainTexture();
+  const monitorMat = new THREE.MeshBasicMaterial({ map: monitorTerrain });
+  const monitorBody = new THREE.MeshStandardMaterial({ color: 0x2b3a42, metalness: 0.5, roughness: 0.4 });
+  function workstation(x: number, z: number) {
+    const group = new THREE.Group();
+    group.position.set(x, 0, z);
+    group.rotation.y = Math.atan2(-x, -z);
+    scene.add(group);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.12, 1.1), pale);
+    top.position.y = 0.75; top.castShadow = top.receiveShadow = true; group.add(top);
+    const base = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.7, 0.9), pale);
+    base.position.y = 0.38; base.castShadow = base.receiveShadow = true; group.add(base);
+    const mon = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.7, 0.08), monitorBody);
+    mon.position.set(0, 1.25, -0.2); group.add(mon);
+    const scr = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.6), monitorMat);
+    scr.position.set(0, 1.25, -0.155); group.add(scr);
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.1, 0.5), green);
+    seat.position.set(0, 0.5, 0.6); group.add(seat);
+    const back = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.6, 0.1), green);
+    back.position.set(0, 0.85, 0.85); group.add(back);
+    physics.addBox({ x: 1.1, y: 0.4, z: 0.55 }, { x, y: 0.4, z });
   }
-
-  // ── Lab benches along the side walls ────────────────────────────────────
-  const benchMat = new THREE.MeshStandardMaterial({ color: 0x2a3a44, metalness: 0.3, roughness: 0.6 });
-  for (const [bx, bz] of [[-11, 0], [11, 0], [-11, -12], [11, -12]] as const) {
-    const bench = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.9, 1.2), benchMat);
-    bench.position.set(bx, 0.45, bz);
-    bench.castShadow = bench.receiveShadow = true;
-    scene.add(bench);
-    physics.addBox({ x: 1.2, y: 0.45, z: 0.6 }, { x: bx, y: 0.45, z: bz });
+  for (const [wx, wz] of [[-6, -4], [6, -4], [-6, 6], [6, 6], [-11, 2], [11, 2], [-4, -12], [4, -12]] as const) {
+    workstation(wx, wz);
   }
 
   // ── Staircase to the second floor (east side of the atrium, ascending north) ─
