@@ -72,11 +72,29 @@ Complete audio system. Handles background music, spatial sound emitters, and one
 
 **Key methods:**
 - `setBgm(settings)` -- start background music (path, volume, loop, autoplay)
-- `playBgm()` / `stopBgm()` -- control background music
+- `playBgm()` / `pauseBgm()` / `stopBgm()` -- control background music
+- `crossfadeBgm(settings, duration)` -- fade between two tracks over the given seconds; call `update(deltaTime)` to advance the fade
 - `playSfx(path, options)` -- play a one-shot sound, optionally at a 3D position
 - `registerEmitter(emitter)` -- add a looping spatial sound source
 - `update()` -- recalculates spatial volumes based on camera position (call in your loop)
 - `dispose()` -- stops everything and cleans up
+
+Music playback waits for browser authorization. Crossfades keep the outgoing
+track audible until the incoming track actually starts, suspend both tracks
+during pauses, and respect the BGM volume setting throughout.
+The constructor's `pauseWithMenu: false` option is reserved for dedicated menu
+music; gameplay managers use the default pause behavior.
+
+### Game soundtrack
+**File:** [helpers/audio/gameMusic.ts](./src/helpers/audio/gameMusic.ts)
+
+Owns the game's BGM independently of scene disposal, including the M-menu
+override, non-looping boss victory cue, and final-boss crossfade.
+`main.ts` calls `enterScene(id, sceneData)`, `setMenuOpen(open)`,
+`setPaused(paused)` and `update(deltaTime)`. Scenes can provide
+`getMusicTrack()` for dynamic cues and `hasBossVictory()` for actual boss defeats.
+Each scene instance celebrates its boss only once; loading an already-cleared
+boss does not emit a new victory cue. Ordinary sound effects remain scene-owned.
 
 ---
 

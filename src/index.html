@@ -7,9 +7,17 @@
   <link rel="stylesheet" href="./styles/main.css" />
 </head>
 <body data-scene="scene1">
+  <section id="startup-loading" class="startup-loading" role="status" aria-live="polite">
+    <strong>BRONDON'S REVENGE</strong>
+    <p>Preparing the opening soundtrack first...</p>
+  </section>
+  <div id="music-warning" class="music-warning hidden" role="status" aria-live="polite"></div>
+  <div id="look-reticle" class="hidden" aria-hidden="true"></div>
   <div id="crosshair" aria-hidden="true"></div>
   <div id="interact-prompt" class="hidden">Press E to open chest</div>
   <div id="adaptive-hint" class="hidden" role="status" aria-live="polite"></div>
+  <div id="controller-notice" class="hidden" role="status" aria-live="polite"></div>
+  <div id="scene-checkpoint" class="hidden" role="status" aria-live="polite">CHECKPOINT SAVED</div>
   <section id="boss-hud" class="hidden" aria-label="Bay Warden health">
     <div id="boss-health-label">BAY WARDEN</div>
     <div id="boss-health-track"><div id="boss-health-fill"></div></div>
@@ -74,30 +82,86 @@
   <!-- Credit roll overlay -->
   <div id="credits-overlay" class="hidden">
     <div id="credits-content">
-      <div class="credit-title">THE DONS REVENGE</div>
-      <div class="credit-section">
-        <div class="credit-role">CREATED BY</div>
-        <div class="credit-name">CHASS</div>
-      </div>
-      <div class="credit-section">
-        <div class="credit-role">3D ENGINE</div>
-        <div class="credit-name">Three.js</div>
-      </div>
-      <div class="credit-section">
-        <div class="credit-role">SPECIAL THANKS TO </div>
-        <div class="credit-name">YOUR MOM</div>
-      </div>
-      <div class="credit-section">
-        <div class="credit-role">PHYSICS</div>
-        <div class="credit-name">Cannon-es</div>
-      </div>
+      <p class="credit-eyebrow">A GAME BY CHASS</p>
+      <h1 class="credit-title">BRONDON'S REVENGE</h1>
+      <p class="credit-intro">The people, tools and artwork behind the journey.</p>
+      <section class="credit-section credit-team">
+        <h2 class="credit-role">Creative team</h2>
+        <dl class="credit-contributors">
+          <div><dt>Created by</dt><dd>CHASS</dd></div>
+          <div><dt>Story</dt><dd>CHASS</dd></div>
+          <div><dt>Music &amp; soundtrack</dt><dd>Caleb</dd></div>
+        </dl>
+      </section>
+      <section class="credit-section">
+        <h2 class="credit-role">Models &amp; artwork</h2>
+        <ul class="credit-list">
+          <li><a href="https://skfb.ly/6vSDA" target="_blank" rel="noreferrer">Space Ship mk2</a>
+            <p class="credit-detail">antoniojmonteiro <span class="credit-license">CC BY 4.0</span></p></li>
+          <li><a href="https://skfb.ly/pC9vt" target="_blank" rel="noreferrer">Dante_dmc1__cutscene_model</a>
+            <p class="credit-detail">0PALITE <span class="credit-license">CC BY 4.0</span></p>
+            <p class="credit-note">Used as Brondon (Don.glb). The listing identifies this as a reupload, with Moccacino-chan as the original source.</p></li>
+          <li><a href="https://gobkit.com/" target="_blank" rel="noreferrer">Free Character "Shark"</a>
+            <p class="credit-detail">Gobkit <span class="credit-license">CC0 1.0</span></p></li>
+        </ul>
+      </section>
+      <section class="credit-section">
+        <h2 class="credit-role">Character animation</h2>
+        <p class="credit-name">Quaternius</p>
+        <p class="credit-detail"><a href="https://quaternius.com/packs/universalanimationlibrary.html" target="_blank" rel="noreferrer">Universal Animation Library [Standard]</a><br />
+          <a href="https://quaternius.com/packs/universalanimationlibrary2.html" target="_blank" rel="noreferrer">Universal Animation Library 2 [Standard]</a>
+          <span class="credit-license">CC0 1.0</span></p>
+        <p class="credit-note">Combat animations extracted, retargeted and baked for this game.</p>
+      </section>
+      <section class="credit-section">
+        <h2 class="credit-role">Engine &amp; physics</h2>
+        <dl class="credit-contributors">
+          <div><dt>3D rendering</dt><dd><a href="https://threejs.org/" target="_blank" rel="noreferrer">Three.js 0.170.0</a></dd></div>
+          <div><dt>Physics</dt><dd><a href="https://github.com/pmndrs/cannon-es" target="_blank" rel="noreferrer">cannon-es 0.20.0</a></dd></div>
+        </dl>
+        <p class="credit-note">Thanks to the Three.js and cannon-es contributors. Both libraries are MIT licensed.</p>
+        <p class="credit-note">Three.js provides OrbitControls, GLTFLoader, FBXLoader, OBJLoader, SkeletonUtils and AnimationMixer.</p>
+      </section>
+      <section class="credit-section">
+        <h2 class="credit-role">Runtime libraries</h2>
+        <ul class="credit-list">
+          <li><a href="https://github.com/qiao/PathFinding.js" target="_blank" rel="noreferrer">PathFinding.js 0.4.18</a>
+            <p class="credit-detail">qiao &amp; contributors <span class="credit-license">MIT</span></p></li>
+          <li><a href="https://github.com/matt-way/gifuct-js" target="_blank" rel="noreferrer">gifuct-js 2.1.2</a>
+            <p class="credit-detail">matt-way &amp; contributors <span class="credit-license">MIT</span></p></li>
+          <li><a href="https://github.com/gkjohnson/three-bvh-csg" target="_blank" rel="noreferrer">three-bvh-csg 0.0.17</a>
+            &amp; <a href="https://github.com/gkjohnson/three-mesh-bvh" target="_blank" rel="noreferrer">three-mesh-bvh 0.8.3</a>
+            <p class="credit-detail">gkjohnson &amp; contributors <span class="credit-license">MIT</span></p></li>
+          <li><a href="https://github.com/google/draco" target="_blank" rel="noreferrer">Draco 1.5.7</a>
+            <p class="credit-detail">Google &amp; contributors <span class="credit-license">Apache-2.0</span></p></li>
+        </ul>
+        <p class="credit-note">Controller support uses the browser's built-in Gamepad API.</p>
+      </section>
+      <section class="credit-section">
+        <h2 class="credit-role">Development tools</h2>
+        <p class="credit-detail"><a href="https://github.com/vitejs/vite" target="_blank" rel="noreferrer">Vite 6.4.3</a> &amp; contributors (MIT)<br />
+          <a href="https://github.com/microsoft/TypeScript" target="_blank" rel="noreferrer">TypeScript 5.9.3</a> by Microsoft &amp; contributors (Apache-2.0)<br />
+          <a href="https://github.com/eugeneware/ffmpeg-static" target="_blank" rel="noreferrer">ffmpeg-static 5.3.0</a> by eugeneware &amp; contributors (GPL-3.0-or-later)</p>
+        <p class="credit-note">Build-time tools, not included in the game. ffmpeg-static supports local audio conversion.
+          Development-only types: @types/three and @types/pathfinding (MIT).</p>
+      </section>
+      <footer class="credit-closing">
+        <p class="credit-role">SPECIAL THANKS TO</p>
+        <p class="credit-name">DADDY SONUS AND YOUR MOM</p>
+        <p class="credit-thanks">Thank you for playing.</p>
+        <p class="credit-eyebrow">BRONDON'S REVENGE / THE END</p>
+      </footer>
     </div>
   </div>
   
   <!-- Menu buttons -->
   <div id="menu-buttons" class="hidden">
-    <button id="play-btn" class="menu-btn">PLAY</button>
-    <button id="quit-btn" class="menu-btn">DON'T PLAY</button>
+    <div class="menu-actions">
+      <button id="play-btn" class="menu-btn">PLAY</button>
+      <button id="quit-btn" class="menu-btn">DON'T PLAY</button>
+      <p class="controller-menu-hint">Left stick / D-pad: choose · A: select · +: menu</p>
+    </div>
+    <button id="view-credits-btn" class="scene-credits-btn" type="button">View Credits</button>
   </div>
   
   <!-- Fade overlay for transitions -->
@@ -114,9 +178,10 @@
     </header>
     <section id="pause-home" class="pause-panel">
       <button id="pause-resume" type="button">Resume</button>
-      <button id="pause-ship-map" type="button">Ship Map</button>
+      <button id="pause-ship-map" type="button" class="hidden">View Ship Map</button>
       <button id="pause-sound" type="button">Sound</button>
       <button id="pause-controls" type="button">Controls</button>
+      <button id="pause-credits" type="button">View Credits</button>
       <label id="pause-stealth-settings" class="hidden" for="stealth-hints-toggle">
         <span>Prime hints</span><input id="stealth-hints-toggle" type="checkbox" checked />
       </label>
@@ -127,8 +192,34 @@
       <button type="button" data-pause-back>Back</button>
     </section>
     <section id="pause-controls-panel" class="pause-panel hidden" aria-label="Controls reference">
+      <div id="input-mode-tabs" role="tablist" aria-label="Input device">
+        <button id="input-keyboard" type="button" role="tab" aria-selected="true" aria-controls="pause-controls-list">Keyboard &amp; Mouse</button>
+        <button id="input-controller" type="button" role="tab" aria-selected="false" aria-controls="controller-controls-settings pause-controls-list" tabindex="-1">Controller</button>
+      </div>
+      <div id="controller-controls-settings" class="hidden" role="region" aria-label="Controller settings">
+        <fieldset id="controller-type-options">
+          <legend>Choose your controller</legend>
+          <p>Pick the type that matches your controller so its buttons and prompts use the correct layout.</p>
+          <div class="controller-type-buttons" role="group" aria-label="Controller type">
+            <button type="button" data-controller-type="switch" aria-pressed="false">Switch</button>
+            <button type="button" data-controller-type="xbox" aria-pressed="false">Xbox</button>
+            <button type="button" data-controller-type="playstation" aria-pressed="false">PlayStation</button>
+          </div>
+        </fieldset>
+        <p id="controller-status" role="status" aria-live="polite">Choose a controller type. Plug it in, then press a button to let the browser detect it.</p>
+        <label id="controller-layout-options" class="hidden">
+          <input id="controller-swap-ab" type="checkbox" />
+          <span id="controller-swap-label">Swap A/B for this controller</span>
+        </label>
+        <div id="controller-setup" class="hidden">
+          <p>Calibration covers only the buttons used for gameplay, menus and skipping cinematics, plus both sticks. Stick clicks, system buttons and unused extras are not required. Release all buttons and center both sticks before starting.</p>
+          <p id="controller-setup-step" role="status" aria-live="polite"></p>
+          <button id="controller-setup-start" type="button">Calibrate game controls</button>
+          <button id="controller-setup-cancel" type="button" class="hidden">Cancel calibration</button>
+        </div>
+      </div>
       <p id="pause-controls-description"></p>
-      <div id="pause-controls-list" role="region" aria-label="Available controls" tabindex="0"></div>
+      <div id="pause-controls-list" role="tabpanel" aria-labelledby="input-keyboard" tabindex="0"></div>
       <button type="button" data-pause-back>Back</button>
     </section>
     <section id="pause-sound-panel" class="pause-panel hidden" aria-label="Sound settings">
@@ -139,12 +230,11 @@
       <button type="button" data-pause-back>Back</button>
     </section>
     <form id="pause-developer-form" class="pause-panel hidden">
-      <label for="developer-password">Developer password</label>
-      <input id="developer-password" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" required aria-describedby="developer-password-error" />
-      <p id="developer-password-error" role="alert"></p>
-      <button type="submit">Unlock</button>
+      <p>Unlock scene selection and all controls for local playtesting.</p>
+      <button id="developer-unlock" type="submit">Unlock</button>
       <button type="button" data-pause-back>Back</button>
     </form>
+    <p class="controller-menu-hint">Left stick / D-pad: choose · A: select · B: back · +: resume</p>
   </dialog>
   <dialog id="scene-quick-menu" aria-labelledby="scene-menu-title" aria-describedby="scene-menu-description">
     <header class="scene-menu-header">
@@ -154,12 +244,25 @@
       </div>
       <button id="scene-quick-close" type="button">Back <kbd>Esc</kbd></button>
     </header>
-    <p id="scene-menu-description">Jump to any scene with full health, a crowbar, pistol, lightsaber, and goggles.</p>
-    <p class="scene-menu-gear"><kbd>T</kbd> crowbar · <kbd>K</kbd> pistol · <kbd>L</kbd> lightsaber · <kbd>N</kbd> goggles</p>
+    <p id="scene-menu-description">Chapters are listed in story order. Jump to a level or stage with full health, a crowbar, pistol, lightsaber, goggles, and teleportation device.</p>
+    <p class="scene-menu-gear">Hold <kbd data-input-key="Tab">Tab</kbd> to select weapons · <kbd data-input-key="KeyQ">Q</kbd> place anchor · <kbd data-input-key="KeyT">T</kbd> teleport · <kbd data-input-key="KeyN">N</kbd> goggles</p>
     <button id="scene-quick-controls" type="button">All Controls</button>
-    <div id="scene-quick-list" role="group" aria-label="Choose a scene"></div>
+    <button id="scene-quick-credits" type="button">View Credits</button>
+    <div id="scene-quick-list" role="group" aria-label="Choose a level or stage"></div>
     <p id="scene-menu-error" role="alert"></p>
     <footer class="scene-menu-footer">Arrow keys to select · Enter to load · Click a scene to jump</footer>
+    <p class="controller-menu-hint">Left stick / D-pad: choose · A: select · B: back</p>
+  </dialog>
+  <dialog id="credits-dialog" aria-labelledby="credits-dialog-title">
+    <header class="scene-menu-header">
+      <div>
+        <p class="scene-menu-eyebrow">PEOPLE / ARTWORK / TECHNOLOGY</p>
+        <h2 id="credits-dialog-title">Credits</h2>
+      </div>
+      <button id="credits-dialog-close" type="button">Close</button>
+    </header>
+    <div id="credits-dialog-content" role="region" aria-label="Credits and asset licenses" tabindex="0"></div>
+    <p class="credit-dialog-hint">Scroll to explore · Esc to return</p>
   </dialog>
 
   <div id="touch-controls" class="hidden">

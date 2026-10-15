@@ -42,6 +42,9 @@ export function createHoldToSkip({ button, onSkip, isAvailable = () => true, isP
   return {
     reset,
     update(delta: number) {
+      button.textContent = inputHint('Hold Enter to skip');
+      button.title = inputHint('Hold Enter for 1.1 seconds to skip');
+      button.setAttribute('aria-label', button.title);
       if (!available()) { reset(); return; }
       if (!held || completed) return;
       elapsed = Math.min(SKIP_HOLD_SECONDS, elapsed + (Number.isFinite(delta) ? Math.max(0, Math.min(delta, 0.1)) : 0));
@@ -58,3 +61,4 @@ export function createHoldToSkip({ button, onSkip, isAvailable = () => true, isP
     },
   };
 }
+import { inputHint } from '../../scripts/gamepadInput.js';

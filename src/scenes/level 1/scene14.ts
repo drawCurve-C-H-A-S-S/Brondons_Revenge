@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { BAY_FOURTEEN_MAP } from '../level 1 stage 2/stageTwoLayout.js';
 import * as CANNON from 'cannon-es';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { loadToolModel } from '../../core/loader.js';
@@ -6,12 +7,12 @@ import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.
 import { roomBox, disposeRoom } from '../../helpers/scene/shipRoom.js';
 import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
 import type { CinematicPose } from '../../scripts/characterManager.js';
-import { createEscapeShip, addPlanetBackdrop } from '../../scripts/items/createEscapeShip.js';
+import { createEscapeShip, addPlanetBackdrop, animatePlanetBackdrop } from '../../scripts/items/createEscapeShip.js';
 import type { DamageTarget } from '../../scripts/pistol.js';
 import { isTouchActive } from '../../scripts/touchControls.js';
-import { AudioManager } from '../../helpers/audio/AudioManager.js';
+import { isControllerActive, controllerLabel, inputHint } from '../../scripts/gamepadInput.js';
 import { createHangarVersus } from '../../helpers/scene/hangarVersus.js';
-import bgmUrl from '../../assets/bgm/DonRevBGM1.m4a?url';
+import { emitComicEffect } from '../../helpers/scene/comicEffects.js';
 import saberGlowVertex from '../../shaders/saberGlow.vert.glsl?raw';
 import saberGlowFragment from '../../shaders/saberGlow.frag.glsl?raw';
 import fireVertexShader from '../../shaders/fireExplosion.vert.glsl?raw';
@@ -36,8 +37,9 @@ const ACTION_BEATS = {
 const BOARDING = { run: 1.05, takeoff: 1.4, land: 2.15, settle: 2.6, seated: 3.9, end: 4.5 } as const;
 
 /** A continuous hangar escape cinematic, timed actions, cockpit boarding and launch. */
-export function createScene({ entryState, onFailure, onLaunch, loadModel = loadToolModel }: {
+export function createScene({ entryState, checkpoint = false, onFailure, onLaunch, loadModel = loadToolModel }: {
   entryState?: PlayerTransitionState; onFailure: () => void; onLaunch: (state: LaunchState) => void;
+  checkpoint?: boolean;
   loadModel?: typeof loadToolModel;
 }) {
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x020611);
@@ -75,9 +77,7 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
   const sun = new THREE.DirectionalLight(0xb9d8ff, 3); sun.position.set(-20, 50, 30); scene.add(sun);
   for (const z of [-25, -5, 15]) { const light = new THREE.PointLight(0xb3def7, 180, 40); light.position.set(0, 12, z); scene.add(light); }
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 5000);
-  const versus = createHangarVersus();
-  const audioManager = new AudioManager({ camera, getFile: (path: string) => path === 'bgm1' ? { content: bgmUrl } : null });
-  audioManager.setBgm({ path: 'bgm1', loop: true, volume: 0.5, autoplay: true });
+  const versus = createHangarVersus({ playerName: 'BRONDON', opponentName: 'TRILOBOT SWARM' });
   const player = createPlayer({ camera, physicsWorld, spawnPosition: { x: 0, y: 3.3, z: -29 } }); player.enable();
   if (entryState) player.restoreTransition({ ...entryState, position: { x: 0, y: 3.3, z: -29 }, velocity: { x: 0, y: 0, z: 0 }, yaw: Math.PI, pitch: 0, heldKeys: [], crouching: false, intentionalJump: false, jumpQueued: false }, { x: 0, y: 0, z: 0, yaw: -Math.PI });
   player.setRotation(Math.PI); player.disable(); player.body.type = CANNON.Body.KINEMATIC; player.body.collisionResponse = false; player.body.updateMassProperties();
@@ -89,6 +89,7 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
   let disposed = false, transferred = false, paused = false, loaded = false, assetError = false, impact = false;
   let gun: THREE.Object3D | null = null;
   const actionStart = new THREE.Vector3(), actionEnd = new THREE.Vector3(), threatStart = new THREE.Vector3();
+  const lastTravel = new THREE.Vector3(), failedPosition = new THREE.Vector3(), failedVelocity = new THREE.Vector3();
   const boardingRun = new THREE.Vector3(0, 0.3, 16.5), boardingDeck = new THREE.Vector3(), seatedPosition = new THREE.Vector3();
   ship.root.updateMatrixWorld(true);
   ship.boardingDeck.getWorldPosition(boardingDeck); boardingDeck.y += player.radius;
@@ -170,6 +171,8 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
   }
   function stopRobot(robot: Robot) {
     if (robot.stunned) return;
+    emitComicEffect(scene, 'hit', { source: robot.root,
+      weapon: actionKey === 'KeyU' ? 'crowbar' : actionKey === 'KeyY' ? 'pistol' : 'lightsaber', size: 2 });
     robot.stunned = true; robot.body.collisionResponse = false; playRobot(robot, 'TurnOff');
   }
   function knockRobotAway(robot: Robot, origin: THREE.Vector3) {
@@ -201,21 +204,36 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
       loaded = true;
     } catch (error) { if (!disposed) { assetError = true; console.error('[Scene 14] Robot crowd could not load:', error); } }
   }
-  const ready = loadCrowd();
+  const ready = loadCrowd().then(() => {
+    if (checkpoint && loaded && !disposed) {
+      lift.position.y = -0.155;
+      player.setPosition(0, 0.32, -29);
+      camera.position.copy(player.body.position).add(new THREE.Vector3(4, 3, -5));
+      camera.lookAt(player.body.position.x, player.getHeadY(), player.body.position.z);
+      beginEscape(); shot = ''; updateShot(0); cameraView();
+    }
+  });
   const gunReady = loadModel('Gun_Revolver').then(gltf => { if (disposed) { disposeRoom(gltf.scene as unknown as THREE.Scene); return; } gun = gltf.scene; gun.rotation.y = -Math.PI / 2; }).catch(error => { if (!disposed) console.error('[Scene 14] Cinematic pistol could not load:', error); });
   function freeze() { player.disable(); player.body.velocity.set(0, 0, 0); player.body.type = CANNON.Body.KINEMATIC; player.body.collisionResponse = false; player.body.updateMassProperties(); }
+  function updatePromptLabels() {
+    const code = phase === 'aboard' ? 'KeyE' : expected;
+    const label = isControllerActive() ? controllerLabel(code, 'escape') : code.slice(3);
+    const mobile = !isControllerActive() && isTouchActive();
+    if (keyLabel && keyLabel.textContent !== label) keyLabel.textContent = label;
+    if (qteCaption) qteCaption.textContent = mobile ? 'TAP ANYWHERE ON THE SCREEN'
+      : isControllerActive() ? 'PRESS THE DISPLAYED CONTROLLER BUTTON' : desktopCaption;
+    if (qteHint) qteHint.textContent = mobile ? 'Tap once before the timer runs out'
+      : isControllerActive() ? 'A: shoot / X: crowbar / B: dodge / Y: saber spin / R: launch' : desktopHint;
+    qte?.setAttribute('aria-label', `Press ${label} within ${phase === 'aboard' ? 'three' : '2.2'} seconds`);
+  }
   function beginPrompt() {
     expected = QTE_SEQUENCE[stage]!; phase = 'prompt'; clock = 0; timeLeft = ESCAPE_QTE.seconds;
     promptBeat = 0;
     qte?.classList.remove('hidden', 'urgent');
     qte?.classList.add('letter-prompt');
     qte?.style.setProperty('--qte-pulse', '0');
-    qte?.setAttribute('aria-label', `Press ${expected.slice(3)} within 2.2 seconds`);
     if (timer) timer.style.width = '100%';
-    const mobile = isTouchActive();
-    if (keyLabel) keyLabel.textContent = expected.slice(3);
-    if (qteCaption) qteCaption.textContent = mobile ? 'TAP ANYWHERE ON THE SCREEN' : desktopCaption;
-    if (qteHint) qteHint.textContent = mobile ? 'Tap once before the timer runs out' : desktopHint;
+    updatePromptLabels();
     if (actionLabel) actionLabel.textContent = `${stage + 1} / ${ESCAPE_QTE.stages} - ${expected === 'KeyY' ? 'FIRE THROUGH THE GAP' : expected === 'KeyU' ? 'STRIKE WITH THE CROWBAR' : expected === 'KeyI' ? 'DODGE THE CHARGING SWARM' : 'SPIN THROUGH THE SWARM'}`;
     const candidates = robots.filter(r => !r.stunned && r.root.position.z > player.body.position.z - 0.5);
     const position = new THREE.Vector3().copy(player.body.position);
@@ -238,10 +256,12 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
     versus.hide();
     shipFailure = phase === 'aboard';
     failedYaw = cinematicYaw();
+    failedPosition.copy(player.body.position);
+    failedVelocity.copy(shipFailure ? new THREE.Vector3() : lastTravel);
     if (shipFailure) { shipBlast.visible = true; shipBlast.position.copy(ship.root.position).add(new THREE.Vector3(0, 1.5, 0)); }
-    player.takeDamage(player.getHealth(), true); freeze(); phase = 'failed'; clock = 0; beam.visible = flash.visible = false;
+    player.takeDamage(player.getHealth() + player.getShield(), true); freeze(); phase = 'failed'; clock = 0; beam.visible = flash.visible = false;
     qte?.classList.add('hidden'); prompt?.classList.add('hidden'); spinTrail.visible = false;
-    if (subtitles) { subtitles.textContent = `${reason} / ${shipFailure ? 'SHUTTLE DESTROYED WITH PILOT ABOARD' : 'THE SWARM OVERRAN YOU'}\nReturning to the cleared loading bay...`; subtitles.classList.remove('hidden'); }
+    if (subtitles) { subtitles.textContent = `${reason} / ${shipFailure ? 'SHUTTLE DESTROYED WITH PILOT ABOARD' : 'THE SWARM OVERRAN YOU'}\nRestarting the hangar escape...`; subtitles.classList.remove('hidden'); }
   }
   function onKeyDown(event: KeyboardEvent) {
     if (disposed || event.repeat || pressed.has(event.code) || paused || document.hidden || document.body.classList.contains('quick-menu-open')) return;
@@ -255,7 +275,7 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
     acceptPrompt();
   }
   function onQteTap(event: Event) {
-    if (!isTouchActive() || disposed || transferred || paused || document.hidden || (phase !== 'prompt' && phase !== 'aboard') || timeLeft <= 0) return;
+    if (isControllerActive() || !isTouchActive() || disposed || transferred || paused || document.hidden || (phase !== 'prompt' && phase !== 'aboard') || timeLeft <= 0) return;
     if (document.body.classList.contains('quick-menu-open')) return;
     if (event.type === 'pointerdown' && (event as PointerEvent).pointerType === 'mouse' && (event as PointerEvent).button !== 0) return;
     if (event.target instanceof HTMLElement && event.target.closest('#touch-menu, dialog, input, textarea, select, [contenteditable="true"]')) return;
@@ -380,7 +400,7 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
       look.copy(p).add(new THREE.Vector3(0, 0.95 - zoom * 0.25, zoom * 0.2));
       fov = THREE.MathUtils.lerp(64, 52, zoom);
     } else if ((phase === 'prompt' && expected === 'KeyO') || (phase === 'action' && actionKey === 'KeyO')) {
-      id = 'saber-three-quarter'; const release = phase === 'action' ? THREE.MathUtils.smootherstep(clock, ACTION_BEATS.KeyO.recover, ACTION_BEATS.KeyO.end) : 0;
+      id = 'one-take'; const release = phase === 'action' ? THREE.MathUtils.smootherstep(clock, ACTION_BEATS.KeyO.recover, ACTION_BEATS.KeyO.end) : 0;
       pos.lerpVectors(p.clone().add(new THREE.Vector3(-3.7, 1.35, 3.9)), p.clone().add(new THREE.Vector3(0.4, 1.9, 5.6)), release);
       look.copy(p).add(new THREE.Vector3(0, 0.88, 0)); fov = THREE.MathUtils.lerp(70, 64, release);
     } else if (phase === 'aboard' || (phase === 'launch' && clock < 0.65)) {
@@ -506,6 +526,7 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
     ownsWeaponInput: true,
     getDamageTargets: () => [],
     isCinematic: () => true, hideCharacter: () => phase === 'aboard' || (phase === 'launch' && clock < 0.65) || shipFailure,
+    getControllerPhase: () => `${phase}:${stage}`,
     getCinematicWeapon: cinematicWeapon,
     getCinematicPose: cinematicPose,
     getCinematicDelta: () => paused || document.hidden ? 0 : animationDelta,
@@ -570,6 +591,7 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
     renderCinematicOverlay(renderer: THREE.WebGLRenderer) { if (phase === 'versus') versus.render(renderer); },
     clearInput: () => pressed.clear(),
     onPlayerDeath() { fail(); return true; },
+    getSceneId: () => 'scene14', getMapLayout: () => BAY_FOURTEEN_MAP,
     getEscapeStatus: () => ({ phase, stage, expected, timeLeft, loaded, paused, clock, shot, impact }),
     updatePhysics(dt: number, thirdPerson = false) {
       if (disposed || transferred) return;
@@ -577,9 +599,12 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
       animationDelta = 0;
       if (paused || document.hidden || document.body.classList.contains('quick-menu-open')) return;
       const realDt = dt;
+      const frameStart = new THREE.Vector3().copy(player.body.position);
       const slowMotion = phase === 'charge' ? 0.65 : phase === 'action' && actionKey === 'KeyI' && clock < ACTION_BEATS.KeyI.recover ? 0.35
-        : phase === 'action' && actionKey === 'KeyO' && clock >= ACTION_BEATS.KeyO.windup && clock < ACTION_BEATS.KeyO.recover ? 0.7 : 1;
-      dt *= slowMotion; animationDelta = dt; motionScale = THREE.MathUtils.damp(motionScale, phase === 'prompt' ? 0.12 : 1, 8, realDt);
+        : phase === 'action' && actionKey === 'KeyO' && clock >= ACTION_BEATS.KeyO.windup && clock < ACTION_BEATS.KeyO.recover ? 0.7
+          : phase === 'prompt' ? 0.12 : 1;
+      motionScale = THREE.MathUtils.damp(motionScale, slowMotion, 8, realDt);
+      dt *= motionScale; animationDelta = dt;
       clock += dt;
       if (phase === 'arrival') {
         if (!loaded) clock = Math.min(clock, 1.4);
@@ -603,8 +628,8 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
         advanceRun(dt, 0.45);
         if (clock >= 1.25) beginPrompt();
       } else if (phase === 'prompt') {
-        advanceRun(dt * motionScale, 4.4, dt * 0.8);
-        timeLeft = Math.max(0, timeLeft - dt); if (timer) timer.style.width = `${timeLeft / ESCAPE_QTE.seconds * 100}%`;
+        advanceRun(dt, 4.4);
+        timeLeft = Math.max(0, timeLeft - realDt); if (timer) timer.style.width = `${timeLeft / ESCAPE_QTE.seconds * 100}%`;
         qte?.classList.toggle('urgent', timeLeft < 0.7);
         if (timeLeft <= 0) fail();
       } else if (phase === 'action') {
@@ -645,8 +670,7 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
         ship.setCanopyOpen(THREE.MathUtils.smoothstep(clock, 0, BOARDING.takeoff) * (1 - THREE.MathUtils.smoothstep(clock, BOARDING.seated, BOARDING.end)));
         if (clock >= BOARDING.end) {
           phase = 'aboard'; clock = 0; timeLeft = 3; ship.setCanopyOpen(0); player.setPosition(seatedPosition.x, seatedPosition.y, seatedPosition.z);
-          if (keyLabel) keyLabel.textContent = 'E'; qte?.classList.remove('hidden', 'urgent');
-          qte?.setAttribute('aria-label', 'Press E within three seconds to open the hangar doors and launch');
+          updatePromptLabels(); qte?.classList.remove('hidden', 'urgent');
           if (actionLabel) actionLabel.textContent = 'LAUNCH BEFORE ENEMY FIRE DESTROYS THE SHUTTLE';
         }
       } else if (phase === 'aboard') {
@@ -676,6 +700,10 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
           } }); return;
         }
       } else if (phase === 'failed') {
+        if (!shipFailure) {
+          const drift = failedPosition.clone().addScaledVector(failedVelocity, (1 - Math.exp(-7 * clock)) / 7);
+          player.setPosition(drift.x, drift.y, drift.z);
+        }
         siege.forEach(s => { s.mesh.visible = false; });
         if (shipFailure) {
           const progress = Math.min(1, clock / 2.3);
@@ -686,10 +714,12 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
         }
         if (clock > 3.2) { transferred = true; onFailure(); return; }
       }
-      audioManager.update();
-      ship.update(dt); updateRobots(dt * motionScale); physics.step(dt, player, thirdPerson);
-      if (status) status.textContent = assetError ? 'ROBOT ASSETS COULD NOT LOAD / E: retry' : phase === 'arrival' ? '14 / HANGAR\nLift arriving. One ship. Too many robots.' : phase === 'reveal' ? 'ESCAPE SHUTTLE / SWARM BLOCKING THE DECK' : phase === 'charge' ? 'INCOMING CHARGE' : phase === 'launch' ? 'HANGAR DEPRESSURIZING\nAll robots are being pulled into space. Launching toward the planet...' : phase === 'aboard' ? 'COCKPIT SEALED / PRESS E TO LAUNCH' : 'BREAK THROUGH THE SWARM';
+      if (phase !== 'failed' && realDt > 0) lastTravel.copy(player.body.position).sub(frameStart).divideScalar(realDt);
+      ship.update(dt); updateRobots(dt); physics.step(dt, player, thirdPerson);
+      if (phase === 'prompt' || phase === 'aboard') updatePromptLabels();
+      if (status) status.textContent = inputHint(assetError ? 'ROBOT ASSETS COULD NOT LOAD / E: retry' : phase === 'arrival' ? '14 / HANGAR\nLift arriving. One ship. Too many robots.' : phase === 'reveal' ? 'ESCAPE SHUTTLE / SWARM BLOCKING THE DECK' : phase === 'charge' ? 'INCOMING CHARGE' : phase === 'launch' ? 'HANGAR DEPRESSURIZING\nAll robots are being pulled into space. Launching toward the planet...' : phase === 'aboard' ? 'COCKPIT SEALED / PRESS E TO LAUNCH' : 'BREAK THROUGH THE SWARM', 'escape');
       updateShot(realDt); cameraView();
+      if (planet.visible) animatePlanetBackdrop(planet, dt);
     },
     dispose() {
       if (disposed) return; disposed = true;
@@ -702,7 +732,7 @@ export function createScene({ entryState, onFailure, onLaunch, loadModel = loadT
       prompt?.classList.add('hidden'); subtitles?.classList.add('hidden'); status?.classList.add('hidden');
       if (gun) { gun.removeFromParent(); scene.add(gun); }
       robots.forEach(r => { r.mixer.stopAllAction(); r.mixer.uncacheRoot(r.root); r.root.traverse(node => { if (node instanceof THREE.SkinnedMesh) node.skeleton.dispose(); }); });
-      audioManager.dispose(); player.dispose(); physics.dispose(); disposeRoom(scene);
+      player.dispose(); physics.dispose(); disposeRoom(scene);
     },
   };
 }

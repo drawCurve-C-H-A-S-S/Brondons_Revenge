@@ -39,7 +39,8 @@ let flightKnobEl: HTMLElement | null = null;
 // Button press tracking
 const pressedButtons = new Set<string>();
 let fireActive = false;
-type AttackLabel = 'SHOOT' | 'SWING' | 'SLASH';
+let firePressQueued = false;
+type AttackLabel = 'SHOOT' | 'SWING' | 'SLASH' | 'PUNCH';
 const touchAttacks = new Set<{ attack: () => boolean; label: () => AttackLabel | null }>();
 const buttonBindings: Array<{ reset: () => void; dispose: () => void }> = [];
 
@@ -60,6 +61,12 @@ export function isTouchFire(): boolean {
   return fireActive;
 }
 
+export function consumeFlightFirePress(): boolean {
+  const pressed = firePressQueued;
+  firePressQueued = false;
+  return pressed;
+}
+
 /** Register the real weapon action and its equipped state; return its cleanup. */
 export function registerTouchAttackCallback(attack: () => boolean, label: () => AttackLabel | null) {
   const entry = { attack, label };
@@ -75,6 +82,15 @@ export function refreshTouchAttackButton() {
   const weapon = [...touchAttacks].find(entry => entry.label() !== null);
   button.textContent = weapon?.label() ?? 'ATTACK';
   button.disabled = !weapon;
+}
+
+type WeaponSlot = 'pistol' | 'crowbar' | 'lightsaber';
+const weaponEquipHandlers = new Map<WeaponSlot, () => void>();
+
+/** Touch and keyboard selection share the host's inventory and equip rules. */
+export function registerWeaponEquip(slot: WeaponSlot, handler: () => void) {
+  weaponEquipHandlers.set(slot, handler);
+  return () => { if (weaponEquipHandlers.get(slot) === handler) weaponEquipHandlers.delete(slot); };
 }
 
 function dispatchKeyDown(code: string) {
@@ -169,7 +185,8 @@ function onTouchStart(event: TouchEvent) {
   if (document.body.classList.contains('quick-menu-open') || document.body.dataset.scene === 'scene1') return;
   const width = window.innerWidth;
   const minimap = document.getElementById('minimap');
-  const mapBounds = minimap && !minimap.classList.contains('hidden') ? minimap.getBoundingClientRect() : null;
+  const mapBounds = minimap && !minimap.classList.contains('hidden') && !document.body.classList.contains('stage-two-maze')
+    ? minimap.getBoundingClientRect() : null;
 
   for (const touch of Array.from(event.changedTouches)) {
     if (isInteractiveTarget(touch.target)) continue;
@@ -272,7 +289,8 @@ function bindButton(elementId: string, code: string) {
 }
 
 function bindFire() {
-  bindPressControl('touch-fire', () => { fireActive = true; }, () => { fireActive = false; });
+  bindPressControl('touch-fire', () => { fireActive = firePressQueued = true; },
+    () => { fireActive = false; }, () => { firePressQueued = false; });
 }
 
 function bindEvade() {
@@ -301,9 +319,9 @@ export function initTouchControls() {
   bindButton('touch-sprint', 'ShiftLeft');
   bindButton('touch-interact', 'KeyE');
   bindButton('touch-crouch', 'KeyC');
-  bindButton('touch-pistol', 'KeyK');
-  bindButton('touch-crowbar', 'KeyT');
-  bindButton('touch-lightsaber', 'KeyL');
+  for (const slot of ['pistol', 'crowbar', 'lightsaber'] as const) {
+    bindPressControl(`touch-${slot}`, () => weaponEquipHandlers.get(slot)?.());
+  }
   bindButton('touch-goggles', 'KeyN');
   bindButton('touch-action9', 'Digit9');
   bindButton('touch-view', 'KeyV');
@@ -323,7 +341,7 @@ function bindAttack() {
   refreshTouchAttackButton();
 }
 
-function bindPressControl(elementId: string, onPress: () => void, onRelease: () => void = () => {}) {
+function bindPressControl(elementId: string, onPress: () => void, onRelease: () => void = () => {}, onCancel: () => void = () => {}) {
   const element = document.getElementById(elementId);
   if (!element) return;
   const listeners = new AbortController();
@@ -336,12 +354,12 @@ function bindPressControl(elementId: string, onPress: () => void, onRelease: () 
     && !(element as HTMLButtonElement).disabled && !document.hidden
     && !document.body.classList.contains('quick-menu-open')
     && (!document.body.classList.contains('jungle-platformer') ||
-      ['touch-jump', 'touch-fire', 'touch-menu', 'touch-crouch', 'touch-pistol', 'touch-crowbar', 'touch-sprint'].includes(elementId));
-  const reset = () => {
+      ['touch-jump', 'touch-fire', 'touch-menu', 'touch-crouch', 'touch-pistol', 'touch-crowbar', 'touch-lightsaber', 'touch-sprint'].includes(elementId));
+  const reset = (cancelled = true) => {
     const previous = press;
     press = null;
     element.classList.remove('active');
-    if (previous) onRelease();
+    if (previous) { onRelease(); if (cancelled) onCancel(); }
     if (previous?.kind === 'pointer' && element.hasPointerCapture?.(previous.id)) {
       element.releasePointerCapture(previous.id);
     }
@@ -367,7 +385,7 @@ function bindPressControl(elementId: string, onPress: () => void, onRelease: () 
   }, options);
   const releasePointer = (event: PointerEvent) => {
     if (press?.kind !== 'pointer' || press.id !== event.pointerId) return;
-    reset();
+    reset(event.type !== 'pointerup');
   };
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) {
     element.addEventListener(type, releasePointer, options);
@@ -382,7 +400,7 @@ function bindPressControl(elementId: string, onPress: () => void, onRelease: () 
   }, options);
   const releaseTouch = (event: TouchEvent) => {
     consume(event);
-    if (press?.kind === 'touch' && Array.from(event.changedTouches).some(touch => touch.identifier === press?.id)) reset();
+    if (press?.kind === 'touch' && Array.from(event.changedTouches).some(touch => touch.identifier === press?.id)) reset(event.type !== 'touchend');
   };
   element.addEventListener('touchend', releaseTouch, options);
   element.addEventListener('touchcancel', releaseTouch, options);
@@ -398,15 +416,16 @@ function bindPressControl(elementId: string, onPress: () => void, onRelease: () 
   // Do not let compatibility mouse events also invoke the desktop weapon handler.
   element.addEventListener('mousedown', consume, options);
   element.addEventListener('mouseup', consume, options);
-  window.addEventListener('blur', reset, options);
-  document.addEventListener('visibilitychange', reset, options);
+  const cancel = () => reset();
+  window.addEventListener('blur', cancel, options);
+  document.addEventListener('visibilitychange', cancel, options);
   buttonBindings.push({ reset, dispose: () => { reset(); listeners.abort(); } });
 }
 
 /** Release scene-owned gestures before a menu, checkpoint, or movement-axis handoff. */
 export function resetTouchInput() {
   for (const binding of buttonBindings) binding.reset();
-  releaseAllKeys(); pressedButtons.clear(); fireActive = false;
+  releaseAllKeys(); pressedButtons.clear(); fireActive = firePressQueued = false;
   moveTouchId = lookTouchId = flightStickId = null; flightStickActive = false;
   flightAimX = flightAimY = platformerAimX = platformerAimY = 0;
   root?.querySelectorAll('.active').forEach(element => element.classList.remove('active'));
@@ -465,7 +484,7 @@ export function disposeTouchControls() {
   document.removeEventListener('touchcancel', onTouchEnd);
   releaseAllKeys();
   pressedButtons.clear();
-  fireActive = false;
+  fireActive = firePressQueued = false;
   root?.classList.add('hidden');
   root?.classList.remove('flight-mode');
   document.body.classList.remove('touch-device');

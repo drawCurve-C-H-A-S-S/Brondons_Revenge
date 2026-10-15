@@ -2,9 +2,10 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { createCrowbar } from './items/createCrowbar.js';
 import type { DamageTarget } from './pistol.js';
-import { MeleeSwing, getAttackSegment, getWeaponSegment } from './melee.js';
+import { MeleeSwing, getAttackSegment } from './melee.js';
 import type { Player } from './player.js';
 import { registerTouchAttackCallback, refreshTouchAttackButton } from './touchControls.js';
+import { isControllerEvent, inputHint } from './gamepadInput.js';
 
 const CROWBAR_SWING_DURATION = 0.35;
 
@@ -47,22 +48,11 @@ export class CrowbarController {
     this.root.rotation.set(-0.45, 0.35, 0.35);
     this.root.visible = false;
     this.status = document.getElementById('weapon-status');
-    window.addEventListener('keydown', this.onKeyDown);
     document.addEventListener('mousedown', this.onMouseDown);
     this.unregisterTouchAttack = registerTouchAttackCallback(() => this.swing(), () => this.equipped ? 'SWING' : null);
   }
 
-  private onKeyDown = (event: KeyboardEvent) => {
-    if (event.code !== 'KeyT' || event.repeat) return;
-    const { player, hasCrowbar } = this.context();
-    if (!hasCrowbar || !player?.isEnabled()) return;
-    event.preventDefault();
-    if (!this.equipped) this.context().holsterOther?.();
-    this.equipped = !this.equipped;
-    refreshTouchAttackButton();
-    if (this.status) this.status.textContent = this.equipped
-      ? 'T: holster | Left click: crowbar' : 'T: equip crowbar';
-  };
+  isEquipped() { return this.equipped; }
 
   holster() {
     this.equipped = false;
@@ -81,17 +71,17 @@ export class CrowbarController {
     this.context().holsterOther?.();
     this.equipped = true;
     refreshTouchAttackButton();
-    if (this.status) this.status.textContent = 'T: holster | Left click: crowbar';
+    if (this.status) this.status.textContent = inputHint('Hold Tab: weapons | Left click: crowbar');
   }
 
   private onMouseDown = (event: MouseEvent) => {
     const touchActive = (window as any).__touchActive === true;
-    if (event.button === 0 && (document.pointerLockElement || touchActive)) this.swing();
+    if (event.button === 0 && (document.pointerLockElement || touchActive || isControllerEvent(event))) this.swing();
   };
 
   private swing() {
     const { scene, camera, player, openDoor } = this.context();
-    if (!this.equipped || this.cooldown > 0 || !player?.isEnabled() || player.getState().climbing || player.getState().ventMode || player.getState().boxHandling || !scene || !camera) return false;
+    if (document.hidden || document.body.classList.contains('quick-menu-open') || !this.equipped || this.cooldown > 0 || !player?.isEnabled() || player.getState().sliding || player.getState().climbing || player.getState().ventMode || player.getState().boxHandling || !scene || !camera) return false;
     player.requestAction('Sword_Attack');
     openDoor();
     this.melee.reset();
@@ -109,10 +99,10 @@ export class CrowbarController {
     this.cooldown = Math.max(0, this.cooldown - frame);
     this.swingTime = Math.max(0, this.swingTime - frame);
     const context = this.context();
-    const { camera, player, character, thirdPerson, hasCrowbar, setCharacterEquipped, firstPersonHands: handsSource } = context;
+    const { camera, player, thirdPerson, hasCrowbar, setCharacterEquipped, firstPersonHands: handsSource } = context;
     const firstPersonHands = typeof handsSource === 'function' ? handsSource() : handsSource;
     if (!hasCrowbar && this.equipped) this.holster();
-    const usable = !!player?.isEnabled() && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling;
+    const usable = !!player?.isEnabled() && !player.getState().sliding && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling;
     setCharacterEquipped(this.equipped && usable);
     this.root.visible = this.equipped && !thirdPerson && usable;
     const progress = this.swingTime > 0 ? 1 - this.swingTime / CROWBAR_SWING_DURATION : 1;
@@ -125,8 +115,8 @@ export class CrowbarController {
       this.swingTime = 0; this.swingPlayer = null; this.melee.reset(); return;
     }
     if (previousSwing > 0) {
-      const weapon = thirdPerson ? character?.getObjectByName('crowbar') : this.root.getObjectByName('crowbar');
-      const segment = weapon ? getWeaponSegment(weapon) : getAttackSegment(player, progress);
+      // The attack follows player aim; presentation rigs must not shorten its physical reach.
+      const segment = getAttackSegment(player, progress);
       if (frame > 0) {
         if (this.melee.update(context, segment, [this.root]) && this.status) this.status.dataset.hit = 'true';
       } else this.melee.prime(segment);
@@ -136,13 +126,12 @@ export class CrowbarController {
   renderFirstPerson(renderer: THREE.WebGLRenderer) {
     const { player, thirdPerson, hasCrowbar, firstPersonHands: handsSource } = this.context();
     const firstPersonHands = typeof handsSource === 'function' ? handsSource() : handsSource;
-    if (hasCrowbar && this.equipped && !thirdPerson && player?.isEnabled() && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling) firstPersonHands?.render(renderer);
+    if (hasCrowbar && this.equipped && !thirdPerson && player?.isEnabled() && !player.getState().sliding && !player.getState().climbing && !player.getState().ventMode && !player.getState().boxHandling) firstPersonHands?.render(renderer);
   }
 
   dispose() {
     this.holster();
     this.unregisterTouchAttack();
-    window.removeEventListener('keydown', this.onKeyDown);
     document.removeEventListener('mousedown', this.onMouseDown);
     this.root.removeFromParent();
     this.context().setCharacterEquipped(false);

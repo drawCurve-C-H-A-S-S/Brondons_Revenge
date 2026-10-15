@@ -1,4 +1,5 @@
 /** Adaptive hint system that escalates after player inactivity */
+import { inputHint } from './gamepadInput.js';
 
 export interface HintTrigger {
   id: string;
@@ -166,7 +167,7 @@ export class AdaptiveHintManager {
 
   private showHint(message: string) {
     if (!this.hintElement) return;
-    this.hintElement.textContent = message;
+    this.hintElement.textContent = inputHint(message);
     this.hintElement.classList.remove('hidden');
     this.hintElement.classList.add('visible');
   }

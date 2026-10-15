@@ -3,6 +3,10 @@ import * as CANNON from 'cannon-es';
 import { loadToolModel } from '../core/loader.js';
 import type { Player } from './player.js';
 import { createLightsaber } from './items/createLightsaber.js';
+import { createCrowbar } from './items/createCrowbar.js';
+import { createCrewChest, CREW_CHEST_SIZE } from '../helpers/scene/crewChest.js';
+import { createRecoveryPickup } from '../helpers/scene/recoveryPickup.js';
+import { inputHint } from './gamepadInput.js';
 
 export function createGoggles() {
   const root = new THREE.Group(); root.name = 'ScannerGoggles';
@@ -39,23 +43,26 @@ function disposeObject(root: THREE.Object3D) {
 }
 
 /** One reward per visit; the caller owns cross-visit reward persistence. */
-export function createRewardChest({ scene, world, player, position, reward, unlocked, onCollect, removeOnCollect = false }: {
-  scene: THREE.Scene; world: CANNON.World; player: Player; position: THREE.Vector3;
-  reward: 'goggles' | 'health' | 'lightsaber'; unlocked: () => boolean; onCollect: () => boolean; removeOnCollect?: boolean;
-}, load = () => loadToolModel('Prop_Chest')) {
-  const root = new THREE.Group(); root.name = `${reward}Chest`; root.position.copy(position); scene.add(root);
-  // A usable fallback avoids locking progression if an optional model fails to load.
-  const fallback = new THREE.Group(); root.add(fallback);
-  const material = new THREE.MeshStandardMaterial({ color: 0x495865, metalness: 0.65, roughness: 0.4 });
-  const base = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.6, 0.85), material);
-  base.position.y = 0.3; fallback.add(base);
-  const lidPivot = new THREE.Group(); lidPivot.position.set(0, 0.6, 0.425); fallback.add(lidPivot);
-  const lid = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.2, 0.85), material);
-  lid.position.set(0, 0.1, -0.425); lidPivot.add(lid);
+export function createRewardChest({ scene, world, player, position, yaw = 0, reward, unlocked, onCollect, removeOnCollect = false,
+  style = 'model', initialCollected = false, canInteract = () => true, lockedPrompt }: {
+  scene: THREE.Scene; world: CANNON.World; player: Player; position: THREE.Vector3; yaw?: number;
+  reward: 'goggles' | 'health' | 'shield' | 'lightsaber' | 'crowbar' | 'keycard' | 'aegis';
+  unlocked: () => boolean; onCollect: () => boolean; removeOnCollect?: boolean;
+  style?: 'model' | 'crew'; initialCollected?: boolean; canInteract?: () => boolean; lockedPrompt?: string;
+}, load = loadToolModel) {
+  const root = new THREE.Group(); root.name = `${reward}Chest`; root.position.copy(position); root.rotation.y = yaw; scene.add(root);
+  const footlocker = createCrewChest(reward === 'lightsaber' || reward === 'aegis' ? 0xbd77ff : 0x6ad9e8), fallback = footlocker.root;
+  root.add(fallback); footlocker.update(0, initialCollected, true);
   const body = new CANNON.Body({ mass: 0 });
-  body.addShape(new CANNON.Box(new CANNON.Vec3(0.7, 0.4, 0.425)));
-  body.position.set(position.x, position.y + 0.4, position.z); world.addBody(body);
-  const loot = reward === 'goggles' ? createGoggles() : reward === 'lightsaber' ? createLightsaber() : new THREE.Group();
+  body.addShape(new CANNON.Box(new CANNON.Vec3(CREW_CHEST_SIZE.x / 2, CREW_CHEST_SIZE.y / 2, CREW_CHEST_SIZE.z / 2)));
+  body.position.set(position.x, position.y + CREW_CHEST_SIZE.y / 2, position.z);
+  body.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), yaw); world.addBody(body);
+  const loot = reward === 'goggles' ? createGoggles() : reward === 'lightsaber' ? createLightsaber()
+    : reward === 'crowbar' ? createCrowbar() : reward === 'shield'
+      ? createRecoveryPickup('shield', new THREE.Vector3(), { compact: true, illuminate: false }).root : new THREE.Group();
+  if (reward === 'crowbar' || reward === 'lightsaber') {
+    loot.rotation.z = Math.PI / 2; loot.scale.setScalar(reward === 'lightsaber' ? 0.8 : 0.9);
+  }
   if (reward === 'health') {
     const box = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 0.22), new THREE.MeshStandardMaterial({ color: 0xf0f4ee }));
     loot.add(box);
@@ -65,14 +72,21 @@ export function createRewardChest({ scene, world, player, position, reward, unlo
       cross.position.z = -0.116; loot.add(cross);
     }
   }
-  loot.position.set(0, 0.85, 0); loot.visible = false; root.add(loot);
+  if (reward === 'aegis') {
+    const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.3),
+      new THREE.MeshStandardMaterial({ color: 0xb979ff, emissive: 0x9b40ff, emissiveIntensity: 1.8, metalness: 0.6, roughness: 0.3 }));
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.035, 8, 24), new THREE.MeshBasicMaterial({ color: 0xa7eeff }));
+    ring.rotation.x = Math.PI / 3; loot.add(core, ring);
+  }
+  loot.position.set(reward === 'lightsaber' ? 0.5 : reward === 'crowbar' ? 0.2 : 0, 0.85, 0);
+  loot.visible = false; root.add(loot);
   let mixer: THREE.AnimationMixer | null = null;
   let openAction: THREE.AnimationAction | null = null;
-  let opening = 0, collected = false, disposed = false;
+  let opening = 0, collected = initialCollected, disposed = false, rewardReady = reward !== 'keycard';
   const prompt = document.getElementById('interact-prompt');
   let ownsPrompt = false;
   function hidePrompt() { if (ownsPrompt) prompt?.classList.add('hidden'); ownsPrompt = false; }
-  const ready = load().then(gltf => {
+  const chestReady = style === 'crew' ? Promise.resolve() : load('Prop_Chest').then(gltf => {
     if (disposed || opening > 0 || collected) { disposeObject(gltf.scene); return; }
     const model = gltf.scene;
     let box = new THREE.Box3().setFromObject(model);
@@ -93,13 +107,25 @@ export function createRewardChest({ scene, world, player, position, reward, unlo
     const clip = THREE.AnimationClip.findByName(gltf.animations, 'Open');
     if (clip) { openAction = mixer.clipAction(clip).setLoop(THREE.LoopOnce, 1); openAction.clampWhenFinished = true; }
   }).catch(error => { if (!disposed) console.error('[RewardChest] Using fallback chest:', error); });
+  const lootReady = reward !== 'keycard' ? Promise.resolve() : load('Prop_KeyCard').then(gltf => {
+    if (disposed) { disposeObject(gltf.scene); return; }
+    const bounds = new THREE.Box3().setFromObject(gltf.scene), size = bounds.getSize(new THREE.Vector3());
+    const scale = 0.46 / Math.max(size.x, size.y, size.z);
+    if (!Number.isFinite(scale) || scale <= 0) { disposeObject(gltf.scene); throw new Error('Invalid keycard asset bounds'); }
+    const center = bounds.getCenter(new THREE.Vector3());
+    gltf.scene.scale.multiplyScalar(scale); gltf.scene.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
+    gltf.scene.name = 'ChestKeycardAsset'; loot.add(gltf.scene); rewardReady = true;
+  });
+  const ready = Promise.all([chestReady, lootReady]).then(() => undefined);
 
   function near() { return player.body.position.distanceTo(new CANNON.Vec3(position.x, position.y + player.radius, position.z)) <= 1.8; }
   function onKeyDown(event: KeyboardEvent) {
-    if (event.code !== 'KeyE' || event.repeat || event.defaultPrevented || disposed || collected || opening > 0 || !player.isEnabled() || player.getState().boxHandling || !near() || !unlocked()) return;
+    if (event.code !== 'KeyE' || event.repeat || event.defaultPrevented || disposed || collected || opening > 0
+      || !rewardReady || !canInteract() || !player.isEnabled() || player.getState().boxHandling || !near() || !unlocked()) return;
     if (document.hidden || document.body.classList.contains('quick-menu-open') ||
       (event.target instanceof HTMLElement && event.target.closest('button, dialog, input, textarea, select, [contenteditable="true"]'))) return;
     if (reward === 'health' && player.getHealth() >= 100) return;
+    if (reward === 'shield' && player.getShield() >= player.getMaxShield()) return;
     event.preventDefault(); event.stopImmediatePropagation(); player.requestAction('Interact');
     opening = 0.001; loot.visible = true; hidePrompt();
     if (openAction && mixer) { mixer.stopAllAction(); openAction.reset().play(); }
@@ -112,16 +138,21 @@ export function createRewardChest({ scene, world, player, position, reward, unlo
     mixer?.update(dt);
     if (opening > 0 && !collected) {
       opening += dt;
-      lidPivot.rotation.x = -Math.min(1, opening / 0.6) * 1.2;
+      footlocker.update(dt, true);
       loot.position.y = 0.85 + Math.min(0.35, opening * 0.4);
       if (opening >= Math.max(0.8, openAction?.getClip().duration ?? 0)) {
         collected = onCollect(); opening = 0; loot.visible = false;
         if (collected && removeOnCollect) { root.removeFromParent(); world.removeBody(body); }
       }
     }
-    if (player.isEnabled() && !player.getState().boxHandling && near() && !collected && opening === 0 && prompt) {
-      prompt.textContent = !unlocked() ? (reward === 'goggles' ? 'Destroy every wall target with the pistol' : reward === 'lightsaber' ? 'Unlock the Bay Warden door' : 'Break the crates with your crowbar')
-        : reward === 'health' && player.getHealth() >= 100 ? 'Health is full' : `Press E to open chest — ${reward === 'goggles' ? 'scanner goggles' : reward === 'lightsaber' ? 'lightsaber' : '+15 HP'}`;
+    if (canInteract() && player.isEnabled() && !player.getState().boxHandling && near() && !collected && opening === 0 && prompt) {
+      prompt.textContent = inputHint(!unlocked() ? lockedPrompt ?? (reward === 'goggles' ? 'Destroy every wall target with the pistol' : reward === 'lightsaber' ? 'Unlock the Bay Warden door' : 'Break the crates with your crowbar')
+        : !rewardReady ? 'Preparing keycard...'
+        : reward === 'health' && player.getHealth() >= 100 ? 'Health is full'
+          : reward === 'shield' && player.getShield() >= player.getMaxShield() ? 'Shield is full'
+            : `Press E to open chest - ${reward === 'goggles' ? 'scanner goggles' : reward === 'lightsaber' ? 'lightsaber'
+              : reward === 'crowbar' ? 'crowbar' : reward === 'keycard' ? 'keycard'
+                : reward === 'aegis' ? 'Aegis Core - one 30-second boss immunity' : reward === 'shield' ? '+25 shield' : '+15 HP'}`);
       prompt.classList.remove('hidden'); ownsPrompt = true;
     } else hidePrompt();
   }
@@ -132,5 +163,9 @@ export function createRewardChest({ scene, world, player, position, reward, unlo
     if (body.world === world) world.removeBody(body);
     disposeObject(root);
   }
-  return { root, body, ready, update, dispose, isCollected: () => collected, isPromptVisible: () => ownsPrompt };
+  return { root, body, ready, update, dispose, isCollected: () => collected, isPromptVisible: () => ownsPrompt, isOpening: () => opening > 0,
+    setCollected() {
+      collected = true; opening = 0; loot.visible = false; hidePrompt(); footlocker.update(0, true, true);
+      if (removeOnCollect) { root.removeFromParent(); if (body.world === world) world.removeBody(body); }
+    } };
 }

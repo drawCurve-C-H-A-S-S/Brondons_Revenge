@@ -3,7 +3,9 @@ import * as CANNON from 'cannon-es';
 import PF from 'pathfinding';
 import { loadToolModel } from '../../core/loader.js';
 import { disposeRoom } from '../../helpers/scene/shipRoom.js';
+import { clearComicEffects, emitComicEffect } from '../../helpers/scene/comicEffects.js';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
+import { KNOCKDOWN_DURATION, knockdownTilt } from '../../helpers/animation/knockdown.js';
 import type { DamageTarget } from '../../scripts/pistol.js';
 import beamVertex from '../../shaders/stealthBeam.vert.glsl?raw';
 import beamFragment from '../../shaders/stealthBeam.frag.glsl?raw';
@@ -24,6 +26,7 @@ export interface StealthObservation {
 export interface StealthActor {
   id: string;
   kind: RobotKind;
+  reserve: boolean;
   root: THREE.Group;
   body: CANNON.Body;
   mode: PatrolMode;
@@ -47,10 +50,16 @@ export interface StealthActor {
   footprint: THREE.Mesh;
   light: THREE.SpotLight | null;
   downTime: number;
+  knockdownTime: number;
   formation: THREE.Vector3 | null;
   scanning: boolean;
   scanRoof: string | null;
   scanTarget: THREE.Vector3 | null;
+}
+
+export function isBehindDrone(drone: Point, forward: Point, shooter: Point) {
+  const dx = shooter.x - drone.x, dz = shooter.z - drone.z, distance = Math.hypot(dx, dz);
+  return distance > 0.1 && distance < 20 && (dx * forward.x + dz * forward.z) / distance < -0.9;
 }
 
 export function createHangarNavigation(hangar: StealthHangar) {
@@ -94,7 +103,8 @@ export function createHangarNavigation(hangar: StealthHangar) {
 }
 
 export function createStealthDirector(scene: THREE.Scene, physics: Physics, hangar: StealthHangar,
-  callbacks: { onAlarm: (actor: StealthActor) => void; onAttack: (actor: StealthActor, damage: number) => void },
+  callbacks: { onAlarm: (actor: StealthActor) => void; onAttack: (actor: StealthActor, damage: number) => void;
+    getPlayerPosition?: () => Point; onDroneShotBlocked?: () => void },
   modelLoader: typeof loadToolModel = loadToolModel) {
   const navigation = createHangarNavigation(hangar);
   const actors: StealthActor[] = [];
@@ -103,6 +113,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
   const facing = new THREE.Vector3(), eye = new THREE.Vector3(), target = new THREE.Vector3();
   const up = new THREE.Vector3(0, 1, 0), direction = new THREE.Vector3(), desiredRotation = new THREE.Quaternion();
   let elapsed = 0, disposed = false, alarmed = false, stepNoiseTime = 0, distractions = 0;
+  let observerPosition: Point | null = null, silentDroneShot = false;
   let encirclement: THREE.Vector3 | null = null, firing = false;
   const volleyGeometry = new THREE.CylinderGeometry(0.022, 0.022, 1, 6);
   const volleyMaterial = new THREE.MeshBasicMaterial({ color: 0xff5266, transparent: true, opacity: 0.95,
@@ -160,14 +171,14 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
       light.castShadow = index === 10; light.shadow.mapSize.set(256, 256);
       scene.add(light, light.target);
     }
-    const actor: StealthActor = { id: root.name, kind, root, body, mode: reserve ? 'reserve' : 'patrol', suspicion: 0,
+    const actor: StealthActor = { id: root.name, kind, reserve, root, body, mode: reserve ? 'reserve' : 'patrol', suspicion: 0,
       range: kind === 'eye' ? 13 : 9, route, routeIndex: index % route.length, path: [], target: null,
       dwell: index % 3 * 0.5, searchTime: 0, repath: 0, attackTime: 0, lastNoise: null, heardAt: -Infinity,
-      health: 50, mixer: null, actions: new Map(), animation: '', beam, footprint, light, downTime: 0, formation: null,
+      health: 50, mixer: null, actions: new Map(), animation: '', beam, footprint, light, downTime: 0, knockdownTime: 0, formation: null,
       scanning: false, scanRoof: null, scanTarget: null };
     root.visible = beam.visible = footprint.visible = !reserve;
     body.collisionResponse = !reserve;
-    if (light) light.visible = !reserve;
+    if (light) light.intensity = reserve ? 0 : 16;
     actors.push(actor);
     loading.push(modelLoader(kind === 'eye' ? 'Enemy_EyeDrone' : kind === 'quad' ? 'Enemy_QuadShell' : 'Enemy_Trilobite').then(gltf => {
       if (disposed) { disposeRoom(gltf.scene); return; }
@@ -237,7 +248,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
     for (const actor of actors) if (actor.mode !== 'down') {
       actor.mode = 'charge'; actor.suspicion = 1; actor.path = []; actor.target = null; actor.repath = 0;
       actor.root.visible = actor.beam.visible = actor.footprint.visible = true; actor.body.collisionResponse = true;
-      if (actor.light) actor.light.visible = true;
+      if (actor.light) actor.light.intensity = 16;
       animation(actor, 'run');
     }
     callbacks.onAlarm(culprit);
@@ -252,6 +263,9 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
         const angle = index / active.length * Math.PI * 2 + attempt * 0.37;
         const radius = (actor.kind === 'eye' ? 8.5 : 5.5) + attempt % 3 * 1.4;
         const candidate = { x: position.x + Math.sin(angle) * radius, z: position.z + Math.cos(angle) * radius };
+        if (occupied.some(point => distance(point, candidate) < 1.7)) continue;
+        const eyePosition = { x: candidate.x, y: hangar.deckY + (actor.kind === 'eye' ? 3.8 : eyeHeight(actor)), z: candidate.z };
+        if (best.length && !hasSight(eyePosition, { x: position.x, y: position.y + 0.8, z: position.z })) continue;
         const path = navigation.findPath(actor.root.position, candidate, { center: position, radius: 3 }), endpoint = path[path.length - 1];
         if (!endpoint || distance(endpoint, position) < 3.5 || occupied.some(point => distance(point, endpoint) < 2.1)) continue;
         best = path;
@@ -268,7 +282,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
     let fired = 0;
     const aiming = new THREE.Vector3(encirclement.x, encirclement.y + 0.78, encirclement.z);
     for (const actor of actors) {
-      if (actor.mode !== 'charge' || !actor.formation || distance(actor.root.position, actor.formation) > 2.2) continue;
+      if (actor.mode !== 'charge' || actor.knockdownTime > 0 || !actor.formation || distance(actor.root.position, actor.formation) > 2.2) continue;
       eye.copy(actor.root.position); eye.y += eyeHeight(actor);
       if (!hasSight(eye, aiming, actor.body)) continue;
       const bolt = new THREE.Mesh(volleyGeometry, volleyMaterial); bolt.name = 'FiringSquadVolley'; bolt.userData.minimap = false;
@@ -276,6 +290,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
       bolt.position.copy(eye).add(aiming).multiplyScalar(0.5);
       bolt.quaternion.setFromUnitVectors(up, direction.normalize()); bolt.scale.y = length;
       scene.add(bolt); volleys.push({ mesh: bolt, life: 0.19 });
+      emitComicEffect(scene, 'pew', { source: actor.root, position: eye });
       animation(actor, 'attack'); callbacks.onAttack(actor, 10); fired++;
     }
     return fired;
@@ -310,6 +325,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
   function completeTakedown(id: string) {
     const actor = actors.find(candidate => candidate.id === id);
     if (!actor || alarmed || actor.mode === 'down' || actor.kind === 'eye') return false;
+    emitComicEffect(scene, 'clank', { source: actor.root });
     actor.mode = 'down'; actor.health = 0; actor.suspicion = 0; actor.downTime = 0;
     actor.body.collisionResponse = false; actor.beam.visible = actor.footprint.visible = false;
     animation(actor, 'down'); return true;
@@ -317,9 +333,27 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
   const damageTargets: DamageTarget[] = actors.map(actor => ({ root: actor.root, body: actor.body,
     damage(amount, weapon) {
       if (actor.mode === 'down' || actor.mode === 'reserve' || !Number.isFinite(amount) || amount <= 0) return false;
+      if (actor.kind === 'eye') {
+        const shooter = callbacks.getPlayerPosition?.() ?? observerPosition;
+        if (weapon !== 'pistol' || !shooter || !isBehindDrone(actor.root.position, actorFacing(actor), shooter)) {
+          callbacks.onDroneShotBlocked?.();
+          if (!shooter) console.warn('[Stealth] Cannot resolve shooter position for the eye drone');
+          forceAlarm(actor.id); return false;
+        }
+        actor.health = 0; actor.mode = 'down'; actor.downTime = 0; actor.suspicion = 0;
+        actor.body.collisionResponse = false; animation(actor, 'down'); updateBeam(actor);
+        emitComicEffect(scene, 'clank', { source: actor.root }); silentDroneShot = true; return true;
+      }
       actor.health -= amount;
+      emitComicEffect(scene, actor.health <= 0 ? 'clank' : 'hit', { source: actor.root, weapon });
       if (actor.health <= 0) { actor.mode = 'down'; actor.downTime = 0; actor.body.collisionResponse = false; animation(actor, 'down'); }
       if (weapon) forceAlarm(actor.id);
+      return true;
+    },
+    knockDown() {
+      if (actor.kind === 'eye' || actor.mode === 'down' || actor.mode === 'reserve') return false;
+      actor.knockdownTime = KNOCKDOWN_DURATION; actor.attackTime = 0; actor.scanning = false;
+      actor.beam.visible = actor.footprint.visible = false; animation(actor, 'idle');
       return true;
     } }));
 
@@ -346,7 +380,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
   function updateBeam(actor: StealthActor) {
     const active = actor.mode !== 'down' && actor.mode !== 'reserve';
     actor.beam.visible = actor.footprint.visible = active;
-    if (actor.light) actor.light.visible = active;
+    if (actor.light) { actor.light.intensity = active ? 16 : 0; actor.light.shadow.autoUpdate = active; }
     if (!active) return;
     const forward = actorFacing(actor).clone();
     eye.copy(actor.root.position).addScaledVector(forward, 0.48); eye.y += eyeHeight(actor);
@@ -376,16 +410,16 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
   }
   function updateRooftopScan(actor: StealthActor, dt: number) {
     if (actor.kind !== 'eye') return;
-    const index = actors.indexOf(actor) - 10, clock = elapsed + index * 5.5, phase = clock % 26;
-    const scan = !alarmed && actor.mode === 'patrol' && phase > 21.5;
+    const index = actors.indexOf(actor) - 10, clock = elapsed + index * 3.5, phase = clock % 14;
+    const scan = !alarmed && actor.mode === 'patrol' && phase > 9;
     if (scan && !actor.scanning) {
       const candidates = [...hangar.scanSurfaces].sort((first, second) => distance(first, actor.root.position) - distance(second, actor.root.position));
-      actor.scanRoof = candidates[Math.floor(clock / 26) % 3].id; actor.path = [];
+      actor.scanRoof = candidates[Math.floor(clock / 14) % 3].id; actor.path = [];
     }
     actor.scanning = scan;
     if (!scan) { actor.scanTarget = null; return; }
     const roof = hangar.scanSurfaces.find(item => item.id === actor.scanRoof)!;
-    const progress = (phase - 21.5) / 4.5;
+    const progress = (phase - 9) / 5;
     actor.scanTarget ??= new THREE.Vector3();
     if ('mesh' in roof && roof.mesh instanceof THREE.Mesh) {
       actor.scanTarget.set(Math.sin(progress * Math.PI * 2) * (roof.width / 2 - 0.5), 0.14,
@@ -402,6 +436,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
   }
   function update(dt: number, observation: StealthObservation) {
     if (disposed) return;
+    observerPosition = observation.position;
     elapsed += dt; stepNoiseTime -= dt;
     for (let index = volleys.length - 1; index >= 0; index--) {
       volleys[index].life -= dt;
@@ -419,6 +454,12 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
           actor.root.rotation.z = THREE.MathUtils.lerp(0, -1.25, THREE.MathUtils.smoothstep(actor.downTime, 0, 0.6));
         }
         updateBeam(actor); continue;
+      }
+      if (actor.knockdownTime > 0) {
+        actor.knockdownTime = Math.max(0, actor.knockdownTime - dt);
+        actor.root.rotation.z = -knockdownTilt(actor.knockdownTime);
+        actor.beam.visible = actor.footprint.visible = false;
+        continue;
       }
       updateRooftopScan(actor, dt);
       if (!alarmed) {
@@ -470,12 +511,21 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
       updateBeam(actor);
     }
   }
+  function updateTakedown(dt: number, id?: string) {
+    const actor = actors.find(actor => actor.id === id);
+    if (!actor || actor.mode !== 'down') return;
+    actor.mixer?.update(dt); actor.downTime += dt;
+    if (![...actor.actions.keys()].some(name => /death|die|shutdown/i.test(name)))
+      actor.root.rotation.z = -1.25 * THREE.MathUtils.smoothstep(actor.downTime, 0.45, 1.2);
+    updateBeam(actor);
+  }
   function reset() {
-    alarmed = false; encirclement = null; firing = false; elapsed = distractions = stepNoiseTime = 0;
+    clearComicEffects(scene);
+    alarmed = false; silentDroneShot = false; encirclement = null; firing = false; elapsed = distractions = stepNoiseTime = 0;
     for (const volley of volleys) volley.mesh.removeFromParent(); volleys.length = 0;
     actors.forEach((actor, index) => {
-      const reserve = index >= 14, start = actor.route[index % actor.route.length];
-      actor.mode = reserve ? 'reserve' : 'patrol'; actor.suspicion = actor.downTime = 0; actor.health = 50;
+      const reserve = actor.reserve, start = actor.route[index % actor.route.length];
+      actor.mode = reserve ? 'reserve' : 'patrol'; actor.suspicion = actor.downTime = actor.knockdownTime = 0; actor.health = 50;
       actor.root.position.set(start.x, hangar.deckY + (actor.kind === 'eye' ? 3.8 : 0), start.z);
       actor.root.rotation.set(0, index % 2 ? Math.PI : Math.PI / 2, 0);
       actor.routeIndex = index % actor.route.length; actor.path = []; actor.target = actor.lastNoise = null;
@@ -485,12 +535,13 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
       actor.body.position.set(start.x, actor.root.position.y + (actor.kind === 'eye' ? 0 : 0.45), start.z);
       actor.body.aabbNeedsUpdate = true; actor.body.collisionResponse = !reserve;
       actor.root.visible = actor.beam.visible = actor.footprint.visible = !reserve;
-      if (actor.light) actor.light.visible = !reserve;
+      if (actor.light) { actor.light.intensity = reserve ? 0 : 16; actor.light.shadow.autoUpdate = !reserve; }
       actor.animation = ''; animation(actor, 'walk');
     });
   }
   return { actors, ready: Promise.all(loading).then(() => undefined), navigation, safeZoneFor, isProtected, canSee, emitNoise,
-    getTakedownCandidate, completeTakedown, forceAlarm, formFiringSquad, fireVolley, reset, update,
+    getTakedownCandidate, completeTakedown, forceAlarm, formFiringSquad, fireVolley, reset, update, updateTakedown,
+    consumeSilentDroneShot() { const shot = silentDroneShot; silentDroneShot = false; return shot; },
     get alarmed() { return alarmed; },
     get suspicion() { return Math.max(0, ...actors.map(actor => actor.suspicion)); },
     get distractions() { return distractions; },

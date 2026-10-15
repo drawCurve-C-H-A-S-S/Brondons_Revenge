@@ -1,6 +1,15 @@
 import * as THREE from 'three';
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { createEarthTextures, createEarthGroup, updateEarthGroup } from '../earthTexture.js';
+import { disposeRoom } from '../../helpers/scene/shipRoom.js';
+
+const cockpitGeometry = new Map<string, THREE.BufferGeometry>();
+
+export function preloadEscapeShipGeometry() {
+  const ship = createEscapeShip();
+  disposeRoom(ship.root);
+}
 
 /** The same single-seat shuttle is used in the hangar and in playable space flight. */
 export function createEscapeShip() {
@@ -18,15 +27,23 @@ export function createEscapeShip() {
   const evaluator = new Evaluator(); evaluator.attributes = ['position', 'normal']; evaluator.useGroups = false;
   const cabinCutter = new Brush(new THREE.BoxGeometry(1.7, 3.8, 3.6), hull);
   cabinCutter.position.set(0, 2.37, -0.15); cabinCutter.updateMatrixWorld(true);
-  function carvedHull(geometry: THREE.BufferGeometry, material: THREE.Material) {
+  function carvedHull(key: string, geometry: THREE.BufferGeometry, material: THREE.Material) {
+    const prepared = cockpitGeometry.get(key);
+    if (prepared) {
+      geometry.dispose();
+      const mesh = new THREE.Mesh(prepared.clone(), material);
+      mesh.castShadow = mesh.receiveShadow = true; root.add(mesh);
+      return mesh;
+    }
     const source = new Brush(geometry, material); source.updateMatrixWorld(true);
     const result = evaluator.evaluate(source, cabinCutter, SUBTRACTION);
+    cockpitGeometry.set(key, result.geometry.clone());
     const mesh = new THREE.Mesh(result.geometry, material); mesh.castShadow = mesh.receiveShadow = true; root.add(mesh);
     source.disposeCacheData(); geometry.dispose(); return mesh;
   }
   const fuselageGeometry = new THREE.CylinderGeometry(1.3, 1.05, 6.5, 20);
   fuselageGeometry.rotateX(Math.PI / 2); fuselageGeometry.scale(1, 0.55, 1); fuselageGeometry.translate(0, 0.95, 0);
-  const fuselage = carvedHull(fuselageGeometry, hull); fuselage.name = 'ShuttleHullWithCockpitCutout';
+  const fuselage = carvedHull('fuselage', fuselageGeometry, hull); fuselage.name = 'ShuttleHullWithCockpitCutout';
   for (const side of [-1, 1]) {
     box([0.2, 0.8, 3.35], [side * 1.04, 1.06, -0.22], hull);
     box([0.24, 0.14, 3.45], [side * 1.04, 1.52, -0.22], dark);
@@ -35,8 +52,8 @@ export function createEscapeShip() {
     for (const index of [0, 1, 2]) box([0.1, 0.025, 0.1], [side * 0.92, 1.84, -0.7 + index * 0.25], index === 0 ? orange : glow);
   }
   box([1.8, 0.12, 3.2], [0, 0.5, -0.16], dark);
-  carvedHull(new THREE.BoxGeometry(1.9, 0.82, 0.18).translate(0, 1.29, 1.47), hull);
-  carvedHull(new THREE.BoxGeometry(1.9, 0.28, 1.22).translate(0, 1.29, -2.34), hull);
+  carvedHull('rear-bulkhead', new THREE.BoxGeometry(1.9, 0.82, 0.18).translate(0, 1.29, 1.47), hull);
+  carvedHull('front-bulkhead', new THREE.BoxGeometry(1.9, 0.28, 1.22).translate(0, 1.29, -2.34), hull);
   cabinCutter.disposeCacheData(); cabinCutter.geometry.dispose();
   const nose = new THREE.Mesh(new THREE.ConeGeometry(1.3, 3.2, 8), hull); nose.rotation.x = -Math.PI / 2; nose.scale.z = 0.55; nose.position.set(0, 0.95, -4.85); root.add(nose);
   box([1.8, 0.14, 7.6], [0, 0.42, -0.5], dark);
@@ -228,23 +245,28 @@ export function createEscapePod() {
 }
 
 export function addPlanetBackdrop(scene: THREE.Scene, position: THREE.Vector3, radius: number, starRadius: number) {
-  const data = new Uint8Array(512 * 256 * 4);
-  for (let y = 0; y < 256; y++) for (let x = 0; x < 512; x++) {
-    const lat = (y / 255 - 0.5) * Math.PI, lon = x / 512 * Math.PI * 2;
-    const terrain = Math.sin(lon * 3 + Math.cos(lat * 7)) + Math.cos(lon * 5 - lat * 4) * 0.5 + Math.sin(lon * 13 + lat * 9) * 0.22;
-    const snow = Math.abs(lat) > 1.25, land = terrain > 0.25;
-    const color = snow ? [210, 226, 229] : land ? (terrain > 1 ? [114, 115, 74] : [59, 106, 76]) : [18, 60 + terrain * 5, 107 + terrain * 8];
-    const i = (y * 512 + x) * 4; data.set([color[0], color[1], color[2], 255], i);
+  const earthGroup = createEarthGroup(scene, position, radius, createEarthTextures());
+  earthGroup.name = 'NearestPlanet';
+  function makeStars(count: number, pointSize: number, brightness: number) {
+    const positions = new Float32Array(count * 3);
+    for (let i = 0; i < positions.length; i += 3) {
+      const angle = Math.random() * Math.PI * 2, v = Math.random() * 2 - 1;
+      const r = starRadius * (0.75 + Math.random() * 0.25), sinV = Math.sqrt(1 - v * v);
+      positions[i] = Math.cos(angle) * sinV * r;
+      positions[i + 1] = v * r;
+      positions[i + 2] = Math.sin(angle) * sinV * r;
+    }
+    const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const material = new THREE.PointsMaterial({
+      color: new THREE.Color(brightness, brightness * 0.97, 1), size: starRadius * pointSize, sizeAttenuation: true,
+    });
+    const stars = new THREE.Points(geometry, material); stars.name = 'Starfield'; scene.add(stars);
   }
-  const texture = new THREE.DataTexture(data, 512, 256); texture.colorSpace = THREE.SRGBColorSpace; texture.needsUpdate = true;
-  const planet = new THREE.Mesh(new THREE.SphereGeometry(radius, 64, 48), new THREE.MeshStandardMaterial({ map: texture, roughness: 0.93 })); planet.name = 'NearestPlanet'; planet.position.copy(position); scene.add(planet);
-  const atmosphere = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.025, 64, 48), new THREE.MeshBasicMaterial({ color: 0x59acdd, transparent: true, opacity: 0.13, side: THREE.BackSide, depthWrite: false })); planet.add(atmosphere);
-  const stars = new Float32Array(2400 * 3);
-  for (let i = 0; i < stars.length; i += 3) {
-    const angle = Math.random() * Math.PI * 2, v = Math.random() * 2 - 1, r = starRadius * (0.7 + Math.random() * 0.3);
-    stars[i] = Math.cos(angle) * Math.sqrt(1 - v * v) * r; stars[i + 1] = v * r; stars[i + 2] = Math.sin(angle) * Math.sqrt(1 - v * v) * r;
-  }
-  const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(stars, 3));
-  const starfield = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0xd7e8ff, size: starRadius * 0.0006, sizeAttenuation: true })); starfield.name = 'Starfield'; scene.add(starfield);
-  return planet;
+  makeStars(3000, 0.00045, 0.82);
+  makeStars(600, 0.00090, 1.0);
+  return earthGroup;
+}
+
+export function animatePlanetBackdrop(group: THREE.Group, dt: number): void {
+  updateEarthGroup(group, dt);
 }

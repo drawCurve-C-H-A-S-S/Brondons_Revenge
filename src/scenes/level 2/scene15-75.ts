@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { emitComicEffect } from '../../helpers/scene/comicEffects.js';
 import { predictsCollision } from '../../helpers/scene/flightCollision.js';
 
 export const TOPDOWN_SCRAMBLER_HEALTH = 420;
@@ -9,9 +10,9 @@ const MODEL_FORWARD = new THREE.Vector3(0, 0, -1);
 type Options = {
   scene: THREE.Scene; camera: THREE.PerspectiveCamera; ship: THREE.Group; boss: THREE.Group; rail: number;
   launchBays: THREE.Object3D[]; createInterceptor: () => THREE.Group;
-  shootLaser: (from: THREE.Vector3, to: THREE.Vector3, damage: number, speed?: number) => void;
+  shootLaser: (from: THREE.Vector3, to: THREE.Vector3, damage: number, speed?: number, source?: THREE.Object3D) => void;
   burst: (position: THREE.Vector3, size: number, color?: number) => void;
-  explode?: (position: THREE.Vector3, size: number) => void;
+  explode?: (position: THREE.Vector3, size: number, source?: THREE.Object3D) => void;
   dropShield?: (position: THREE.Vector3) => void;
 };
 type Escort = {
@@ -106,7 +107,9 @@ export function createTopdownPhase({ scene, camera, ship, boss, rail, launchBays
     camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
   }
   function destroyScrambler() {
-    (explode ?? burst)(device.position, 36); device.visible = false; targetable = false;
+    if (explode) explode(device.position, 36, device);
+    else { burst(device.position, 36); emitComicEffect(scene, 'boom', { source: device }); }
+    device.visible = false; targetable = false;
     cameraView(); exitCamera.copy(relative(camera.position, currentRail)); exitCameraRotation.copy(camera.quaternion);
     exitShip.copy(relative(ship.position, currentRail)); exitShipRotation.copy(ship.quaternion);
     exitBoss.copy(relative(boss.position, currentRail));
@@ -175,7 +178,7 @@ export function createTopdownPhase({ scene, camera, ship, boss, rail, launchBays
       }
       escort.fireCd -= dt;
       if (escort.age >= 0.9 && escort.fireCd <= 0 && escort.root.position.z > ship.position.z + 45) {
-        shootLaser(escort.root.position.clone(), ship.position.clone().add(new THREE.Vector3(0, 1, 0)), 10, 155);
+        shootLaser(escort.root.position.clone(), ship.position.clone().add(new THREE.Vector3(0, 1, 0)), 10, 155, escort.root);
         escort.fireCd = random(1.5, 2.2);
       }
       if (escort.age >= 6.1) { escort.active = false; escort.root.visible = false; }
@@ -229,15 +232,18 @@ export function createTopdownPhase({ scene, camera, ship, boss, rail, launchBays
       if (targetable && hasAncestor(object, device)) {
         health = Math.max(0, health - amount); burst(point, 5, 0xff9cac);
         if (health === 0) destroyScrambler();
+        else emitComicEffect(scene, 'hit', { source: device, weapon: 'laser' });
         return true;
       }
       const escort = escorts.find(f => f.active && hasAncestor(object, f.root));
       if (escort) {
         escort.health = Math.max(0, escort.health - amount); burst(point, 3, 0xffcf9c);
         if (escort.health === 0) {
-          escort.active = false; escort.root.visible = false; (explode ?? burst)(escort.root.position, 13);
+          escort.active = false; escort.root.visible = false;
+          if (explode) explode(escort.root.position, 13, escort.root);
+          else { burst(escort.root.position, 13); emitComicEffect(scene, 'boom', { source: escort.root }); }
           if (escort.dropsShield) dropShield?.(escort.root.position.clone());
-        }
+        } else emitComicEffect(scene, 'hit', { source: escort.root, weapon: 'laser', size: 10 });
         return true;
       }
       shieldTime = 0.5; shieldContact.copy(point).sub(boss.position); burst(point, 3, 0xff6680);

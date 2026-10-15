@@ -1,60 +1,74 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import boyUrl from '../../assets/models/boy.glb';
+import { loadBoyModel, loadTexture } from '../../core/loader.js';
+import hideoutImageUrl from '../../assets/textures/sudoers-hideout.png?url';
 import type { createScenePhysics } from '../physics/scenePhysics.js';
 import { createSlidingPortal, roomBox, disposeRoom } from './shipRoom.js';
 import { cargoSign } from './cargoVisuals.js';
 import { createEscapePod, createEscapeShip } from '../../scripts/items/createEscapeShip.js';
 import type { PlayerTransitionState } from '../../scripts/player.js';
-import { createJunglePlatformCourse, createFacilityScramblerLauncher, type PlatformProgress } from './junglePlatformCourse.js';
 import { createBreakableDebris } from '../../scripts/breakables.js';
-import { createJungleWater } from './jungleWater.js';
+import { createJungleWater, JUNGLE_WATER_COLORS } from './jungleWater.js';
+import { createJungleTextures } from './jungleTextures.js';
+import waterfallVertex from '../../shaders/waterfall.vert.glsl?raw';
+import waterfallFragment from '../../shaders/waterfall.frag.glsl?raw';
+import waterNoise from '../../shaders/waterNoise.glsl?raw';
+import mountainRock from '../../shaders/mountainRock.glsl?raw';
 
 export interface RescueArrival {
   pilotState?: PlayerTransitionState; hullHealth?: number;
-  platformProgress?: PlatformProgress;
-  scramblerPosition?: THREE.Vector3; scramblerQuaternion?: THREE.Quaternion;
-  scramblerDestroyed?: boolean;
+  waterfallDefeated?: boolean; bossImmunityCollected?: boolean;
+  muralDiscovered?: boolean;
   cameraPosition?: THREE.Vector3; cameraQuaternion?: THREE.Quaternion; cameraFov?: number;
 }
+export interface WaterfallCharacterContact {
+  position: { x: number; y: number; z: number };
+  headY: number;
+  radius: number;
+}
+export const WATERFALL_LEDGE = {
+  minX: -108, maxX: -77.5, minZ: 6, maxZ: 28, y: 0, thickness: 0.8,
+} as const;
 export const RESCUE_SITE = {
   landingOffset: new THREE.Vector3(-66, 0, 72), clearing: new THREE.Vector3(-66, 0, 84),
-  pod: new THREE.Vector3(-60, 1.05, 82), podRotation: new THREE.Euler(0, -2.06, 0.18), ship: new THREE.Vector3(-74, 0, 87),
+  pod: new THREE.Vector3(-60, 1.05, 82), podRotation: new THREE.Euler(0, -2.06, 0.18), ship: new THREE.Vector3(-74, 0.65, 87),
   boy: new THREE.Vector3(-61.8, 0, 85.4), player: new THREE.Vector3(-63, 0.3, 85), doorZ: -55,
   bridge: new THREE.Vector3(-42, 0, 17), riverY: -1.8, riverZ: 17, riverHalfWidth: 7,
-  downstream: new THREE.Vector3(-146, 0.3, 5)
+  mountainX: -84, west: -240, east: 72,
 };
 export const JUNGLE_PATH = new THREE.CatmullRomCurve3([
   [-63, 85], [-59, 67], [-57, 49], [-46, 34], [-42, 26], [-42, 8],
   [-29, -10], [-24, -30], [-7, -41], [0, -51], [0, -59],
 ].map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'centripetal');
 export const JUNGLE_ROUTE = JUNGLE_PATH.getSpacedPoints(240);
-export const RETURN_PATH = new THREE.CatmullRomCurve3([
-  [-146, 5], [-128, 1], [-105, -4], [-83, -7], [-65, -9], [-46, -8], [-29, -10]
+export const WATERFALL_PATH = new THREE.CatmullRomCurve3([
+  [-46, 34], [-62, 31], [-78, 28], [-81, 23], [-81, 17], [-92, 17],
 ].map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'centripetal');
-const RETURN_ROUTE = RETURN_PATH.getSpacedPoints(70);
-/** The same handhold is visible during the river exit and on the downstream bank. */
-export function createRiverExitLog(parent: THREE.Object3D) {
-  const root = new THREE.Group(); root.name = 'DownstreamExitLog'; root.position.set(RESCUE_SITE.downstream.x, -0.85, 11);
-  const bark = new THREE.MeshStandardMaterial({ color: 0x67543b, roughness: 0.95 });
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.55, 5.4, 9), bark);
-  trunk.rotation.z = Math.PI / 2; trunk.castShadow = true; root.add(trunk);
-  for (const x of [-1.4, 1.1]) {
-    const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.25, 2.4, 6), bark);
-    branch.position.set(x, 0.35, -0.8); branch.rotation.x = -0.95; root.add(branch);
+const WATERFALL_ROUTE = WATERFALL_PATH.getSpacedPoints(70);
+const EXPLORATION_PATHS = [
+  [[-63, 120], [-64, 102], [-63, 85]],
+  [[-59, 67], [-33, 92], [10, 104], [49, 82], [46, 50], [14, 32], [-42, 26]],
+  [[-42, 8], [-63, -8], [-71, -49], [-50, -91], [-7, -109], [42, -96], [57, -58], [26, -17], [-29, -10]],
+].map(points => new THREE.CatmullRomCurve3(points.map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'centripetal'));
+const EXPLORATION_ROUTES = EXPLORATION_PATHS.flatMap(path => path.getSpacedPoints(Math.ceil(path.getLength() / 2)));
+const TRAIL_CELLS = new Map<string, THREE.Vector3[]>();
+for (const point of [...JUNGLE_ROUTE, ...WATERFALL_ROUTE, ...EXPLORATION_ROUTES]) {
+  const column = Math.floor(point.x / 8), row = Math.floor(point.z / 8);
+  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+    const key = `${column + dx},${row + dz}`, points = TRAIL_CELLS.get(key) ?? [];
+    points.push(point); TRAIL_CELLS.set(key, points);
   }
-  parent.add(root); return root;
 }
-const entryDirection = JUNGLE_PATH.getTangentAt(0);
+const entryDirection = new THREE.Vector3(0, 0, RESCUE_SITE.doorZ).sub(RESCUE_SITE.player).setY(0).normalize();
 export const JUNGLE_ENTRY_YAW = Math.atan2(-entryDirection.x, -entryDirection.z);
 
 /** Scene-owned resources with identical placement in the landing film and playable exterior. */
-export function createRescueSite(physics: ReturnType<typeof createScenePhysics>, { culling = false, platformer = false, activatedRelays = [], ascendingPillars = false, downstreamPlank = false, bridgeBrokenAtStart = false }: {
-  culling?: boolean; platformer?: boolean; activatedRelays?: readonly string[]; ascendingPillars?: boolean; downstreamPlank?: boolean; bridgeBrokenAtStart?: boolean;
+export function createRescueSite(physics: ReturnType<typeof createScenePhysics>, { culling = false, bridgeBrokenAtStart = false }: {
+  culling?: boolean; bridgeBrokenAtStart?: boolean;
 } = {}) {
-  const scene = new THREE.Scene(); scene.background = new THREE.Color(culling ? 0x698475 : 0x9cae98); scene.fog = new THREE.Fog(0x698475, culling ? 45 : 55, culling ? 132 : 230);
+  const scene = new THREE.Scene(); scene.background = new THREE.Color(culling ? 0x698475 : 0x9cae98); scene.fog = new THREE.Fog(0x698475, 55, 230);
   physics.world.broadphase = new CANNON.SAPBroadphase(physics.world);
+  const surfaceTextures = createJungleTextures();
   const chunkSize = 32;
   type Point = { x: number; y: number; z: number };
   type PhysicsChunk = { bodies: CANNON.Body[]; bounds: THREE.Box3; active: boolean };
@@ -149,14 +163,28 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   const jungleObstacleBodies = new WeakSet<CANNON.Body>();
   type TreePart = { source: THREE.InstancedMesh; index: number };
   const obstacleVisuals = new Map<CANNON.Body, { entry: typeof obstacles[number]; rock?: THREE.Mesh; farMesh?: THREE.Mesh; size?: THREE.Vector3; parts?: TreePart[] }>();
-  const pendingImpacts: Array<{ body: CANNON.Body; from: Point }> = [];
-  const fallingTrees: Array<{ age: number; direction: THREE.Vector3; parts: Array<{ mesh: THREE.InstancedMesh; index: number; rest: THREE.Matrix4; pivot: THREE.Vector3 }> }> = [];
+  const pendingImpacts: Array<{ body: CANNON.Body; from: Point; disintegrate: boolean }> = [];
+  const fallingTrees: Array<{ age: number; direction: THREE.Vector3; disintegrate: boolean; parts: Array<{ mesh: THREE.InstancedMesh; index: number; rest: THREE.Matrix4; pivot: THREE.Vector3 }> }> = [];
   const rockDebris = createBreakableDebris(scene, 0x58654a);
   function breakJungleObstacle(body: CANNON.Body, from: Point) {
-    if (obstacleVisuals.has(body) && !pendingImpacts.some(impact => impact.body === body)) pendingImpacts.push({ body, from: { x: from.x, y: from.y, z: from.z } });
+    if (obstacleVisuals.has(body) && !pendingImpacts.some(impact => impact.body === body)) {
+      pendingImpacts.push({ body, from: { x: from.x, y: from.y, z: from.z }, disintegrate: false });
+    }
+  }
+  function disintegrateTrees(center: Point, radius: number) {
+    const positions: Point[] = [], radiusSquared = radius * radius;
+    for (const [body, visual] of obstacleVisuals) {
+      if (!visual.parts?.length) continue;
+      const dx = visual.entry.x - center.x, dz = visual.entry.z - center.z;
+      if (dx * dx + dz * dz > radiusSquared) continue;
+      if (pendingImpacts.some(impact => impact.body === body)) continue;
+      positions.push({ x: visual.entry.x, y: body.position.y + 8, z: visual.entry.z });
+      pendingImpacts.push({ body, from: { x: center.x, y: center.y, z: center.z }, disintegrate: true });
+    }
+    return positions;
   }
   function applyObstacleImpacts() {
-    for (const { body, from } of pendingImpacts.splice(0)) {
+    for (const { body, from, disintegrate } of pendingImpacts.splice(0)) {
       const visual = obstacleVisuals.get(body); if (!visual) continue;
       obstacleVisuals.delete(body);
       const { entry, rock, farMesh, size, parts } = visual;
@@ -175,7 +203,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
       if (parts) {
         const direction = new THREE.Vector3(entry.x - from.x, 0, entry.z - from.z).normalize();
         if (!direction.lengthSq()) direction.set(1, 0, 0);
-        fallingTrees.push({ age: 0, direction, parts: parts.map(part => {
+        fallingTrees.push({ age: 0, direction, disintegrate, parts: parts.map(part => {
           const { mesh, index } = instanceLocations.get(part.source)![part.index], rest = new THREE.Matrix4();
           mesh.getMatrixAt(index, rest);
           mesh.frustumCulled = false;
@@ -185,19 +213,28 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     }
   }
   const fallMatrix = new THREE.Matrix4(), fallRotation = new THREE.Matrix4(), fallOffset = new THREE.Matrix4(), fallAxis = new THREE.Vector3();
+  const scaleMatrix = new THREE.Matrix4();
   function updateFallingTrees(dt: number) {
     for (let i = fallingTrees.length - 1; i >= 0; i--) {
       const tree = fallingTrees[i]; tree.age = Math.min(1.4, tree.age + dt);
-      const tilt = THREE.MathUtils.smoothstep(tree.age, 0, 1.4) * Math.PI * 0.48;
+      const progress = THREE.MathUtils.smoothstep(tree.age, 0, 1.4);
+      const tilt = progress * (tree.disintegrate ? Math.PI * 0.06 : Math.PI * 0.48);
       fallAxis.set(tree.direction.z, 0, -tree.direction.x);
       fallRotation.makeRotationAxis(fallAxis, tilt);
       for (const { mesh, index, rest, pivot } of tree.parts) {
         mesh.frustumCulled = false;
         fallMatrix.makeTranslation(pivot.x, pivot.y, pivot.z).multiply(fallRotation)
           .multiply(fallOffset.makeTranslation(-pivot.x, -pivot.y, -pivot.z)).multiply(rest);
+        if (tree.disintegrate) {
+          const scale = Math.max(0.001, 1 - progress);
+          fallMatrix.multiply(scaleMatrix.makeScale(scale, scale, scale));
+        }
         mesh.setMatrixAt(index, fallMatrix); mesh.instanceMatrix.needsUpdate = true;
       }
       if (tree.age >= 1.4) {
+        for (const { mesh, index } of tree.parts) {
+          if (tree.disintegrate) { mesh.setMatrixAt(index, scaleMatrix.makeScale(0, 0, 0)); mesh.instanceMatrix.needsUpdate = true; }
+        }
         for (const mesh of new Set(tree.parts.map(part => part.mesh))) {
           mesh.computeBoundingBox(); mesh.computeBoundingSphere(); mesh.frustumCulled = true;
           const chunk = renderChunks.find(item => item.mesh === mesh);
@@ -216,11 +253,19 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     return ((x - RESCUE_SITE.clearing.x) / (25 + margin)) ** 2 + ((z - RESCUE_SITE.clearing.z) / (23 + margin)) ** 2 < 1;
   }
   const facility = (x: number, z: number, margin = 0) => Math.abs(x) < 38 + margin && z < -49 + margin && z > -92 - margin;
-  const routeDistance = (x: number, z: number) => Math.min(nearestPathPoint(x, z).distance, ...RETURN_ROUTE.map(p => Math.hypot(p.x - x, p.z - z)));
+  const routeDistance = (x: number, z: number) => {
+    let distance = Infinity;
+    for (const point of TRAIL_CELLS.get(`${Math.floor(x / 8)},${Math.floor(z / 8)}`) ?? [])
+      distance = Math.min(distance, (point.x - x) ** 2 + (point.z - z) ** 2);
+    return Math.sqrt(distance);
+  };
   let bridgeBroken = false;
   const river = (z: number, margin = 0) => Math.abs(z - RESCUE_SITE.riverZ) < RESCUE_SITE.riverHalfWidth + margin;
-  const isWalkable = (x: number, z: number, radius = 0.6) => Math.abs(x) < 190 && Math.abs(z) < 118
-    && (!river(z) || (!bridgeBroken && Math.abs(x - RESCUE_SITE.bridge.x) < 2.3))
+  const waterfallLedge = (x: number, z: number, radius = 0) => x > WATERFALL_LEDGE.minX + radius
+    && x < WATERFALL_LEDGE.maxX - radius && z > WATERFALL_LEDGE.minZ + radius && z < WATERFALL_LEDGE.maxZ - radius;
+  const isWalkable = (x: number, z: number, radius = 0.6) => x > RESCUE_SITE.west + radius && x < RESCUE_SITE.east - radius && Math.abs(z) < 118
+    && (x > RESCUE_SITE.mountainX + radius || (x > -106 + radius && z > 9 + radius && z < 25 - radius))
+    && (!river(z) || waterfallLedge(x, z, radius) || (!bridgeBroken && Math.abs(x - RESCUE_SITE.bridge.x) < Math.max(0.2, 2.03 - radius)))
     && !facility(x, z) && !obstacles.some(o => Math.hypot(o.x - x, o.z - z) < o.radius + radius);
   const gray = new THREE.MeshStandardMaterial({ color: 0x727b80, roughness: 0.9, metalness: 0.08 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x353e43, roughness: 0.72, metalness: 0.45 });
@@ -238,7 +283,8 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   for (let z = 12; z < 24; z += 3) terrainRows.push({ z, y: -4.5 });
   terrainRows.push({ z: 24, y: -4.5 }, { z: 24, y: 0 });
   for (let z = 27; z <= 120; z += 3) terrainRows.push({ z, y: 0 });
-  const groundGeometry = new THREE.PlaneGeometry(384, 240, 128, terrainRows.length - 1); groundGeometry.rotateX(-Math.PI / 2);
+  const groundGeometry = new THREE.PlaneGeometry(RESCUE_SITE.east - RESCUE_SITE.west, 240, 128, terrainRows.length - 1);
+  groundGeometry.rotateX(-Math.PI / 2); groundGeometry.translate((RESCUE_SITE.east + RESCUE_SITE.west) / 2, 0, 0);
   const colors = new Float32Array(groundGeometry.attributes.position.count * 3);
   for (let i = 0; i < colors.length; i += 3) {
     const row = terrainRows[Math.floor(i / 3 / 129)], x = groundGeometry.attributes.position.getX(i / 3), z = row.z;
@@ -249,17 +295,15 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   groundGeometry.computeVertexNormals();
   groundGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   const ground = new THREE.Mesh(groundGeometry, dirt); ground.receiveShadow = true; scene.add(ground);
-  physics.addBox({ x: 384, y: 4.5, z: 96 }, { x: 0, y: -2.25, z: 72 });
-  physics.addBox({ x: 384, y: 4.5, z: 130 }, { x: 0, y: -2.25, z: -55 });
-  physics.addBox({ x: 384, y: 1, z: 14 }, { x: 0, y: -5, z: RESCUE_SITE.riverZ });
-  for (const side of [-1, 1]) {
-    physics.addBox({ x: 2, y: 60, z: 240 }, { x: side * 191, y: 29, z: 0 });
-    physics.addBox({ x: 384, y: 60, z: 2 }, { x: 0, y: 29, z: side * 119 });
-  }
+  const terrainWidth = RESCUE_SITE.east - RESCUE_SITE.west, terrainCenter = (RESCUE_SITE.east + RESCUE_SITE.west) / 2;
+  physics.addBox({ x: terrainWidth, y: 4.5, z: 96 }, { x: terrainCenter, y: -2.25, z: 72 });
+  physics.addBox({ x: terrainWidth, y: 4.5, z: 130 }, { x: terrainCenter, y: -2.25, z: -55 });
+  physics.addBox({ x: terrainWidth, y: 1, z: 14 }, { x: terrainCenter, y: -5, z: RESCUE_SITE.riverZ });
+  for (const x of [RESCUE_SITE.west + 1, RESCUE_SITE.east - 1]) physics.addBox({ x: 2, y: 120, z: 240 }, { x, y: 59, z: 0 });
+  for (const z of [-119, 119]) physics.addBox({ x: terrainWidth, y: 120, z: 2 }, { x: terrainCenter, y: 59, z });
   const riverWater = createJungleWater(scene, { y: RESCUE_SITE.riverY, z: RESCUE_SITE.riverZ,
     halfWidth: RESCUE_SITE.riverHalfWidth, length: 384 });
   const water = riverWater.mesh;
-  const exitLog = createRiverExitLog(scene); exitLog.visible = !platformer;
   const bridge = new THREE.Group(); bridge.name = 'OldStoneTrailBridge'; bridge.position.copy(RESCUE_SITE.bridge); scene.add(bridge);
   const timber = new THREE.MeshStandardMaterial({ color: 0x61513c, roughness: 0.95 });
   const planks = Array.from({ length: 18 }, (_, i) => {
@@ -267,19 +311,22 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     return { mesh, rest: mesh.position.clone() };
   });
   const supports: Array<{ mesh: THREE.Mesh; rest: THREE.Vector3 }> = [];
+  const railingBodies: CANNON.Body[] = [];
   for (const x of [-2.15, 2.15]) {
     const beam = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.5, 18), timber); beam.position.set(x, -0.18, 0); bridge.add(beam); supports.push({ mesh: beam, rest: beam.position.clone() });
     for (const z of [-8, -4, 0, 4, 8]) {
-      if (platformer && x < 0 && z === 0) continue;
       const post = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.5, 0.2), timber); post.position.set(x, 0.7, z); bridge.add(post); supports.push({ mesh: post, rest: post.position.clone() });
+      railingBodies.push(physics.addBoxFromMesh(post));
     }
-    for (const z of platformer && x < 0 ? [-5.5, 5.5] : [0]) {
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.15, platformer && x < 0 ? 7 : 18), timber);
+    for (const z of [0]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.15, 18), timber);
       rail.position.set(x, 1.3, z); bridge.add(rail); supports.push({ mesh: rail, rest: rail.position.clone() });
+      railingBodies.push(physics.addBox({ x: 0.24, y: 1.35, z: 18 },
+        { x: RESCUE_SITE.bridge.x + x, y: 0.72, z: RESCUE_SITE.bridge.z }));
     }
   }
   const bridgeBody = physics.addBox({ x: 4.8, y: 0.3, z: 18 }, { x: RESCUE_SITE.bridge.x, y: 0.08, z: RESCUE_SITE.bridge.z });
-  const bridgeBodies = [bridgeBody];
+  const bridgeBodies = [bridgeBody, ...railingBodies];
   // Overlap both banks and the deck; the top faces rise continuously from soil to planks.
   for (const side of [-1, 1]) {
     const slope = Math.atan2(0.25, 2.6);
@@ -316,13 +363,288 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     });
   }
   if (bridgeBrokenAtStart) breakBridge(2.4);
-  const platformCourse = platformer ? createJunglePlatformCourse(scene, physics, activatedRelays, { ascendingPillars, downstreamPlank }) : null;
-  riverWater.setObstacles(platformCourse?.root ?? null);
+  const mountain = new THREE.Group(); mountain.name = 'ImpassableWesternMountain'; scene.add(mountain);
+  const cliffMaterial = new THREE.MeshStandardMaterial({
+    name: 'WeatheredMountainRock', color: 0xffffff, roughness: 0.96, metalness: 0.03, side: THREE.DoubleSide,
+  });
+  cliffMaterial.onBeforeCompile = shader => {
+    shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vRockWorldPosition;')
+      .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvRockWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>\nvarying vec3 vRockWorldPosition;\n${mountainRock}`)
+      .replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.rgb *= mountainSurface(vRockWorldPosition);')
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        vec3 rockNormal = inverseTransformDirection(normal, viewMatrix);
+        vec3 rockDx = dFdx(vRockWorldPosition), rockDy = dFdy(vRockWorldPosition);
+        vec3 rockR1 = cross(rockDy, rockNormal), rockR2 = cross(rockNormal, rockDx);
+        float rockDet = dot(rockDx, rockR1);
+        float rockHeight = mountainBump(vRockWorldPosition);
+        vec3 rockGradient = sign(rockDet) * (dFdx(rockHeight) * rockR1 + dFdy(rockHeight) * rockR2);
+        normal = normalize(mat3(viewMatrix) * (max(abs(rockDet), 0.00001) * rockNormal - rockGradient));`);
+  };
+  cliffMaterial.customProgramCacheKey = () => 'weathered-mountain-rock-v1';
+  const ridgeHeight = (z: number) => 76 + Math.sin(z * 0.045) * 9 + Math.cos(z * 0.113) * 6 + Math.sin(z * 0.27) * 2;
+  const faceX = (z: number, height: number) => -81.5 - height * 0.17
+    + Math.sin(z * 0.13 + height * 0.09) * 2.3 + Math.sin(z * 0.38 - height * 0.16) * 0.9;
+  const faceVertices: number[] = [], faceIndices: number[] = [], faceRows = 28, faceColumns = 80;
+  const openingEdges = new Map<string, [number, number]>();
+  function openingEdge(a: number, b: number) {
+    const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+    if (openingEdges.has(key)) openingEdges.delete(key);
+    else openingEdges.set(key, [a, b]);
+  }
+  for (let row = 0; row <= faceRows; row++) for (let column = 0; column <= faceColumns; column++) {
+    const z = -120 + column * 3, y = row === 0 ? -4.5 : (row - 1) / (faceRows - 1) * ridgeHeight(z);
+    faceVertices.push(faceX(z, Math.max(0, y)), y, z);
+  }
+  for (let row = 0; row < faceRows; row++) for (let column = 0; column < faceColumns; column++) {
+    const a = row * (faceColumns + 1) + column, b = a + faceColumns + 1;
+    const z = -120 + (column + 0.5) * 3, y = (faceVertices[a * 3 + 1] + faceVertices[b * 3 + 1]) / 2;
+    if (row > 0 && ((z - 17) / 7.9) ** 2 + ((y - 3) / 5.5) ** 2 < 1) {
+      openingEdge(a, b); openingEdge(b, b + 1); openingEdge(b + 1, a + 1); openingEdge(a + 1, a);
+      continue;
+    }
+    faceIndices.push(a, b, a + 1, a + 1, b, b + 1);
+  }
+
+  // Use the cliff's exact hole boundary as the first tunnel ring, including shared normals.
+  const nextRimVertex = new Map<number, number>();
+  for (const [a, b] of openingEdges.values()) {
+    if (nextRimVertex.has(a)) throw new Error('Waterfall cave opening has an ambiguous boundary');
+    nextRimVertex.set(a, b);
+  }
+  const firstRimVertex = nextRimVertex.keys().next().value;
+  if (firstRimVertex === undefined) throw new Error('Waterfall cave opening is missing');
+  const caveRim: number[] = [];
+  let rimVertex = firstRimVertex;
+  do {
+    caveRim.push(rimVertex);
+    const next = nextRimVertex.get(rimVertex);
+    if (next === undefined || caveRim.length > openingEdges.size) throw new Error('Waterfall cave opening is not a closed loop');
+    rimVertex = next;
+  } while (rimVertex !== firstRimVertex);
+  if (caveRim.length !== openingEdges.size) throw new Error('Waterfall cave has disconnected opening boundaries');
+
+  const caveRings = 12, caveRingIndices = [caveRim];
+  for (let ring = 1; ring <= caveRings; ring++) {
+    const t = ring / caveRings, blend = THREE.MathUtils.smoothstep(t, 0, 0.25), indices: number[] = [];
+    for (const vertex of caveRim) {
+      const x = faceVertices[vertex * 3], y = faceVertices[vertex * 3 + 1], z = faceVertices[vertex * 3 + 2];
+      const angle = Math.atan2((y - 3.35) / 4.6, (z - 17) / 6.9);
+      const radius = 1 + Math.sin(angle * 3 + t * 4.1) * 0.055 + Math.cos(angle * 5 - t * 2.7) * 0.035;
+      const innerY = Math.max(WATERFALL_LEDGE.y, 3.35 + Math.sin(angle) * (4.6 - t * 0.65) * radius);
+      const innerZ = 17 + Math.cos(angle) * (6.9 - t * 0.2) * radius + Math.sin(t * Math.PI) * 0.35;
+      indices.push(faceVertices.length / 3);
+      faceVertices.push(THREE.MathUtils.lerp(x, -108, t),
+        THREE.MathUtils.lerp(y, innerY, blend), THREE.MathUtils.lerp(z, innerZ, blend));
+    }
+    caveRingIndices.push(indices);
+  }
+  for (let ring = 0; ring < caveRings; ring++) for (let side = 0; side < caveRim.length; side++) {
+    const next = (side + 1) % caveRim.length, a = caveRingIndices[ring][side], b = caveRingIndices[ring + 1][side];
+    faceIndices.push(a, caveRingIndices[ring][next], b, caveRingIndices[ring][next], caveRingIndices[ring + 1][next], b);
+  }
+  const caveBack = faceVertices.length / 3;
+  faceVertices.push(-108.35, 3.35, 17);
+  const finalRing = caveRingIndices[caveRings];
+  for (let side = 0; side < caveRim.length; side++)
+    faceIndices.push(caveBack, finalRing[(side + 1) % caveRim.length], finalRing[side]);
+
+  const cliffGeometry = new THREE.BufferGeometry();
+  cliffGeometry.setAttribute('position', new THREE.Float32BufferAttribute(faceVertices, 3)); cliffGeometry.setIndex(faceIndices);
+  cliffGeometry.computeVertexNormals();
+  const cliff = new THREE.Mesh(cliffGeometry, cliffMaterial); cliff.name = 'WesternMountainAndWaterfallCave';
+  cliff.castShadow = cliff.receiveShadow = true; mountain.add(cliff);
+  const ridge = new THREE.PlaneGeometry(142, 240, 24, 60); ridge.rotateX(-Math.PI / 2); ridge.translate(-168, 0, 0);
+  const ridgePositions = ridge.getAttribute('position');
+  for (let index = 0; index < ridgePositions.count; index++) {
+    const x = ridgePositions.getX(index), z = ridgePositions.getZ(index), inland = Math.max(0, (-x - 97) / 142);
+    ridgePositions.setY(index, ridgeHeight(z) + Math.sin(inland * Math.PI) * 25
+      + inland * (Math.sin(z * 0.063 + inland * 9) * 16 + Math.cos(z * 0.11 - inland * 7) * 9));
+  }
+  ridge.computeVertexNormals();
+  const summit = new THREE.Mesh(ridge, cliffMaterial); summit.castShadow = summit.receiveShadow = true; mountain.add(summit);
+  const seamVertices: number[] = [], seamIndices: number[] = [];
+  for (let column = 0; column <= faceColumns; column++) {
+    const z = -120 + column * 3, height = ridgeHeight(z);
+    seamVertices.push(faceX(z, height), height, z, -97, height, z);
+    if (column < faceColumns) { const a = column * 2; seamIndices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+  }
+  const seamGeometry = new THREE.BufferGeometry();
+  seamGeometry.setAttribute('position', new THREE.Float32BufferAttribute(seamVertices, 3)); seamGeometry.setIndex(seamIndices); seamGeometry.computeVertexNormals();
+  const seamMaterial = cliffMaterial.clone(); seamMaterial.side = THREE.DoubleSide;
+  seamMaterial.onBeforeCompile = cliffMaterial.onBeforeCompile; seamMaterial.customProgramCacheKey = cliffMaterial.customProgramCacheKey;
+  mountain.add(new THREE.Mesh(seamGeometry, seamMaterial));
+  for (const [size, position] of [
+    [[156, 100, 129], [-162, 45.5, -55.5]], [[156, 100, 95], [-162, 45.5, 72.5]],
+    [[156, 92, 16], [-162, 54, 17]], [[132, 100, 16], [-174, 45.5, 17]],
+  ] as const) physics.addBox({ x: size[0], y: size[1], z: size[2] }, { x: position[0], y: position[1], z: position[2] });
+  const caveRockGeometry = new THREE.DodecahedronGeometry(1, 0);
+  for (let index = 0; index < 14; index++) {
+    const side = index % 2 ? 1 : -1, x = -84 - Math.floor(index / 2) * 3.3;
+    const rock = new THREE.Mesh(caveRockGeometry, cliffMaterial);
+    rock.position.set(x, 1.3 + Math.sin(index) * 0.25, 17 + side * (7.3 - index * 0.035));
+    rock.scale.set(1.3, 1.7, 1.2); rock.rotation.set(index * 0.2, index, 0); mountain.add(rock);
+    physics.addBox({ x: 2, y: 2.8, z: 1.6 }, rock.position);
+    if (index % 3 === 0) {
+      const stalactite = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.7, 6), cliffMaterial);
+      stalactite.rotation.z = Math.PI; stalactite.position.set(x, 6.4, 17 + side * 3.2); mountain.add(stalactite);
+    }
+  }
+  for (let z = -110; z <= 110; z += 20) {
+    if (z > -2 && z < 36) continue;
+    const face = new THREE.Mesh(new THREE.DodecahedronGeometry(1, 0), cliffMaterial);
+    face.position.set(-87, 25, z); face.scale.set(5, 30 + Math.sin(z) * 5, 13); mountain.add(face);
+  }
+  const ledgeSize = new THREE.Vector3(WATERFALL_LEDGE.maxX - WATERFALL_LEDGE.minX, WATERFALL_LEDGE.thickness,
+    WATERFALL_LEDGE.maxZ - WATERFALL_LEDGE.minZ);
+  const ledge = new THREE.Mesh(new THREE.BoxGeometry(ledgeSize.x, ledgeSize.y, ledgeSize.z), cliffMaterial);
+  ledge.name = 'WaterfallStonePathSupport';
+  ledge.position.set((WATERFALL_LEDGE.minX + WATERFALL_LEDGE.maxX) / 2, WATERFALL_LEDGE.y - ledgeSize.y / 2,
+    (WATERFALL_LEDGE.minZ + WATERFALL_LEDGE.maxZ) / 2);
+  ledge.castShadow = ledge.receiveShadow = true; mountain.add(ledge);
+  const ledgeBody = physics.addBox(ledgeSize, ledge.position);
+  const waterfallRoot = new THREE.Group(); waterfallRoot.name = 'HiddenWaterfallArena'; scene.add(waterfallRoot);
+  const waterfallOrigin = new THREE.Vector3(-80.7, RESCUE_SITE.riverY, 17), waterfallHeight = 84;
+  const waterfallUniforms = {
+    ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog),
+    uTime: { value: 0 }, uHeight: { value: waterfallHeight }, uMode: { value: 0 },
+    uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 1.5) }, uOrigin: { value: waterfallOrigin },
+    uViewportHeight: { value: window.innerHeight },
+    uDeepColor: { value: new THREE.Color(JUNGLE_WATER_COLORS.deep) },
+    uContact: { value: new THREE.Vector4() }, uContactHeight: { value: 0 }, uContactStrength: { value: 0 },
+    uWaterColor: { value: new THREE.Color(JUNGLE_WATER_COLORS.shallow) }, uFoamColor: { value: new THREE.Color(JUNGLE_WATER_COLORS.foam) },
+    uSkyColor: { value: new THREE.Color(JUNGLE_WATER_COLORS.sky) }, uForestColor: { value: new THREE.Color(JUNGLE_WATER_COLORS.forest) },
+    uSunColor: { value: new THREE.Color(JUNGLE_WATER_COLORS.sun) }, uSunDirection: { value: new THREE.Vector3(-40, 90, 30).normalize() },
+  };
+  const waterfallShader = waterfallFragment.replace('#include <jungle_water_noise>', waterNoise);
+  const waterfallMaterial = new THREE.ShaderMaterial({
+    name: 'FlowingWaterfall', uniforms: waterfallUniforms, vertexShader: waterfallVertex, fragmentShader: waterfallShader,
+    side: THREE.DoubleSide, depthWrite: true, toneMapped: true, fog: true,
+  });
+  const waterfallCurtain = new THREE.Mesh(new THREE.PlaneGeometry(16, waterfallHeight, 48, 168), waterfallMaterial);
+  const curtainVertices = waterfallCurtain.geometry.getAttribute('position');
+  for (let index = 0; index < curtainVertices.count; index++) {
+    const t = (curtainVertices.getY(index) + waterfallHeight / 2) / waterfallHeight;
+    curtainVertices.setZ(index, -18 * t * t);
+    curtainVertices.setX(index, curtainVertices.getX(index) * (1 - t * 0.28));
+  }
+  waterfallCurtain.geometry.computeVertexNormals();
+  waterfallCurtain.name = 'RiverWaterfall'; waterfallCurtain.rotation.y = Math.PI / 2;
+  waterfallCurtain.position.copy(waterfallOrigin).add(new THREE.Vector3(0, waterfallHeight / 2, 0)); waterfallCurtain.raycast = () => {};
+  waterfallCurtain.geometry.computeBoundingSphere(); waterfallCurtain.geometry.boundingSphere!.radius += 0.85; waterfallRoot.add(waterfallCurtain);
+  for (const side of [-1, 1]) {
+    const spillway = new THREE.Mesh(caveRockGeometry, cliffMaterial);
+    spillway.name = 'WaterfallRockLip'; spillway.position.set(waterfallOrigin.x - 18, waterfallOrigin.y + waterfallHeight - 0.5, 17 + side * 5.8);
+    spillway.scale.set(3.2, 2.4, 2.8); waterfallRoot.add(spillway);
+  }
+  const foamMaterial = new THREE.ShaderMaterial({
+    name: 'WaterfallImpactFoam', uniforms: { ...waterfallUniforms, uMode: { value: 1 } }, vertexShader: waterfallVertex, fragmentShader: waterfallShader,
+    transparent: true, side: THREE.DoubleSide, depthWrite: false, toneMapped: true, fog: true,
+  });
+  const foam = new THREE.Mesh(new THREE.PlaneGeometry(7, 16, 1, 1), foamMaterial);
+  foam.name = 'WaterfallImpactFoam'; foam.rotation.x = -Math.PI / 2;
+  foam.position.copy(waterfallOrigin).add(new THREE.Vector3(1.6, 0.045, 0)); foam.raycast = () => {}; waterfallRoot.add(foam);
+  const sprayGeometry = new THREE.BufferGeometry(), spraySeeds = new Float32Array(384 * 4);
+  for (let i = 0; i < spraySeeds.length; i++) spraySeeds[i] = random();
+  sprayGeometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(384 * 3), 3));
+  sprayGeometry.setAttribute('aSpray', new THREE.Float32BufferAttribute(spraySeeds, 4));
+  sprayGeometry.boundingBox = new THREE.Box3(new THREE.Vector3(-2, -1, -8), new THREE.Vector3(6, 5, 8));
+  sprayGeometry.boundingSphere = sprayGeometry.boundingBox.getBoundingSphere(new THREE.Sphere());
+  const sprayMaterial = new THREE.ShaderMaterial({
+    name: 'WaterfallSpray', defines: { WATERFALL_SPRAY: 1 }, uniforms: waterfallUniforms,
+    vertexShader: waterfallVertex, fragmentShader: waterfallShader, transparent: true, depthWrite: false, toneMapped: true, fog: true,
+  });
+  const spray = new THREE.Points(sprayGeometry, sprayMaterial);
+  spray.name = 'WaterfallSpray'; spray.position.copy(waterfallOrigin); spray.raycast = () => {}; waterfallRoot.add(spray);
+
+  const droplets = Array.from({ length: 128 }, () => ({
+    position: new THREE.Vector3(), velocity: new THREE.Vector3(), age: 0, life: 0, size: 0,
+  }));
+  const dropletPositions = new Float32Array(droplets.length * 3), dropletAppearance = new Float32Array(droplets.length * 2);
+  const contactGeometry = new THREE.BufferGeometry();
+  const contactPositions = new THREE.BufferAttribute(dropletPositions, 3).setUsage(THREE.DynamicDrawUsage);
+  const contactAppearance = new THREE.BufferAttribute(dropletAppearance, 2).setUsage(THREE.DynamicDrawUsage);
+  contactGeometry.setAttribute('position', contactPositions); contactGeometry.setAttribute('aDroplet', contactAppearance);
+  const contactMaterial = new THREE.ShaderMaterial({
+    name: 'WaterfallCharacterSplash', defines: { WATERFALL_CHARACTER_SPLASH: 1 }, uniforms: waterfallUniforms,
+    vertexShader: waterfallVertex, fragmentShader: waterfallShader,
+    transparent: true, depthWrite: false, toneMapped: true, fog: true,
+  });
+  const contactSpray = new THREE.Points(contactGeometry, contactMaterial);
+  contactSpray.name = 'WaterfallCharacterSplash'; contactSpray.userData.minimap = false;
+  contactSpray.frustumCulled = false; contactSpray.visible = false; contactSpray.raycast = () => {};
+  waterfallRoot.add(contactSpray);
+  let dropletCursor = 0, dropletEmission = 0;
+
+  function updateWaterfallContact(dt: number, contact?: WaterfallCharacterContact) {
+    waterfallUniforms.uContactStrength.value = 0;
+    waterfallUniforms.uPixelRatio.value = Math.min(window.devicePixelRatio || 1, 1.5);
+    waterfallUniforms.uViewportHeight.value = window.innerHeight;
+    if (contact) {
+      const { position, radius, headY } = contact, feetY = position.y - radius, height = headY - feetY;
+      if (![position.x, position.y, position.z, radius, headY].every(Number.isFinite) || radius <= 0 || height <= 0)
+        throw new Error('Waterfall contact requires a finite character position, height and radius');
+      const t = THREE.MathUtils.clamp((feetY + height * 0.65 - waterfallOrigin.y) / waterfallHeight, 0, 1);
+      const sheetX = waterfallOrigin.x - 18 * t * t, halfWidth = 8 * (1 - t * 0.28);
+      const crossed = Math.abs(position.z - waterfallOrigin.z) < halfWidth + radius
+        && headY > waterfallOrigin.y && feetY < waterfallOrigin.y + waterfallHeight;
+      const strength = crossed ? 1 - THREE.MathUtils.smoothstep(Math.abs(position.x - sheetX), radius * 0.35, radius + 0.8) : 0;
+      waterfallUniforms.uContact.value.set(position.x, feetY, position.z, radius);
+      waterfallUniforms.uContactHeight.value = height; waterfallUniforms.uContactStrength.value = strength;
+      dropletEmission += dt * strength * 210;
+      while (dropletEmission >= 1) {
+        dropletEmission--;
+        const droplet = droplets[dropletCursor++ % droplets.length], angle = random() * Math.PI * 2;
+        const speed = 1.4 + random() * 2.5;
+        droplet.position.set(position.x + Math.cos(angle) * radius * 0.9,
+          feetY + height * (0.58 + random() * 0.43), position.z + Math.sin(angle) * radius * 0.9);
+        droplet.velocity.set(Math.cos(angle) * speed + 0.65, 0.1 + random() * 1.9, Math.sin(angle) * speed);
+        droplet.age = 0; droplet.life = 0.28 + random() * 0.3; droplet.size = 0.018 + random() * 0.025;
+      }
+      if (!strength) dropletEmission = 0;
+    } else dropletEmission = 0;
+
+    let activeDroplets = 0;
+    for (let index = 0; index < droplets.length; index++) {
+      const droplet = droplets[index];
+      if (droplet.life > 0) {
+        droplet.age += dt; droplet.velocity.y -= 9.82 * dt; droplet.position.addScaledVector(droplet.velocity, dt);
+        const surface = waterfallLedge(droplet.position.x, droplet.position.z) ? WATERFALL_LEDGE.y : RESCUE_SITE.riverY;
+        if (droplet.age >= droplet.life || droplet.position.y < surface + 0.025) droplet.life = 0;
+      }
+      if (droplet.life > 0) {
+        droplet.position.toArray(dropletPositions, index * 3);
+        dropletAppearance[index * 2] = droplet.size;
+        dropletAppearance[index * 2 + 1] = 1 - THREE.MathUtils.smoothstep(droplet.age / droplet.life, 0.1, 1);
+        activeDroplets++;
+      } else dropletAppearance[index * 2 + 1] = 0;
+    }
+    contactSpray.visible = activeDroplets > 0;
+    if (contactSpray.visible) { contactPositions.needsUpdate = true; contactAppearance.needsUpdate = true; }
+  }
+  const caveLight = new THREE.PointLight(0x9dc4b4, 18, 22); caveLight.position.set(-90, 4.8, 17); waterfallRoot.add(caveLight);
+  const seal = new THREE.Mesh(new THREE.PlaneGeometry(16, 8),
+    new THREE.MeshBasicMaterial({ color: 0xaf72ff, transparent: true, opacity: 0.38, side: THREE.DoubleSide, depthWrite: false }));
+  seal.name = 'WaterfallArenaSeal'; seal.rotation.y = Math.PI / 2; seal.position.set(-83.7, 4, 17); seal.visible = false; waterfallRoot.add(seal);
+  const sealBody = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(0.25, 4, 8)) });
+  sealBody.position.set(-83.7, 4, 17);
+  const waterfall = {
+    root: waterfallRoot, center: new THREE.Vector3(-97, 0, 17), bounds: new THREE.Box3(new THREE.Vector3(-106, 0, 9), new THREE.Vector3(-84, 8, 25)),
+    support: { mesh: ledge, body: ledgeBody, bounds: WATERFALL_LEDGE },
+    get contactStrength() { return waterfallUniforms.uContactStrength.value; },
+    contains(point: Point) { return point.x < -85 && point.x > -106 && point.z > 9 && point.z < 25 && point.y < 7; },
+    setLocked(locked: boolean) {
+      seal.visible = locked;
+      if (locked && sealBody.world !== physics.world) physics.world.addBody(sealBody);
+      else if (!locked && sealBody.world === physics.world) physics.world.removeBody(sealBody);
+    },
+    get locked() { return sealBody.world === physics.world; },
+  };
   const farRockGeometry = new THREE.IcosahedronGeometry(1, 0);
   const rockGeometry = new THREE.DodecahedronGeometry(1, 0), rockMaterial = new THREE.MeshStandardMaterial({ color: 0x58654a, roughness: 1 });
   for (let i = 0; i < 100; i++) {
     const x = (random() - 0.5) * 374, z = (random() - 0.5) * 230;
-    if (river(z, 3) || clearing(x, z, 2) || facility(x, z, 3) || routeDistance(x, z) < 6) continue;
+    if (x < RESCUE_SITE.mountainX + 3 || x > RESCUE_SITE.east - 3 || river(z, 3) || clearing(x, z, 2) || facility(x, z, 3) || routeDistance(x, z) < 6) continue;
     const rock = new THREE.Mesh(rockGeometry, rockMaterial); const s = 0.5 + (i % 7) * 0.32;
     rock.position.set(x, s * 0.45, z); rock.scale.set(s * 1.3, s * 0.8, s); rock.rotation.set(i, i * 0.4, 0); rock.castShadow = true; scene.add(rock);
     const bounds = new THREE.Box3().setFromObject(rock), rockBody = physics.addBox(bounds.getSize(new THREE.Vector3()), bounds.getCenter(new THREE.Vector3()));
@@ -337,17 +659,24 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     const entry = { x, z, radius: bounds.getSize(new THREE.Vector3()).length() * 0.5 };
     obstacles.push(entry); obstacleVisuals.set(rockBody, { entry, rock, farMesh, size: bounds.getSize(new THREE.Vector3()) });
   }
-  const barkCanvas = document.createElement('canvas'); barkCanvas.width = 128; barkCanvas.height = 256;
-  const barkContext = barkCanvas.getContext('2d')!; barkContext.fillStyle = '#493c29'; barkContext.fillRect(0, 0, 128, 256);
-  for (let i = 0; i < 180; i++) {
-    barkContext.fillStyle = i % 3 ? '#62513a' : '#292e20';
-    barkContext.fillRect(random() * 128, random() * 256, 1 + random() * 4, 12 + random() * 85);
-  }
-  const barkTexture = new THREE.CanvasTexture(barkCanvas); barkTexture.colorSpace = THREE.SRGBColorSpace;
-  const bark = new THREE.MeshStandardMaterial({ map: barkTexture, roughness: 1 });
-  const foliage = new THREE.MeshStandardMaterial({ color: 0x547e35, roughness: 1, flatShading: true });
+  const bark = new THREE.MeshStandardMaterial({ map: surfaceTextures.bark, roughness: 1 });
+  const foliage = new THREE.MeshStandardMaterial({ color: 0xb0c69c, map: surfaceTextures.leaves, bumpMap: surfaceTextures.leaves,
+    bumpScale: 0.045, roughness: 1 });
+  const canopyWind = { value: 0 };
+  foliage.onBeforeCompile = shader => {
+    shader.uniforms.uCanopyWind = canopyWind;
+    shader.vertexShader = 'uniform float uCanopyWind;\n' + shader.vertexShader;
+    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+      float canopyPhase = uCanopyWind;
+      #ifdef USE_INSTANCING
+        canopyPhase += instanceMatrix[3].x * 0.07 + instanceMatrix[3].z * 0.11;
+      #endif
+      transformed.x += sin(canopyPhase * 0.9 + position.y * 1.7) * 0.08;
+      transformed.z += cos(canopyPhase * 0.7 + position.x * 1.3) * 0.05;`);
+  };
+  foliage.customProgramCacheKey = () => 'textured-jungle-canopy-wind-v1';
   const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.65, 1, 1, 7), bark, 1200);
-  const crowns = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), foliage, 4800);
+  const crowns = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 2), foliage, 4800);
   const branches = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.15, 0.38, 1, 5), bark, 3600);
   const vines = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.025, 0.04, 1, 5), new THREE.MeshStandardMaterial({ color: 0x536338, roughness: 1 }), 2400);
   trunks.name = 'JungleTrunks'; crowns.name = 'JungleCanopy'; branches.name = 'JungleBranches'; vines.name = 'HangingVines';
@@ -387,11 +716,12 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     addJungleBatch(mesh, mesh === vines ? 38 : mesh === branches ? 60 : 145, mesh === crowns);
   }
   const leaf = new THREE.Shape(); leaf.moveTo(0, 0); leaf.quadraticCurveTo(-0.48, 0.42, 0, 1); leaf.quadraticCurveTo(0.48, 0.42, 0, 0);
-  const fronds = new THREE.InstancedMesh(new THREE.ShapeGeometry(leaf, 5), new THREE.MeshStandardMaterial({ color: 0x669642, roughness: 0.9, side: THREE.DoubleSide }), 21000);
+  const fronds = new THREE.InstancedMesh(new THREE.ShapeGeometry(leaf, 5), new THREE.MeshStandardMaterial({
+    color: 0xa4ba85, map: surfaceTextures.leaves, roughness: 0.9, side: THREE.DoubleSide }), 21000);
   fronds.name = 'JungleFerns'; let frondCount = 0;
   for (let i = 0; i < 3000; i++) {
     const x = (random() - 0.5) * 379, z = (random() - 0.5) * 235;
-    if (river(z, 2) || clearing(x, z) || facility(x, z) || routeDistance(x, z) < 2.5) continue;
+    if (x < RESCUE_SITE.mountainX + 3 || x > RESCUE_SITE.east - 3 || river(z, 2) || clearing(x, z) || facility(x, z) || routeDistance(x, z) < 2.5) continue;
     const scale = 0.7 + random() * 1.1;
     for (let j = 0; j < 7; j++) {
       const angle = j / 7 * Math.PI * 2 + i;
@@ -401,28 +731,23 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     }
   }
   fronds.count = frondCount; fronds.receiveShadow = true; addJungleBatch(fronds, 42);
-  const pathLength = JUNGLE_PATH.getLength(), steps = Math.ceil(pathLength / 1.15);
-  const stones = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.06, 1), new THREE.MeshStandardMaterial({ color: 0x929185, roughness: 1 }), (steps + 1) * 3);
+  const pathLength = JUNGLE_PATH.getLength();
+  const trailSteps = [JUNGLE_PATH, WATERFALL_PATH, ...EXPLORATION_PATHS].map(path => ({ path, steps: Math.ceil(path.getLength() / 1.25) }));
+  const stones = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.65, 0.69, 0.06, 6), new THREE.MeshStandardMaterial({
+    color: 0xc5c4af, map: surfaceTextures.stone, roughness: 1 }), trailSteps.reduce((sum, trail) => sum + trail.steps + 1, 0) * 3);
   stones.name = 'WindingStoneTrail'; let stoneCount = 0;
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps, p = JUNGLE_PATH.getPointAt(t), tangent = JUNGLE_PATH.getTangentAt(t), normal = new THREE.Vector3(tangent.z, 0, -tangent.x);
-    if (river(p.z, 2)) continue;
+  for (const { path, steps } of trailSteps) for (let i = 0; i <= steps; i++) {
+    const t = i / steps, p = path.getPointAt(t), tangent = path.getTangentAt(t), normal = new THREE.Vector3(tangent.z, 0, -tangent.x);
+    if (river(p.z, 2) && !waterfallLedge(p.x, p.z)) continue;
     for (const lane of [-1, 0, 1]) {
       const size = new THREE.Vector3(1.02 + random() * 0.08, 1, 1.06 + random() * 0.1);
-      const center = p.clone().addScaledVector(normal, lane * 1.12); center.y = 0;
+      const center = p.clone().addScaledVector(normal, lane * 1.06); center.y = 0.02;
       const yaw = Math.atan2(tangent.x, tangent.z) + (random() - 0.5) * 0.07;
       instance(stones, stoneCount, center, size, new THREE.Euler(0, yaw, 0));
       stones.setColorAt(stoneCount++, tint.setHSL(0.16 + random() * 0.08, 0.08 + random() * 0.12, 0.56 + random() * 0.2));
-      const body = physics.addBox({ x: size.x, y: 0.06, z: size.z }, center); body.quaternion.setFromEuler(0, yaw, 0); body.aabbNeedsUpdate = true; trackStaticBody(body);
     }
   }
   stones.count = stoneCount; stones.receiveShadow = true; addJungleBatch(stones, 140);
-  for (const t of [0.08, 0.34, 0.65, 0.9]) {
-    const p = RETURN_PATH.getPointAt(t);
-    box([0.18, 0.9, 0.18], [p.x, 0.45, p.z - 2.2], dark);
-    const marker = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.7, 4), new THREE.MeshStandardMaterial({ color: 0xbbd4a0, emissive: 0x425c2f, emissiveIntensity: 0.5 }));
-    marker.rotation.z = -Math.PI / 2; marker.position.set(p.x, 0.95, p.z - 2.2); scene.add(marker);
-  }
   for (const t of [0.16, 0.36, 0.57, 0.78]) {
     const p = JUNGLE_PATH.getPointAt(t), tangent = JUNGLE_PATH.getTangentAt(t);
     const x = p.x + tangent.z * 2.25, z = p.z - tangent.x * 2.25;
@@ -434,8 +759,37 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     mountain.position.set(Math.sin(angle) * 205, 8, Math.cos(angle) * 205); mountain.rotation.y = i; scene.add(mountain);
   }
   box([1, 24, 32], [-35, 12, -71]); box([1, 24, 32], [35, 12, -71]); box([70, 24, 1], [0, 12, -87]);
-  box([71, 0.8, 33], [0, 24, -71], dark); box([70, 0.2, 32], [0, -0.1, -71], dark);
-  const door = createSlidingPortal(scene, physics, { x: 0, y: 0, z: RESCUE_SITE.doorZ, yaw: 0 }, 70, 24, 'AI RESEARCH / ACCESS 17');
+  const muralCanvas = document.createElement('canvas');
+  muralCanvas.width = 2048; muralCanvas.height = Math.round(2048 * 24 / 70);
+  const muralContext = muralCanvas.getContext('2d');
+  if (!muralContext) throw new Error('The facility mural requires a 2D canvas context');
+  const muralTexture = new THREE.CanvasTexture(muralCanvas); muralTexture.colorSpace = THREE.SRGBColorSpace;
+  const mural = new THREE.Mesh(new THREE.PlaneGeometry(70, 24),
+    new THREE.MeshBasicMaterial({ map: muralTexture, toneMapped: false }));
+  mural.name = 'SudoersHideoutBackWall';
+  mural.position.set(0, 12, -87.51); mural.rotation.y = Math.PI;
+  scene.add(mural);
+  const muralReady = loadTexture(hideoutImageUrl).then(source => {
+    try {
+      if (disposed) return;
+      muralContext.drawImage(source.image, 0, 0, muralCanvas.width, muralCanvas.height);
+      muralContext.font = '900 128px Impact, Haettenschweiler, "Franklin Gothic Heavy", sans-serif';
+      muralContext.textAlign = 'center'; muralContext.textBaseline = 'middle'; muralContext.lineJoin = 'round';
+      const x = muralCanvas.width / 2, y = muralCanvas.height / 2;
+      muralContext.strokeStyle = '#f7fbff'; muralContext.lineWidth = 18;
+      muralContext.strokeText('SUDOERS HIDEOUT', x, y);
+      muralContext.strokeStyle = '#17191f'; muralContext.lineWidth = 10;
+      muralContext.strokeText('SUDOERS HIDEOUT', x, y);
+      muralContext.fillStyle = '#ffdb57'; muralContext.fillText('SUDOERS HIDEOUT', x, y);
+      muralTexture.needsUpdate = true;
+    } finally { source.dispose(); }
+  });
+  const facilityRoof = box([71, 0.8, 33], [0, 24, -71], dark);
+  facilityRoof.name = 'RescueSiteFacilityRoof';
+  box([70, 0.2, 32], [0, -0.1, -71], dark);
+  box([30, 24, 1], [-20, 12, RESCUE_SITE.doorZ]); box([30, 24, 1], [20, 12, RESCUE_SITE.doorZ]);
+  box([10, 19, 1], [0, 14.5, RESCUE_SITE.doorZ]);
+  const door = createSlidingPortal(scene, physics, { x: 0, y: 0, z: RESCUE_SITE.doorZ, yaw: 0 }, 10, 5, 'AI RESEARCH / ACCESS');
   for (const x of [-30, -20, -10, 10, 20, 30]) {
     box([1.1, 24.6, 1.4], [x, 12.1, -54.5], dark);
     for (const y of [8, 15, 21]) {
@@ -445,17 +799,31 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   }
   box([10, 0.5, 4], [0, 4.5, -53.5], dark); box([9.5, 0.09, 0.12], [0, 4.17, -51.55], red, false);
   cargoSign(scene, 'C E N T R A L   I N T E L L I G E N C E', [0, 18, -54.2], 22);
+  const rooftopEquipment = new THREE.Group(); rooftopEquipment.name = 'FacilityRooftopEquipment'; scene.add(rooftopEquipment);
   for (const x of [-12, 15]) {
-    box([9, 4, 9], [x, 26, -72], dark); box([9.4, 0.3, 9.4], [x, 28, -72], trim, false);
-    const aerial = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 12, 10), trim); aerial.position.set(x, 30, -72); scene.add(aerial);
+    rooftopEquipment.add(box([9, 4, 9], [x, 26, -72], dark), box([9.4, 0.3, 9.4], [x, 28, -72], trim, false));
+    const aerial = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 12, 10), trim); aerial.position.set(x, 30, -72); rooftopEquipment.add(aerial);
   }
-  const scramblerLauncher = platformer ? createFacilityScramblerLauncher(scene) : null;
-  const turrets = [-11, 11].map(x => {
-    box([2, 1, 2], [x, 6, -53.6], dark);
-    const root = new THREE.Group(); root.position.set(x, 6.8, -53.25); scene.add(root);
-    const dome = new THREE.Mesh(new THREE.SphereGeometry(0.65, 16, 12), dark); root.add(dome);
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 1.8, 12), trim); barrel.rotation.x = Math.PI / 2; barrel.position.z = 0.85; root.add(barrel);
-    const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 8), red); muzzle.position.z = 1.8; root.add(muzzle);
+  const sentinelHull = new THREE.MeshStandardMaterial({ color: 0x324658, metalness: 0.78, roughness: 0.34 });
+  const sentinelArmor = new THREE.MeshStandardMaterial({ color: 0xb5cbd4, metalness: 0.65, roughness: 0.38 });
+  const sentinelGlow = new THREE.MeshBasicMaterial({ color: 0x74dfff });
+  const turrets = [-9, 9].map(x => {
+    box([2, 0.5, 2], [x, 4.5, -53.6], dark);
+    const root = new THREE.Group(); root.name = `FacilityShipSentinel${x < 0 ? 'Left' : 'Right'}`;
+    root.position.set(x, 5, -53.25); scene.add(root);
+    const hull = new THREE.Mesh(new THREE.BoxGeometry(1.65, 0.75, 1.7), sentinelHull); hull.rotation.z = 0.08; root.add(hull);
+    for (const side of [-1, 1]) {
+      const armor = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.6, 2.1), sentinelArmor);
+      armor.position.set(side * 0.9, -0.05, -0.12); armor.rotation.z = side * 0.2; root.add(armor);
+      const engine = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.3, 0.16, 12), sentinelGlow);
+      engine.rotation.x = Math.PI / 2; engine.position.set(side * 0.9, -0.05, -1.22); root.add(engine);
+      const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.18, 1.35), sentinelHull);
+      barrel.position.set(side * 0.43, 0, 1.1); root.add(barrel);
+    }
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.14, 0.05), sentinelGlow);
+    visor.position.set(0, 0.2, 0.88); root.add(visor);
+    const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 8), red); muzzle.position.z = 1.85; root.add(muzzle);
+    root.traverse(node => { if (node instanceof THREE.Mesh) node.castShadow = true; });
     return { root, muzzle };
   });
   const wallMoss = new THREE.MeshStandardMaterial({ color: 0x4e613f, roughness: 1 });
@@ -480,7 +848,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   const boy = new THREE.Group(); boy.name = 'RescuedPodBoy'; boy.position.copy(RESCUE_SITE.boy); scene.add(boy);
   let disposed = false, settled = false, mixer: THREE.AnimationMixer | null = null;
   let idle: THREE.AnimationAction | undefined, walk: THREE.AnimationAction | undefined, walking = false;
-  const ready = new GLTFLoader().loadAsync(boyUrl).then(gltf => {
+  const boyReady = loadBoyModel().then(gltf => {
     if (disposed) { disposeRoom(gltf.scene as unknown as THREE.Scene); return; }
     const model = gltf.scene, bounds = new THREE.Box3().setFromObject(model);
     model.scale.multiplyScalar(1.75 / Math.max(0.01, bounds.getSize(new THREE.Vector3()).y));
@@ -490,8 +858,12 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     const idleClip = gltf.animations.find(c => /idle/i.test(c.name)), walkClip = gltf.animations.find(c => /walk/i.test(c.name));
     if (idleClip) idle = mixer.clipAction(idleClip);
     if (walkClip) walk = mixer.clipAction(walkClip);
-    (walking ? walk ?? idle : idle)?.play(); settled = true;
-  }).catch(error => { settled = true; if (!disposed) console.error('[Rescue] Could not load boy.glb:', error); });
+    (walking ? walk ?? idle : idle)?.play();
+    mixer.update(0);
+  }).catch(error => {
+    if (!disposed) { console.error('[Rescue] Could not load Brendan:', error); throw error; }
+  });
+  const ready = Promise.all([boyReady, muralReady]).then(() => { settled = true; });
   scene.add(new THREE.HemisphereLight(0xd1e2c0, 0x253921, 2));
   const sun = new THREE.DirectionalLight(0xffe3ac, 3.6); sun.position.set(-70, 90, 25); sun.castShadow = true;
   sun.target.position.set(-30, 0, -5); scene.add(sun.target);
@@ -551,10 +923,15 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     return () => { for (const [object, visible] of visibility) object.visible = visible; };
   }
   let windTime = 0;
-  return { scene, ship, pod, boy, door, turrets, ready, pathLength, nearestPathPoint, isWalkable, trackStaticBody, updateActivePhysics, activatePhysicsNear, updateVisibility, prepareMinimap, isReady: () => settled,
+  return { scene, ship, pod, boy, door, mural, facilityRoof, rooftopEquipment, turrets, ready, pathLength, nearestPathPoint, isWalkable, trackStaticBody, updateActivePhysics, activatePhysicsNear, updateVisibility, prepareMinimap, isReady: () => settled,
+    releasePropCulling(root: THREE.Object3D) {
+      const index = distantProps.findIndex(prop => prop.root === root);
+      if (index >= 0) distantProps.splice(index, 1);
+    },
     distanceToSafePath: (x: number, z: number) => routeDistance(x, z), isJungleObstacleBody: (body: CANNON.Body) => obstacleVisuals.has(body), breakJungleObstacle,
+    disintegrateTrees,
     setWalking(value: boolean) { if (value === walking) return; walking = value; (value ? idle : walk)?.fadeOut(0.2); (value ? walk ?? idle : idle)?.reset().fadeIn(0.2).play(); },
-    bridge, water, exitLog, damageBridge, breakBridge, platformCourse, scramblerLauncher,
+    bridge, water, waterfall, mountain, damageBridge, breakBridge,
     setImpact(age: number) {
       crater.visible = age >= 0;
       for (const d of dust) {
@@ -564,10 +941,14 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
         d.mesh.scale.setScalar(0.5 + t * 1.1); d.mesh.material.opacity = Math.max(0, 0.42 * (1 - t / 5));
       }
     },
-    update(dt: number) {
+    update(dt: number, characterContact?: WaterfallCharacterContact) {
+      if (!Number.isFinite(dt) || dt < 0) throw new RangeError('Rescue-site updates require a finite, nonnegative delta');
+      dt = Math.min(dt, 0.1);
       applyObstacleImpacts(); updateFallingTrees(dt); rockDebris.update(dt);
       windTime += dt;
-      platformCourse?.update(dt);
+      canopyWind.value = windTime;
+      waterfallUniforms.uTime.value = windTime;
+      updateWaterfallContact(dt, characterContact);
       riverWater.update(dt);
       if (ship.root.visible) ship.update(dt);
       if (boy.visible) mixer?.update(dt);
@@ -575,6 +956,8 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     },
     dispose() {
       if (disposed) return; disposed = true; mixer?.stopAllAction();
+      waterfall.setLocked(false);
+      if (ledgeBody.world === physics.world) physics.world.removeBody(ledgeBody);
       rockDebris.dispose(); obstacleVisuals.clear(); instanceLocations.clear(); pendingImpacts.length = 0; fallingTrees.length = 0;
       boy.traverse(node => { if (node instanceof THREE.SkinnedMesh) node.skeleton.dispose(); });
       scene.traverse(node => { if (node instanceof THREE.InstancedMesh) node.dispose(); });

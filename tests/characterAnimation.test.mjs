@@ -4,6 +4,7 @@ import { after, before, test } from 'node:test';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createServer } from 'vite';
+import { mockCombatAnimationFetch } from './combatAnimationFixtures.mjs';
 
 let server;
 let loadCharacter;
@@ -43,6 +44,7 @@ async function fixture(t, asset) {
     return this.parseAsync(data.slice(0), '');
   });
   t.mock.method(console, 'log', () => {});
+  mockCombatAnimationFetch(t);
   const character = await loadCharacter(loader);
   assert.ok(character, 'Real model must load');
   const oldWindow = globalThis.window;
@@ -152,6 +154,48 @@ test('wake-up initializes grounded state before the first animation update', asy
   assert.equal(player.getState().isMoving, false);
 });
 
+for (const asset of ['Don.glb', 'MC.glb', 'Subject.glb']) {
+  test(`${asset} loads the slide on its actual skinned joints, including the capital-H head bone`, async t => {
+    const { character, player } = await fixture(t, asset);
+    const slide = character.mixer._actions.find(action => action.getClip().name === 'Slide_Tackle');
+    assert.ok(slide, 'The production character must finish loading with a slide clip');
+    const clip = slide.getClip();
+    assert.equal(clip.duration, 1.4);
+    assert.ok(clip.tracks.some(track => track.name === 'Head.quaternion'));
+    const skins = []; character.model.traverse(node => { if (node.isSkinnedMesh) skins.push(node); });
+    for (const track of clip.tracks) {
+      const { nodeName } = THREE.PropertyBinding.parseTrackName(track.name);
+      const bone = THREE.PropertyBinding.findNode(character.model, nodeName);
+      assert.ok(bone?.isBone, `${track.name} must bind to a real bone`);
+      assert.ok(skins.some(mesh => mesh.skeleton.bones.includes(bone)), `${track.name} must deform the skin`);
+      assert.ok(Array.from(track.values).every(Number.isFinite), `${track.name} must not contain invalid IK results`);
+    }
+    const pose = time => {
+      character.update(0.1, player.body.position, { ...player.getState(), sliding: true, slideTime: time, slideYaw: 0 }, true, player.radius);
+      character.model.updateMatrixWorld(true);
+      return Object.fromEntries(['pelvis', 'Head', 'thigh_l', 'calf_l', 'foot_l', 'thigh_r', 'calf_r', 'foot_r', 'hand_r'].map(name => [
+        name, character.model.getObjectByName(name).getWorldPosition(new THREE.Vector3()),
+      ]));
+    };
+    const standing = pose(0), sliding = pose(0.5);
+    assert.ok(sliding.pelvis.y < standing.pelvis.y - 0.5, 'Hips must drop into a real floor-level slide');
+    assert.ok(sliding.Head.y < standing.Head.y - 0.45, 'Spine and head must follow the lowered pelvis');
+    const knee = suffix => sliding[`thigh_${suffix}`].clone().sub(sliding[`calf_${suffix}`]).normalize()
+      .dot(sliding[`foot_${suffix}`].clone().sub(sliding[`calf_${suffix}`]).normalize());
+    assert.ok(knee('l') < -0.85, 'Leading leg must extend, not form a squat');
+    assert.ok(knee('r') > -0.4, 'Trailing leg must tuck at the knee');
+    assert.ok(sliding.foot_l.y > 0 && sliding.foot_l.y < 0.2, 'Leading heel must skim the floor');
+    assert.ok(sliding.hand_r.y > 0 && sliding.hand_r.y < 0.2, 'Trailing hand must brace close to the floor');
+    for (const track of clip.tracks.filter(track => track.name === 'root.position')) {
+      for (let index = 3; index < track.values.length; index++) {
+        assert.ok(Math.abs(track.values[index] - track.values[index % 3]) < 1e-5, 'Physics must exclusively own root travel');
+      }
+    }
+    const recovered = pose(1.4);
+    assert.ok(recovered.pelvis.y > sliding.pelvis.y + 0.5, 'Recovery must stand the skeleton back up');
+  });
+}
+
 test('grounded WASD selects Walk_Loop and release returns to Idle_Loop', async t => {
   const { frame, key, weight, character } = await fixture(t);
   frame(15);
@@ -182,6 +226,36 @@ test('scripted ladder traversal selects the generated alternating climb loop', a
   player.setClimbing(false);
   frame(30);
   assert.ok(weight('Idle_Loop') > 0.99);
+});
+
+test('vent sprint retains the crouched rig and doubles its crawl animation without a standing sprint', async t => {
+  const { player, character, frame, key, weight } = await fixture(t);
+  player.setVentMode(true); key('keydown', 'KeyW'); frame(20);
+  assert.ok(weight('Crouch_Fwd_Loop') > 0.99);
+  const action = character.mixer._actions.find(action => action.getClip().name === 'Crouch_Fwd_Loop');
+  assert.equal(action.getEffectiveTimeScale(), 1);
+  key('keydown', 'ShiftLeft'); frame(20);
+  assert.equal(player.getState().crouching, true); assert.equal(action.getEffectiveTimeScale(), 2);
+  assert.ok(weight('Crouch_Fwd_Loop') > 0.99);
+  assert.ok(!character.mixer._actions.find(action => action.getClip().name === 'Sprint_Loop')?.isRunning());
+  key('keyup', 'ShiftLeft'); frame(10); assert.equal(action.getEffectiveTimeScale(), 1);
+  key('keyup', 'KeyW'); frame(20); assert.ok(weight('Crouch_Idle_Loop') > 0.99);
+});
+
+test('silent takedown animates the real arms and recovers to locomotion without moving the physics body', async t => {
+  const { player, character, frame, weight } = await fixture(t);
+  const bodyStart = player.body.position.clone();
+  const pose = time => {
+    character.update(0.12, player.body.position, player.getState(), true, player.radius, { clip: 'Silent_Takedown', time });
+    character.model.updateMatrixWorld(true);
+    return character.model.getObjectByName('hand_r').getWorldPosition(new THREE.Vector3());
+  };
+  const reaching = pose(0.35), disabling = pose(0.85), recovered = pose(1.65);
+  assert.ok(reaching.distanceTo(disabling) > 0.06, 'shutdown must articulate the reaching hand');
+  assert.ok(recovered.distanceTo(disabling) > 0.15, 'the hand must return after the shutdown');
+  assert.ok(player.body.position.distanceTo(bodyStart) < 1e-9, 'animation never owns physics travel');
+  character.update(0.1, player.body.position, player.getState(), true, player.radius);
+  frame(30); assert.ok(weight('Idle_Loop') > 0.99);
 });
 
 test('MC crouch lowers the torso while keeping both boots planted', async context => {

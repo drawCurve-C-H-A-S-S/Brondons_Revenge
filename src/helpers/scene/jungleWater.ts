@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import vertexShader from '../../shaders/jungleWater.vert.glsl?raw';
 import fragmentShader from '../../shaders/jungleWater.frag.glsl?raw';
+import waterNoise from '../../shaders/waterNoise.glsl?raw';
+
+export const JUNGLE_WATER_COLORS = {
+  deep: 0x17443f, shallow: 0x4c9680, sky: 0x90afba, forest: 0x344d32, foam: 0xd9e7cd, sun: 0xffe8b9,
+} as const;
 
 /** GPU-driven river surface; the owning scene disposes its geometry and material. */
 export function createJungleWater(scene: THREE.Scene, options: { y: number; z: number; halfWidth: number; length: number }) {
@@ -9,18 +14,18 @@ export function createJungleWater(scene: THREE.Scene, options: { y: number; z: n
     uTime: { value: 0 },
     uRiverZ: { value: options.z },
     uHalfWidth: { value: options.halfWidth },
-    uDeepColor: { value: new THREE.Color(0x17443f) },
-    uShallowColor: { value: new THREE.Color(0x4c9680) },
-    uSkyColor: { value: new THREE.Color(0x90afba) },
-    uForestColor: { value: new THREE.Color(0x344d32) },
-    uFoamColor: { value: new THREE.Color(0xd9e7cd) },
-    uSunColor: { value: new THREE.Color(0xffe8b9) },
+    uDeepColor: { value: new THREE.Color(JUNGLE_WATER_COLORS.deep) },
+    uShallowColor: { value: new THREE.Color(JUNGLE_WATER_COLORS.shallow) },
+    uSkyColor: { value: new THREE.Color(JUNGLE_WATER_COLORS.sky) },
+    uForestColor: { value: new THREE.Color(JUNGLE_WATER_COLORS.forest) },
+    uFoamColor: { value: new THREE.Color(JUNGLE_WATER_COLORS.foam) },
+    uSunColor: { value: new THREE.Color(JUNGLE_WATER_COLORS.sun) },
     uSunDirection: { value: new THREE.Vector3(-40, 90, 30).normalize() },
     uObstacleCount: { value: 0 },
     uObstacles: { value: Array.from({ length: 24 }, () => new THREE.Vector4()) },
   };
   const material = new THREE.ShaderMaterial({
-    name: 'JungleRiverWater', uniforms, vertexShader, fragmentShader,
+    name: 'JungleRiverWater', uniforms, vertexShader, fragmentShader: fragmentShader.replace('#include <jungle_water_noise>', waterNoise),
     fog: true, side: THREE.DoubleSide, depthWrite: true, toneMapped: true,
   });
   const geometry = new THREE.PlaneGeometry(options.length, options.halfWidth * 2, 256, 24);

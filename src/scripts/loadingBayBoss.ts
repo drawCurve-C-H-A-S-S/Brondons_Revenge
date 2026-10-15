@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { emitComicEffect } from '../helpers/scene/comicEffects.js';
 import * as CANNON from 'cannon-es';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { registerPhysicsActor } from '../helpers/physics/scenePhysics.js';
@@ -173,6 +174,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     const target: DamageTarget = { root: mesh, damage(amount, weapon) {
       if (disposed || phaseThree || (phase !== 'flying' && phase !== 'windup') || !player.isEnabled() || weapon !== 'pistol' || hits <= 0 || !Number.isFinite(amount) || amount <= 0) return false;
       hits--; cross.visible = false;
+      emitComicEffect(scene, 'hit', { source: mesh, weapon });
       if (!hits) {
         burst(mesh); mesh.visible = false;
         if (targets.every(t => t.hits() === 0)) beginFall(false);
@@ -186,6 +188,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     if (disposed || !player.isEnabled() || headCooldown > 0 || !Number.isFinite(amount) || amount <= 0
       || (phaseThreeOpen ? weapon !== 'pistol' : phase !== 'exposed' || (weapon !== 'crowbar' && weapon !== 'lightsaber'))) return false;
     health = Math.max(0, health - (phaseThreeOpen ? amount : BOSS_RULES.headDamage)); headCooldown = BOSS_RULES.headCooldown; burst(head);
+    if (health > 0 || !phaseThree) emitComicEffect(scene, 'hit', { source: head, weapon });
     if (!health) {
       if (!phaseThree) {
         enterPhaseThree(); options.onPhaseThree?.();
@@ -223,6 +226,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   }
   function finishBoss() {
     if (phase === 'droneExplosion') options.onDroneExplosionEnd?.();
+    emitComicEffect(scene, 'clank', { source: root });
     phase = 'defeated'; root.visible = false; clearBolts(); removeDrones(); setGravityMode(false);
     for (const { body } of bodies) if (body.world === world) world.removeBody(body);
     onDefeated();
@@ -269,6 +273,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   function droneTargets(): DamageTarget[] {
     return drones.filter(drone => drone.active).map(drone => ({ root: drone.root, damage(amount, weapon) {
       if (disposed || phase !== 'gravity' || !player.isEnabled() || weapon !== 'pistol' || !Number.isFinite(amount) || amount <= 0 || !drone.active) return false;
+      emitComicEffect(scene, 'boom', { source: drone.root });
       drone.active = false; drone.root.visible = false;
       const mesh = drone.root.getObjectByProperty('isMesh', true) as THREE.Mesh | undefined;
       if (mesh) burst(mesh);
@@ -368,6 +373,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
       if (!droneDetonated && droneExplosionClock >= BOSS_RULES.droneDetonateAt) {
         droneDetonated = true;
         for (const drone of drones) if (drone.exploded) {
+          emitComicEffect(scene, 'boom', { source: drone.root });
           blast.position.copy(drone.root.position); blast.visible = true; drone.root.visible = false;
           const mesh = drone.root.getObjectByProperty('isMesh', true) as THREE.Mesh | undefined;
           if (mesh) burst(mesh);
@@ -469,6 +475,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   }
   function fire() {
     const from = muzzles[muzzleIndex++ % 2].getWorldPosition(new THREE.Vector3());
+    emitComicEffect(scene, 'pew', { source: root, position: from });
     const direction = chargedAim.clone().sub(from).normalize();
     const mesh = new THREE.Mesh(geometry, green); mesh.name = 'BossLaser'; mesh.scale.set(0.12, 0.12, 1.2);
     mesh.position.copy(from); mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction); scene.add(mesh);

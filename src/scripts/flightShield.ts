@@ -10,6 +10,24 @@ export function createFlightShield({ scene, ship, texture, iconUrl, hud, camera 
   const coinGeometry = new THREE.CircleGeometry(3.5, 32);
   const coinMaterial = new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.DoubleSide,
     depthWrite: false, depthTest: false, toneMapped: false });
+  const glowGeometry = new THREE.PlaneGeometry(20, 20);
+  const glowMaterial = new THREE.ShaderMaterial({
+    uniforms: { time: { value: 0 } },
+    vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `
+      uniform float time;
+      varying vec2 vUv;
+      void main() {
+        float radius = length(vUv - 0.5) * 2.0;
+        float halo = pow(max(0.0, 1.0 - radius), 2.0);
+        float ring = exp(-pow((radius - 0.52) * 24.0, 2.0));
+        vec3 color = mix(vec3(0.68, 0.28, 1.0), vec3(0.38, 0.94, 1.0), ring);
+        gl_FragColor = vec4(color, (halo * 0.8 + ring * 0.65) * (0.86 + 0.14 * sin(time * 4.0)));
+        #include <colorspace_fragment>
+      }`,
+    transparent: true, blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false,
+    side: THREE.DoubleSide, toneMapped: false,
+  });
   const hologramMaterial = new THREE.ShaderMaterial({
     uniforms: { hologramTime: { value: 0 }, hologramColor: { value: new THREE.Color(0x32a9ff) }, hologramImpact: { value: 0 } },
     vertexShader: hologramVertexShader, fragmentShader: hologramFragmentShader,
@@ -47,7 +65,7 @@ export function createFlightShield({ scene, ship, texture, iconUrl, hud, camera 
   }
   function renderHud() {
     slots.forEach((slot, index) => {
-      const active = remaining > 0 && index === 0;
+      const active = remaining > 0 && index === stored;
       slot.hidden = index >= stored + Number(remaining > 0);
       slot.disabled = remaining > 0;
       slot.classList.toggle('active', active);
@@ -68,6 +86,8 @@ export function createFlightShield({ scene, ship, texture, iconUrl, hud, camera 
     drop(position: THREE.Vector3, railSpeed: number) {
       if (disposed) return;
       const mesh = new THREE.Mesh(coinGeometry, coinMaterial); mesh.name = 'ShieldPowerupCoin'; mesh.position.copy(position);
+      const glow = new THREE.Mesh(glowGeometry, glowMaterial); glow.name = 'ShieldPowerupGlow'; glow.renderOrder = 99;
+      glow.position.z = -0.02; mesh.add(glow);
       mesh.renderOrder = 100; mesh.frustumCulled = false;
       if (camera) mesh.quaternion.copy(camera.quaternion);
       const direction = ship.position.clone().sub(position).normalize();
@@ -78,6 +98,7 @@ export function createFlightShield({ scene, ship, texture, iconUrl, hud, camera 
     update(dt: number, previousShipPosition: THREE.Vector3, pickupRadius: number, canCollect = true) {
       if (disposed) return;
       remaining = Math.max(0, remaining - dt); elapsed += dt;
+      glowMaterial.uniforms.time.value = elapsed;
       hologramMaterial.uniforms.hologramTime.value = elapsed;
       if (remaining > 0) setHologram(true);
       else if (originalMaterials.size) setHologram(false);
@@ -101,7 +122,8 @@ export function createFlightShield({ scene, ship, texture, iconUrl, hud, camera 
         } else drop.mesh.rotation.y += dt * 0.8;
         const end = drop.mesh.position.clone().sub(ship.position);
         const closest = new THREE.Line3(start, end).closestPointToPoint(new THREE.Vector3(), true, new THREE.Vector3());
-        const collected = canCollect && stored < FLIGHT_SHIELD_RULES.capacity && closest.lengthSq() <= pickupRadius * pickupRadius;
+        const collected = canCollect && stored + Number(remaining > 0) < FLIGHT_SHIELD_RULES.capacity
+          && closest.lengthSq() <= pickupRadius * pickupRadius;
         if (collected) stored++;
         if (collected || drop.life <= 0) { scene.remove(drop.mesh); drops.splice(index, 1); }
       }
@@ -111,7 +133,8 @@ export function createFlightShield({ scene, ship, texture, iconUrl, hud, camera 
     dispose() {
       if (disposed) return; disposed = true; clearDrops();
       setHologram(false); hologramMaterial.dispose();
-      coinGeometry.dispose(); coinMaterial.dispose(); texture.dispose(); slots.forEach(slot => slot.remove());
+      coinGeometry.dispose(); coinMaterial.dispose(); glowGeometry.dispose(); glowMaterial.dispose();
+      texture.dispose(); slots.forEach(slot => slot.remove());
     },
   };
 }

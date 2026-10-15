@@ -4,6 +4,7 @@ import { registerPhysicsActor } from '../helpers/physics/scenePhysics.js';
 import { disposeRoom, type PortalFrame } from '../helpers/scene/shipRoom.js';
 import type { Player, PlayerTransitionState } from './player.js';
 import type { DamageTarget } from './pistol.js';
+import { inputHint } from './gamepadInput.js';
 import { CARGO, beltMoving, cargoPosition, laneX, removeCargo, type CargoPuzzleState, type CargoRecord, type CargoRoom } from './cargoPuzzle.js';
 interface CargoObject extends DamageTarget { record: CargoRecord; root: THREE.Group; body: CANNON.Body; }
 /** Stable cargo obstacles and an explicitly controlled, swept player/crate pair. */
@@ -191,7 +192,7 @@ export function createCargoController(scene: THREE.Scene, world: CANNON.World, p
   update(0);
   return { objects, update, interact, release, transfer, accept, destroy,
     held: () => held, nearby: nearest,
-    prompt: () => held ? 'E: release | WASD: move box' : nearest() ? 'E: grab stationary box' : '',
+    prompt: () => inputHint(held ? 'E: release | WASD: move box' : nearest() ? 'E: grab stationary box' : ''),
     getDamageTargets: () => [...objects.values()].filter(item => item.record.breakable),
     setHighlighted: (active: boolean) => { highlighted = active; },
     dispose() { if (disposed) return; disposed = true; release(); unregister(); window.removeEventListener('blur', release); for (const item of [...objects.values()]) removeObject(item); debris.forEach(d => d.mesh.removeFromParent()); shardGeometry.dispose(); shardMaterial.dispose(); },

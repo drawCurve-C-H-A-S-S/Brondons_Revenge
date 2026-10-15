@@ -1,18 +1,23 @@
 import * as THREE from 'three';
 import { clone as cloneRig } from 'three/addons/utils/SkeletonUtils.js';
 import { loadSubjectModel, loadToolModel } from '../../core/loader.js';
+import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
+import { createStealthHangar } from '../level 1 stage 1/stealthHangar.js';
 import hologramVertexShader from '../../shaders/hologram.vert.glsl?raw';
 import hologramFragmentShader from '../../shaders/hologram.frag.glsl?raw';
+import { createEarthTextures, createEarthGroup, updateEarthGroup } from '../../scripts/earthTexture.js';
+import { prepareSceneRendering } from '../../core/renderer.js';
+import { yieldToMainThread } from '../../core/loader.js';
 
 export type PrologueShot = 'present' | 'asteroid' | 'collection' | 'ingest' | 'corruption'
-  | 'capture' | 'laboratory' | 'shield' | 'planet' | 'corridor' | 'patrol';
+  | 'capture' | 'laboratory' | 'shield' | 'planet' | 'corridor' | 'patrol' | 'stealth';
 
 export function createPrologueFlashbacks() {
   const textures = new Set<THREE.Texture>();
   type HologramPose = 'standing' | 'kneeling' | 'carrying' | 'restrained';
   const holograms: Array<{ group: THREE.Group; pose: HologramPose; height: number; mixer?: THREE.AnimationMixer }> = [];
   const scenes: THREE.Scene[] = [];
-  const robots: Array<{ root: THREE.Group; mixer?: THREE.AnimationMixer; phase: number }> = [];
+  const robots: Array<{ root: THREE.Group; mixer?: THREE.AnimationMixer; phase: number; hangar?: boolean; scan?: THREE.Mesh }> = [];
   const cameraRigs: THREE.Group[] = [];
   let disposed = false;
   let clock = 0;
@@ -69,7 +74,7 @@ export function createPrologueFlashbacks() {
     return group;
   }
 
-  const restraintMaterial = new THREE.MeshStandardMaterial({ color: 0x91a8b8, metalness: 0.85, roughness: 0.28 });
+  const restraintMaterial = hologramMaterial;
   const restraintGeometry = new THREE.TorusGeometry(0.018, 0.005, 6, 12);
   const linkUp = new THREE.Vector3(0, 1, 0);
 
@@ -361,38 +366,8 @@ export function createPrologueFlashbacks() {
 
   const planetScene = newScene();
   stars(planetScene);
-  const planetCanvas = document.createElement('canvas');
-  planetCanvas.width = 1024;
-  planetCanvas.height = 512;
-  const planetContext = planetCanvas.getContext('2d')!;
-  planetContext.fillStyle = '#325a66';
-  planetContext.fillRect(0, 0, 1024, 512);
-  for (let landIndex = 0; landIndex < 180; landIndex++) {
-    planetContext.fillStyle = landIndex % 3 ? '#536955' : '#617964';
-    planetContext.beginPath();
-    planetContext.ellipse(noise(landIndex * 4) * 1024, noise(landIndex * 4 + 1) * 512,
-      8 + noise(landIndex * 4 + 2) * 50, 5 + noise(landIndex * 4 + 3) * 24, noise(landIndex + 8) * Math.PI, 0, Math.PI * 2);
-    planetContext.fill();
-  }
-  for (let cloudIndex = 0; cloudIndex < 110; cloudIndex++) {
-    planetContext.fillStyle = 'rgba(219, 233, 226, 0.28)';
-    planetContext.beginPath();
-    planetContext.ellipse(noise(cloudIndex + 1000) * 1024, noise(cloudIndex + 1200) * 512,
-      15 + noise(cloudIndex + 3000) * 80, 3 + noise(cloudIndex + 2000) * 14, -0.15, 0, Math.PI * 2);
-    planetContext.fill();
-  }
-  const planetTexture = new THREE.CanvasTexture(planetCanvas);
-  planetTexture.colorSpace = THREE.SRGBColorSpace;
-  textures.add(planetTexture);
-  const planet = new THREE.Mesh(new THREE.SphereGeometry(5, 64, 48), new THREE.MeshStandardMaterial({ map: planetTexture, roughness: 1 }));
-  planet.position.set(0, 0, -3);
+  const planet = createEarthGroup(planetScene, new THREE.Vector3(0, 0, -3), 5, createEarthTextures());
   planet.rotation.z = 0.22;
-  planetScene.add(planet);
-  const atmosphere = new THREE.Mesh(new THREE.SphereGeometry(5.09, 48, 32), new THREE.MeshBasicMaterial({
-    color: 0x7baab9, transparent: true, opacity: 0.13, side: THREE.BackSide, depthWrite: false,
-  }));
-  atmosphere.position.copy(planet.position);
-  planetScene.add(atmosphere);
   const transport = spacecraft(planetScene, [-5.5, 1, 5], 0.28);
   transport.rotation.y = 0.3;
 
@@ -444,7 +419,13 @@ export function createPrologueFlashbacks() {
     figure(capturedCrew, [(captiveIndex % 2 - 0.5) * 1.5, 0.02, -5 + Math.floor(captiveIndex / 2) * 1.9], 'restrained', 1.8);
   }
   capturedCrew.visible = false;
-  for (let robotIndex = 0; robotIndex < 3; robotIndex++) {
+  const stealthScene = newScene(0x0a0b16, true);
+  stealthScene.fog = new THREE.Fog(0x0a0b16, 28, 120);
+  const stealthPhysics = createScenePhysics();
+  createStealthHangar(stealthScene, stealthPhysics, 0);
+  figure(stealthScene, [19.4, 0.02, 9.7], 'kneeling');
+  const scanMaterial = new THREE.MeshBasicMaterial({ color: 0x7bead3, transparent: true, opacity: 0.13, depthWrite: false, toneMapped: false });
+  function patrolRobot(parent: THREE.Scene, robotIndex: number, x: number, hangar = false) {
     const root = new THREE.Group();
     const shell = new THREE.Mesh(new THREE.SphereGeometry(0.45, 16, 12), darkMetal);
     shell.scale.set(0.85, 0.6, 1.5);
@@ -457,14 +438,22 @@ export function createPrologueFlashbacks() {
       }
     }
     box(root, [0.15, 0.06, 0.03], [0, 0.35, 0.65], redStrip);
-    root.position.x = robotIndex === 2 ? -1.1 : robotIndex % 2 ? 2.1 : -2.1;
-    (robotIndex === 2 ? computerScene : securityScene).add(root);
-    robots.push({ root, phase: robotIndex * 2.2 });
+    root.position.x = x; parent.add(root);
+    let scan: THREE.Mesh | undefined;
+    if (hangar) {
+      const geometry = new THREE.CircleGeometry(7, 32, -Math.PI * 0.22, Math.PI * 0.44); geometry.rotateX(-Math.PI / 2);
+      scan = new THREE.Mesh(geometry, scanMaterial); scan.name = 'StealthPreviewScanField'; parent.add(scan);
+    }
+    robots.push({ root, phase: robotIndex * 2.2, hangar, scan });
   }
+  for (let robotIndex = 0; robotIndex < 3; robotIndex++)
+    patrolRobot(robotIndex === 2 ? computerScene : securityScene, robotIndex, robotIndex === 2 ? -1.1 : robotIndex % 2 ? 2.1 : -2.1);
+  for (const [index, x] of [36.8, 56.6, 69.1].entries()) patrolRobot(stealthScene, index + 3, x, true);
 
   const toolReady = loadToolModel('Enemy_Trilobite').then(gltf => {
     if (disposed) return;
     for (const robot of robots) {
+      robot.root.traverse(node => { if (node instanceof THREE.Mesh) node.geometry.dispose(); });
       robot.root.clear();
       const model = cloneRig(gltf.scene);
       const bounds = new THREE.Box3().setFromObject(model);
@@ -530,7 +519,7 @@ export function createPrologueFlashbacks() {
     present: null, asteroid: asteroidScene, collection: asteroidScene,
     ingest: computerScene, corruption: computerScene, capture: securityScene,
     laboratory: laboratoryScene, shield: shieldScene, planet: planetScene,
-    corridor: securityScene, patrol: securityScene,
+    corridor: securityScene, patrol: securityScene, stealth: stealthScene,
   };
   const focus = new THREE.Vector3();
   const start = new THREE.Vector3();
@@ -575,6 +564,15 @@ export function createPrologueFlashbacks() {
           updateMonitors(1, clock);
         }
         break;
+      case 'stealth':
+        if (elapsed < 3.8) {
+          start.set(19, 6.5, 27); end.set(28, 5.2, 23); focus.set(53, 2.5, 0); fov = 64;
+        } else if (elapsed < 6.4) {
+          start.set(33.2, 1.45, 11); end.set(34.8, 1.3, 8.5); focus.set(36.8, 0.6, -8); fov = 58;
+        } else {
+          start.set(55.8, 3.6, 25); end.set(58, 3.2, 23); focus.set(73, 1.8, 5); fov = 60;
+        }
+        break;
       default: return;
     }
     camera.position.lerpVectors(start, end, progress);
@@ -595,7 +593,7 @@ export function createPrologueFlashbacks() {
       member.position.y = 0.16 + Math.sin(clock * 0.6 + crewIndex) * 0.009;
     });
     surveyShip.position.y = 5 + Math.sin(clock * 0.15) * 0.15;
-    planet.rotation.y = clock * 0.025;
+    updateEarthGroup(planet, dt);
     transport.position.x = -5.5 + Math.sin(clock * 0.15) * 0.8;
     shield.rotation.y = clock * 0.16;
     shieldMaterial.opacity = 0.11 + Math.sin(clock * 3) * 0.025;
@@ -607,9 +605,13 @@ export function createPrologueFlashbacks() {
     });
     robots.forEach((robot, robotIndex) => {
       const travel = Math.sin(clock * 0.28 + robot.phase);
-      robot.root.position.z = robotIndex === 2 ? 0.85 + travel * 0.95 : travel * 8;
+      robot.root.position.z = robot.hangar ? travel * 24 : robotIndex === 2 ? 0.85 + travel * 0.95 : travel * 8;
       robot.root.position.y = Math.abs(Math.sin(clock * 8 + robot.phase)) * 0.018;
       robot.root.rotation.y = Math.cos(clock * 0.28 + robot.phase) > 0 ? 0 : Math.PI;
+      if (robot.scan) {
+        robot.scan.position.copy(robot.root.position); robot.scan.position.y = 0.022;
+        robot.scan.rotation.y = robot.root.rotation.y - Math.PI / 2;
+      }
       robot.mixer?.update(dt);
     });
     if (shot === 'ingest' || shot === 'corruption') {
@@ -620,6 +622,7 @@ export function createPrologueFlashbacks() {
   function dispose() {
     if (disposed) return;
     disposed = true;
+    stealthPhysics.dispose();
     for (const robot of robots) { robot.mixer?.stopAllAction(); if (robot.mixer) robot.mixer.uncacheRoot(robot.mixer.getRoot()); }
     for (const hologram of holograms) {
       hologram.mixer?.stopAllAction();
@@ -642,5 +645,15 @@ export function createPrologueFlashbacks() {
     for (const texture of textures) texture.dispose();
   }
 
-  return { ready: Promise.all([characterReady, toolReady]), sceneFor: (shot: PrologueShot) => shot === lastShot ? currentRenderScene : sceneForShot[shot], update, dispose };
+  const ready = Promise.all([characterReady, toolReady]);
+  return { ready, sceneFor: (shot: PrologueShot) => shot === lastShot ? currentRenderScene : sceneForShot[shot], update, dispose,
+    async prepareRendering(renderer: THREE.WebGLRenderer, camera: THREE.PerspectiveCamera) {
+      await ready;
+      for (const scene of scenes) {
+        if (disposed) throw new Error('Prologue preparation was interrupted');
+        await prepareSceneRendering(renderer, scene, camera);
+        await yieldToMainThread();
+      }
+    },
+  };
 }

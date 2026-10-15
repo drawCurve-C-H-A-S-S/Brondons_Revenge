@@ -39,11 +39,23 @@ async function fixture(t) {
   t.after(() => { data?.dispose(); Object.assign(globalThis, old); });
   globalThis.Audio = class extends EventTarget { load() {} pause() {} play() { return Promise.resolve(); } };
   globalThis.self = globalThis;
-  globalThis.HTMLElement = class {};
+  class Element extends EventTarget {
+    classes = new Set();
+    style = { setProperty(name, value) { this[name] = value; } };
+    classList = { add: (...names) => names.forEach(name => this.classes.add(name)),
+      contains: name => this.classes.has(name), toggle: (name, active) => active ? this.classes.add(name) : this.classes.delete(name) };
+    set className(value) { this.classes = new Set(value.split(/\s+/)); }
+    setAttribute() {}
+    appendChild() {}
+    remove() {}
+    requestPointerLock() {}
+    getContext() { return new Proxy({}, { get: () => () => {} }); }
+  }
+  globalThis.HTMLElement = Element;
   globalThis.window = Object.assign(new EventTarget(), { innerWidth: 1280, innerHeight: 720 });
   globalThis.document = Object.assign(new EventTarget(), {
-    body: { requestPointerLock() {} }, pointerLockElement: null, getElementById: () => null,
-    createElement: () => ({ getContext: () => new Proxy({}, { get: () => () => {} }) }),
+    body: new Element(), pointerLockElement: null, getElementById: () => null,
+    createElement: () => new Element(),
   });
   data = createScene({ checkpoint: true,
     loadBoss: () => parse(bossBytes), loadBoy: () => parse(boyBytes), loadDrone: () => parse(droneJSON, droneBytes),

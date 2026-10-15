@@ -1,11 +1,12 @@
 import * as THREE from 'three';
+import { emitComicEffect } from '../../helpers/scene/comicEffects.js';
 
 export const SCRAMBLER_HEALTH = 280;
 type Options = {
   scene: THREE.Scene; camera: THREE.PerspectiveCamera; ship: THREE.Group; boss: THREE.Group; rail: number;
-  shoot: (from: THREE.Vector3, to: THREE.Vector3, damage: number, speed?: number) => void;
+  shoot: (from: THREE.Vector3, to: THREE.Vector3, damage: number, speed?: number, source?: THREE.Object3D) => void;
   burst: (position: THREE.Vector3, size: number, color?: number) => void;
-  explode?: (position: THREE.Vector3, size: number) => void;
+  explode?: (position: THREE.Vector3, size: number, source?: THREE.Object3D) => void;
 };
 
 /** A continuous camera/encounter phase; the flight world and its hull health remain alive. */
@@ -85,7 +86,9 @@ export function createSidescrollPhase({ scene, camera, ship, boss, rail, shoot, 
   }
   function destroy() {
     if (stage !== 'fight') return;
-    (explode ?? burst)(device.position, 35); device.visible = false; shield.visible = ripple.visible = false; shieldTime = 0;
+    if (explode) explode(device.position, 35, device);
+    else { burst(device.position, 35); emitComicEffect(scene, 'boom', { source: device }); }
+    device.visible = false; shield.visible = ripple.visible = false; shieldTime = 0;
     cameraView(); exitPosition.copy(camera.position); exitRotation.copy(camera.quaternion);
     exitShip.copy(ship.position); exitShipRotation.copy(ship.quaternion);
     exitBoss.copy(boss.position); exitBossRotation.copy(boss.quaternion);
@@ -113,6 +116,7 @@ export function createSidescrollPhase({ scene, camera, ship, boss, rail, shoot, 
       if (stage !== 'fight' || !materialized || !Number.isFinite(amount) || amount <= 0) return;
       health = Math.max(0, health - amount); burst(device.position, 5, 0xb0ffd1);
       if (health === 0) destroy();
+      else emitComicEffect(scene, 'hit', { source: device, weapon: 'laser' });
     },
     applyCamera: cameraView,
     update(dt: number, railZ: number, horizontal: number, vertical: number, evadeDirection: number) {
@@ -161,10 +165,10 @@ export function createSidescrollPhase({ scene, camera, ship, boss, rail, shoot, 
             const gap = Math.sin(elapsed) * 65;
             for (let y = -105; y <= 105; y += 21) {
               if (Math.abs(y - gap) < 27) continue;
-              shoot(new THREE.Vector3(0, y, railZ + 175), new THREE.Vector3(0, y, railZ - 100), 14, 160);
+              shoot(new THREE.Vector3(0, y, railZ + 175), new THREE.Vector3(0, y, railZ - 100), 14, 160, boss);
             }
           } else {
-            for (const dy of [-18, 0, 18]) shoot(from, ship.position.clone().add(new THREE.Vector3(0, dy, 0)), 12, 180);
+            for (const dy of [-18, 0, 18]) shoot(from, ship.position.clone().add(new THREE.Vector3(0, dy, 0)), 12, 180, boss);
           }
         }
       } else {

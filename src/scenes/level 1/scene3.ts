@@ -542,7 +542,7 @@ export function createScene({ audioManager, entryState, entryDoor, hasCrowbar = 
     stuckMessageTime = Math.max(0, stuckMessageTime - dt);
     if (player.isEnabled() && !cargoDoorUnlocked && nearCargoDoor() && prompt) {
       prompt.textContent = stuckMessageTime > 0 ? 'Hmm, it seems this door is stuck. I need a crowbar.'
-        : hasCrowbar ? 'T: equip crowbar · Swing at the door to pry it open' : 'Press E to interact';
+        : hasCrowbar ? 'Hold Tab: select crowbar · Swing at the door to pry it open' : 'Press E to interact';
       prompt.classList.remove('hidden'); ownsPrompt = true;
     } else if (ownsPrompt) { prompt?.classList.add('hidden'); ownsPrompt = false; }
 

@@ -9,6 +9,7 @@ import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { loadToolModel } from '../core/loader.js';
 import { PHYSICS, createGroundMotor, registerPhysicsActor, stepPhysicsWorld } from '../helpers/physics/scenePhysics.js';
 import type { Player } from './player.js';
+import { emitComicEffect } from '../helpers/scene/comicEffects.js';
 
 export interface NPCSceneData {
   scene: THREE.Scene;
@@ -252,6 +253,8 @@ export class NPCEnemyManager {
         this.attackCooldown = 2.5 + this.random() * 2;
       } else if (distanceToPlayer <= this.shootRange && this.hasSight(this.playerFeet(this.active))) {
         this.playAnimation('AttackAuto', false);
+        emitComicEffect(this.active.scene, 'pew', { source: this.model,
+          position: this.model.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.8, 0)) });
         this.active.player.takeDamage(10);
         this.attackCooldown = 1.8 + this.random() * 1.5;
       } else {
@@ -305,10 +308,11 @@ export class NPCEnemyManager {
   }
 
   /** The gun can damage only this registered, living NPC in the active scene. */
-  takeDamage(amount: number) {
-    if (!Number.isFinite(amount) || amount <= 0 || this.owner !== this.active ||
+  takeDamage(amount: number, weapon?: string) {
+    if (!this.active || !Number.isFinite(amount) || amount <= 0 || this.owner !== this.active ||
       (this.state !== 'CHASING' && this.state !== 'PACING')) return false;
     this.health = Math.max(0, this.health - amount);
+    emitComicEffect(this.active.scene, this.health === 0 ? 'clank' : 'hit', { source: this.model, weapon });
     if (this.health === 0) this.disappear();
     else {
       if (this.state === 'PACING') {
@@ -322,7 +326,7 @@ export class NPCEnemyManager {
 
   getDamageTargets() {
     return this.owner === this.active && (this.state === 'PACING' || this.state === 'CHASING')
-      ? [{ root: this.model, damage: (amount: number) => this.takeDamage(amount) }] : [];
+      ? [{ root: this.model, damage: (amount: number, weapon?: string) => this.takeDamage(amount, weapon) }] : [];
   }
 
   private disappear() {

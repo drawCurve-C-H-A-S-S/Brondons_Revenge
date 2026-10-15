@@ -9,7 +9,7 @@ import comicFrag from '../../shaders/comic.frag.glsl?raw';
 import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
 import { HOLOGRAM_TRANSFER_DURATION, hologramTransitionAt } from '../../scripts/characterManager.js';
 import { createScenePhysics, PHYSICS, hasNearbyActor } from '../../helpers/physics/scenePhysics.js';
-import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
+import { Reflector } from 'three/addons/objects/Reflector.js';
 import { createHoldToSkip } from '../../helpers/animation/holdToSkip.js';
 
 export function createScene({ audioManager, skipWake, entryState, openingEntry }: {
