@@ -444,17 +444,19 @@ shot finishes, then transitions to the wider dialogue framing.
   **Enter** to open it. Branden's local bot left a four-digit maintenance password;
   Prime reads it out. **E**, **Esc**, or **Step back** returns to exploration.
 - **Brondon's computer** shows a captured picture of the actual **Play / Don't
-  Play** menu during an unfinished campaign or developer visit. No iframe or
-  embedded audio is loaded in these modes. After genuinely finishing the game
-  and credits, subsequent normal **Play** runs use a live copy of the current
-  build, hosted alongside the outer game, rather than the older workers.dev site.
+  Play** menu during an unfinished normal campaign. No iframe or
+  embedded audio is loaded until unlocked. Developer visits (including the
+  `?living-quarters` development preview) unlock the computer immediately.
+  After genuinely finishing the game
+  and credits, subsequent normal **Play** runs also unlock the live game at
+  `https://lamp.ms.wits.ac.za/students/sgroup3928/brondons-revenge/?muted=1`.
   Press **E** at the unlocked monitor to sit down first, then pan into the game
   with native browser input. **Close screen**
   pans back out and plays the get-up animation before returning control.
   This iframe requests `?muted=1` and disallows autoplay. Embedded copies of this
   game start both music and effects at zero volume for that flag, without
-  overwriting saved audio settings. Using the current build ensures the embedded
-  game includes that mute support without depending on a remote redeployment.
+  overwriting saved audio settings. The deployed game must include that mute
+  support for the flag to take effect.
 - Use the **number panel beside the forward bulkhead** to zoom in. A glowing
   light pointer tracks the selected button without loading a hand model. Click the digits
   or use the number keys, then **OK / Enter**; **Backspace** erases and **CLR**

@@ -489,7 +489,10 @@ async function initializeApp() {
   const preview = new URLSearchParams(window.location.search);
   if (import.meta.env.DEV && ['living-quarters', 'stage1-stealth', 'stage2-infiltration', 'stage2-hub'].some(key => preview.has(key)))
     await prepareGlobalCharacter();
-  if (import.meta.env.DEV && preview.has('living-quarters')) await loadLivingQuarters();
+  if (import.meta.env.DEV && preview.has('living-quarters')) {
+    developerRun = true;
+    await loadLivingQuarters();
+  }
   else if (import.meta.env.DEV && (preview.has('stage1-stealth') || preview.has('stage2-infiltration') || preview.has('stage2-hub'))) {
     hasPistol = true; quartersProgress.pistolCollected = true;
     goggles.collect(false); teleportDevice.collect(false);
@@ -776,7 +779,7 @@ async function loadLivingQuarters(fromPassage = false, entryState?: PlayerTransi
   const source = currentSceneData, request = sceneRequestVersion;
   const sceneData = module.createScene({
     progress: quartersProgress, fromPassage, entryState, deferActivation: true,
-    allowComputerPlay: campaignCompleted && !developerRun,
+    allowComputerPlay: campaignCompleted || developerRun,
     warmRoom: async (scene, camera) => { await prepareSceneRendering(renderer, scene, camera); },
     onPistolCollected: () => { hasPistol = true; introduceControls('pistol'); },
     onCrystalCollected: () => { teleportDevice.collect(); introduceControls('teleport'); },

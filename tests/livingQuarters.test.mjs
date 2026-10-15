@@ -135,7 +135,7 @@ test('Prime blocks cabin gaming during an unfinished campaign without seating or
   assert.equal(elements.get('quarters-subtitle').classList.contains('hidden'), true);
 });
 
-test('the completed-campaign computer embeds the current build with mute enabled', async t => {
+test('the unlocked cabin computer embeds the live site with mute enabled', async t => {
   browser(t);
   const data = await quarters(t, { allowComputerPlay: true });
   step(data, 3);
@@ -144,7 +144,7 @@ test('the completed-campaign computer embeds the current build with mute enabled
   const collect = node => { if (node.tagName === 'IFRAME') frames.push(node); node.children.forEach(collect); };
   collect(document.body);
   assert.equal(frames.length, 1);
-  assert.equal(frames[0].src, 'http://localhost:5173/?muted=1');
+  assert.equal(frames[0].src, 'https://lamp.ms.wits.ac.za/students/sgroup3928/brondons-revenge/?muted=1');
   assert.equal(frames[0].allow, "autoplay 'none'");
   assert.equal(data.scene.getObjectByName('CabinComputerScreen').material.opacity, 0);
 });

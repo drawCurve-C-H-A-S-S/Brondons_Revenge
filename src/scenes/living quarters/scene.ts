@@ -107,7 +107,7 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
     computerReminderTime = 0; subtitle.classList.add('hidden');
   }, () => {
     computerPending = null; player.clearInput(); seating.stand();
-  }, { url: new URL('./', document.baseURI).href, title: "Brondon's Revenge / cabin computer", muted: true });
+  }, { url: 'https://lamp.ms.wits.ac.za/students/sgroup3928/brondons-revenge/?muted=1', title: "Brondon's Revenge / cabin computer", muted: true });
   const seating = createChairSeating({
     scene, camera, player, prompt,
     chairs: () => {
