@@ -150,10 +150,96 @@ export async function loadPlayerModel(loader = playerLoader) {
     const loading = loader === playerLoader ? assetUrl(playerModelUrl).then(source => loader.loadAsync(source))
       : loader.loadAsync(playerModelUrl);
     pending = loading.then(template => {
+      console.log('[GLB] Materials in Don.glb:');
+      template.scene.traverse(node => {
+        if (!(node instanceof THREE.Mesh)) return;
+        const mats = Array.isArray(node.material) ? node.material : [node.material];
+        mats.forEach(mat => {
+          console.log('  -', mat.name, mat.type,
+            'emissive:', (mat as THREE.MeshStandardMaterial).emissive?.getHex(),
+            'color:', (mat as THREE.MeshStandardMaterial).color?.getHex());
+        });
+      });
+
       template.scene.updateMatrixWorld(true);
       template.scene.traverse(node => {
         if (node instanceof THREE.SkinnedMesh) node.skeleton.update();
       });
+      const height = new THREE.Box3().setFromObject(template.scene).getSize(new THREE.Vector3()).y;
+      if (!Number.isFinite(height) || height <= 0) throw new Error('MC character has invalid bounds');
+      template.scene.scale.multiplyScalar((1.83 * 1.2) / height);
+      
+      // Apply 2-tone cell shading: lit at emissive color, dark at 50% emissive
+      template.scene.traverse(node => {
+        if (!(node instanceof THREE.Mesh)) return;
+        const originalMaterial = Array.isArray(node.material) ? node.material[0] : node.material;
+        if (!(originalMaterial instanceof THREE.MeshStandardMaterial)) return;
+
+        console.log('[CellShader] Material:', originalMaterial.name, 'emissive:', originalMaterial.emissive.getHex(), 'color:', originalMaterial.color.getHex());
+
+        // Use emissive if available, otherwise fall back to color
+        const baseColor = originalMaterial.emissive.getHex() !== 0
+          ? originalMaterial.emissive.clone().convertLinearToSRGB()
+          : originalMaterial.color.clone().convertLinearToSRGB();
+        const isSkinned = node instanceof THREE.SkinnedMesh;
+
+        // Skip cell shading for face and eye materials - just output base color
+        const isUnshaded = originalMaterial.name.toLowerCase().includes('faceskin') ||
+                          originalMaterial.name.toLowerCase().includes('eyewhites');
+
+        const vertexShader = `
+          ${isSkinned ? '#include <common>\n#include <skinning_pars_vertex>' : ''}
+          varying vec3 vNormal;
+
+          void main() {
+            ${isSkinned ? '#include <beginnormal_vertex>' : 'vec3 objectNormal = normalize(normal);'}
+            ${isSkinned ? '#include <skinbase_vertex>' : ''}
+            ${isSkinned ? '#include <skinnormal_vertex>' : ''}
+            vNormal = normalize((modelMatrix * vec4(objectNormal, 0.0)).xyz);
+
+            ${isSkinned ? '#include <begin_vertex>' : 'vec3 transformed = position;'}
+            ${isSkinned ? '#include <skinning_vertex>' : ''}
+            ${isSkinned ? '#include <project_vertex>' : 'gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);'}
+          }
+        `;
+
+        const fragmentShader = `
+          uniform vec3 uEmissive;
+          uniform float uUnshaded;
+          varying vec3 vNormal;
+
+          void main() {
+            if (uUnshaded > 0.5) {
+              gl_FragColor = vec4(uEmissive, 1.0);
+            } else {
+              vec3 lightDir = normalize(vec3(0.5, 1.0, 0.5));
+              float ndotl = dot(vNormal, lightDir);
+              float shade = ndotl > -0.1 ? 1.0 : 0.5;
+              gl_FragColor = vec4(uEmissive * shade, 1.0);
+            }
+          }
+        `;
+
+        node.material = new THREE.ShaderMaterial({
+          uniforms: {
+            uEmissive: { value: baseColor },
+            uUnshaded: { value: isUnshaded ? 1.0 : 0.0 }
+          },
+          vertexShader,
+          fragmentShader,
+          ...(isSkinned ? { defines: { USE_SKINNING: '' } } : {})
+        });
+      });
+      
+      const scene = new THREE.Group();
+      scene.name = 'MC Player';
+      scene.add(template.scene);
+      scene.updateMatrixWorld(true);
+      return { ...template, scene, scenes: [scene] };
+    }).catch(error => {
+      playerTemplates.delete(loader);
+      throw error;
+    });
     playerTemplates.set(loader, pending);
   }
   const template = await pending;

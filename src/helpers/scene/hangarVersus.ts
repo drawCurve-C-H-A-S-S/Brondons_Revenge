@@ -6,7 +6,7 @@ export function createHangarVersus({ singleOpponent = false, playerName, opponen
 } = {}) {
   const panels = [new THREE.Scene(), new THREE.Scene()];
   const cameras = [new THREE.PerspectiveCamera(38, 1, 0.02, 80), new THREE.PerspectiveCamera(48, 1, 0.02, 80)];
-  const materials = new Map<THREE.Material, THREE.MeshToonMaterial>();
+  const materials = new Map<THREE.Material, THREE.Material>();
   const models: THREE.Object3D[] = [];
   const ramp = new THREE.DataTexture(new Uint8Array([75, 145, 205, 255]), 4, 1, THREE.RedFormat);
   ramp.minFilter = ramp.magFilter = THREE.NearestFilter; ramp.generateMipmaps = false; ramp.needsUpdate = true;
@@ -62,18 +62,15 @@ export function createHangarVersus({ singleOpponent = false, playerName, opponen
       node.layers.set(0);
       if (!(node instanceof THREE.Mesh)) return;
       node.castShadow = node.receiveShadow = false;
-      const convert = (original: THREE.Material) => {
+      const copy = (original: THREE.Material) => {
         let material = materials.get(original);
         if (!material) {
-          const surface = original as THREE.MeshStandardMaterial;
-          material = new THREE.MeshToonMaterial({ color: surface.color?.clone() ?? new THREE.Color(0xffffff),
-            map: surface.map ?? null, gradientMap: ramp, side: original.side, transparent: original.transparent,
-            opacity: original.opacity, alphaTest: original.alphaTest, visible: original.visible });
+          material = original.clone();
           materials.set(original, material);
         }
         return material;
       };
-      node.material = Array.isArray(node.material) ? node.material.map(convert) : convert(node.material);
+      node.material = Array.isArray(node.material) ? node.material.map(copy) : copy(node.material);
     });
     // Recompute cloned skin bounds only after every bone has its final world matrix.
     model.updateMatrixWorld(true);
@@ -94,7 +91,7 @@ export function createHangarVersus({ singleOpponent = false, playerName, opponen
       const focus = head?.getWorldPosition(new THREE.Vector3()) ?? new THREE.Vector3(0, 1.65, 0);
       focus.y += 0.08;
       if (portraitScale !== 1) playerFrame = { center: focus.clone().add(new THREE.Vector3(0, -0.2, 0)), size: new THREE.Vector3(1.05, 1.3, 0.6) };
-      cameras[0].position.copy(focus).add(new THREE.Vector3(0.35, 0.08, 1.65)); cameras[0].lookAt(focus);
+      cameras[0].position.copy(focus).add(new THREE.Vector3(0.35, 0.08, 1.2)); cameras[0].lookAt(focus);
       if (singleOpponent) {
         const robot = copyModel(crowd[0]); panels[1].add(robot); robot.rotation.y = 0.14; robot.updateMatrixWorld(true);
         robot.traverse(node => { if (node instanceof THREE.SkinnedMesh) node.skeleton.update(); });

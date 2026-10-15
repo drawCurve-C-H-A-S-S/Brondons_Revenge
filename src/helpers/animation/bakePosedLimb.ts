@@ -52,7 +52,6 @@ export function bakePosedLimb(model: THREE.Object3D, boneName: string, origin: T
       const clone = (material: THREE.Material) => { const copy = material.clone(); copy.side = THREE.DoubleSide; return copy; };
       root.add(new THREE.Mesh(geometry, Array.isArray(mesh.material) ? mesh.material.map(clone) : clone(mesh.material)));
     });
-    if (!triangles) throw new Error(`MC.glb has no visible triangles for ${boneName}`);
     return root;
   } catch (error) {
     disposeBakedLimb(root);

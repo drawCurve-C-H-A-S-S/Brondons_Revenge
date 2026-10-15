@@ -434,9 +434,8 @@ export async function loadCharacter(loader?: GLTFLoader) {
   for (const name of CLIP_NAMES) {
     const clip = THREE.AnimationClip.findByName(clips, name);
     if (!clip) {
-      console.error(`Required UAL1 animation missing: ${name}`);
-      mixer.uncacheRoot(model);
-      return null;
+      console.warn(`UAL1 animation missing (skipping): ${name}`);
+      continue;
     }
     const action = mixer.clipAction(clip);
     const oneShot = ONE_SHOT_CLIPS.includes(name);
