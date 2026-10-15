@@ -348,71 +348,165 @@ export function createScene({ entryState, onRespawn, onFinished }: {
   revealLight.position.set(0, MEZZ_Y + 2.4, -14);
   scene.add(revealLight);
 
-  // ── Observation-deck fit-out (fills the containment bay + deck) ────────────
+  // ── Observation-deck fit-out: dark holographic lab (matches the reference) ──
+  const roundedRect = (g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) => {
+    g.beginPath();
+    g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r);
+    g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r);
+    g.arcTo(x, y, x + w, y, r);
+    g.closePath();
+  };
+
+  // Dense glowing circuit-board panel (traces, vias, chips, bright rounded bezel)
   const circuitTexture = () => {
+    const c = document.createElement('canvas'); c.width = 512; c.height = 320;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#02090d'; g.fillRect(0, 0, 512, 320);
+    g.strokeStyle = 'rgba(30,120,120,0.12)'; g.lineWidth = 1;
+    for (let x = 0; x <= 512; x += 32) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, 320); g.stroke(); }
+    for (let y = 0; y <= 320; y += 32) { g.beginPath(); g.moveTo(0, y); g.lineTo(512, y); g.stroke(); }
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    for (let i = 0; i < 90; i++) {
+      const x = (i * 97) % 480 + 16, y = (i * 61) % 290 + 16;
+      const dx = (i % 2 ? 1 : -1) * (24 + (i * 17) % 90), dy = (i % 3 ? 1 : -1) * (18 + (i * 11) % 70);
+      g.strokeStyle = i % 7 === 0 ? 'rgba(200,255,250,1)' : 'rgba(70,245,235,0.78)';
+      g.lineWidth = i % 7 === 0 ? 2.8 : 1.8;
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x + dx, y); g.lineTo(x + dx, y + dy); g.stroke();
+      g.fillStyle = 'rgba(160,255,248,1)'; g.beginPath(); g.arc(x + dx, y + dy, 2.8, 0, Math.PI * 2); g.fill();
+    }
+    for (let i = 0; i < 10; i++) {
+      const x = (i * 167) % 440 + 20, y = (i * 113) % 250 + 30, w = 26 + (i % 3) * 14, h = 18 + (i % 2) * 12;
+      g.fillStyle = 'rgba(6,30,36,0.95)'; roundedRect(g, x, y, w, h, 3); g.fill();
+      g.strokeStyle = 'rgba(70,240,225,0.85)'; g.lineWidth = 1.4; roundedRect(g, x, y, w, h, 3); g.stroke();
+      g.fillStyle = 'rgba(120,255,240,0.85)';
+      for (let p = 0; p < Math.floor(w / 8); p++) { g.fillRect(x + 4 + p * 8, y - 2, 3, 3); g.fillRect(x + 4 + p * 8, y + h - 1, 3, 3); }
+    }
+    g.strokeStyle = 'rgba(150,255,246,1)'; g.lineWidth = 7; roundedRect(g, 10, 10, 492, 300, 26); g.stroke();
+    g.strokeStyle = 'rgba(45,225,215,0.4)'; g.lineWidth = 2; roundedRect(g, 22, 22, 468, 276, 18); g.stroke();
+    return new THREE.CanvasTexture(c);
+  };
+
+  // Holographic blueprint schematic for the big angled display
+  const schematicTexture = () => {
     const c = document.createElement('canvas'); c.width = 512; c.height = 256;
     const g = c.getContext('2d')!;
-    g.fillStyle = '#04141a'; g.fillRect(0, 0, 512, 256);
-    g.strokeStyle = 'rgba(45,225,215,0.8)'; g.lineWidth = 2;
-    for (let i = 0; i < 46; i++) {
-      const x = (i * 97) % 512, y = (i * 61) % 256;
-      const dx = (i % 2 ? 1 : -1) * (30 + (i * 13) % 80);
-      const dy = (i % 3 ? 1 : -1) * (20 + (i * 7) % 60);
-      g.beginPath(); g.moveTo(x, y); g.lineTo(x + dx, y); g.lineTo(x + dx, y + dy); g.stroke();
-    }
-    g.fillStyle = 'rgba(90,255,240,0.9)';
-    for (let i = 0; i < 34; i++) { g.beginPath(); g.arc((i * 131) % 512, (i * 89) % 256, 3, 0, Math.PI * 2); g.fill(); }
+    g.fillStyle = '#03141a'; g.fillRect(0, 0, 512, 256);
+    g.strokeStyle = 'rgba(45,200,200,0.15)'; g.lineWidth = 1;
+    for (let x = 0; x <= 512; x += 24) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, 256); g.stroke(); }
+    for (let y = 0; y <= 256; y += 24) { g.beginPath(); g.moveTo(0, y); g.lineTo(512, y); g.stroke(); }
+    g.strokeStyle = 'rgba(130,255,246,1)'; g.lineWidth = 2.4;
+    g.beginPath(); g.arc(150, 128, 70, 0, Math.PI * 2); g.stroke();
+    g.beginPath(); g.arc(150, 128, 46, 0, Math.PI * 2); g.stroke();
+    g.beginPath(); g.arc(150, 128, 20, 0, Math.PI * 1.5); g.stroke();
+    g.beginPath(); g.moveTo(60, 128); g.lineTo(240, 128); g.moveTo(150, 40); g.lineTo(150, 216); g.stroke();
+    const br = (x: number, y: number, sx: number, sy: number) => { g.beginPath(); g.moveTo(x, y + sy * 22); g.lineTo(x, y); g.lineTo(x + sx * 22, y); g.stroke(); };
+    br(280, 40, 1, 1); br(488, 40, -1, 1); br(280, 216, 1, -1); br(488, 216, -1, -1);
+    for (let i = 0; i < 12; i++) { g.fillStyle = `rgba(55,230,214,${0.35 + 0.05 * i})`; g.fillRect(292 + i * 16, 190 - ((i * 37) % 80), 10, 40 + ((i * 37) % 80)); }
+    g.fillStyle = 'rgba(140,246,234,0.85)';
+    for (let i = 0; i < 6; i++) g.fillRect(292, 52 + i * 10, 60 + ((i * 29) % 120), 3);
     return new THREE.CanvasTexture(c);
   };
-  const schematicTexture = () => {
-    const c = document.createElement('canvas'); c.width = 512; c.height = 200;
+
+  // Glowing touch-pad surface for the console tops
+  const touchTexture = () => {
+    const c = document.createElement('canvas'); c.width = 256; c.height = 128;
     const g = c.getContext('2d')!;
-    g.fillStyle = '#06222a'; g.fillRect(0, 0, 512, 200);
-    g.strokeStyle = '#37e6d6'; g.lineWidth = 2;
-    g.strokeRect(16, 16, 150, 80); g.strokeRect(16, 108, 150, 76);
-    g.strokeRect(182, 16, 314, 110); g.strokeRect(182, 138, 314, 46);
-    g.beginPath(); g.arc(91, 146, 26, 0, Math.PI * 2); g.stroke();
-    g.beginPath(); g.arc(91, 146, 16, 0, Math.PI * 1.4); g.stroke();
-    for (let i = 0; i < 9; i++) { g.fillStyle = `rgba(55,230,214,${0.3 + 0.07 * i})`; g.fillRect(196 + i * 32, 40 + ((i * 29) % 40), 18, 70); }
-    g.fillStyle = '#8ff6ea';
-    for (let i = 0; i < 26; i++) g.fillRect(196 + ((i * 37) % 290), 150 + ((i * 11) % 28), 12, 3);
+    g.fillStyle = '#04141a'; g.fillRect(0, 0, 256, 128);
+    g.strokeStyle = 'rgba(45,225,215,0.45)'; g.lineWidth = 1;
+    for (let x = 0; x <= 256; x += 16) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, 128); g.stroke(); }
+    const pads = [[18, 18, 92, 42], [128, 22, 104, 32], [22, 74, 74, 36], [108, 70, 124, 42]];
+    for (const [px, py, pw, ph] of pads) {
+      g.fillStyle = 'rgba(80,245,235,1)'; roundedRect(g, px, py, pw, ph, 6); g.fill();
+      g.fillStyle = 'rgba(210,255,250,1)'; roundedRect(g, px + 6, py + 6, pw - 12, ph - 12, 4); g.fill();
+    }
     return new THREE.CanvasTexture(c);
   };
-  const deckDark = new THREE.MeshStandardMaterial({ color: 0x0a1820, metalness: 0.6, roughness: 0.45 });
-  const cyanGlow = new THREE.MeshBasicMaterial({ color: 0x37e6d6 });
-  const redGlow = new THREE.MeshBasicMaterial({ color: 0xff4433 });
+
+  const deckDark = new THREE.MeshStandardMaterial({ color: 0x0a1418, metalness: 0.75, roughness: 0.4 });
+  const deckMetal = new THREE.MeshStandardMaterial({ color: 0x1b2b31, metalness: 0.85, roughness: 0.35 });
+  const cyanGlow = new THREE.MeshBasicMaterial({ color: 0x7dfff0 });
+  const redGlow = new THREE.MeshBasicMaterial({ color: 0xff6a55 });
   const circuitMat = new THREE.MeshBasicMaterial({ map: circuitTexture() });
+  const touchMat = new THREE.MeshBasicMaterial({ map: touchTexture() });
 
-  // Circuit-board backdrop across the containment bay's north wall
-  const bayPanel = new THREE.Mesh(new THREE.PlaneGeometry(W * 2 - 2, 2.6), circuitMat);
-  bayPanel.position.set(0, MEZZ_Y + 1.4, -D + 0.12); scene.add(bayPanel);
-  box([W * 2 - 1.4, 0.18, 0.18], [0, MEZZ_Y + 2.8, -D + 0.2], deckDark, false);
-  box([W * 2 - 1.4, 0.18, 0.18], [0, MEZZ_Y + 0.02, -D + 0.2], deckDark, false);
-  const bayStrip = new THREE.Mesh(new THREE.BoxGeometry(W * 2 - 2, 0.06, 0.08), cyanGlow);
-  bayStrip.position.set(0, MEZZ_Y + 0.08, -D + 0.22); scene.add(bayStrip);
-
-  // Big angled schematic display high on the north wall above the pods
-  box([10.8, 2.3, 0.25], [0, MEZZ_Y + 3.4, -D + 0.35], deckDark, false);
-  const display = new THREE.Mesh(new THREE.PlaneGeometry(10.2, 1.8), new THREE.MeshBasicMaterial({ map: schematicTexture() }));
-  display.position.set(0, MEZZ_Y + 3.4, -D + 0.5); display.rotation.x = 0.28; scene.add(display);
-
-  // Cyan ceiling strip lights across the bay / deck
-  for (const cz of [-16, -12, -8, -4, 0]) {
-    const s = new THREE.Mesh(new THREE.BoxGeometry(W * 2 - 3, 0.05, 0.12), cyanGlow);
-    s.position.set(0, CEIL - 0.3, cz); scene.add(s);
+  // A framed circuit panel mounted on a wall (yaw picks which way it faces)
+  function circuitPanel(w: number, h: number, x: number, y: number, z: number, yaw: number) {
+    const grp = new THREE.Group(); grp.position.set(x, y, z); grp.rotation.y = yaw; scene.add(grp);
+    const back = new THREE.Mesh(new THREE.BoxGeometry(w + 0.35, h + 0.35, 0.18), deckDark); grp.add(back);
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(w, h), circuitMat); face.position.z = 0.1; grp.add(face);
+    const t = 0.07;
+    const top = new THREE.Mesh(new THREE.BoxGeometry(w + 0.12, t, t), cyanGlow); top.position.set(0, h / 2, 0.14); grp.add(top);
+    const bot = new THREE.Mesh(new THREE.BoxGeometry(w + 0.12, t, t), cyanGlow); bot.position.set(0, -h / 2, 0.14); grp.add(bot);
+    const left = new THREE.Mesh(new THREE.BoxGeometry(t, h + 0.12, t), cyanGlow); left.position.set(-w / 2, 0, 0.14); grp.add(left);
+    const right = new THREE.Mesh(new THREE.BoxGeometry(t, h + 0.12, t), cyanGlow); right.position.set(w / 2, 0, 0.14); grp.add(right);
   }
 
-  // Long console tables with glowing touch-surfaces and red indicator strips
-  function deckConsole(x: number, z: number, yaw: number) {
-    const g = new THREE.Group(); g.position.set(x, MEZZ_Y + 0.2, z); g.rotation.y = yaw; scene.add(g);
-    const body = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.9, 1.1), deckDark);
-    body.position.y = 0.45; body.castShadow = body.receiveShadow = true; g.add(body);
-    const top = new THREE.Mesh(new THREE.PlaneGeometry(2.9, 0.9), cyanGlow);
-    top.rotation.x = -Math.PI / 2; top.position.set(0, 0.91, 0); g.add(top);
-    const red = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.06, 0.06), redGlow);
-    red.position.set(0, 0.55, 0.56); g.add(red);
-    physics.addBox({ x: 1.6, y: 0.45, z: 0.55 }, { x, y: MEZZ_Y + 0.45, z });
+  // Containment-bay north wall: circuit panels flanking the pods
+  circuitPanel(6.4, 3.0, -8, MEZZ_Y + 1.7, -D + 0.2, 0);
+  circuitPanel(6.4, 3.0, 8, MEZZ_Y + 1.7, -D + 0.2, 0);
+  // Side walls for depth
+  circuitPanel(7.5, 2.8, -W + 0.2, MEZZ_Y + 1.7, -13, Math.PI / 2);
+  circuitPanel(7.5, 2.8, W - 0.2, MEZZ_Y + 1.7, -13, -Math.PI / 2);
+
+  // Big angled holographic blueprint display high on the north wall, above the pods
+  const displayFrame = new THREE.Mesh(new THREE.BoxGeometry(10.6, 3.0, 0.22), deckDark);
+  displayFrame.position.set(0, MEZZ_Y + 3.5, -D + 0.35); scene.add(displayFrame);
+  const display = new THREE.Mesh(new THREE.PlaneGeometry(9.8, 2.4), new THREE.MeshBasicMaterial({ map: schematicTexture() }));
+  display.position.set(0, MEZZ_Y + 3.5, -D + 0.5); display.rotation.x = 0.26; scene.add(display);
+  // Glowing bezel + accent blocks along the top of the display (reference detail)
+  const bezel = new THREE.Mesh(new THREE.BoxGeometry(10.0, 0.09, 0.09), cyanGlow);
+  bezel.position.set(0, MEZZ_Y + 4.72, -D + 0.55); bezel.rotation.x = 0.26; scene.add(bezel);
+  const bezelBot = new THREE.Mesh(new THREE.BoxGeometry(10.0, 0.09, 0.09), cyanGlow);
+  bezelBot.position.set(0, MEZZ_Y + 2.28, -D + 0.5); bezelBot.rotation.x = 0.26; scene.add(bezelBot);
+  for (let i = 0; i < 6; i++) {
+    const accent = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.16, 0.12), i === 1 ? redGlow : cyanGlow);
+    accent.position.set(-3.75 + i * 1.5, MEZZ_Y + 4.95, -D + 0.42); scene.add(accent);
   }
+
+  // Ceiling structural grid beams over the bay
+  for (const cz of [-16.5, -13.5, -10.5]) {
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(W * 2 - 1, 0.28, 0.28), deckDark);
+    beam.position.set(0, CEIL - 0.35, cz); scene.add(beam);
+  }
+  for (const bx of [-9, -3, 3, 9]) {
+    const rib = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 8), deckDark);
+    rib.position.set(bx, CEIL - 0.4, -13.5); scene.add(rib);
+  }
+
+  // Cyan glow washing off the wall panels
+  for (const gx of [-7, 7]) {
+    const glow = new THREE.PointLight(0x4ffce8, 30, 20);
+    glow.position.set(gx, MEZZ_Y + 2.4, -15.5); scene.add(glow);
+  }
+  const displayGlow = new THREE.PointLight(0x4ffce8, 26, 16);
+  displayGlow.position.set(0, MEZZ_Y + 3.6, -15); scene.add(displayGlow);
+
+  // Long metallic console: dark body, angled control face, glowing touch deck, red LED row
+  function deckConsole(x: number, z: number, yaw: number, len = 3.6) {
+    const grp = new THREE.Group(); grp.position.set(x, MEZZ_Y + 0.2, z); grp.rotation.y = yaw; scene.add(grp);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(len, 0.85, 1.15), deckMetal);
+    body.position.y = 0.42; body.castShadow = body.receiveShadow = true; grp.add(body);
+    const kick = new THREE.Mesh(new THREE.BoxGeometry(len + 0.1, 0.12, 1.25), deckDark);
+    kick.position.y = 0.06; grp.add(kick);
+    const face = new THREE.Mesh(new THREE.BoxGeometry(len - 0.15, 0.55, 0.08), deckDark);
+    face.position.set(0, 0.98, -0.3); face.rotation.x = -0.55; grp.add(face);
+    const faceGlow = new THREE.Mesh(new THREE.PlaneGeometry(len - 0.35, 0.4), touchMat);
+    faceGlow.position.set(0, 1.0, -0.25); faceGlow.rotation.x = -0.55; grp.add(faceGlow);
+    const top = new THREE.Mesh(new THREE.PlaneGeometry(len - 0.3, 0.95), touchMat);
+    top.rotation.x = -Math.PI / 2; top.position.set(0, 0.851, 0.05); grp.add(top);
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(len, 0.05, 0.05), cyanGlow);
+    edge.position.set(0, 0.86, 0.56); grp.add(edge);
+    for (let i = 0; i < 7; i++) {
+      const led = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.05), redGlow);
+      led.position.set(-len / 2 + 0.5 + i * (len - 1.0) / 6, 0.5, 0.58); grp.add(led);
+    }
+    physics.addBox({ x: len / 2, y: 0.5, z: 0.6 }, { x, y: MEZZ_Y + 0.5, z });
+  }
+  // Low console under the wall display (decorative — pods/wall block the player here)
+  deckConsole(0, -16.6, 0, 9);
+  // Deck consoles flanking the centre so the walk-up to the glass (z < -7) stays open
   deckConsole(-7, -5, 0);
   deckConsole(7, -5, 0);
   deckConsole(-10.5, 0, Math.PI / 2);
