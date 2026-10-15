@@ -7,6 +7,14 @@ export interface Breakable extends DamageTarget {
   weapon: DamageWeapon;
   body: CANNON.Body;
   broken: boolean;
+  hitsLeft: number;
+  maxHits: number;
+}
+
+interface BreakableOptions {
+  hits?: number;
+  material?: THREE.Material | THREE.Material[];
+  onDamaged?: (id: string, hitsLeft: number) => void;
 }
 
 export function createBreakableDebris(scene: THREE.Scene, color = 0x998575) {
@@ -47,6 +55,7 @@ export function createBreakableDebris(scene: THREE.Scene, color = 0x998575) {
 /** Scene-owned destructibles: collider, hit target, scan material, and short-lived debris. */
 export function createBreakables(scene: THREE.Scene, world: CANNON.World) {
   const objects: Breakable[] = [];
+  const damageHandlers = new Map<string, (id: string, hitsLeft: number) => void>();
   const debris = createBreakableDebris(scene);
   const originals = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
   const red = new THREE.MeshStandardMaterial({ color: 0xff2424, emissive: 0xff0808, emissiveIntensity: 0.65 });
@@ -55,16 +64,24 @@ export function createBreakables(scene: THREE.Scene, world: CANNON.World) {
   let scanning = false;
 
   function add(id: string, weapon: DamageWeapon, position: THREE.Vector3, size: THREE.Vector3,
-    onBreak?: (id: string) => void): Breakable {
+    onBreak?: (id: string) => void, options: BreakableOptions = {}): Breakable {
+    const maxHits = Math.max(1, Math.floor(options.hits ?? 1));
     const root = new THREE.Group();
     root.name = id;
     root.position.copy(position);
     root.userData.breakableWeapon = weapon;
-    const material = new THREE.MeshStandardMaterial({ color: weapon === 'pistol' ? 0x71828b : 0x8a6742, roughness: 0.72 });
+    const material = options.material ?? new THREE.MeshStandardMaterial({ color: weapon === 'pistol' ? 0x71828b : 0x8a6742, roughness: 0.72 });
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), material);
     mesh.castShadow = true; mesh.receiveShadow = true; root.add(mesh);
     const trim = new THREE.MeshStandardMaterial({ color: weapon === 'pistol' ? 0xe1e8e9 : 0x342f29, metalness: 0.35, roughness: 0.65 });
-    if (weapon === 'crowbar') {
+    if (options.material) {
+      // Rust targets carry an always-bright band so they can never blend into dark geometry.
+      const band = new THREE.MeshBasicMaterial({ color: weapon === 'pistol' ? 0xffe08a : 0xffb45e, toneMapped: false });
+      for (const x of [-0.32, 0.32]) {
+        const stripe = new THREE.Mesh(new THREE.BoxGeometry(size.x * 0.06, size.y * 1.02, size.z * 1.02), band);
+        stripe.position.x = size.x * x; root.add(stripe);
+      }
+    } else if (weapon === 'crowbar') {
       for (const x of [-0.32, 0.32]) {
         const band = new THREE.Mesh(new THREE.BoxGeometry(size.x * 0.08, size.y * 1.015, size.z * 1.015), trim);
         band.position.x = size.x * x; root.add(band);
@@ -86,10 +103,13 @@ export function createBreakables(scene: THREE.Scene, world: CANNON.World) {
     body.position.set(position.x, position.y, position.z);
     world.addBody(body);
     const item: Breakable = {
-      id, root, body, weapon, broken: false,
+      id, root, body, weapon, broken: false, hitsLeft: maxHits, maxHits,
       damage(amount, usedWeapon) {
         const matchesWeapon = usedWeapon === weapon || (weapon === 'crowbar' && usedWeapon === 'lightsaber');
         if (disposed || item.broken || !matchesWeapon || !Number.isFinite(amount) || amount <= 0) return false;
+        item.hitsLeft -= 1;
+        options.onDamaged?.(id, item.hitsLeft);
+        if (item.hitsLeft > 0) return true;
         item.broken = true;
         root.removeFromParent();
         world.removeBody(body);
@@ -99,6 +119,7 @@ export function createBreakables(scene: THREE.Scene, world: CANNON.World) {
       },
     };
     root.traverse(node => { if (node instanceof THREE.Mesh) originals.set(node, node.material); });
+    if (options.onDamaged) damageHandlers.set(id, options.onDamaged);
     objects.push(item);
     if (scanning) setHighlighted(true);
     return item;
@@ -108,7 +129,10 @@ export function createBreakables(scene: THREE.Scene, world: CANNON.World) {
     if (disposed) return;
     scanning = active;
     for (const item of objects) item.root.traverse(node => {
-      if (node instanceof THREE.Mesh) node.material = active ? (item.weapon === 'pistol' ? red : yellow) : originals.get(node)!;
+      if (!(node instanceof THREE.Mesh)) return;
+      // Visuals reparented into the root after add() are not in the snapshot yet.
+      if (!originals.has(node)) originals.set(node, node.material);
+      node.material = active ? (item.weapon === 'pistol' ? red : yellow) : originals.get(node)!;
     });
   }
 
@@ -123,6 +147,16 @@ export function createBreakables(scene: THREE.Scene, world: CANNON.World) {
     }
   }
 
+  function reset() {
+    if (disposed) return;
+    for (const item of objects) {
+      item.broken = false; item.hitsLeft = item.maxHits;
+      if (!item.root.parent) scene.add(item.root);
+      if (item.body.world !== world) world.addBody(item.body);
+    }
+    for (const item of objects) damageHandlers.get(item.id)?.(item.id, item.hitsLeft);
+  }
+
   function dispose() {
     if (disposed) return;
     disposed = true;
@@ -134,7 +168,7 @@ export function createBreakables(scene: THREE.Scene, world: CANNON.World) {
       item.root.traverse(node => {
         if (!(node instanceof THREE.Mesh)) return;
         geometries.add(node.geometry);
-        const original = originals.get(node)!;
+        const original = originals.get(node) ?? node.material;
         (Array.isArray(original) ? original : [original]).forEach(mat => materials.add(mat));
       });
     }
@@ -144,5 +178,5 @@ export function createBreakables(scene: THREE.Scene, world: CANNON.World) {
   }
 
   return { add, objects, getDamageTargets: () => objects.filter(item => !item.broken),
-    remaining: () => objects.filter(item => !item.broken).length, restoreBroken, setHighlighted, update, dispose };
+    remaining: () => objects.filter(item => !item.broken).length, restoreBroken, reset, setHighlighted, update, dispose };
 }

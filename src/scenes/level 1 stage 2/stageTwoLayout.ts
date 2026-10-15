@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { ShipMapLayout } from '../../core/shipMap.js';
 import type { ShipMapBlock } from '../../helpers/scene/shipLayout.js';
 
-export type CameraRoomId = 'scene5' | 'scene6' | 'stage2-armory';
+export type CameraRoomId = 'scene5' | 'scene6' | 'stage2-armory' | 'stage2-rustglow';
 export type CameraFeedId = CameraRoomId | 'stage2-vents' | 'stage2-prison';
 export type KeycardRoomId = Exclude<CameraFeedId, 'stage2-prison'>;
 export type StageTwoCheckpoint = 'vent' | 'surveillance';
@@ -16,6 +16,7 @@ export interface StageTwoProgress {
   elevatorUnlocked: boolean;
   keycards: KeycardRoomId[];
   acceptedKeycard: KeycardRoomId | null;
+  rustglowChamber: number;
   remoteRooms: Record<KeycardRoomId, CameraRoomProgress>;
 }
 
@@ -23,6 +24,7 @@ export const STAGE_TWO_MINIGAMES = [
   { id: 'scene5', label: 'Cargo hold' },
   { id: 'scene6', label: 'Target range' },
   { id: 'stage2-armory', label: 'Equipment archive' },
+  { id: 'stage2-rustglow', label: 'Rustglow deck' },
 ] as const;
 export const STAGE_TWO_KEYCARD_ROOMS = ['stage2-vents', ...STAGE_TWO_MINIGAMES.map(room => room.id)] as const;
 export const STAGE_TWO = {
@@ -40,10 +42,11 @@ export const STAGE_TWO = {
 
 export function createStageTwoProgress(): StageTwoProgress {
   return { checkpoint: 'vent', ventCleared: false, crowbarCollected: false, guardDown: false,
-    lightsaberCollected: false, elevatorUnlocked: false, keycards: [], acceptedKeycard: null,
+    lightsaberCollected: false, elevatorUnlocked: false, keycards: [], acceptedKeycard: null, rustglowChamber: 1,
     remoteRooms: { scene5: { cleared: new Set(), rewardCollected: false },
       scene6: { cleared: new Set(), rewardCollected: false },
       'stage2-armory': { cleared: new Set(), rewardCollected: false },
+      'stage2-rustglow': { cleared: new Set(), rewardCollected: false },
       'stage2-vents': { cleared: new Set(), rewardCollected: false } } };
 }
 
@@ -145,7 +148,7 @@ export const STAGE_TWO_MAP: ShipMapLayout = {
       position: new THREE.Vector3(28, 0, -53), yaw: 0, portalWidth: 4,
       description: 'Silent takedown / Camera-only links to surveilled decks / Keycard elevator',
       portals: { airlock: { x: -9, z: 7, yaw: Math.PI / 2 }, lift: { x: 0, z: -11, yaw: 0 }, 'feed-5': { x: 0, z: 0, yaw: 0 },
-        'feed-6': { x: 0, z: 0, yaw: 0 }, 'feed-37': { x: 0, z: 0, yaw: 0 } } },
+        'feed-6': { x: 0, z: 0, yaw: 0 }, 'feed-37': { x: 0, z: 0, yaw: 0 }, 'feed-38': { x: 0, z: 0, yaw: 0 } } },
     { id: 36, name: 'Bay 13 service elevator', deck: 'main', width: 4, depth: 4.8,
       position: new THREE.Vector3(28, 0, -66.4), yaw: 0, description: 'Swipe the last recovered keycard / Walk in and press the Bay 13 button',
       portals: { camera: { x: 0, z: 2.4, yaw: Math.PI }, bay13: { x: 0, z: -2.4, yaw: 0 } } },
@@ -167,6 +170,21 @@ export function cameraVisitMap(id: 5 | 6 | 37): ShipMapLayout {
     rooms: [{ id, name, deck: id === 6 ? 'lower' : 'upper', width: id === 37 ? 8 : 10, depth: id === 37 ? 8 : 10,
       position: new THREE.Vector3(0, altitude, 0), yaw: 0, portals: { camera: { x: 0, z: 0, yaw: Math.PI } },
       description: 'Deck under surveillance / Camera teleport only / Collect a chest keycard / T to return' }] };
+}
+
+const RUSTGLOW_ROOMS = ['Corrosion Gate', 'Counterweight', 'Pressure Lock', 'Live Wire', 'Airlock Gauntlet'] as const;
+
+export function rustglowDeckMap(chamber: number): ShipMapLayout {
+  const name = `Rustglow deck - chamber ${chamber}: ${RUSTGLOW_ROOMS[chamber - 1] ?? chamber}`;
+  const altitude = -54 - chamber;
+  const roomId = 37 + chamber;
+  return { name, initialRoom: roomId, connections: [],
+    playerPoint: (_id, point) => new THREE.Vector3(point.x, altitude + 2.2, point.z),
+    joins: [{ from: { room: 35, portal: 'feed-38' }, to: { room: roomId, portal: 'camera' },
+      kind: 'camera', verticalOffset: altitude, displayOffset: { x: 34, z: 32 + (chamber - 1) * 9 } }],
+    rooms: [{ id: roomId, name, deck: 'lower', width: 12, depth: 8, position: new THREE.Vector3(0, altitude, 0), yaw: 0,
+      portals: { camera: { x: 0, z: 0, yaw: Math.PI } },
+      description: 'Corroded maintenance decks / Crowbar-only rust bands / Five chambers deep' }] };
 }
 
 export const BAY_THIRTEEN_MAP: ShipMapLayout = {

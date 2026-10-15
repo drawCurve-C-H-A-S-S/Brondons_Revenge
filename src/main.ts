@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { applyThirdPersonCamera, applyTraversalCamera, isCameraForcedFirstPerson, resetThirdPersonCamera } from './core/camera.js';
 import { disposeComicEffects, updateComicEffects } from './helpers/scene/comicEffects.js';
@@ -57,6 +58,7 @@ const sceneImports = {
   1.1: () => import('./scenes/level 1 stage 1/storageRoom.js'),
   1.2: () => import('./scenes/level 1 stage 2/scene.js'),
   1.3: () => import('./scenes/level 1 stage 2/equipmentRoom.js'),
+  1.4: () => import('./scenes/rustglow/deck.js'),
   5: () => import('./scenes/level 1/scene5.js'),
   6: () => import('./scenes/level 1/scene6.js'),
   13: () => import('./scenes/level 1/scene13.js'),
@@ -307,8 +309,69 @@ const goggles = new GogglesController(() => ({
 
 // --- Teleportation Device ---
 let teleportDeviceMessageTimeout: number | null = null;
-function showTeleportDeviceMessage(message: string) {
-  if (currentSceneData?.showTeleportMessage) { currentSceneData.showTeleportMessage(message); return; }
+// --- Developer collision inspection: F9 toggles physics wireframes, F8 copies the player position. ---
+const collisionDebug: { group: THREE.Group | null; scene: THREE.Scene | null; world: CANNON.World | null; entries: Array<{ body: CANNON.Body; mesh: THREE.Object3D }> } =
+  { group: null, scene: null, world: null, entries: [] };
+const collisionWire = new THREE.LineBasicMaterial({ color: 0xff3355 });
+function clearCollisionDebug() {
+  collisionDebug.group?.removeFromParent();
+  collisionDebug.group = null; collisionDebug.scene = null; collisionDebug.world = null; collisionDebug.entries.length = 0;
+}
+function buildCollisionDebug() {
+  const world = currentSceneData?.physicsWorld as CANNON.World | undefined;
+  if (!world || !activeScene) return;
+  clearCollisionDebug();
+  const group = new THREE.Group();
+  group.name = 'CollisionDebug';
+  for (const body of world.bodies) {
+    for (const shape of body.shapes) {
+      let mesh: THREE.Object3D;
+      if (shape instanceof CANNON.Box) {
+        const he = shape.halfExtents;
+        mesh = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(he.x * 2, he.y * 2, he.z * 2)), collisionWire);
+        mesh.position.set(body.position.x, body.position.y, body.position.z);
+        mesh.quaternion.copy(body.quaternion as unknown as THREE.Quaternion);
+        collisionDebug.entries.push({ body, mesh });
+      } else if (shape instanceof CANNON.Sphere) {
+        mesh = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.SphereGeometry(shape.radius, 10, 8)), collisionWire);
+        mesh.position.set(body.position.x, body.position.y, body.position.z);
+        collisionDebug.entries.push({ body, mesh });
+      } else {
+        const lo = body.aabb.lowerBound, hi = body.aabb.upperBound;
+        mesh = new THREE.LineSegments(new THREE.EdgesGeometry(
+          new THREE.BoxGeometry(Math.max(0.05, hi.x - lo.x), Math.max(0.05, hi.y - lo.y), Math.max(0.05, hi.z - lo.z))), collisionWire);
+        mesh.position.set((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, (lo.z + hi.z) / 2);
+      }
+      group.add(mesh);
+    }
+  }
+  group.add(new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), new THREE.MeshBasicMaterial({ color: 0x46ff64 })));
+  collisionDebug.group = group; collisionDebug.scene = activeScene; collisionDebug.world = world;
+  activeScene.add(group);
+}
+function syncCollisionDebug() {
+  if (!collisionDebug.group) return;
+  if (collisionDebug.scene !== activeScene || collisionDebug.world !== currentSceneData?.physicsWorld) {
+    buildCollisionDebug();
+    return;
+  }
+  for (const { body, mesh } of collisionDebug.entries) {
+    mesh.position.set(body.position.x, body.position.y, body.position.z);
+    mesh.quaternion.copy(body.quaternion as unknown as THREE.Quaternion);
+  }
+  const marker = collisionDebug.group.children[collisionDebug.group.children.length - 1];
+  if (marker && currentPlayer) marker.position.set(currentPlayer.body.position.x, currentPlayer.body.position.y, currentPlayer.body.position.z);
+}
+function copyPlayerPosition() {
+  if (!currentPlayer) return;
+  const p = currentPlayer.body.position;
+  const yaw = ((currentPlayer.getState().yaw % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  const text = `${activeSceneId} (${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}) yaw ${yaw.toFixed(2)}`;
+  void navigator.clipboard?.writeText(text).catch(() => {});
+  showTeleportDeviceMessage(text);
+}
+
+function showTeleportDeviceMessage(message: string) {  if (currentSceneData?.showTeleportMessage) { currentSceneData.showTeleportMessage(message); return; }
   const prompt = document.getElementById('interact-prompt');
   if (!prompt) return;
   prompt.textContent = message;
@@ -326,7 +389,7 @@ function surveillanceMarkerPlaced() {
     && !!marker.placementPosition && isSurveillancePoint(marker.placementPosition);
 }
 
-function isCameraVisit(id: string) { return id === 'scene5' || id === 'scene6' || id === 'stage2-armory'; }
+function isCameraVisit(id: string) { return id === 'scene5' || id === 'scene6' || id === 'stage2-armory' || id === 'stage2-rustglow'; }
 
 function equipmentInputBlocked() {
   return document.hidden || quickMenuOpen || weaponWheelOpen || teleportLoading
@@ -1057,13 +1120,18 @@ async function cameraFeed(id: CameraFeedId): Promise<CctvFeedSource> {
     ? (await sceneModule(5)).createScene({ remoteVisit: true, preview: true, loot: stageTwoProgress.remoteRooms.scene5 })
     : id === 'scene6'
       ? (await sceneModule(6)).createScene({ remoteVisit: true, preview: true, loot: stageTwoProgress.remoteRooms.scene6 })
-      : (await sceneModule(1.3)).createScene({ progress: stageTwoProgress, preview: true });
+      : id === 'stage2-rustglow'
+        ? (await sceneModule(1.4)).createScene({ chamber: stageTwoProgress.rustglowChamber, remoteVisit: true, preview: true,
+          loot: stageTwoProgress.remoteRooms['stage2-rustglow'] })
+        : (await sceneModule(1.3)).createScene({ progress: stageTwoProgress, preview: true });
   try {
     await sceneData.ready;
     await renderer.compileAsync(sceneData.scene, sceneData.camera);
   } catch (error) { sceneData.dispose(); throw error; }
   shipMapProgress.reveal(sceneData.getMapLayout());
-  return { scene: sceneData.scene, update: dt => {
+  return { scene: sceneData.scene,
+    camera: id === 'stage2-rustglow' ? sceneData.camera : undefined,
+    update: dt => {
     if ('syncProgress' in sceneData) sceneData.syncProgress();
     sceneData.updatePhysics(dt);
   },
@@ -1080,6 +1148,7 @@ async function restartSurveillance() {
 }
 
 async function loadCameraVisit(id: CameraRoomId, entryState?: PlayerTransitionState, developerVisit = false) {
+  if (id === 'stage2-rustglow') return loadRustglowChamber(stageTwoProgress.rustglowChamber, entryState, developerVisit);
   if (!developerVisit && !surveillanceMarkerPlaced()) {
     showTeleportDeviceMessage('Prime: Set a marker with Q first.');
     return false;
@@ -1110,6 +1179,39 @@ async function loadCameraVisit(id: CameraRoomId, entryState?: PlayerTransitionSt
   if (!await prepareOpeningScene(sceneData, source, request)) return false;
   retireTraversalRoom();
   activateExtension(sceneData, id);
+  sceneData.activate();
+  shipMapProgress.reveal(sceneData.getMapLayout());
+  teleportArrivalTime = 0;
+  globalCharacter?.setHologramTransition(hologramTransitionAt(0, true, TELEPORT_TRANSFER_DURATION));
+  updatePlayerView(0);
+  return true;
+}
+
+const RUSTGLOW_CHAMBERS = 5;
+
+async function loadRustglowChamber(chamber: number, entryState?: PlayerTransitionState, developerVisit = false) {
+  if (!developerVisit && !surveillanceMarkerPlaced()) {
+    showTeleportDeviceMessage('Prime: Set a marker with Q first.');
+    return false;
+  }
+  const module = await prepareScene(1.4);
+  if (!module) return false;
+  const source = currentSceneData, request = sceneRequestVersion;
+  const sceneData = module.createScene({
+    chamber, remoteVisit: !developerVisit, deferActivation: true, entryState,
+    loot: stageTwoProgress.remoteRooms['stage2-rustglow'],
+    hasReturnMarker: developerVisit ? () => false : surveillanceMarkerPlaced,
+    onRestart: developerVisit ? () => loadRustglowChamber(chamber, undefined, true) : restartSurveillance,
+    onKeycardCollected: () => { collectStageTwoKeycard(stageTwoProgress, 'stage2-rustglow'); },
+    onChamberCleared: (clearedChamber: number, state: PlayerTransitionState) => {
+      const next = Math.min(RUSTGLOW_CHAMBERS, clearedChamber + 1);
+      stageTwoProgress.rustglowChamber = next;
+      void loadRustglowChamber(next, state).catch(error => console.error('Rustglow chamber transfer failed:', error));
+    },
+  });
+  if (!await prepareOpeningScene(sceneData, source, request)) return false;
+  retireTraversalRoom();
+  activateExtension(sceneData, 'stage2-rustglow');
   sceneData.activate();
   shipMapProgress.reveal(sceneData.getMapLayout());
   teleportArrivalTime = 0;
@@ -1745,6 +1847,11 @@ async function jumpToScene(id: number) {
       case 1.1: await loadStage1Storage(); break;
       case 1.2: if (!await loadStageTwo()) throw new Error('Stage Two did not activate'); break;
       case 1.3: if (!await loadCameraVisit('stage2-armory', undefined, true)) throw new Error('The archive did not activate'); break;
+      case 1.21: if (!await loadRustglowChamber(1, undefined, true)) throw new Error('Rustglow chamber 1 did not activate'); break;
+      case 1.22: if (!await loadRustglowChamber(2, undefined, true)) throw new Error('Rustglow chamber 2 did not activate'); break;
+      case 1.23: if (!await loadRustglowChamber(3, undefined, true)) throw new Error('Rustglow chamber 3 did not activate'); break;
+      case 1.24: if (!await loadRustglowChamber(4, undefined, true)) throw new Error('Rustglow chamber 4 did not activate'); break;
+      case 1.25: if (!await loadRustglowChamber(5, undefined, true)) throw new Error('Rustglow chamber 5 did not activate'); break;
       case 1: await loadScene1(); break;
       case 5: if (!await loadCameraVisit('scene5', undefined, true)) throw new Error('The cargo camera room did not activate'); break;
       case 6: if (!await loadCameraVisit('scene6', undefined, true)) throw new Error('The range camera room did not activate'); break;
@@ -1812,6 +1919,10 @@ function setupSceneQuickMenu() {
     developerUnlocked = true;
     setPauseMenu('scenes');
   });
+  document.getElementById('developer-route')!.addEventListener('click', () => {
+    setPauseMenu(null, false);
+    currentSceneData?.playRoutePreview?.();
+  });
   quickMenu.addEventListener('click', event => {
     event.stopPropagation();
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
@@ -1839,6 +1950,15 @@ function setupSceneQuickMenu() {
     if (event.code === 'KeyM' && !editing && !event.ctrlKey && !event.altKey && !event.metaKey) {
       event.preventDefault(); event.stopImmediatePropagation();
       if (!event.repeat) setPauseMenu(quickMenuOpen ? null : 'home');
+      return;
+    }
+    if ((event.code === 'F9' || event.code === 'F8' || event.code === 'F10' || event.code === 'F11') && developerUnlocked && !editing) {
+      event.preventDefault();
+      if (event.repeat) return;
+      if (event.code === 'F9') { if (collisionDebug.group) clearCollisionDebug(); else buildCollisionDebug(); }
+      else if (event.code === 'F8') copyPlayerPosition();
+      else if (event.code === 'F11') currentSceneData?.activateBot?.();
+      else currentSceneData?.playRoutePreview?.();
       return;
     }
     if (!quickMenuOpen) return;
@@ -1977,6 +2097,7 @@ function animate() {
 
   // Physics
   if (updatePhysics) updatePhysics(delta, isThirdPerson);
+  syncCollisionDebug();
   music.update(Math.min(delta, 0.1));
   if (playerDamageEl) playerDamageEl.style.opacity = String(currentSceneData?.getDamageFlash?.() ?? currentPlayer?.getDamageFlash() ?? 0);
 
