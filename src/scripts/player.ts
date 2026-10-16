@@ -167,14 +167,15 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   const minGroundY = Math.cos(PHYSICS.maxSlopeDegrees * Math.PI / 180);
 
   // --- Zero-G thruster mode (Bay Warden phase 4). Additive; inert until setZeroGMode(true). ---
-  // Discrete tap input kept structured (2 axes) so a gamepad stick or mobile tilt can feed it later.
+  // Discrete tap input on THREE camera-relative axes, kept structured so a gamepad stick or mobile tilt
+  // can still feed it from one seam: X = left/right (A/D, ←/→), Y = world up/down (W/S), Z = forward/back (↑/↓).
   const zeroGInput = {
-    heldAxis: 0, queuedTap: 0, heldVertical: 0, queuedVerticalTap: 0,
-    reset() { this.heldAxis = 0; this.queuedTap = 0; this.heldVertical = 0; this.queuedVerticalTap = 0; },
+    heldX: 0, queuedX: 0, heldY: 0, queuedY: 0, heldZ: 0, queuedZ: 0,
+    reset() { this.heldX = 0; this.queuedX = 0; this.heldY = 0; this.queuedY = 0; this.heldZ = 0; this.queuedZ = 0; },
   };
   const DEFAULT_ZERO_G: ZeroGConfig = {
     axis: new THREE.Vector3(1, 0, 0),
-    tapImpulse: 0.52, moveDamping: 0.995, verticalDamping: 0.99, maxSpeed: 4.5,
+    tapImpulse: 0.73, moveDamping: 0.995, verticalDamping: 0.99, maxSpeed: 4.5,
     heatPerTap: 0.2, heatCoolPerSecond: 0.3, overheatLock: 1.0,
     impulseEaseSeconds: 0.15,
     deckY: 0, bandMin: 1.5, bandCeilingMargin: 1.5,
@@ -189,8 +190,11 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   let zeroGHeat = 0, zeroGOverheat = 0, zeroGImpulseScale = 1;
   let zeroGConfig: ZeroGConfig = DEFAULT_ZERO_G;
   const zeroGAxis = new THREE.Vector3(1, 0, 0);
-  const ZERO_G_STRAFE_KEYS = ['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight'];
-  const ZERO_G_VERTICAL_KEYS = ['KeyW', 'KeyS', 'ArrowUp', 'ArrowDown'];
+  // Three camera-relative axes: A/D + ←/→ strafe left/right, W/S climb/descend along world-up, and
+  // ↑/↓ thrust forward/back along the camera yaw (pitch ignored). The old ↑/↓ = up/down mapping is gone.
+  const ZERO_G_LR_KEYS = ['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight'];
+  const ZERO_G_UD_KEYS = ['KeyW', 'KeyS'];
+  const ZERO_G_FB_KEYS = ['ArrowUp', 'ArrowDown'];
   // Eased thrust accumulator (change 2): taps deposit impulse here; it is applied over ~impulseEaseSeconds.
   const zeroGThrust = new THREE.Vector3();
   const zeroGTapDir = new THREE.Vector3();       // last thrust direction, consumed by the boss for the puff (changes 3/F)
@@ -199,6 +203,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   // Drift velocity exposed to the character rig for weightless limb sway (additive; updated in place).
   const _zeroGVelocity = new THREE.Vector3();
   const zeroGPushNormal = new THREE.Vector3();   // unit direction AWAY from the nearest aligned barrier (change 4)
+  const _zeroGBasis = new THREE.Vector3();       // scratch for the camera-relative thrust basis (no per-tap alloc)
   let zeroGRisen = false;                        // false until the one-time drift-up to ~driftUpHeight completes (change 1)
   let zeroGBobPhase = 0, zeroGDriftPhase = 0, zeroGBobPrevY = 0, zeroGBobPrevLat = 0;  // idle bob/drift (change 1)
   let zeroGFrozen = false;                       // trapped: float in place, gravity still cancelled (change 7)
@@ -230,17 +235,20 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     }
     if (zeroGMode) {
       // Thruster taps replace walking/jump/crouch/sprint/slide; weapons, look and the wheel pass through.
-      // A/D (and arrows) thrust along the dodge axis; W/S (and arrows) thrust along world-up (change 3).
-      const strafe = ZERO_G_STRAFE_KEYS.includes(e.code), vertical = ZERO_G_VERTICAL_KEYS.includes(e.code);
-      if (strafe || vertical) {
+      // Three camera-relative axes: A/D + ←/→ strafe, W/S climb along world-up, ↑/↓ thrust forward/back.
+      const lr = ZERO_G_LR_KEYS.includes(e.code), ud = ZERO_G_UD_KEYS.includes(e.code), fb = ZERO_G_FB_KEYS.includes(e.code);
+      if (lr || ud || fb) {
         e.preventDefault();
         if (!e.repeat && !keys[e.code]) {
-          if (vertical) {
-            const dir = (e.code === 'KeyW' || e.code === 'ArrowUp') ? 1 : -1;
-            zeroGInput.queuedVerticalTap = dir; zeroGInput.heldVertical = dir;
-          } else {
+          if (lr) {
             const dir = (e.code === 'KeyD' || e.code === 'ArrowRight') ? 1 : -1;
-            zeroGInput.queuedTap = dir; zeroGInput.heldAxis = dir;
+            zeroGInput.queuedX = dir; zeroGInput.heldX = dir;
+          } else if (ud) {
+            const dir = e.code === 'KeyW' ? 1 : -1;
+            zeroGInput.queuedY = dir; zeroGInput.heldY = dir;
+          } else {
+            const dir = e.code === 'ArrowUp' ? 1 : -1;
+            zeroGInput.queuedZ = dir; zeroGInput.heldZ = dir;
           }
         }
         keys[e.code] = true;
@@ -446,18 +454,26 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
 
   // --- Zero-G phase-4 helpers. Additive; only ever called from the zeroGMode branch. ---
   // Map a tap to the push-off key: the key that thrusts INTO the barrier pushes off AWAY (change 4).
-  function zeroGTapMatchesPush(dir: number, vertical: boolean) {
-    return vertical
-      ? (dir === 1 && zeroGPushKey === 2) || (dir === -1 && zeroGPushKey === -2)
-      : (dir === 1 && zeroGPushKey === 1) || (dir === -1 && zeroGPushKey === -1);
+  // Push-off keys span all three axes: X = ±1 (A/D), Y = ±2 (W/S), Z = ±3 (↑/↓). A tap whose thrust points
+  // INTO the nearest barrier counts toward pushing off AWAY from it (heat-free) instead of a normal thrust.
+  function zeroGTapMatchesPush(axis: 'x' | 'y' | 'z', dir: number) {
+    const want = axis === 'x' ? 1 : axis === 'y' ? 2 : 3;
+    return zeroGPushKey === want * dir;
   }
   let _pushBest = 0;
   function zeroGConsiderPush(dist: number, nx: number, ny: number, nz: number) {
     if (dist > _pushBest) return;
-    const intoY = -ny, intoH = -(nx * zeroGAxis.x + nz * zeroGAxis.z);
+    // Project the INTO direction (-normal) onto the camera-relative axes and keep the dominant one, so a
+    // wall ahead/behind maps to ↑/↓, a wall left/right maps to A/D, and the deck/ceiling map to W/S.
+    const sinY = Math.sin(yaw), cosY = Math.cos(yaw);
+    const intoX = -(nx * cosY - nz * sinY);   // onto right   (cosY, 0, -sinY)
+    const intoY = -ny;                         // onto world-up (0, 1, 0)
+    const intoZ = nx * sinY + nz * cosY;       // onto forward (-sinY, 0, -cosY)
+    const ax = Math.abs(intoX), ay = Math.abs(intoY), az = Math.abs(intoZ);
     let key = 0;
-    if (Math.abs(intoY) >= Math.abs(intoH)) key = intoY > 0.6 ? 2 : intoY < -0.6 ? -2 : 0;
-    else key = intoH > 0.6 ? 1 : intoH < -0.6 ? -1 : 0;
+    if (ay >= ax && ay >= az) key = intoY > 0.6 ? 2 : intoY < -0.6 ? -2 : 0;
+    else if (ax >= az) key = intoX > 0.6 ? 1 : intoX < -0.6 ? -1 : 0;
+    else key = intoZ > 0.6 ? 3 : intoZ < -0.6 ? -3 : 0;
     if (key === 0) return;
     _pushBest = dist; zeroGPushKey = key; zeroGPushNormal.set(nx, ny, nz);
   }
@@ -480,11 +496,18 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       if (d > 1e-4) zeroGConsiderPush(d - (ex.radius + r), dx / d, 0, dz / d);
     }
   }
-  // Apply one thruster tap: a wall push-off (no heat) if it thrusts into a nearby barrier, else eased thrust (changes 2/3/4).
-  function routeZeroGTap(dir: number, vertical: boolean) {
+  // Camera-relative thrust basis (yaw only; pitch ignored). Matches getMoveDirection's convention so the
+  // zero-G axes line up with normal walking: right = (cosY, 0, -sinY), forward = (-sinY, 0, -cosY), up = +Y.
+  function zeroGBasisFor(axis: 'x' | 'y' | 'z', out: THREE.Vector3) {
+    if (axis === 'y') return out.set(0, 1, 0);
+    const sinY = Math.sin(yaw), cosY = Math.cos(yaw);
+    return axis === 'x' ? out.set(cosY, 0, -sinY) : out.set(-sinY, 0, -cosY);
+  }
+  // Apply one thruster tap: a wall push-off (no heat) if it thrusts into a nearby barrier, else eased thrust.
+  function routeZeroGTap(axis: 'x' | 'y' | 'z', dir: number) {
     const cfg = zeroGConfig;
-    // While the prompt is showing, the matching key counts toward the push-off and never thrusts into the wall (change 4).
-    if (zeroGPushKey !== 0 && zeroGTapMatchesPush(dir, vertical)) {
+    // While the prompt is showing, the matching key counts toward the push-off and never thrusts into the wall.
+    if (zeroGPushKey !== 0 && zeroGTapMatchesPush(axis, dir)) {
       if (zeroGPushCooldown <= 0) {
         zeroGPushTaps++; zeroGPushTimer = cfg.pushOffWindow;
         if (zeroGPushTaps >= cfg.pushOffTaps) {
@@ -497,12 +520,11 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       }
       return;
     }
+    // Eased thrust along this axis's camera-relative world direction; the tap dir feeds the boss thruster puff.
     const impulse = cfg.tapImpulse * zeroGImpulseScale * dir;
-    if (vertical) { zeroGThrust.y += impulse; zeroGTapDir.set(0, dir, 0); }
-    else {
-      zeroGThrust.x += zeroGAxis.x * impulse; zeroGThrust.z += zeroGAxis.z * impulse;
-      zeroGTapDir.set(zeroGAxis.x * dir, 0, zeroGAxis.z * dir);
-    }
+    const basis = zeroGBasisFor(axis, _zeroGBasis);
+    zeroGThrust.addScaledVector(basis, impulse);
+    zeroGTapDir.copy(basis).multiplyScalar(dir);
     zeroGHeat += cfg.heatPerTap;
     if (zeroGHeat >= 1) { zeroGHeat = 1; zeroGOverheat = cfg.overheatLock; }
   }
@@ -562,11 +584,13 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       const cfg = zeroGConfig;
       // Wall push-off proximity (change 4), then consume this sub-step's taps (changes 2/3).
       updateZeroGPushOff();
-      const hTap = zeroGInput.queuedTap; zeroGInput.queuedTap = 0;
-      const vTap = zeroGInput.queuedVerticalTap; zeroGInput.queuedVerticalTap = 0;
+      const xTap = zeroGInput.queuedX; zeroGInput.queuedX = 0;
+      const yTap = zeroGInput.queuedY; zeroGInput.queuedY = 0;
+      const zTap = zeroGInput.queuedZ; zeroGInput.queuedZ = 0;
       if (zeroGOverheat <= 0) {
-        if (hTap !== 0) routeZeroGTap(hTap, false);
-        if (vTap !== 0) routeZeroGTap(vTap, true);
+        if (xTap !== 0) routeZeroGTap('x', xTap);
+        if (yTap !== 0) routeZeroGTap('y', yTap);
+        if (zTap !== 0) routeZeroGTap('z', zTap);
       }
       // Ease the accumulated thrust in over ~impulseEaseSeconds, frame-rate independent (change 2).
       if (zeroGThrust.lengthSq() > 1e-9) {
@@ -980,7 +1004,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       }
     },
     isZeroGFrozen: () => zeroGFrozen,
-    // Wall push-off prompt state (change 4): key (-1 A / +1 D / +2 W / -2 S), progress, required, cooldown.
+    // Wall push-off prompt state: key (X ±1 = A/D, Y ±2 = W/S, Z ±3 = ↑/↓), progress, required, cooldown.
     getZeroGPushOff: () => ({ key: zeroGPushKey, progress: zeroGPushTaps, required: zeroGConfig.pushOffTaps, cooldown: zeroGPushCooldown }),
     // Consumed once per physics sub-step by the boss to spawn a thruster puff along the last thrust direction (change 3).
     consumeThrusterTap: () => { _tapDirOut.copy(zeroGTapDir); zeroGTapDir.set(0, 0, 0); return _tapDirOut; },

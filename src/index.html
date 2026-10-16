@@ -43,6 +43,50 @@
       display: block; width: 0%; height: 100%; background: #ff7a4d;
       transition: width .06s linear;
     }
+    /* Round 2b: hologram boot terminal (retro CRT) + live typing highlight. Additive; phase-4 only. */
+    #phase4-terminal .p4-term-frame {
+      position: relative; pointer-events: auto; min-width: min(560px, 88vw); padding: 20px 24px 22px;
+      border-radius: 10px; background: rgba(2, 14, 12, .92); border: 1px solid rgba(60, 255, 190, .55);
+      box-shadow: 0 0 34px rgba(0, 255, 190, .18), inset 0 0 26px rgba(0, 255, 170, .08), 0 10px 40px rgba(0, 0, 0, .6);
+      font-family: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+    }
+    #phase4-terminal .p4-term-frame::after {
+      content: ""; position: absolute; inset: 0; border-radius: 10px; pointer-events: none;
+      background: repeating-linear-gradient(to bottom, rgba(0, 255, 190, .05) 0 1px, rgba(0, 0, 0, 0) 1px 3px);
+    }
+    #phase4-terminal .p4-term-title {
+      font: 700 12px/1 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .18em;
+      color: #57ffc8; text-shadow: 0 0 10px rgba(0, 255, 180, .7); margin-bottom: 14px;
+    }
+    #phase4-terminal .p4-term-target {
+      font: 600 20px/1.4 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .04em; white-space: pre;
+      color: #37d6ff; text-shadow: 0 0 10px rgba(55, 214, 255, .5); margin-bottom: 8px;
+    }
+    #phase4-terminal .p4-term-typed {
+      font: 700 20px/1.4 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .04em; white-space: pre;
+      min-height: 30px; color: #bff7e6;
+    }
+    #phase4-terminal .p4-term-typed .p4-term-ok { color: #57ff9c; text-shadow: 0 0 8px rgba(60, 255, 140, .6); }
+    #phase4-terminal .p4-term-typed .p4-term-bad { color: #ff4a3a; text-shadow: 0 0 8px rgba(255, 50, 30, .7); background: rgba(255, 40, 30, .14); }
+    #phase4-terminal .p4-term-typed .p4-term-caret {
+      display: inline-block; width: .58em; margin-left: 1px; background: #57ffc8;
+      box-shadow: 0 0 8px rgba(0, 255, 180, .8); animation: p4-term-blink 1s steps(1, end) infinite;
+    }
+    @keyframes p4-term-blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+    #phase4-terminal .p4-term-hint {
+      margin-top: 14px; font: 600 11px/1 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .1em;
+      color: #2fae86; text-shadow: 0 0 6px rgba(0, 255, 180, .35);
+    }
+    /* The terminal focus sink: visually hidden but focusable, so main.ts's editing guard disarms KeyM. */
+    #phase4-term-input { position: absolute; left: -9999px; top: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; }
+    /* BAY O2 low-warning flash (toggled by scene13 under o2WarnFraction). */
+    #phase4-o2.low #phase4-o2-label { color: #ff5a4a; text-shadow: 0 0 10px rgba(255, 40, 20, .8); }
+    #phase4-o2.low #phase4-o2-fill { background: #ff4a3a; }
+    #phase4-o2.low { animation: p4-o2-flash .7s steps(1, end) infinite; }
+    @keyframes p4-o2-flash { 0%, 60% { opacity: 1; } 61%, 100% { opacity: .45; } }
+    /* Malfunction cutscene error spam: each line drops in. */
+    #phase4-error-spam .p4-err { display: block; opacity: 0; transform: translateY(-4px); animation: p4-err-in .18s ease forwards; }
+    @keyframes p4-err-in { to { opacity: 1; transform: translateY(0); } }
   </style>
 </head>
 <body data-scene="scene1">
@@ -103,9 +147,46 @@
     style="position:fixed;inset:0;pointer-events:none;z-index:5;"></section>
   <div id="phase4-deploy-prompt" class="hidden" role="status" aria-live="polite"
     style="position:fixed;left:50%;bottom:26vh;transform:translateX(-50%);z-index:6;pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:7px;">
-    <span class="p4-deploy-label">HOLD E: DEPLOY DECOY</span>
-    <span class="p4-deploy-track"><span id="phase4-deploy-fill" class="p4-deploy-fill"></span></span>
+    <span class="p4-deploy-label">PRESS E: BOOT HOLOGRAM</span>
   </div>
+  <!-- Round 2b: BAY O2 life-support bar. Drains with SCALED time during the zero-G barrage; hidden during
+       the intro/malfunction cutscenes and the blind window (which shows the retrain bar instead). -->
+  <div id="phase4-o2" class="hidden" role="status" aria-live="off"
+    style="position:fixed;left:50%;bottom:9vh;transform:translateX(-50%);z-index:6;pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:5px;">
+    <span id="phase4-o2-label" style="font:700 11px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.16em;color:#9fe8ff;text-shadow:0 0 8px rgba(60,180,255,.6);">BAY O2</span>
+    <span style="display:block;width:min(280px,54vw);height:12px;border-radius:7px;overflow:hidden;background:rgba(6,20,30,.74);border:1px solid rgba(120,220,255,.5);box-shadow:0 2px 12px rgba(0,0,0,.55);">
+      <span id="phase4-o2-fill" style="display:block;width:100%;height:100%;background:#4fe0ff;transition:width .12s linear,background .3s ease;"></span>
+    </span>
+  </div>
+  <!-- Round 2b: blind-window retrain bar. Replaces the O2 bar while the boss is exposed/retraining. -->
+  <div id="phase4-retrain" class="hidden" role="status" aria-live="off"
+    style="position:fixed;left:50%;bottom:9vh;transform:translateX(-50%);z-index:6;pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:5px;">
+    <span id="phase4-retrain-label" style="font:700 12px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.14em;color:#ffd166;text-shadow:0 0 10px rgba(255,180,60,.7);">RETRAINING MODEL... epoch 0/10</span>
+    <span style="display:block;width:min(300px,58vw);height:12px;border-radius:7px;overflow:hidden;background:rgba(30,18,4,.7);border:1px solid rgba(255,190,90,.6);box-shadow:0 2px 12px rgba(0,0,0,.55);">
+      <span id="phase4-retrain-fill" style="display:block;width:0%;height:100%;background:#ffb347;transition:width .1s linear;"></span>
+    </span>
+  </div>
+  <!-- Round 2b: malfunction cutscene error spam (dedicated element, approved answer 4). -->
+  <div id="phase4-error-spam" class="hidden" aria-hidden="true"
+    style="position:fixed;left:4vw;top:16vh;z-index:7;pointer-events:none;width:min(440px,62vw);font:600 13px/1.55 ui-monospace,Menlo,Consolas,monospace;color:#ff5a4a;text-shadow:0 0 8px rgba(255,40,20,.7);"></div>
+  <!-- Round 2b: off-screen arrow markers to each OFF hologram station (populated by phase4Stations). -->
+  <section id="phase4-markers" class="hidden" aria-hidden="true"
+    style="position:fixed;inset:0;pointer-events:none;z-index:6;"></section>
+  <!-- Round 2b: hologram boot terminal (typing puzzle). The hidden text input is the focus sink that
+       disarms main.ts's capture-phase KeyM pause; the terminal captures all other keys + mouse while open. -->
+  <div id="phase4-terminal" class="hidden" role="dialog" aria-label="Hologram boot terminal"
+    style="position:fixed;inset:0;z-index:9;display:flex;align-items:center;justify-content:center;pointer-events:none;background:radial-gradient(ellipse at center, rgba(0,20,18,.34), rgba(0,0,0,.68));">
+    <div class="p4-term-frame">
+      <div class="p4-term-title">BOOT HOLOGRAM // STATION <span id="phase4-term-station">1</span></div>
+      <div class="p4-term-target" id="phase4-term-target"></div>
+      <div class="p4-term-typed" id="phase4-term-typed"></div>
+      <div class="p4-term-hint">TYPE THE LINE · ENTER compile · BACKSPACE edit · ESC close</div>
+      <input id="phase4-term-input" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Hologram boot terminal input" />
+    </div>
+  </div>
+  <!-- Round 2b: short O2-blackout fade (approved answer 5). Opacity is driven by scene13. -->
+  <div id="phase4-blackout" aria-hidden="true"
+    style="position:fixed;inset:0;z-index:10;background:#000;opacity:0;pointer-events:none;transition:opacity .35s ease;"></div>
   <section id="escape-qte" class="hidden" role="status" aria-live="assertive" aria-label="Timed escape action">
     <div class="escape-caption">PRESS THE DISPLAYED KEY</div>
     <kbd id="escape-key">Y</kbd>

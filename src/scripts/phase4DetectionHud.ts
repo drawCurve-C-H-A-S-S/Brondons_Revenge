@@ -6,7 +6,7 @@ import * as THREE from 'three';
  * same inline `vec.project(camera)` pattern as renderer.ts placeMarker / scene14.ts (no shared helper
  * exists). All vectors are preallocated; update() never allocates.
  *
- * Each box carries a monospace "HUMAN 0.97" label. When the detection model breaks (all decoys active)
+ * Each box carries a monospace "BRONDON 0.97" label. When the detection model breaks (all decoys active)
  * the boxes glitch: they jump between targets on a reshuffle timer and the labels flicker to error text.
  */
 export interface DetectionHudTarget {
@@ -82,7 +82,7 @@ export function createPhase4DetectionHud({ container, camera, boxCount, boxHeigh
         box.el.style.height = `${boxH}px`;
         box.label.textContent = failing
           ? glitchLabels[(Math.random() * glitchLabels.length) | 0]
-          : `HUMAN ${src.confidence.toFixed(2)}`;
+          : `BRONDON ${src.confidence.toFixed(2)}`;
       }
     },
     dispose() {

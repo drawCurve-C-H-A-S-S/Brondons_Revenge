@@ -32,9 +32,10 @@ export const BOSS_RULES = Object.freeze({
 // All values are meters/seconds unless noted.
 export const PHASE4_RULES = Object.freeze({
   phaseFourThreshold: 0.25,
-  // Player thruster feel (consumed by player.setZeroGMode; see the tap re-tune note in the report).
-  // tapImpulse re-tuned for the lower damping so ~5 taps over 2.5 s still cross one 3.0 m lane.
-  tapImpulse: 0.52, moveDamping: 0.995, verticalDamping: 0.99, maxZeroGSpeed: 4.5, impulseEaseSeconds: 0.15,
+  // Player thruster feel (consumed by player.setZeroGMode). tapImpulse bumped +40% (0.52 -> 0.73) for the new
+  // 3-axis controls so one tap crosses more of a lane; heat is unchanged, so a normal 3-tap dodge (3 * 0.2 =
+  // 0.6) still never reaches the 1.0 overheat lock. Tune tapImpulse here after playtesting.
+  tapImpulse: 0.73, moveDamping: 0.995, verticalDamping: 0.99, maxZeroGSpeed: 4.5, impulseEaseSeconds: 0.15,
   heatPerTap: 0.2, heatCoolPerSecond: 0.3, overheatLock: 1.0,
   // Free-float height band (change 1): one-time drift-up, then float between deck+bandMin and ceiling-margin.
   floatDeckY: 0, floatBandMin: 1.5, floatBandCeilingMargin: 1.5, driftUpHeight: 3.0, driftUpSpeed: 1.6,
@@ -66,37 +67,69 @@ export const PHASE4_RULES = Object.freeze({
   bossHoverX: 0, bossHoverZ: 14, bossHoverY: 3.2, awakeningSeconds: 1.2,
   // Phase-4 intro sequence (round 1 change 2): plays once on first entry, skipped on retries/returns.
   // Times are seconds from intro start; the boss hovers in phaseFourAwakening until scene13 calls beginZeroGBarrage.
-  introTauntAt: 0.3, introTauntSeconds: 4.5,
+  introTauntAt: 0.3, introTauntSeconds: 7.6,   // 7.6s: the taunt gained a 2nd line ("...who needs oxygen?")
   introDimAt: 3.0, introDimSeconds: 1.5, introDimFraction: 0.2,
   introBeaconsAt: 3.2, introWarningAt: 5.0, introWarningSeconds: 2.5,
-  introPlayerLineAt: 7.6, introPlayerLineSeconds: 2.4,
-  introEndAt: 10.2, introSkipAvailableAt: 1.0, lightRestoreSeconds: 1.2,
+  introPlayerLineAt: 8.3, introPlayerLineSeconds: 2.4,
+  introEndAt: 11.3, introSkipAvailableAt: 1.0, lightRestoreSeconds: 1.2,
   netPoolSize: 8, puffPoolSize: 10, puffLife: 0.4,
-  // --- Round 2a: holographic decoys + the AI's ML human-detection model. Additive; phase-4 only. ---
-  // Three plantable decoy anchors in the zero-G dodge plane (world metres): high-left, high-right, and
-  // low beside the west cover pillar. All three sit inside the float band and clear of the lift-hole and
-  // pillar exclusions the boss already hands the player.
-  decoyCount: 3,
-  decoyAnchorX: [-8, 8, -11], decoyAnchorY: [6.0, 6.0, 2.2], decoyAnchorZ: [-3, -3, -13],
-  deployRadius: 1.5, deployHoldSeconds: 1.0,
-  // Detection-model confidence: the player reads lower as more decoys compete; decoys read 0.88-0.92.
-  playerConfidence0: 0.97, playerConfidence1: 0.80, playerConfidence2: 0.62, playerConfidence3: 0.44,
-  decoyConfidenceMin: 0.88, decoyConfidenceMax: 0.92, decoyConfidenceJitter: 0.012,
-  // Volley targeting: weight = confidence^power + random*noise, so the boss usually (not always) locks
-  // the highest-confidence human.
-  targetingConfidencePower: 2.0, targetingNoise: 0.22,
-  // Breaking point: all decoys active => the model fails, the boss freezes this long, then overloads.
-  modelFailFreezeSeconds: 2.0,
+  // --- Round 2b: hologram BOOT STATIONS + the AI's overfit BRONDON-detection model. Additive; phase-4 only. ---
+  // Two hologram stations at opposite ends of the bay, each reachable with the 3-axis zero-G controls. The
+  // player boots a station by typing its target line; booting BOTH makes the model see >1 BRONDON and break.
+  decoyCount: 2,
+  // Station origins (world metres): floating projector pedestals inside the float band, clear of the lift hole
+  // (0,0 r5) and the four cover pillars (x ±13, z ±15). Opposite ends so both need a real 3-D traverse.
+  stationX: [-15, 15], stationY: [4.5, 4.5], stationZ: [-12, 12],
+  deployRadius: 2.2,           // how close the player must float to a station to boot it (PRESS E)
+  // Detection-model confidence labels. The model was overfit to Brondon, so a hologram reads even HIGHER
+  // (0.99) than the real player (0.97) - the joke, and why the boss trusts the decoys over him.
+  playerConfidence: 0.97, decoyConfidence: 0.99,
+  // Volley targeting: weight = confidence^power + random*noise, so the boss usually (not always) locks the
+  // highest-confidence BRONDON. Once a hologram is up, the lowest-id one is the AI's "primary match" and draws
+  // most volleys via hologramBiasWeight (the telegraph marker still shows exactly who it is aiming at).
+  targetingConfidencePower: 2.0, targetingNoise: 0.22, hologramBiasWeight: 0.55,
+  // Breaking point: both holograms active => the model fails, the mech seizes for the malfunction cutscene
+  // (malfunctionSeconds), then rides the EXISTING overload -> fall -> exposed path.
+  malfunctionSeconds: 4.5,
+  // Seconds between the malfunction cutscene's error lines (malfunctionErrors) on #phase4-error-spam.
+  errorSpamInterval: 0.5,
   // Disabled fallback for the old "survive N volleys" overload; kept as config only.
   useVolleySurvivalFallback: false,
+  // --- Round 2b: bay life-support + the timed blind window. Additive; phase-4 only. ---
+  // BAY O2 drains over o2Seconds using SCALED time (so it slows while the terminal is open); under
+  // o2WarnFraction the bar flashes red; at 0 the player blacks out and the barrage retries in place.
+  o2Seconds: 120, o2WarnFraction: 0.25,
+  // Total fade-to-black-and-back for an O2 blackout; the in-place retry fires at the midpoint (o2BlackoutSeconds/2).
+  o2BlackoutSeconds: 1.6,
+  // Typing puzzle: the terminal slows the scene to terminalTimeScale while open; each station has a target
+  // line. Backspace edits, Enter submits once correct, Esc closes and keeps progress.
+  terminalTimeScale: 0.3,
+  terminalLines: ['print("I love Sudoers")', '#pragma omp parallel'],
+  // Blind window: the phase-4 exposed window lasts blindSeconds (NOT BOSS_RULES.exposedSeconds, so phases 1-3
+  // are unchanged). The HUD shows "RETRAINING MODEL... epoch n/blindEpochs" as a progress-bar timer.
+  blindSeconds: 15, blindEpochs: 10,
+  // Malfunction cutscene error spam, shown on the dedicated #phase4-error-spam element.
+  malfunctionErrors: [
+    'OVERFIT: class BRONDON expects 1 instance, found 3',
+    'DEADLOCK: 2 threads waiting on target_lock',
+    'RACE CONDITION on target_id',
+    'cannot multithread. please try again later',
+    'INITIATING MODEL RETRAIN...',
+  ],
+  // Soft keep-out so the player cannot float inside the hovering mech (metres from the boss hover anchor).
+  bossKeepOutRadius: 4.0,
   // Hologram decoy + anchor-ring visuals.
   decoyColor: 0x37d6ff, decoyHeight: 1.83, decoyIdleTimeScale: 0.35, decoyFlickerIn: 0.45,
   decoyTimeOffset: 1.7, decoyGlitchSeconds: 0.35,
+  // Hologram boot-station projector visuals (round 2b). The active emitter + projection cone reuse
+  // decoyColor and the pedestal trim reuses ringColor, so only these few are station-specific.
+  stationPedestalColor: 0x2b3a49, stationEmitterIdleColor: 0x3a1c1c,
+  stationEmitterIdleIntensity: 0.55, stationEmitterActiveIntensity: 2.6, stationConeOpacity: 0.1,
   ringRadius: 0.9, ringTube: 0.05, ringColor: 0x65dfff,
-  // Anchor-ring SHADER tunables. scene13 injects these as GLSL #defines (buildRingShaderDefines), so the
-  // ring shader exposes only the five animated uniforms (uTime/uColor/uProximity/uProgress/uFlash).
-  ringHotColor: 0xffffff,          // HOT_COLOR: white the progress arc + deploy flash shift toward
-  ringTimeOffset: 1.3,             // per-ring uTime offset so the three rings animate out of phase
+  // Anchor-ring SHADER tunables. phase4Stations injects these as GLSL #defines (buildRingShaderDefines), so
+  // the ring shader exposes only the five animated uniforms (uTime/uColor/uProximity/uProgress/uFlash).
+  ringHotColor: 0xffffff,          // HOT_COLOR: white the progress arc + boot flash shift toward
+  ringTimeOffset: 1.3,             // per-ring uTime offset so each station ring animates out of phase
   ringProximityFalloff: 2.5,       // metres beyond deployRadius over which uProximity ramps 1 -> 0
   ringFlashDecay: 3.5,             // uFlash decay per second after a deploy (1 -> 0 in ~0.29s)
   ringWobbleSegments: 6,           // RING_SEGMENTS: wobble lobes around the hoop
@@ -111,10 +144,10 @@ export const PHASE4_RULES = Object.freeze({
   ringProgressMix: 0.85,           // RING_PROGRESS_MIX: how far the charged arc shifts toward white
   ringProgressGain: 1.1,           // RING_PROGRESS_GAIN: brightness boost across the charged arc
   ringProgressTip: 0.8,            // RING_PROGRESS_TIP: brightness of the leading fill tip
-  ringFlashGain: 1.4,              // RING_FLASH_GAIN: brightness of the deploy flash
+  ringFlashGain: 1.4,              // RING_FLASH_GAIN: brightness of the boot flash
   // Detection-box HUD sizing + the model-fail glitch labels.
   detBoxHeight: 1.9, detBoxWidthFactor: 0.62, detGlitchReshuffle: 0.12, detCenterHeight: 0.95,
-  detGlitchLabels: ['HUMAN 0.31', 'ERROR', '??', 'HUMAN 0.07', '#REF!', 'HUMAN 0.19'],
+  detGlitchLabels: ['BRONDON 0.31', 'ERROR', '??', 'BRONDON 0.07', '#REF!', 'BRONDON 0.19'],
 });
 export type BossPhase = 'dormant' | 'flying' | 'windup' | 'rushing' | 'recovering' | 'falling' | 'exposed' | 'rising'
   | 'phaseThreeAwakening' | 'gravityWindup' | 'gravity' | 'droneExplosion' | 'phaseThreeTargets'
@@ -1039,6 +1072,9 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     const exclusions: Array<{ x: number; z: number; radius: number; maxY?: number }> = [
       // The open lift shaft only blocks horizontal movement near the deck; above liftHoleMaxY the player floats free over it (change 1).
       { x: PHASE4_RULES.liftHoleX, z: PHASE4_RULES.liftHoleZ, radius: PHASE4_RULES.liftHoleRadius, maxY: PHASE4_RULES.liftHoleMaxY },
+      // Round 2b: a soft cylindrical keep-out around the hovering mech so the player cannot float inside it.
+      // The boss is pinned to the hover anchor during the barrage, so this exclusion is effectively static.
+      { x: PHASE4_RULES.bossHoverX, z: PHASE4_RULES.bossHoverZ, radius: PHASE4_RULES.bossKeepOutRadius },
     ];
     for (const pillar of pillars) {
       if (!pillar.intact()) continue;
@@ -1110,9 +1146,12 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   // Round 2a breaking point: the model fails, in-flight nets are cleared, fire freezes, and scene13 is
   // told to glitch every detection box. updateZeroG rides this into the existing overload once it elapses.
   function startModelFail() {
-    modelFailing = true; modelFailTimer = PHASE4_RULES.modelFailFreezeSeconds;
+    modelFailing = true; modelFailTimer = PHASE4_RULES.malfunctionSeconds;
     for (const ball of netBalls) { ball.active = false; ball.telegraph = false; ball.mesh.visible = false; }
     telegraphTimer = -1;
+    // The mech seizes as its contradictions hit: a comic clank/boom punctuates the malfunction cutscene.
+    emitComicEffect(scene, 'clank', { source: root });
+    emitComicEffect(scene, 'boom', { source: root });
     options.onModelFail?.();
   }
   function prepareNetPool() {
@@ -1140,10 +1179,15 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     const candidates = options.getDetectionTargets?.();
     if (!candidates || !candidates.length) return -1;
     const power = PHASE4_RULES.targetingConfidencePower, noise = PHASE4_RULES.targetingNoise;
+    // Round 2b: the lowest-id active hologram is the AI's "primary BRONDON match", so once one is up it draws
+    // most volleys (hologramBiasWeight). The telegraph marker still shows exactly who the net is aimed at.
+    let primaryId = -1;
+    for (const c of candidates) if (!c.isPlayer && c.visible && (primaryId === -1 || c.id < primaryId)) primaryId = c.id;
     let best = -Infinity, bestId = -1;
     for (const c of candidates) {
       if (!c.visible) continue;
-      const weight = Math.pow(THREE.MathUtils.clamp(c.confidence, 0, 1), power) + Math.random() * noise;
+      let weight = Math.pow(THREE.MathUtils.clamp(c.confidence, 0, 1), power) + Math.random() * noise;
+      if (!c.isPlayer && c.id === primaryId) weight += PHASE4_RULES.hologramBiasWeight;
       if (weight > best) { best = weight; bestId = c.isPlayer ? -1 : c.id; _netTarget.copy(c.position); }
     }
     if (best === -Infinity) { _netTarget.copy(_netPlayer); return -1; }
@@ -1271,13 +1315,19 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
       emitComicEffect(scene, 'thud', { position: new THREE.Vector3(player.body.position.x, player.body.position.y, player.body.position.z) });
     }
     stepPuffs(dt);
-    // Round 2a breaking point: all decoys planted => the model can't isolate the real player. Freeze fire
-    // for modelFailFreezeSeconds (glitching the HUD), then ride the EXISTING overload path. This replaces
-    // the old "survive N volleys" trigger, which stays only as the disabled useVolleySurvivalFallback.
+    // Round 2b breaking point: both holograms booted => the model can't isolate a single BRONDON. Freeze fire
+    // for malfunctionSeconds (scene13 plays the seizure cutscene + error spam), then ride the EXISTING
+    // overload path. This replaces the old "survive N volleys" trigger, kept only as useVolleySurvivalFallback.
     if (!modelFailing && !PHASE4_RULES.useVolleySurvivalFallback && countDetectionDecoys() >= PHASE4_RULES.decoyCount) startModelFail();
     if (modelFailing) {
       modelFailTimer -= dt;
-      if (modelFailTimer <= 0) overloadZeroG();
+      // The mech seizes and shakes harder as the timer runs down; scene13 frames it with the cinematic camera.
+      const t = THREE.MathUtils.clamp(1 - Math.max(0, modelFailTimer) / PHASE4_RULES.malfunctionSeconds, 0, 1);
+      const amp = 0.08 + 0.12 * t;
+      root.position.x = PHASE4_RULES.bossHoverX + Math.sin(elapsed * 43) * amp;
+      root.position.z = PHASE4_RULES.bossHoverZ + Math.cos(elapsed * 37) * amp;
+      root.rotation.z = Math.sin(elapsed * 51) * 0.06 * (0.4 + t);
+      if (modelFailTimer <= 0) { root.rotation.z = 0; overloadZeroG(); }
       return;
     }
     if (telegraphTimer > 0) {
@@ -1355,12 +1405,16 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     else if (phase === 'zeroG') updateZeroG(dt);
     else if (phase === 'zeroGTrapped') { trappedTimer -= dt; if (trappedTimer <= 0) retryPhaseFour(); }
     else if (phase === 'zeroGOverload' && phaseTime >= 0.15) beginFall(false);
+    // Round 2b: the phase-4 knockdown opens a separate timed "blind window" (blindSeconds) for the retrain
+    // HUD, leaving BOSS_RULES.exposedSeconds / pillarStunSeconds exactly as they were for phases 1-3.
+    const exposedDuration = phaseFour ? PHASE4_RULES.blindSeconds
+      : pillarStun ? BOSS_RULES.pillarStunSeconds : BOSS_RULES.exposedSeconds;
     if (phase === 'falling' && phaseTime >= 0.85) {
       phase = 'exposed'; phaseTime = 0;
-      remaining = pillarStun ? BOSS_RULES.pillarStunSeconds : BOSS_RULES.exposedSeconds;
+      remaining = exposedDuration;
     }
     else if (phase === 'exposed') {
-      remaining = Math.max(0, (pillarStun ? BOSS_RULES.pillarStunSeconds : BOSS_RULES.exposedSeconds) - phaseTime);
+      remaining = Math.max(0, exposedDuration - phaseTime);
       if (remaining <= 1e-7) {
         phase = 'rising'; phaseTime = 0; remaining = 0;
       }
@@ -1425,6 +1479,9 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
       zeroGIntroPending = false;
       if (phase === 'phaseFourAwakening') startZeroGBarrage();
     },
+    // Round 2b: an in-place barrage retry that KEEPS the booted holograms/stations (the O2 blackout uses it,
+    // exactly like the trapped retry). Never replays the intro and never calls onBarrageStart.
+    retryBarrageInPlace() { if (!disposed && zeroGActive) retryPhaseFour(); },
     async prepareRendering(renderer: THREE.WebGLRenderer, camera: THREE.Camera) {
       if (disposed) return;
       const textures = new Set<THREE.Texture>();

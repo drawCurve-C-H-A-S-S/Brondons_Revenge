@@ -9,11 +9,10 @@ import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.
 import { roomBox, createSlidingPortal, disposeRoom } from '../../helpers/scene/shipRoom.js';
 import { createHangarVersus } from '../../helpers/scene/hangarVersus.js';
 import { createHoldToSkip } from '../../helpers/animation/holdToSkip.js';
-import { createHoldToDeploy } from '../../helpers/animation/holdToDeploy.js';
 import { createPhase4Decoys } from '../../scripts/phase4Decoys.js';
 import { createPhase4DetectionHud } from '../../scripts/phase4DetectionHud.js';
-import anchorRingVertexShader from '../../shaders/anchorRing.vert.glsl?raw';
-import anchorRingFragmentShader from '../../shaders/anchorRing.frag.glsl?raw';
+import { createPhase4Stations } from '../../scripts/phase4Stations.js';
+import { createPhase4Terminal } from '../../scripts/phase4Terminal.js';
 import { createRecoveryPickup } from '../../helpers/scene/recoveryPickup.js';
 import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
 import { BOSS_RULES, PHASE4_RULES, createLoadingBayBoss, type BossPillar, type BossDetectionTarget } from '../../scripts/mechBaymaxBoss.js';
@@ -231,7 +230,7 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
   door.openImmediately();
   let deathClock = 0;
   let bossVictory = false;
-  let disposed = false, cleared = defeated, cinematic: 'entry' | 'versus' | 'awakening' | 'reveal' | 'lift' | 'gravityIntro' | null = defeated || checkpoint || startAtPhaseFour ? null : 'entry', cinematicTime = 0;
+  let disposed = false, cleared = defeated, cinematic: 'entry' | 'versus' | 'awakening' | 'reveal' | 'lift' | 'gravityIntro' | 'malfunction' | null = defeated || checkpoint || startAtPhaseFour ? null : 'entry', cinematicTime = 0;
   let versus: ReturnType<typeof createHangarVersus> | null = null;
   let arenaSupplyTime = 0, supplyNoticeTime = 0;
   let droneCutscene: { root: THREE.Object3D; stage: 'incoming' | 'impact'; clock: number; time: number; poseTime: number; impactPosition: THREE.Vector3 | null;
@@ -294,6 +293,21 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
   const phase4Pips = document.getElementById('phase4-entangle-pips');
   // Round 1 change 2d: centre-screen flashing "gravity offline" warning shown during the intro.
   const warningEl = document.getElementById('phase4-warning');
+  // Round 2b: BAY O2 bar, blind-window retrain bar, malfunction error spam, off-screen station markers,
+  // the hologram boot terminal (+ its hidden focus-sink input) and the O2-blackout fade. Additive; phase-4 only.
+  const o2El = document.getElementById('phase4-o2');
+  const o2Fill = document.getElementById('phase4-o2-fill');
+  const retrainEl = document.getElementById('phase4-retrain');
+  const retrainFill = document.getElementById('phase4-retrain-fill');
+  const retrainLabel = document.getElementById('phase4-retrain-label');
+  const errorSpamEl = document.getElementById('phase4-error-spam');
+  const markerContainer = document.getElementById('phase4-markers');
+  const terminalEl = document.getElementById('phase4-terminal');
+  const terminalInput = document.getElementById('phase4-term-input') as HTMLInputElement | null;
+  const termTargetEl = document.getElementById('phase4-term-target');
+  const termTypedEl = document.getElementById('phase4-term-typed');
+  const termStationEl = document.getElementById('phase4-term-station');
+  const blackoutEl = document.getElementById('phase4-blackout');
   const NEAR_MISS = { duration: 0.4, slowMo: 0.45, fovPunch: 9, offset: 0.14 };
   let nearMissClock = 0, nearMissSide = 1, nearMissBaseFov = 70, nearMissApplied = false, phaseNoticeTime = 0;
   const nearMissRight = new THREE.Vector3();
@@ -348,9 +362,10 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
     versus.update(0);
   }
   if (cinematic) freeze();
-  // --- Phase 4 round 2a: holographic decoys + the AI's ML human-detection HUD. Additive; inert until the
-  // zero-G barrage runs. Owns the decoy pool, the three plantable anchors + pulsing ring markers, the
-  // screen-space detection boxes, and the hold-E deploy interaction. Nothing here touches phases 1-3. ---
+  // --- Phase 4 round 2b: hologram BOOT STATIONS + the AI's overfit BRONDON-detection model. Additive; inert
+  // until the zero-G barrage runs. Owns the decoy pool, the two bootable projector stations (activation rings +
+  // off-screen arrow markers), the screen-space detection boxes and the typing terminal. Nothing here touches
+  // phases 1-3. ---
   const decoyCount = PHASE4_RULES.decoyCount;
   const decoys = createPhase4Decoys({ scene, rules: {
     count: decoyCount, color: PHASE4_RULES.decoyColor, height: PHASE4_RULES.decoyHeight,
@@ -363,154 +378,112 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
     boxHeight: PHASE4_RULES.detBoxHeight, boxWidthFactor: PHASE4_RULES.detBoxWidthFactor,
     glitchLabels: PHASE4_RULES.detGlitchLabels, glitchReshuffle: PHASE4_RULES.detGlitchReshuffle,
   });
-  const deployPrompt = document.getElementById('phase4-deploy-prompt');
-  const deployFill = document.getElementById('phase4-deploy-fill');
-  // Anchor points (configurable in PHASE4_RULES), a preallocated probe vector, and a pooled ring marker each.
-  const decoyAnchors: THREE.Vector3[] = [];
-  const decoyRings: Array<{ mesh: THREE.Mesh; material: THREE.ShaderMaterial }> = [];
-  const decoyConfidence: number[] = [];
-  // Per-ring deploy flash (0..1): spiked to 1 in plantDecoy(), decayed each frame in updatePhase4Decoys().
-  const ringFlash: number[] = [];
-  const ringGeometry = new THREE.TorusGeometry(PHASE4_RULES.ringRadius, PHASE4_RULES.ringTube, 8, 40);
-  // Inject every ring tunable from PHASE4_RULES as a GLSL #define prefix so the shader keeps exactly the
-  // five animated uniforms. Floats use toFixed(4) so they are valid GLSL float literals (a trailing .0).
-  function buildRingShaderDefines(): string {
-    const R = PHASE4_RULES;
-    const f = (n: number) => Number(n).toFixed(4);
-    const hot = new THREE.Color(R.ringHotColor);
-    return [
-      '#define TAU 6.2831853',
-      `#define RING_SEGMENTS ${f(R.ringWobbleSegments)}`,
-      `#define RING_WOBBLE_SPEED ${f(R.ringWobbleSpeed)}`,
-      `#define RING_WOBBLE_AMP ${f(R.ringWobbleAmp)}`,
-      `#define RING_WOBBLE_PROX_BOOST ${f(R.ringWobbleProxBoost)}`,
-      `#define RING_DASH_COUNT ${f(R.ringDashCount)}`,
-      `#define RING_DASH_SPEED ${f(R.ringDashSpeed)}`,
-      `#define RING_PROX_GLOW ${f(R.ringProxGlow)}`,
-      `#define RING_EDGE_SOFT ${f(R.ringEdgeSoft)}`,
-      `#define RING_IDLE_ALPHA ${f(R.ringIdleAlpha)}`,
-      `#define RING_PROGRESS_MIX ${f(R.ringProgressMix)}`,
-      `#define RING_PROGRESS_GAIN ${f(R.ringProgressGain)}`,
-      `#define RING_PROGRESS_TIP ${f(R.ringProgressTip)}`,
-      `#define RING_FLASH_GAIN ${f(R.ringFlashGain)}`,
-      `#define HOT_COLOR vec3(${hot.r.toFixed(4)}, ${hot.g.toFixed(4)}, ${hot.b.toFixed(4)})`,
-      '',
-    ].join('\n');
-  }
-  const ringDefines = buildRingShaderDefines();
-  // Prototype material; each ring clones it so all three animate independently (clone deep-copies uniforms).
-  const ringMaterialProto = new THREE.ShaderMaterial({
-    uniforms: {
-      uTime: { value: 0 }, uColor: { value: new THREE.Color(PHASE4_RULES.ringColor) },
-      uProximity: { value: 0 }, uProgress: { value: 0 }, uFlash: { value: 0 },
+  // The old hold-E "deploy decoy" prompt is repurposed as PRESS E: BOOT HOLOGRAM (relabeled in index.html).
+  const bootPrompt = document.getElementById('phase4-deploy-prompt');
+  // Two projector stations at opposite ends of the bay. Each owns an activation ring (the shared anchorRing
+  // shader, tunables injected as #defines inside phase4Stations) and an off-screen arrow marker.
+  const stations = createPhase4Stations({
+    scene, camera, markerContainer,
+    rules: {
+      count: decoyCount,
+      stationX: PHASE4_RULES.stationX, stationY: PHASE4_RULES.stationY, stationZ: PHASE4_RULES.stationZ,
+      deployRadius: PHASE4_RULES.deployRadius,
+      pedestalColor: PHASE4_RULES.stationPedestalColor, trimColor: PHASE4_RULES.ringColor,
+      emitterIdleColor: PHASE4_RULES.stationEmitterIdleColor, emitterActiveColor: PHASE4_RULES.decoyColor,
+      emitterIdleIntensity: PHASE4_RULES.stationEmitterIdleIntensity, emitterActiveIntensity: PHASE4_RULES.stationEmitterActiveIntensity,
+      coneColor: PHASE4_RULES.decoyColor, coneOpacity: PHASE4_RULES.stationConeOpacity,
+      ringRadius: PHASE4_RULES.ringRadius, ringTube: PHASE4_RULES.ringTube,
+      ringColor: PHASE4_RULES.ringColor, ringHotColor: PHASE4_RULES.ringHotColor,
+      ringTimeOffset: PHASE4_RULES.ringTimeOffset, ringProximityFalloff: PHASE4_RULES.ringProximityFalloff,
+      ringFlashDecay: PHASE4_RULES.ringFlashDecay,
+      ringWobbleSegments: PHASE4_RULES.ringWobbleSegments, ringWobbleSpeed: PHASE4_RULES.ringWobbleSpeed,
+      ringWobbleAmp: PHASE4_RULES.ringWobbleAmp, ringWobbleProxBoost: PHASE4_RULES.ringWobbleProxBoost,
+      ringDashCount: PHASE4_RULES.ringDashCount, ringDashSpeed: PHASE4_RULES.ringDashSpeed,
+      ringProxGlow: PHASE4_RULES.ringProxGlow, ringEdgeSoft: PHASE4_RULES.ringEdgeSoft,
+      ringIdleAlpha: PHASE4_RULES.ringIdleAlpha, ringProgressMix: PHASE4_RULES.ringProgressMix,
+      ringProgressGain: PHASE4_RULES.ringProgressGain, ringProgressTip: PHASE4_RULES.ringProgressTip,
+      ringFlashGain: PHASE4_RULES.ringFlashGain,
     },
-    vertexShader: ringDefines + anchorRingVertexShader, fragmentShader: ringDefines + anchorRingFragmentShader,
-    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
   });
-  for (let i = 0; i < decoyCount; i++) {
-    decoyAnchors.push(new THREE.Vector3(PHASE4_RULES.decoyAnchorX[i], PHASE4_RULES.decoyAnchorY[i], PHASE4_RULES.decoyAnchorZ[i]));
-    decoyConfidence.push(PHASE4_RULES.decoyConfidenceMin);
-    ringFlash.push(0);
-    const material = ringMaterialProto.clone();
-    const mesh = new THREE.Mesh(ringGeometry, material);
-    mesh.name = `Phase4DecoyRing-${i}`; mesh.rotation.x = -Math.PI / 2; mesh.position.copy(decoyAnchors[i]);
-    mesh.visible = false; mesh.frustumCulled = false; mesh.userData.minimap = false; scene.add(mesh);
-    decoyRings.push({ mesh, material });
-  }
   // The live detection candidate list, reused every frame (index 0 = the player, i+1 = decoy i). The boss
-  // reads it only when it launches a volley; the HUD reads it every frame. Neither path allocates.
+  // reads it only when it launches a volley; the HUD reads it every frame. Neither path allocates. The model
+  // was overfit to Brondon, so confidences are FIXED: the real player reads 0.97, a hologram 0.99 (the joke,
+  // and why the boss trusts the decoys over him).
   const detectionTargets: BossDetectionTarget[] = [
-    { id: -1, isPlayer: true, position: new THREE.Vector3(), confidence: PHASE4_RULES.playerConfidence0, visible: false },
+    { id: -1, isPlayer: true, position: new THREE.Vector3(), confidence: PHASE4_RULES.playerConfidence, visible: false },
   ];
-  for (let i = 0; i < decoyCount; i++) detectionTargets.push({ id: i, isPlayer: false, position: new THREE.Vector3(), confidence: PHASE4_RULES.decoyConfidenceMin, visible: false });
-  let nearestAnchor = -1, decoyElapsed = 0;
-  const _anchorProbe = new THREE.Vector3();
-  function rollDecoyConfidence() {
-    const span = PHASE4_RULES.decoyConfidenceMax - PHASE4_RULES.decoyConfidenceMin;
-    return PHASE4_RULES.decoyConfidenceMin + Math.random() * span;
+  for (let i = 0; i < decoyCount; i++) detectionTargets.push({ id: i, isPlayer: false, position: new THREE.Vector3(), confidence: PHASE4_RULES.decoyConfidence, visible: false });
+  const _playerPos = new THREE.Vector3(), _anchorProbe = new THREE.Vector3(), _projector = new THREE.Vector3();
+  let decoyElapsed = 0;
+  // --- Round 2b bay life-support, the O2 blackout, and the malfunction cutscene state. ---
+  let bayO2: number = PHASE4_RULES.o2Seconds;   // seconds of O2 left; drains with SCALED time during the barrage
+  let o2BlackoutClock = 0, o2Retried = false;    // O2-empty fade + in-place retry (approved answer 5)
+  let errorSpamClock = 0, errorSpamIndex = 0;    // malfunction cutscene error lines
+  // Boot a station: light its projector, plant the hologram there, and announce it. Idempotent per station.
+  function bootStation(index: number) {
+    if (index < 0 || stations.isActive(index)) return;
+    stations.getProjectorPosition(index, _projector);
+    if (stations.activate(index) && decoys.plant(index, _projector)) showPhaseNotice('HOLOGRAM ONLINE');
   }
-  function plantDecoy(index: number) {
-    if (index < 0 || decoys.isActive(index)) return;
-    if (decoys.plant(index, decoyAnchors[index])) { decoyConfidence[index] = rollDecoyConfidence(); ringFlash[index] = 1; showPhaseNotice('DECOY DEPLOYED'); }
+  // Reset every station + hologram to OFF (the blind-window return / a fresh barrage). The trapped and O2
+  // retries deliberately do NOT call this, so booted holograms survive them (approved answers 2 + 5).
+  function resetStations() {
+    decoys.resetAll(); stations.resetAll(); terminal.clearAllProgress(); terminal.close();
+    bootPrompt?.classList.add('hidden');
   }
-  const deployHold = createHoldToDeploy({
-    holdSeconds: PHASE4_RULES.deployHoldSeconds, onDeploy: () => plantDecoy(nearestAnchor),
-    prompt: deployPrompt, fill: deployFill,
-    isAvailable: () => nearestAnchor >= 0,
-    isPaused: () => cinematic !== null || cleared,
+  // The typing terminal. onCompile boots the station just typed; the boss's next volley pick sees the new
+  // hologram, and booting BOTH trips its model-fail (updateZeroG -> startModelFail).
+  const terminal = createPhase4Terminal({
+    overlay: terminalEl, input: terminalInput, targetEl: termTargetEl, typedEl: termTypedEl, stationEl: termStationEl,
+    lines: PHASE4_RULES.terminalLines,
+    onCompile: index => bootStation(index),
   });
-  function resetDecoys() {
-    decoys.resetAll(); nearestAnchor = -1;
-    for (let i = 0; i < decoyCount; i++) decoyConfidence[i] = PHASE4_RULES.decoyConfidenceMin;
+  // PRESS E near an OFF station opens its terminal. Bubble-phase, so once typing starts the terminal's own
+  // window-capture handler (which stops every key) preempts this and E just types an "e".
+  function onBootKey(event: KeyboardEvent) {
+    if (event.code !== 'KeyE' || event.repeat || terminal.isOpen || cleared || cinematic || deathClock) return;
+    if (event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    const s = boss.getStatus();
+    if (!s.zeroGActive || s.phase !== 'zeroG' || s.modelFailing) return;
+    if (!player.isEnabled() || player.getHealth() <= 0) return;
+    _playerPos.set(player.body.position.x, player.body.position.y, player.body.position.z);
+    const near = stations.nearestWithin(_playerPos, PHASE4_RULES.deployRadius);
+    if (near < 0) return;
+    event.preventDefault();
+    terminal.openFor(near);
+    bootPrompt?.classList.add('hidden');
   }
-  // Per-frame phase-4 decoy/detection update, called from updateHud (which already has the boss status).
-  function updatePhase4Decoys(s: { modelFailing: boolean; aimedDecoyId: number }, phase4Visible: boolean, dt: number) {
+  window.addEventListener('keydown', onBootKey);
+  // Per-frame phase-4 update: decoys, station rings + markers, detection boxes and the boot prompt. Called
+  // from updateHud (which already has the boss status). `detectionVisible` stays true through the malfunction
+  // cutscene so the boxes keep glitching; `interactive` is false during any cinematic.
+  function updatePhase4(s: { modelFailing: boolean; aimedDecoyId: number }, detectionVisible: boolean, interactive: boolean, dt: number) {
     decoyElapsed += dt;
     decoys.update(dt);
-    // Anchor rings are drawn by the custom ring shader; their uniforms are set further below, after
-    // deployHold.update(), so proximity/progress/flash reflect this frame. (The old JS scale/opacity pulse
-    // was removed — the shader replaces it.)
-    // Nearest free anchor within deploy range (3D; the player floats in the dodge plane).
-    nearestAnchor = -1;
-    if (phase4Visible && player.isEnabled() && player.getHealth() > 0) {
-      const p = player.body.position;
-      let best: number = PHASE4_RULES.deployRadius;
-      for (let i = 0; i < decoyCount; i++) {
-        if (decoys.isActive(i)) continue;
-        const a = decoyAnchors[i];
-        const d = Math.hypot(p.x - a.x, p.y - a.y, p.z - a.z);
-        if (d < best) { best = d; nearestAnchor = i; }
-      }
-    }
-    // Refresh the detection candidate list in place for both the boss targeting and the HUD labels.
-    const active = decoys.activeCount();
-    detectionTargets[0].visible = phase4Visible;
-    detectionTargets[0].confidence = active >= 3 ? PHASE4_RULES.playerConfidence3
-      : active === 2 ? PHASE4_RULES.playerConfidence2
-        : active === 1 ? PHASE4_RULES.playerConfidence1 : PHASE4_RULES.playerConfidence0;
-    detectionTargets[0].position.set(player.body.position.x, player.body.position.y, player.body.position.z);
+    _playerPos.set(player.body.position.x, player.body.position.y, player.body.position.z);
+    // Refresh the detection candidate list in place for both boss targeting and the HUD labels.
+    detectionTargets[0].visible = detectionVisible;
+    detectionTargets[0].position.copy(_playerPos);
     for (let i = 0; i < decoyCount; i++) {
       const t = detectionTargets[i + 1];
-      const on = decoys.isActive(i) && phase4Visible;
+      const on = decoys.isActive(i) && detectionVisible;
       t.visible = on;
       if (!on) continue;
       _anchorProbe.copy(decoys.getPosition(i)); _anchorProbe.y += PHASE4_RULES.detCenterHeight;
       t.position.copy(_anchorProbe);
-      t.confidence = THREE.MathUtils.clamp(decoyConfidence[i] + (Math.random() - 0.5) * PHASE4_RULES.decoyConfidenceJitter, 0, 1);
     }
-    deployHold.update(dt);
-    // Drive the anchor-ring shader uniforms. No per-frame allocation: only scalar writes + Math.hypot.
-    const ringEye = player.body.position;
-    for (let i = 0; i < decoyCount; i++) {
-      const marker = decoyRings[i];
-      // The deploy flash spikes to 1 in plantDecoy() and decays fast here.
-      if (ringFlash[i] > 0) ringFlash[i] = Math.max(0, ringFlash[i] - dt * PHASE4_RULES.ringFlashDecay);
-      const ringActive = decoys.isActive(i);
-      // Show for a free anchor, or briefly while its deploy flash is still burning off.
-      const show = phase4Visible && (!ringActive || ringFlash[i] > 0);
-      marker.mesh.visible = show;
-      if (!show) continue;
-      const u = marker.material.uniforms;
-      // uTime: shared clock + a per-ring offset so the three rings animate independently.
-      u.uTime.value = decoyElapsed + i * PHASE4_RULES.ringTimeOffset;
-      // uProximity: 1 inside deployRadius, ramping to 0 over ringProximityFalloff beyond it.
-      let prox = 0;
-      if (!ringActive) {
-        const a = decoyAnchors[i];
-        const dist = Math.hypot(ringEye.x - a.x, ringEye.y - a.y, ringEye.z - a.z);
-        prox = dist <= PHASE4_RULES.deployRadius ? 1
-          : THREE.MathUtils.clamp(1 - (dist - PHASE4_RULES.deployRadius) / PHASE4_RULES.ringProximityFalloff, 0, 1);
-      }
-      u.uProximity.value = prox;
-      // uProgress: the hold-E fill, only for the ring currently being deployed.
-      u.uProgress.value = (!ringActive && i === nearestAnchor) ? deployHold.progress : 0;
-      // uFlash: the deploy pulse.
-      u.uFlash.value = ringFlash[i];
-    }
-    if (phase4Visible) {
+    // Activation rings show each station's kept typing progress (correct/total), even while the terminal is closed.
+    for (let i = 0; i < decoyCount; i++) stations.setProgress(i, terminal.progressFor(i));
+    stations.update(dt, _playerPos, detectionVisible);
+    if (markerContainer) markerContainer.classList.toggle('hidden', !detectionVisible);
+    // PRESS E: BOOT HOLOGRAM for the nearest OFF station (hidden while typing or in a cutscene).
+    const near = interactive && detectionVisible && !terminal.isOpen ? stations.nearestWithin(_playerPos, PHASE4_RULES.deployRadius) : -1;
+    if (bootPrompt) bootPrompt.classList.toggle('hidden', near < 0);
+    if (detectionVisible) {
       detectionHud.show();
       detectionHud.update(dt, detectionTargets, s.modelFailing, s.aimedDecoyId < 0 ? 0 : s.aimedDecoyId + 1);
     } else detectionHud.hide();
+    terminal.tick();   // keep the focus sink focused so main.ts's editing guard keeps disarming KeyM
   }
   const boss = createLoadingBayBoss(scene, physicsWorld, player, () => {
     bossVictory = true;
@@ -560,12 +533,14 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
     onPhaseFour() { startPhase4Intro(); },
     onTrapped() { showPhaseNotice('ENTANGLED — RESETTING THE BARRAGE'); },
     onNearMiss(side) { triggerNearMiss(side); },
-    // Round 2a: feed the detection model, glitch a decoy the net hits, and reset/glitch on the breaking
-    // point. onBarrageStart fires on first entry and the exposed-window return (never the trapped retry).
+    // Round 2b: feed the detection model, glitch a decoy the net hits, and reset/reboot on the breaking
+    // point. onBarrageStart fires on first entry AND the blind-window return (never the trapped/O2 retry), so
+    // it wipes the stations back to OFF and refills the bay O2 (approved answer 2). onModelFail opens the
+    // malfunction cutscene once BOTH holograms are up.
     getDetectionTargets() { return detectionTargets; },
     onNetHitDecoy(id) { decoys.glitch(id); },
-    onBarrageStart() { resetDecoys(); },
-    onModelFail() { showPhaseNotice('DETECTION MODEL OVERLOADING'); },
+    onBarrageStart() { resetStations(); bayO2 = PHASE4_RULES.o2Seconds; },
+    onModelFail() { startMalfunction(); },
   });
   if (defeated) boss.dispose();
   else if (startAtPhaseFour) { door.setLocked(true); player.setPosition(0, player.radius + 0.4, -8); boss.startAtPhaseFour(); }
@@ -774,6 +749,19 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
       drawOrbit(orbitShot, THREE.MathUtils.smootherstep(cinematicTime, 0, PHASE4_RULES.introEndAt));
       return true;
     }
+    // Round 2b: the malfunction cutscene frames the seizing mech for malfunctionSeconds, mirroring the intro's
+    // slow boss orbit. The boss shakes (updateZeroG) and the detection boxes jump chaotically while this runs.
+    if (cinematic === 'malfunction') {
+      const actual = boss.getCinematicBounds(liveBossBounds);
+      if (!orbitShot || orbitShot.kind !== 'boss') {
+        const envelope = new THREE.Box3(new THREE.Vector3(boss.root.position.x - 5.8, 0.05, boss.root.position.z - 5.8),
+          new THREE.Vector3(boss.root.position.x + 5.8, 11.5, boss.root.position.z + 5.8)).union(actual);
+        orbitShot = selectOrbit('boss', envelope, boss.root.rotation.y + 0.3);
+      }
+      orbitShot.bounds.union(actual);
+      drawOrbit(orbitShot, THREE.MathUtils.smootherstep(cinematicTime, 0, PHASE4_RULES.malfunctionSeconds));
+      return true;
+    }
     if (!cinematic) return false;
     if (cinematic === 'versus') return true;
     if (cinematic === 'entry') {
@@ -806,13 +794,21 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
       if (subtitles) {
         if (cinematicTime >= R.introTauntAt && cinematicTime < R.introTauntAt + R.introTauntSeconds) {
           subtitles.classList.remove('hidden');
-          subtitles.textContent = "Hahaha. You thought destroying my weapons meant you'd won? I control this entire ship, including its gravity.";
+          subtitles.textContent = "Hahaha. You thought destroying my weapons meant you'd won? I control this entire ship, including its gravity. ...and while I'm at it, who needs oxygen?";
         } else if (cinematicTime >= R.introPlayerLineAt && cinematicTime < R.introPlayerLineAt + R.introPlayerLineSeconds) {
           subtitles.classList.remove('hidden');
           subtitles.textContent = 'Oh no... oh no, no, no.';
         } else subtitles.classList.add('hidden');
       }
       if (cinematicTime >= R.introEndAt) finishPhase4Intro();
+      return;
+    }
+    // Round 2b: the malfunction cutscene spams model-fail errors while the boss's own modelFailTimer drives the
+    // seizure and rides the EXISTING overload -> fall -> exposed path. End when the boss leaves 'zeroG'
+    // (overload began) or after a safety timeout, then blend the camera back to play.
+    if (cinematic === 'malfunction') {
+      advanceErrorSpam(dt);
+      if (boss.getStatus().phase !== 'zeroG' || cinematicTime > PHASE4_RULES.malfunctionSeconds + 1.5) endMalfunction();
       return;
     }
     if (cinematic === 'versus') {
@@ -896,8 +892,10 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
     pushPrompt.container?.classList.toggle('hidden', k === 0);
     setPushSide(pushPrompt.left, k === -1, 'A', progress, required);
     setPushSide(pushPrompt.right, k === 1, 'D', progress, required);
-    setPushSide(pushPrompt.top, k === 2, 'W', progress, required);
-    setPushSide(pushPrompt.bottom, k === -2, 'S', progress, required);
+    // Round 2b: the top/bottom slots double as the forward/back push-off (walls ahead/behind, camera yaw). Only
+    // the nearest barrier is ever active, so W/↑ (and S/↓) never compete for the same slot.
+    setPushSide(pushPrompt.top, k === 2 || k === 3, k === 3 ? '↑' : 'W', progress, required);
+    setPushSide(pushPrompt.bottom, k === -2 || k === -3, k === -3 ? '↓' : 'S', progress, required);
   }
   function updateBeacons(active: boolean) {
     if (beaconGroup.visible !== active) {
@@ -943,7 +941,86 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
     boss.beginZeroGBarrage();   // opens the barrage: enables zero-G, the player drifts up (beat f)
     returnToBattle();           // releases the player and blends the camera back over 0.3 s
     // A short control hint once floating begins (returnToBattle hid the subtitles just above).
-    if (subtitles) { subtitles.textContent = 'GRAVITY OFFLINE — TAP A / D / W / S TO DODGE THE NETS'; subtitles.classList.remove('hidden'); phaseNoticeTime = 3.2; }
+    if (subtitles) { subtitles.textContent = 'A/D LEFT-RIGHT · W/S UP-DOWN · ↑/↓ FORWARD-BACK'; subtitles.classList.remove('hidden'); phaseNoticeTime = 3.2; }
+  }
+  // --- Round 2b: malfunction cutscene, error spam, BAY O2 life-support and the blind-window retrain bar. ---
+  // Additive; phase-4 only. These are hoisted function declarations, so the boss options above and
+  // updateCinematic/updateHud below can call them before their textual definition.
+  // Open the malfunction cutscene: frame the seizing mech, close any terminal, start the error spam. The player
+  // is deliberately NOT frozen — the boss restores gravity (setZeroGMode(false)) on the exact frame this ends,
+  // so leaving the body dynamic keeps the settle-on-deck continuous.
+  function startMalfunction() {
+    if (disposed || cinematic === 'malfunction') return;
+    captureShot();
+    cinematic = 'malfunction'; cinematicTime = 0;
+    terminal.close();
+    startErrorSpam();
+  }
+  // Close the cutscene once the boss leaves 'zeroG' (overload began) and blend the camera back to play.
+  function endMalfunction() {
+    if (cinematic !== 'malfunction') return;
+    cinematic = null;
+    if (errorSpamEl) { errorSpamEl.textContent = ''; errorSpamEl.classList.add('hidden'); }
+    returnToBattle();
+  }
+  // Reset + reveal the dedicated #phase4-error-spam element; lines drop in on a fixed cadence.
+  function startErrorSpam() {
+    errorSpamIndex = 0; errorSpamClock = 0;
+    if (errorSpamEl) { errorSpamEl.textContent = ''; errorSpamEl.classList.remove('hidden'); }
+  }
+  function advanceErrorSpam(dt: number) {
+    if (!errorSpamEl || errorSpamIndex >= PHASE4_RULES.malfunctionErrors.length) return;
+    errorSpamClock -= dt;
+    if (errorSpamClock > 0) return;
+    errorSpamClock = PHASE4_RULES.errorSpamInterval;
+    const line = document.createElement('div');
+    line.className = 'p4-err';
+    line.textContent = PHASE4_RULES.malfunctionErrors[errorSpamIndex++];
+    errorSpamEl.appendChild(line);
+  }
+  // O2 hit zero: fade to black, then retry the barrage IN PLACE at the midpoint (keeps booted holograms + typed
+  // progress, approved answer 5), and fade back. Close the terminal but keep typed progress (saved[] survives).
+  function triggerO2Blackout() {
+    if (o2BlackoutClock > 0 || cleared) return;
+    o2BlackoutClock = PHASE4_RULES.o2BlackoutSeconds; o2Retried = false;
+    terminal.close();
+    if (blackoutEl) blackoutEl.style.opacity = '1';
+  }
+  // BAY O2 drains with SCALED time (cinematicDelta), so it slows while the terminal is open (approved addition).
+  // Paused during the intro, malfunction cutscene, blind window and death (all excluded by inBarrage).
+  function updateBayO2(s: { zeroGActive: boolean; phase: string; modelFailing: boolean }) {
+    const inBarrage = s.zeroGActive && !cleared && !cinematic && s.phase === 'zeroG' && !s.modelFailing;
+    if (inBarrage && o2BlackoutClock <= 0) {
+      bayO2 = Math.max(0, bayO2 - cinematicDelta);
+      if (bayO2 <= 0) triggerO2Blackout();
+    }
+    // Blackout fade: a real-time (frameDt) countdown; the in-place retry fires at the midpoint under cover of black.
+    if (o2BlackoutClock > 0) {
+      o2BlackoutClock = Math.max(0, o2BlackoutClock - frameDt);
+      const half = PHASE4_RULES.o2BlackoutSeconds * 0.5;
+      if (!o2Retried && o2BlackoutClock <= half) { o2Retried = true; bayO2 = PHASE4_RULES.o2Seconds; boss.retryBarrageInPlace(); }
+      if (blackoutEl) blackoutEl.style.opacity = o2BlackoutClock > half ? '1' : String(THREE.MathUtils.clamp(o2BlackoutClock / half, 0, 1));
+    }
+    // Hidden during the blind window (approved addition B): inBarrage is false once zeroGActive drops.
+    if (o2El) {
+      o2El.classList.toggle('hidden', !inBarrage);
+      if (inBarrage) {
+        const frac = THREE.MathUtils.clamp(bayO2 / PHASE4_RULES.o2Seconds, 0, 1);
+        if (o2Fill) o2Fill.style.width = `${frac * 100}%`;
+        o2El.classList.toggle('low', frac <= PHASE4_RULES.o2WarnFraction);
+      }
+    }
+  }
+  // Blind-window retrain bar (approved addition B): replaces the O2 bar while the boss is exposed/retraining.
+  // The epoch counter advances evenly across blindSeconds using the boss's exposed countdown (s.remaining).
+  function updateRetrainBar(s: { phaseFour: boolean; phase: string; remaining: number }) {
+    const blind = s.phaseFour && s.phase === 'exposed';
+    if (retrainEl) retrainEl.classList.toggle('hidden', !blind);
+    if (!blind) return;
+    const progress = THREE.MathUtils.clamp(1 - s.remaining / PHASE4_RULES.blindSeconds, 0, 1);
+    if (retrainFill) retrainFill.style.width = `${progress * 100}%`;
+    const epoch = Math.min(PHASE4_RULES.blindEpochs, Math.floor(progress * PHASE4_RULES.blindEpochs) + 1);
+    if (retrainLabel) retrainLabel.textContent = `RETRAINING MODEL... epoch ${epoch}/${PHASE4_RULES.blindEpochs}`;
   }
   function updateHud() {
     const s = boss.getStatus();
@@ -984,8 +1061,12 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
     if (prevZeroGActive && !s.zeroGActive) startLightDim(1, PHASE4_RULES.lightRestoreSeconds);
     else if (!prevZeroGActive && s.zeroGActive) startLightDim(PHASE4_RULES.introDimFraction, PHASE4_RULES.introDimSeconds);
     prevZeroGActive = s.zeroGActive;
-    // Round 2a: drive the decoys, ring markers, detection boxes and the hold-E deploy prompt.
-    updatePhase4Decoys(s, phase4Visible, frameDt);
+    // Round 2b: drive the decoys, station rings + markers, detection boxes and the boot prompt. detectionVisible
+    // stays true through the malfunction cutscene so the boxes keep glitching; interactive is false in any cinematic.
+    const detectionVisible = s.zeroGActive && !cleared;
+    updatePhase4(s, detectionVisible, phase4Visible, frameDt);
+    // BAY O2 life-support bar, then the blind-window retrain bar that replaces it (approved addition B).
+    updateBayO2(s); updateRetrainBar(s);
   }
   const assetsReady = Promise.all([ready, boss.ready]).then(async () => {
     if (disposed || !renderer || defeated) return;
@@ -1062,7 +1143,7 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
     },
     onPlayerDeath() {
       if (!onRespawn) return false;
-      if (!deathClock) { deathClock = 2.5; boss.dispose(); freeze(); phase4Hud?.classList.add('hidden'); detectionHud.hide(); deployHold.reset(); deployPrompt?.classList.add('hidden'); for (const ringMark of decoyRings) ringMark.mesh.visible = false; if (cinematic === 'gravityIntro') cinematic = null; startLightDim(1, PHASE4_RULES.lightRestoreSeconds); if (warningEl) warningEl.classList.add('hidden'); introSkipButton.classList.add('hidden'); if (subtitles) { subtitles.textContent = 'WARDEN CHECKPOINT / RESTARTING'; subtitles.classList.remove('hidden'); } }
+      if (!deathClock) { deathClock = 2.5; boss.dispose(); freeze(); phase4Hud?.classList.add('hidden'); detectionHud.hide(); terminal.close(); bootPrompt?.classList.add('hidden'); stations.resetAll(); if (markerContainer) markerContainer.classList.add('hidden'); if (o2El) { o2El.classList.add('hidden'); o2El.classList.remove('low'); } if (retrainEl) retrainEl.classList.add('hidden'); if (errorSpamEl) { errorSpamEl.textContent = ''; errorSpamEl.classList.add('hidden'); } if (blackoutEl) blackoutEl.style.opacity = '0'; o2BlackoutClock = 0; if (cinematic === 'gravityIntro' || cinematic === 'malfunction') cinematic = null; startLightDim(1, PHASE4_RULES.lightRestoreSeconds); if (warningEl) warningEl.classList.add('hidden'); introSkipButton.classList.add('hidden'); if (subtitles) { subtitles.textContent = 'WARDEN CHECKPOINT / RESTARTING'; subtitles.classList.remove('hidden'); } }
       return true;
     },
     updatePhysics(dt: number, thirdPerson = false) {
@@ -1103,9 +1184,14 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
         const p = THREE.MathUtils.clamp(1 - nearMissClock / NEAR_MISS.duration, 0, 1);
         nearMissScale = 1 - (1 - NEAR_MISS.slowMo) * Math.sin(p * Math.PI);
       }
-      const timeScale = Math.min(droneScale, nearMissScale);
+      // Round 2b: the boot terminal slows the scene to terminalTimeScale while open (a third Math.min source), so
+      // the nets keep coming but the typing puzzle stays calm. Queued zero-G taps are cleared every open frame so
+      // thrusters are effectively disabled mid-type (approved answer 1).
+      const terminalScale = terminal.isOpen ? PHASE4_RULES.terminalTimeScale : 1;
+      const timeScale = Math.min(droneScale, nearMissScale, terminalScale);
       cinematicDelta = dt * timeScale;
       if (droneCutscene?.stage === 'impact') droneCutscene.poseTime += cinematicDelta;
+      if (terminal.isOpen) player.clearZeroGTaps();
       physics.step(cinematicDelta, player, thirdPerson);
       boss.updateVisuals(cinematicDelta);
       if (boy?.visible) boyMixer?.update(cinematicDelta);
@@ -1180,11 +1266,16 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
       beaconBaseGeometry.dispose(); beaconHousingGeometry.dispose(); beaconLensGeometry.dispose();
       beaconHousingMaterial.dispose(); beaconLensMaterial.dispose();
       versus?.dispose(); versus = null;
-      // Round 2a: release the decoy pool, detection HUD, deploy control and the ring markers.
-      deployHold.dispose(); detectionHud.dispose(); decoys.dispose();
-      deployPrompt?.classList.add('hidden');
-      for (const ringMark of decoyRings) { ringMark.mesh.removeFromParent(); ringMark.material.dispose(); }
-      decoyRings.length = 0; ringMaterialProto.dispose(); ringGeometry.dispose();
+      // Round 2b: release the decoy pool, detection HUD, boot stations (rings + markers) and the typing terminal,
+      // and drop the PRESS E boot-key listener. The station module owns its own geometry/material disposal.
+      terminal.dispose(); stations.dispose(); detectionHud.dispose(); decoys.dispose();
+      window.removeEventListener('keydown', onBootKey);
+      bootPrompt?.classList.add('hidden');
+      if (markerContainer) markerContainer.classList.add('hidden');
+      if (o2El) o2El.classList.add('hidden');
+      if (retrainEl) retrainEl.classList.add('hidden');
+      if (errorSpamEl) { errorSpamEl.textContent = ''; errorSpamEl.classList.add('hidden'); }
+      if (blackoutEl) blackoutEl.style.opacity = '0';
       boss.dispose(); boyMixer?.stopAllAction(); if (boy) boyMixer?.uncacheRoot(boy);
       player.dispose(); physics.dispose(); disposeRoom(scene); rubbleGeometry.dispose();
     },
