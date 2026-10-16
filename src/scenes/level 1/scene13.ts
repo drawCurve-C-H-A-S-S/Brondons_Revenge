@@ -9,9 +9,12 @@ import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.
 import { roomBox, createSlidingPortal, disposeRoom } from '../../helpers/scene/shipRoom.js';
 import { createHangarVersus } from '../../helpers/scene/hangarVersus.js';
 import { createHoldToSkip } from '../../helpers/animation/holdToSkip.js';
+import { createHoldToDeploy } from '../../helpers/animation/holdToDeploy.js';
+import { createPhase4Decoys } from '../../scripts/phase4Decoys.js';
+import { createPhase4DetectionHud } from '../../scripts/phase4DetectionHud.js';
 import { createRecoveryPickup } from '../../helpers/scene/recoveryPickup.js';
 import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
-import { BOSS_RULES, PHASE4_RULES, createLoadingBayBoss, type BossPillar } from '../../scripts/mechBaymaxBoss.js';
+import { BOSS_RULES, PHASE4_RULES, createLoadingBayBoss, type BossPillar, type BossDetectionTarget } from '../../scripts/mechBaymaxBoss.js';
 import { preloadMusic } from '../../helpers/audio/bufferedMusic.js';
 import bgmUrl from '../../assets/bgm/DonRevBGM1.m4a?url';
 
@@ -343,6 +346,111 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
     versus.update(0);
   }
   if (cinematic) freeze();
+  // --- Phase 4 round 2a: holographic decoys + the AI's ML human-detection HUD. Additive; inert until the
+  // zero-G barrage runs. Owns the decoy pool, the three plantable anchors + pulsing ring markers, the
+  // screen-space detection boxes, and the hold-E deploy interaction. Nothing here touches phases 1-3. ---
+  const decoyCount = PHASE4_RULES.decoyCount;
+  const decoys = createPhase4Decoys({ scene, rules: {
+    count: decoyCount, color: PHASE4_RULES.decoyColor, height: PHASE4_RULES.decoyHeight,
+    idleTimeScale: PHASE4_RULES.decoyIdleTimeScale, flickerIn: PHASE4_RULES.decoyFlickerIn,
+    timeOffset: PHASE4_RULES.decoyTimeOffset, glitchSeconds: PHASE4_RULES.decoyGlitchSeconds,
+  } });
+  const detectionContainer = document.getElementById('phase4-detection');
+  const detectionHud = createPhase4DetectionHud({
+    container: detectionContainer, camera, boxCount: decoyCount + 1,
+    boxHeight: PHASE4_RULES.detBoxHeight, boxWidthFactor: PHASE4_RULES.detBoxWidthFactor,
+    glitchLabels: PHASE4_RULES.detGlitchLabels, glitchReshuffle: PHASE4_RULES.detGlitchReshuffle,
+  });
+  const deployPrompt = document.getElementById('phase4-deploy-prompt');
+  const deployFill = document.getElementById('phase4-deploy-fill');
+  // Anchor points (configurable in PHASE4_RULES), a preallocated probe vector, and a pooled ring marker each.
+  const decoyAnchors: THREE.Vector3[] = [];
+  const decoyRings: Array<{ mesh: THREE.Mesh; material: THREE.MeshBasicMaterial }> = [];
+  const decoyConfidence: number[] = [];
+  const ringGeometry = new THREE.TorusGeometry(PHASE4_RULES.ringRadius, PHASE4_RULES.ringTube, 8, 40);
+  for (let i = 0; i < decoyCount; i++) {
+    decoyAnchors.push(new THREE.Vector3(PHASE4_RULES.decoyAnchorX[i], PHASE4_RULES.decoyAnchorY[i], PHASE4_RULES.decoyAnchorZ[i]));
+    decoyConfidence.push(PHASE4_RULES.decoyConfidenceMin);
+    const material = new THREE.MeshBasicMaterial({ color: PHASE4_RULES.ringColor, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false });
+    const mesh = new THREE.Mesh(ringGeometry, material);
+    mesh.name = `Phase4DecoyRing-${i}`; mesh.rotation.x = -Math.PI / 2; mesh.position.copy(decoyAnchors[i]);
+    mesh.visible = false; mesh.frustumCulled = false; mesh.userData.minimap = false; scene.add(mesh);
+    decoyRings.push({ mesh, material });
+  }
+  // The live detection candidate list, reused every frame (index 0 = the player, i+1 = decoy i). The boss
+  // reads it only when it launches a volley; the HUD reads it every frame. Neither path allocates.
+  const detectionTargets: BossDetectionTarget[] = [
+    { id: -1, isPlayer: true, position: new THREE.Vector3(), confidence: PHASE4_RULES.playerConfidence0, visible: false },
+  ];
+  for (let i = 0; i < decoyCount; i++) detectionTargets.push({ id: i, isPlayer: false, position: new THREE.Vector3(), confidence: PHASE4_RULES.decoyConfidenceMin, visible: false });
+  let nearestAnchor = -1, decoyElapsed = 0;
+  const _anchorProbe = new THREE.Vector3();
+  function rollDecoyConfidence() {
+    const span = PHASE4_RULES.decoyConfidenceMax - PHASE4_RULES.decoyConfidenceMin;
+    return PHASE4_RULES.decoyConfidenceMin + Math.random() * span;
+  }
+  function plantDecoy(index: number) {
+    if (index < 0 || decoys.isActive(index)) return;
+    if (decoys.plant(index, decoyAnchors[index])) { decoyConfidence[index] = rollDecoyConfidence(); showPhaseNotice('DECOY DEPLOYED'); }
+  }
+  const deployHold = createHoldToDeploy({
+    holdSeconds: PHASE4_RULES.deployHoldSeconds, onDeploy: () => plantDecoy(nearestAnchor),
+    prompt: deployPrompt, fill: deployFill,
+    isAvailable: () => nearestAnchor >= 0,
+    isPaused: () => cinematic !== null || cleared,
+  });
+  function resetDecoys() {
+    decoys.resetAll(); nearestAnchor = -1;
+    for (let i = 0; i < decoyCount; i++) decoyConfidence[i] = PHASE4_RULES.decoyConfidenceMin;
+  }
+  // Per-frame phase-4 decoy/detection update, called from updateHud (which already has the boss status).
+  function updatePhase4Decoys(s: { modelFailing: boolean; aimedDecoyId: number }, phase4Visible: boolean, dt: number) {
+    decoyElapsed += dt;
+    decoys.update(dt);
+    // Pulsing ring markers: shown only for anchors that are still free, and only while floating.
+    for (let i = 0; i < decoyCount; i++) {
+      const marker = decoyRings[i];
+      const show = phase4Visible && !decoys.isActive(i);
+      marker.mesh.visible = show;
+      if (!show) continue;
+      const pulse = 0.5 + 0.5 * Math.sin(decoyElapsed * PHASE4_RULES.ringPulseSpeed + i * 1.3);
+      marker.mesh.scale.setScalar(1 + pulse * 0.16);
+      marker.material.opacity = 0.3 + pulse * 0.4;
+    }
+    // Nearest free anchor within deploy range (3D; the player floats in the dodge plane).
+    nearestAnchor = -1;
+    if (phase4Visible && player.isEnabled() && player.getHealth() > 0) {
+      const p = player.body.position;
+      let best: number = PHASE4_RULES.deployRadius;
+      for (let i = 0; i < decoyCount; i++) {
+        if (decoys.isActive(i)) continue;
+        const a = decoyAnchors[i];
+        const d = Math.hypot(p.x - a.x, p.y - a.y, p.z - a.z);
+        if (d < best) { best = d; nearestAnchor = i; }
+      }
+    }
+    // Refresh the detection candidate list in place for both the boss targeting and the HUD labels.
+    const active = decoys.activeCount();
+    detectionTargets[0].visible = phase4Visible;
+    detectionTargets[0].confidence = active >= 3 ? PHASE4_RULES.playerConfidence3
+      : active === 2 ? PHASE4_RULES.playerConfidence2
+        : active === 1 ? PHASE4_RULES.playerConfidence1 : PHASE4_RULES.playerConfidence0;
+    detectionTargets[0].position.set(player.body.position.x, player.body.position.y, player.body.position.z);
+    for (let i = 0; i < decoyCount; i++) {
+      const t = detectionTargets[i + 1];
+      const on = decoys.isActive(i) && phase4Visible;
+      t.visible = on;
+      if (!on) continue;
+      _anchorProbe.copy(decoys.getPosition(i)); _anchorProbe.y += PHASE4_RULES.detCenterHeight;
+      t.position.copy(_anchorProbe);
+      t.confidence = THREE.MathUtils.clamp(decoyConfidence[i] + (Math.random() - 0.5) * PHASE4_RULES.decoyConfidenceJitter, 0, 1);
+    }
+    deployHold.update(dt);
+    if (phase4Visible) {
+      detectionHud.show();
+      detectionHud.update(dt, detectionTargets, s.modelFailing, s.aimedDecoyId < 0 ? 0 : s.aimedDecoyId + 1);
+    } else detectionHud.hide();
+  }
   const boss = createLoadingBayBoss(scene, physicsWorld, player, () => {
     bossVictory = true;
     cinematic = 'reveal'; cinematicTime = 0; freeze(); cloud.visible = true;
@@ -391,6 +499,12 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
     onPhaseFour() { startPhase4Intro(); },
     onTrapped() { showPhaseNotice('ENTANGLED — RESETTING THE BARRAGE'); },
     onNearMiss(side) { triggerNearMiss(side); },
+    // Round 2a: feed the detection model, glitch a decoy the net hits, and reset/glitch on the breaking
+    // point. onBarrageStart fires on first entry and the exposed-window return (never the trapped retry).
+    getDetectionTargets() { return detectionTargets; },
+    onNetHitDecoy(id) { decoys.glitch(id); },
+    onBarrageStart() { resetDecoys(); },
+    onModelFail() { showPhaseNotice('DETECTION MODEL OVERLOADING'); },
   });
   if (defeated) boss.dispose();
   else if (startAtPhaseFour) { door.setLocked(true); player.setPosition(0, player.radius + 0.4, -8); boss.startAtPhaseFour(); }
@@ -809,6 +923,8 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
     if (prevZeroGActive && !s.zeroGActive) startLightDim(1, PHASE4_RULES.lightRestoreSeconds);
     else if (!prevZeroGActive && s.zeroGActive) startLightDim(PHASE4_RULES.introDimFraction, PHASE4_RULES.introDimSeconds);
     prevZeroGActive = s.zeroGActive;
+    // Round 2a: drive the decoys, ring markers, detection boxes and the hold-E deploy prompt.
+    updatePhase4Decoys(s, phase4Visible, frameDt);
   }
   const assetsReady = Promise.all([ready, boss.ready]).then(async () => {
     if (disposed || !renderer || defeated) return;
@@ -885,7 +1001,7 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
     },
     onPlayerDeath() {
       if (!onRespawn) return false;
-      if (!deathClock) { deathClock = 2.5; boss.dispose(); freeze(); phase4Hud?.classList.add('hidden'); if (cinematic === 'gravityIntro') cinematic = null; startLightDim(1, PHASE4_RULES.lightRestoreSeconds); if (warningEl) warningEl.classList.add('hidden'); introSkipButton.classList.add('hidden'); if (subtitles) { subtitles.textContent = 'WARDEN CHECKPOINT / RESTARTING'; subtitles.classList.remove('hidden'); } }
+      if (!deathClock) { deathClock = 2.5; boss.dispose(); freeze(); phase4Hud?.classList.add('hidden'); detectionHud.hide(); deployHold.reset(); deployPrompt?.classList.add('hidden'); for (const ringMark of decoyRings) ringMark.mesh.visible = false; if (cinematic === 'gravityIntro') cinematic = null; startLightDim(1, PHASE4_RULES.lightRestoreSeconds); if (warningEl) warningEl.classList.add('hidden'); introSkipButton.classList.add('hidden'); if (subtitles) { subtitles.textContent = 'WARDEN CHECKPOINT / RESTARTING'; subtitles.classList.remove('hidden'); } }
       return true;
     },
     updatePhysics(dt: number, thirdPerson = false) {
@@ -1003,6 +1119,11 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
       beaconBaseGeometry.dispose(); beaconHousingGeometry.dispose(); beaconLensGeometry.dispose();
       beaconHousingMaterial.dispose(); beaconLensMaterial.dispose();
       versus?.dispose(); versus = null;
+      // Round 2a: release the decoy pool, detection HUD, deploy control and the ring markers.
+      deployHold.dispose(); detectionHud.dispose(); decoys.dispose();
+      deployPrompt?.classList.add('hidden');
+      for (const ringMark of decoyRings) { ringMark.mesh.removeFromParent(); ringMark.material.dispose(); }
+      decoyRings.length = 0; ringGeometry.dispose();
       boss.dispose(); boyMixer?.stopAllAction(); if (boy) boyMixer?.uncacheRoot(boy);
       player.dispose(); physics.dispose(); disposeRoom(scene); rubbleGeometry.dispose();
     },

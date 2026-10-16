@@ -5,6 +5,45 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Brondon's Revenge</title>
   <link rel="stylesheet" href="./styles/main.css" />
+  <!-- Phase 4 round 2a: ML human-detection HUD boxes + decoy deploy prompt. Additive; scoped to the
+       phase-4-only elements below and never referenced by phases 1-3 or other scenes. -->
+  <style>
+    #phase4-detection .p4-det-box {
+      position: absolute; box-sizing: border-box; pointer-events: none;
+      border: 1px solid rgba(255, 92, 40, .9);
+      box-shadow: 0 0 8px rgba(255, 60, 20, .35), inset 0 0 12px rgba(255, 90, 40, .12);
+      background: repeating-linear-gradient(to bottom, rgba(255, 120, 60, .05) 0 2px, rgba(0, 0, 0, 0) 2px 4px);
+      animation: p4-det-flicker 2.4s steps(1, end) infinite;
+    }
+    #phase4-detection .p4-det-box.hidden { display: none; }
+    #phase4-detection .p4-det-box.aimed {
+      border-color: rgba(255, 40, 24, 1); border-width: 2px;
+      box-shadow: 0 0 16px rgba(255, 40, 20, .7), inset 0 0 16px rgba(255, 60, 30, .25);
+    }
+    #phase4-detection .p4-det-label {
+      position: absolute; top: -15px; left: -1px; white-space: nowrap;
+      font: 600 10px/1 ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+      letter-spacing: .1em; color: #ff8a5c; text-shadow: 0 0 6px rgba(255, 60, 20, .8);
+    }
+    #phase4-detection .p4-det-box.aimed .p4-det-label { color: #ff4a2a; }
+    @keyframes p4-det-flicker {
+      0%, 92%, 100% { opacity: 1; }
+      93% { opacity: .55; } 95% { opacity: .9; } 97% { opacity: .4; }
+    }
+    #phase4-deploy-prompt .p4-deploy-label {
+      font: 700 13px/1 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; letter-spacing: .12em;
+      color: #ffd9cf; text-shadow: 0 0 10px rgba(255, 90, 60, .85);
+    }
+    #phase4-deploy-prompt .p4-deploy-track {
+      display: block; width: min(220px, 44vw); height: 8px; border-radius: 5px; overflow: hidden;
+      background: rgba(6, 20, 30, .72); border: 1px solid rgba(255, 90, 60, .7);
+      box-shadow: 0 2px 12px rgba(0, 0, 0, .5);
+    }
+    #phase4-deploy-prompt .p4-deploy-fill {
+      display: block; width: 0%; height: 100%; background: #ff7a4d;
+      transition: width .06s linear;
+    }
+  </style>
 </head>
 <body data-scene="scene1">
   <section id="startup-loading" class="startup-loading" role="status" aria-live="polite">
@@ -60,6 +99,13 @@
   </section>
   <div id="phase4-warning" class="hidden" role="status" aria-live="assertive"
     style="position:fixed;top:38%;left:50%;transform:translate(-50%,-50%);z-index:7;pointer-events:none;text-align:center;font:800 clamp(20px,4.4vw,46px)/1.15 system-ui,sans-serif;letter-spacing:.06em;color:#ff2a1a;text-shadow:0 0 18px rgba(255,32,32,.9),0 0 42px rgba(255,32,32,.55);background:rgba(20,0,0,.28);border:2px solid rgba(255,42,26,.55);border-radius:12px;padding:16px 26px;box-shadow:0 0 34px rgba(255,32,32,.35),inset 0 0 22px rgba(255,32,32,.18);">WARNING: SHIP ARTIFICIAL GRAVITY OFFLINE</div>
+  <section id="phase4-detection" class="hidden" aria-hidden="true"
+    style="position:fixed;inset:0;pointer-events:none;z-index:5;"></section>
+  <div id="phase4-deploy-prompt" class="hidden" role="status" aria-live="polite"
+    style="position:fixed;left:50%;bottom:26vh;transform:translateX(-50%);z-index:6;pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:7px;">
+    <span class="p4-deploy-label">HOLD E: DEPLOY DECOY</span>
+    <span class="p4-deploy-track"><span id="phase4-deploy-fill" class="p4-deploy-fill"></span></span>
+  </div>
   <section id="escape-qte" class="hidden" role="status" aria-live="assertive" aria-label="Timed escape action">
     <div class="escape-caption">PRESS THE DISPLAYED KEY</div>
     <kbd id="escape-key">Y</kbd>

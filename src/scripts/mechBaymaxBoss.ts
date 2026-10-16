@@ -72,11 +72,38 @@ export const PHASE4_RULES = Object.freeze({
   introPlayerLineAt: 7.6, introPlayerLineSeconds: 2.4,
   introEndAt: 10.2, introSkipAvailableAt: 1.0, lightRestoreSeconds: 1.2,
   netPoolSize: 8, puffPoolSize: 10, puffLife: 0.4,
+  // --- Round 2a: holographic decoys + the AI's ML human-detection model. Additive; phase-4 only. ---
+  // Three plantable decoy anchors in the zero-G dodge plane (world metres): high-left, high-right, and
+  // low beside the west cover pillar. All three sit inside the float band and clear of the lift-hole and
+  // pillar exclusions the boss already hands the player.
+  decoyCount: 3,
+  decoyAnchorX: [-8, 8, -11], decoyAnchorY: [6.0, 6.0, 2.2], decoyAnchorZ: [-3, -3, -13],
+  deployRadius: 1.5, deployHoldSeconds: 1.0,
+  // Detection-model confidence: the player reads lower as more decoys compete; decoys read 0.88-0.92.
+  playerConfidence0: 0.97, playerConfidence1: 0.80, playerConfidence2: 0.62, playerConfidence3: 0.44,
+  decoyConfidenceMin: 0.88, decoyConfidenceMax: 0.92, decoyConfidenceJitter: 0.012,
+  // Volley targeting: weight = confidence^power + random*noise, so the boss usually (not always) locks
+  // the highest-confidence human.
+  targetingConfidencePower: 2.0, targetingNoise: 0.22,
+  // Breaking point: all decoys active => the model fails, the boss freezes this long, then overloads.
+  modelFailFreezeSeconds: 2.0,
+  // Disabled fallback for the old "survive N volleys" overload; kept as config only.
+  useVolleySurvivalFallback: false,
+  // Hologram decoy + anchor-ring visuals.
+  decoyColor: 0x37d6ff, decoyHeight: 1.83, decoyIdleTimeScale: 0.35, decoyFlickerIn: 0.45,
+  decoyTimeOffset: 1.7, decoyGlitchSeconds: 0.35,
+  ringRadius: 0.9, ringTube: 0.05, ringPulseSpeed: 2.0, ringColor: 0x65dfff,
+  // Detection-box HUD sizing + the model-fail glitch labels.
+  detBoxHeight: 1.9, detBoxWidthFactor: 0.62, detGlitchReshuffle: 0.12, detCenterHeight: 0.95,
+  detGlitchLabels: ['HUMAN 0.31', 'ERROR', '??', 'HUMAN 0.07', '#REF!', 'HUMAN 0.19'],
 });
 export type BossPhase = 'dormant' | 'flying' | 'windup' | 'rushing' | 'recovering' | 'falling' | 'exposed' | 'rising'
   | 'phaseThreeAwakening' | 'gravityWindup' | 'gravity' | 'droneExplosion' | 'phaseThreeTargets'
   | 'phaseThreeRecovery' | 'phaseFourAwakening' | 'zeroG' | 'zeroGTrapped' | 'zeroGOverload' | 'defeated';
 export interface BossPillar { position: THREE.Vector3; intact: () => boolean; shatter: () => void; }
+// Round 2a: a live human-detection candidate (the player or an active holographic decoy). scene13 owns
+// and reuses this list; the boss only reads it when it launches a volley, so nothing allocates per frame.
+export interface BossDetectionTarget { id: number; isPlayer: boolean; position: THREE.Vector3; confidence: number; visible: boolean; }
 interface BossOptions {
   loadDrone?: () => ReturnType<typeof loadToolModel>;
   loadBoss?: () => ReturnType<typeof loadBossModel>;
@@ -89,6 +116,12 @@ interface BossOptions {
   onPhaseFour?: () => void;
   onTrapped?: () => void;
   onNearMiss?: (side: number) => void;
+  // Round 2a (holographic decoys + ML detection). All additive; when absent the boss keeps its classic
+  // player-only aim and "survive N volleys" behaviour, so phases 1-3 are unaffected.
+  getDetectionTargets?: () => readonly BossDetectionTarget[];
+  onNetHitDecoy?: (id: number, position: THREE.Vector3) => void;
+  onBarrageStart?: () => void;
+  onModelFail?: () => void;
 }
 type DroneState = 'launch' | 'orbit' | 'windup' | 'charge';
 type Drone = {
@@ -163,6 +196,8 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   // Round 1 change 2: true from first phase-4 entry until scene13 finishes the intro and calls beginZeroGBarrage.
   let zeroGIntroPending = false;
   let entanglement = 0, volleysSurvived = 0, volleyTimer = 0, telegraphTimer = -1, trappedTimer = 0;
+  // Round 2a: model-fail breaking-point state and the decoy the current volley is telegraphing (-1 = player).
+  let modelFailing = false, modelFailTimer = 0, aimedDecoyId = -1;
   let netPoolReady = false, puffPoolReady = false, puffCursor = 0;
   let phase: BossPhase = 'dormant';
   let phaseTime = 0, elapsed = 0, shotClock = 0, headCooldown = 0, scanning = false, disposed = false;
@@ -178,7 +213,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   // Phase 4 pooled projectiles, thruster puffs, and the shared dodge axis (all preallocated once).
   const zeroGAxis = new THREE.Vector3(1, 0, 0);
   const netBalls: Array<{ mesh: THREE.Mesh; active: boolean; telegraph: boolean; velocity: THREE.Vector3;
-    origin: THREE.Vector3; target: THREE.Vector3; life: number; nearMissed: boolean }> = [];
+    origin: THREE.Vector3; target: THREE.Vector3; life: number; nearMissed: boolean; aimDecoyId: number }> = [];
   const puffs: Array<{ mesh: THREE.Mesh; life: number; big: boolean }> = [];
   const netBallMaterial = new THREE.MeshBasicMaterial({ color: 0x9fe8ff, transparent: true, opacity: 0.92 });
   const netTelegraphMaterial = new THREE.MeshBasicMaterial({ color: 0xff5a3c, transparent: true, opacity: 0.55 });
@@ -1008,6 +1043,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     // Snapshot health at the start of EVERY barrage: first entry and each exposed-window return (change E).
     healthSnapshot = health;
     entanglement = 0; volleysSurvived = 0; trappedTimer = 0; telegraphTimer = -1;
+    modelFailing = false; modelFailTimer = 0; aimedDecoyId = -1;   // round 2a: fresh detection model
     volleyTimer = PHASE4_RULES.volleyIntervalStart * 0.5;
     for (const ball of netBalls) { ball.active = false; ball.telegraph = false; ball.mesh.visible = false; }
     root.position.set(PHASE4_RULES.bossHoverX, root.position.y, PHASE4_RULES.bossHoverZ);
@@ -1015,11 +1051,17 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     player.setZeroGImpulseScale(1);
     player.setZeroGMode(true, buildZeroGConfig());
     zeroGActive = true; phase = 'zeroG'; phaseTime = 0;
+    // Round 2a: a fresh barrage clears any planted decoys (first entry is a no-op; the exposed-window
+    // return makes the player fool the model again). The trapped retry never calls this, so it keeps decoys.
+    options.onBarrageStart?.();
   }
   function retryPhaseFour() {
     // In-place reset only (never the loadBay13 checkpoint path). Restore the latest snapshot (changes D + E).
     health = healthSnapshot;
     entanglement = 0; volleysSurvived = 0; trappedTimer = 0; telegraphTimer = -1;
+    // Round 2a (change 7): KEEP the planted decoys — only the model-fail freeze is cleared so the boss
+    // resumes firing. onBarrageStart is deliberately not called here (that would reset the decoys).
+    modelFailing = false; modelFailTimer = 0;
     volleyTimer = PHASE4_RULES.volleyIntervalStart * 0.5;
     for (const ball of netBalls) { ball.active = false; ball.telegraph = false; ball.mesh.visible = false; }
     player.setZeroGImpulseScale(1);
@@ -1039,6 +1081,21 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     emitComicEffect(scene, 'clank', { source: root });
     phase = 'zeroGOverload'; phaseTime = 0;
   }
+  // Round 2a: count the active decoys among the live detection candidates (scalars only; no allocation).
+  function countDetectionDecoys(): number {
+    const candidates = options.getDetectionTargets?.();
+    if (!candidates) return 0;
+    let n = 0; for (const c of candidates) if (!c.isPlayer && c.visible) n++;
+    return n;
+  }
+  // Round 2a breaking point: the model fails, in-flight nets are cleared, fire freezes, and scene13 is
+  // told to glitch every detection box. updateZeroG rides this into the existing overload once it elapses.
+  function startModelFail() {
+    modelFailing = true; modelFailTimer = PHASE4_RULES.modelFailFreezeSeconds;
+    for (const ball of netBalls) { ball.active = false; ball.telegraph = false; ball.mesh.visible = false; }
+    telegraphTimer = -1;
+    options.onModelFail?.();
+  }
   function prepareNetPool() {
     if (netPoolReady) return; netPoolReady = true;
     for (let i = 0; i < PHASE4_RULES.netPoolSize; i++) {
@@ -1046,7 +1103,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
       mesh.name = `BossNetBall-${i}`; mesh.scale.setScalar(PHASE4_RULES.netRadius / 0.5);
       mesh.visible = false; mesh.frustumCulled = false; scene.add(mesh);
       netBalls.push({ mesh, active: false, telegraph: false, velocity: new THREE.Vector3(),
-        origin: new THREE.Vector3(), target: new THREE.Vector3(), life: 0, nearMissed: false });
+        origin: new THREE.Vector3(), target: new THREE.Vector3(), life: 0, nearMissed: false, aimDecoyId: -1 });
     }
   }
   function preparePuffPool() {
@@ -1057,13 +1114,32 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
       puffs.push({ mesh, life: 0, big: false });
     }
   }
+  // Round 2a: weighted target pick among the live detection candidates. Writes the chosen world position
+  // into _netTarget and returns the aimed decoy id (-1 = the player). Reads only scalars; never allocates.
+  function chooseDetectionTarget(): number {
+    _netTarget.copy(_netPlayer);
+    const candidates = options.getDetectionTargets?.();
+    if (!candidates || !candidates.length) return -1;
+    const power = PHASE4_RULES.targetingConfidencePower, noise = PHASE4_RULES.targetingNoise;
+    let best = -Infinity, bestId = -1;
+    for (const c of candidates) {
+      if (!c.visible) continue;
+      const weight = Math.pow(THREE.MathUtils.clamp(c.confidence, 0, 1), power) + Math.random() * noise;
+      if (weight > best) { best = weight; bestId = c.isPlayer ? -1 : c.id; _netTarget.copy(c.position); }
+    }
+    if (best === -Infinity) { _netTarget.copy(_netPlayer); return -1; }
+    return bestId;
+  }
   function launchVolley() {
     prepareNetPool();
     _netPlayer.set(player.body.position.x, player.body.position.y, player.body.position.z);
     // Round 1 change 1: exactly ONE net per volley, aimed at the launch-time player position (no spread).
     const ball = netBalls.find(b => !b.active && !b.telegraph);
     if (!ball) return;
-    _netTarget.copy(_netPlayer);
+    // Round 2a: aim at the highest-confidence human (player or decoy) with a little noise, so the
+    // telegraph marker clearly shows WHO the next net is coming for. Falls back to the player when no
+    // decoys are planted, keeping the classic single-target behaviour.
+    aimedDecoyId = chooseDetectionTarget(); ball.aimDecoyId = aimedDecoyId;
     _netOrigin.copy(getShoulderWorld('l'));
     ball.origin.copy(_netOrigin); ball.target.copy(_netTarget);
     ball.mesh.position.copy(_netTarget);            // danger marker sits at the arrival point
@@ -1089,7 +1165,11 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
         distance = hit.distance; hitPlayer = hit.body === player.body;
       });
       ball.life -= dt;
-      if (hitPlayer || distance !== Infinity || ball.life <= 0 || _netTo.y < 0.05) {
+      // Round 2a: a decoy-aimed net has no physics body to hit, so it resolves by proximity to its stored
+      // target and glitches the hologram (which stays active). A player intercept still lands normally.
+      const decoyHitRadius = PHASE4_RULES.netRadius * 2.5;
+      const reachedDecoy = ball.aimDecoyId >= 0 && _netTo.distanceToSquared(ball.target) <= decoyHitRadius * decoyHitRadius;
+      if (hitPlayer || distance !== Infinity || reachedDecoy || ball.life <= 0 || _netTo.y < 0.05) {
         if (hitPlayer) {
           emitComicEffect(scene, 'thud', { source: root, position: _netPlayer.clone() });
           player.takeDamage(PHASE4_RULES.netDamage);
@@ -1105,6 +1185,9 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
             options.onTrapped?.();
             return; // the trap cleared the whole pool; stop iterating (mirrors the stepBolts guard)
           }
+        } else if (reachedDecoy) {
+          options.onNetHitDecoy?.(ball.aimDecoyId, ball.mesh.position);
+          emitComicEffect(scene, 'thud', { position: ball.mesh.position });
         }
         ball.active = false; ball.mesh.visible = false;
       } else {
@@ -1169,6 +1252,15 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
       emitComicEffect(scene, 'thud', { position: new THREE.Vector3(player.body.position.x, player.body.position.y, player.body.position.z) });
     }
     stepPuffs(dt);
+    // Round 2a breaking point: all decoys planted => the model can't isolate the real player. Freeze fire
+    // for modelFailFreezeSeconds (glitching the HUD), then ride the EXISTING overload path. This replaces
+    // the old "survive N volleys" trigger, which stays only as the disabled useVolleySurvivalFallback.
+    if (!modelFailing && !PHASE4_RULES.useVolleySurvivalFallback && countDetectionDecoys() >= PHASE4_RULES.decoyCount) startModelFail();
+    if (modelFailing) {
+      modelFailTimer -= dt;
+      if (modelFailTimer <= 0) overloadZeroG();
+      return;
+    }
     if (telegraphTimer > 0) {
       telegraphTimer -= dt;
       const pulse = 1.2 + Math.abs(Math.sin(elapsed * 18)) * 0.5;
@@ -1194,7 +1286,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     stepNetBalls(dt);
     // Overload only once the lane is clear, so the final volley still resolves (change A).
     const laneClear = telegraphTimer <= 0 && !netBalls.some(b => b.active || b.telegraph);
-    if (laneClear && (volleysSurvived >= PHASE4_RULES.volleysToOverload || phaseTime >= PHASE4_RULES.barrageDuration)) overloadZeroG();
+    if (PHASE4_RULES.useVolleySurvivalFallback && laneClear && (volleysSurvived >= PHASE4_RULES.volleysToOverload || phaseTime >= PHASE4_RULES.barrageDuration)) overloadZeroG();
   }
 
   function update(dt: number) {
@@ -1362,7 +1454,9 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
       transformProgress, phaseThreeTargetsActive: targetsPhaseThreeMode,
       phaseFour, zeroGActive, entanglement, maxEntanglement: PHASE4_RULES.maxEntanglement,
       thrusterHeat: player.getZeroGHeat(), overheated: player.isZeroGOverheated(),
-      volleysSurvived, volleysToOverload: PHASE4_RULES.volleysToOverload }),
+      volleysSurvived, volleysToOverload: PHASE4_RULES.volleysToOverload,
+      // Round 2a: detection-model state for scene13's HUD (scalars only; no per-frame allocation).
+      modelFailing, aimedDecoyId, decoyTotal: PHASE4_RULES.decoyCount }),
     dispose() {
       if (disposed) return; disposed = true; if (phase === 'droneExplosion') options.onDroneExplosionEnd?.();
       unregister(); clearBolts(); disposeDronePool(); fragments.forEach(f => f.mesh.removeFromParent());
