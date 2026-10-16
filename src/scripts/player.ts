@@ -45,6 +45,7 @@ export interface PlayerState {
   slideTime: number;
   slideYaw: number;
   zeroGMode: boolean;
+  zeroGVelocity: THREE.Vector3;
 }
 
 // Configuration handed to setZeroGMode by the owning scene/boss. The player never imports
@@ -195,6 +196,8 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
   const zeroGTapDir = new THREE.Vector3();       // last thrust direction, consumed by the boss for the puff (changes 3/F)
   const zeroGPushDir = new THREE.Vector3();      // pending push-off impulse direction, consumed by the boss (change 4)
   const _tapDirOut = new THREE.Vector3(), _pushDirOut = new THREE.Vector3();
+  // Drift velocity exposed to the character rig for weightless limb sway (additive; updated in place).
+  const _zeroGVelocity = new THREE.Vector3();
   const zeroGPushNormal = new THREE.Vector3();   // unit direction AWAY from the nearest aligned barrier (change 4)
   let zeroGRisen = false;                        // false until the one-time drift-up to ~driftUpHeight completes (change 1)
   let zeroGBobPhase = 0, zeroGDriftPhase = 0, zeroGBobPrevY = 0, zeroGBobPrevLat = 0;  // idle bob/drift (change 1)
@@ -670,6 +673,9 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       } else { zeroGBobPrevY = 0; zeroGBobPrevLat = 0; }
       playerBody.aabbNeedsUpdate = true;
     }
+    // Weightless limb-sway input (additive): expose the post-clamp drift velocity; zero outside zero-G.
+    if (zeroGMode) _zeroGVelocity.set(playerBody.velocity.x, playerBody.velocity.y, playerBody.velocity.z);
+    else _zeroGVelocity.set(0, 0, 0);
     if (enabled && !climbing && !zeroGMode) updateGroundState(true);
     if (sliding) {
       if (!isOnGround) cancelSlide();
@@ -963,6 +969,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     getZeroGHeat: () => zeroGHeat,
     isZeroGOverheated: () => zeroGOverheat > 0,
     isZeroGMode: () => zeroGMode,
+    getZeroGVelocity: () => _zeroGVelocity,
     // Trapped/hit (change 7): freeze in place while zero-G stays on (gravity still cancelled).
     setZeroGFrozen: (frozen: boolean) => {
       if (frozen === zeroGFrozen) return;
@@ -1049,6 +1056,7 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
       slideTime,
       slideYaw,
       zeroGMode,
+      zeroGVelocity: _zeroGVelocity,
     }),
   };
 }
