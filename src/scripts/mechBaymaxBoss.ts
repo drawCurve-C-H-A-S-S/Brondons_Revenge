@@ -27,18 +27,30 @@ export const BOSS_RULES = Object.freeze({
   droneLaserSpeed: 15, droneLaserDamage: 5, parryDamage: 50,
 });
 // Phase 4 (zero-gravity net barrage) tuning. Additive; never referenced by phases 1-3.
-// The player floats on a fixed deck height and taps A/D to slide along a lane perpendicular
-// to the boss, dodging telegraphed net volleys. All values are meters/seconds unless noted.
+// On gravity-off the player drifts up once, then free-floats inside a height band, tapping
+// A/D (strafe) and W/S (world-up) to dodge telegraphed net volleys, and can push off barriers.
+// All values are meters/seconds unless noted.
 export const PHASE4_RULES = Object.freeze({
   phaseFourThreshold: 0.25,
-  // Player thruster feel (consumed by player.setZeroGMode; see the tuning note in the plan).
-  tapImpulse: 0.95, moveDamping: 0.98, maxZeroGSpeed: 4.5,
+  // Player thruster feel (consumed by player.setZeroGMode; see the tap re-tune note in the report).
+  // tapImpulse re-tuned for the lower damping so ~5 taps over 2.5 s still cross one 3.0 m lane.
+  tapImpulse: 0.52, moveDamping: 0.995, verticalDamping: 0.99, maxZeroGSpeed: 4.5, impulseEaseSeconds: 0.15,
   heatPerTap: 0.2, heatCoolPerSecond: 0.3, overheatLock: 1.0,
-  // Fixed float height above the deck with a smooth lift-off spring (change B).
-  floatHeight: 1.5, floatDeckY: 0, floatLiftGain: 3.2, floatLiftMax: 3.4, floatLiftResponse: 8,
-  // Bay bounds the player is clamped inside, plus exclusion circles (change B).
+  // Free-float height band (change 1): one-time drift-up, then float between deck+bandMin and ceiling-margin.
+  floatDeckY: 0, floatBandMin: 1.5, floatBandCeilingMargin: 1.5, driftUpHeight: 3.0, driftUpSpeed: 1.6,
+  // Subtle idle bob/drift so the floating player never looks frozen (change 1).
+  idleBobAmp: 0.08, idleBobFreq: 0.3, idleDriftAmp: 0.05,
+  // Wall push-off (change 4): tap the prompted key pushOffTaps times within pushOffWindow for a strong, heat-free shove.
+  pushOffDistance: 1.5, pushOffTaps: 3, pushOffWindow: 0.8, pushOffImpulse: 7.0, pushOffCooldown: 1.2,
+  // Camera sway/roll that follows drift velocity (change 2); roll only, never touches mouse-look yaw/pitch.
+  cameraSwayRoll: 0.06, cameraSwayResponse: 6,
+  // Four red rotating beacons, one per upper corner, visible only while gravity is off (change 5).
+  // At most 2 real lights are added (no shadows); the rest are emissive meshes.
+  beaconColor: 0xff2020, beaconSpinSpeed: 2.5, beaconPulseSpeed: 3.0, beaconEmissiveIntensity: 2.2,
+  beaconLightIntensity: 8, beaconLightRange: 26, beaconY: 12, beaconInsetX: 2, beaconInsetZ: 2, beaconScale: 1,
+  // Bay bounds the player is clamped inside, plus exclusion circles (change 1).
   boundsMinX: -19, boundsMaxX: 19, boundsMinZ: -23, boundsMaxZ: 23,
-  boundsCeiling: 12, liftHoleX: 0, liftHoleZ: 0, liftHoleRadius: 5.0,
+  boundsCeiling: 12, liftHoleX: 0, liftHoleZ: 0, liftHoleRadius: 5.0, liftHoleMaxY: 2.5,
   pillarClearance: 2.2, bounceRestitution: 0.35,
   // Net volleys: 1 -> 3 balls, 3.0s -> 1.8s interval, spread across a 3.0 m lane (change C).
   ballsStart: 1, ballsEnd: 3, volleyIntervalStart: 3.0, volleyIntervalEnd: 1.8,
@@ -155,7 +167,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   const zeroGAxis = new THREE.Vector3(1, 0, 0);
   const netBalls: Array<{ mesh: THREE.Mesh; active: boolean; telegraph: boolean; velocity: THREE.Vector3;
     origin: THREE.Vector3; target: THREE.Vector3; life: number; nearMissed: boolean }> = [];
-  const puffs: Array<{ mesh: THREE.Mesh; life: number }> = [];
+  const puffs: Array<{ mesh: THREE.Mesh; life: number; big: boolean }> = [];
   const netBallMaterial = new THREE.MeshBasicMaterial({ color: 0x9fe8ff, transparent: true, opacity: 0.92 });
   const netTelegraphMaterial = new THREE.MeshBasicMaterial({ color: 0xff5a3c, transparent: true, opacity: 0.55 });
   const puffGeometry = new THREE.SphereGeometry(0.16, 8, 6);
@@ -957,8 +969,9 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   // The boss owns PHASE4_RULES and the live pillar list, so it hands the player a plain config.
   // This keeps player.ts free of any import from this module (the boss already imports the player).
   function buildZeroGConfig() {
-    const exclusions: Array<{ x: number; z: number; radius: number }> = [
-      { x: PHASE4_RULES.liftHoleX, z: PHASE4_RULES.liftHoleZ, radius: PHASE4_RULES.liftHoleRadius },
+    const exclusions: Array<{ x: number; z: number; radius: number; maxY?: number }> = [
+      // The open lift shaft only blocks horizontal movement near the deck; above liftHoleMaxY the player floats free over it (change 1).
+      { x: PHASE4_RULES.liftHoleX, z: PHASE4_RULES.liftHoleZ, radius: PHASE4_RULES.liftHoleRadius, maxY: PHASE4_RULES.liftHoleMaxY },
     ];
     for (const pillar of pillars) {
       if (!pillar.intact()) continue;
@@ -966,10 +979,14 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     }
     return {
       axis: zeroGAxis,
-      tapImpulse: PHASE4_RULES.tapImpulse, moveDamping: PHASE4_RULES.moveDamping, maxSpeed: PHASE4_RULES.maxZeroGSpeed,
+      tapImpulse: PHASE4_RULES.tapImpulse, moveDamping: PHASE4_RULES.moveDamping, verticalDamping: PHASE4_RULES.verticalDamping,
+      maxSpeed: PHASE4_RULES.maxZeroGSpeed, impulseEaseSeconds: PHASE4_RULES.impulseEaseSeconds,
       heatPerTap: PHASE4_RULES.heatPerTap, heatCoolPerSecond: PHASE4_RULES.heatCoolPerSecond, overheatLock: PHASE4_RULES.overheatLock,
-      deckY: PHASE4_RULES.floatDeckY, floatHeight: PHASE4_RULES.floatHeight,
-      liftGain: PHASE4_RULES.floatLiftGain, liftMax: PHASE4_RULES.floatLiftMax, liftResponse: PHASE4_RULES.floatLiftResponse,
+      deckY: PHASE4_RULES.floatDeckY, bandMin: PHASE4_RULES.floatBandMin, bandCeilingMargin: PHASE4_RULES.floatBandCeilingMargin,
+      driftUpHeight: PHASE4_RULES.driftUpHeight, driftUpSpeed: PHASE4_RULES.driftUpSpeed,
+      idleBobAmp: PHASE4_RULES.idleBobAmp, idleBobFreq: PHASE4_RULES.idleBobFreq, idleDriftAmp: PHASE4_RULES.idleDriftAmp,
+      pushOffDistance: PHASE4_RULES.pushOffDistance, pushOffTaps: PHASE4_RULES.pushOffTaps, pushOffWindow: PHASE4_RULES.pushOffWindow,
+      pushOffImpulse: PHASE4_RULES.pushOffImpulse, pushOffCooldown: PHASE4_RULES.pushOffCooldown,
       bounds: { minX: PHASE4_RULES.boundsMinX, maxX: PHASE4_RULES.boundsMaxX, minZ: PHASE4_RULES.boundsMinZ, maxZ: PHASE4_RULES.boundsMaxZ, ceiling: PHASE4_RULES.boundsCeiling },
       exclusions, restitution: PHASE4_RULES.bounceRestitution,
     };
@@ -994,7 +1011,8 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     for (const ball of netBalls) { ball.active = false; ball.telegraph = false; ball.mesh.visible = false; }
     player.setZeroGImpulseScale(1);
     player.clearZeroGTaps();
-    // The trap disabled zero-G, so re-float unconditionally; revive first if the net damage killed the player.
+    // Change 7: the trap froze the player in zero-G rather than dropping them; unfreeze to resume floating.
+    player.setZeroGFrozen(false);
     if (!player.isEnabled()) player.enable();
     player.setZeroGMode(true, buildZeroGConfig());
     zeroGActive = true; phase = 'zeroG'; phaseTime = 0;
@@ -1023,7 +1041,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     for (let i = 0; i < PHASE4_RULES.puffPoolSize; i++) {
       const mesh = new THREE.Mesh(puffGeometry, puffMaterial.clone());
       mesh.name = `BossThrusterPuff-${i}`; mesh.visible = false; mesh.frustumCulled = false; scene.add(mesh);
-      puffs.push({ mesh, life: 0 });
+      puffs.push({ mesh, life: 0, big: false });
     }
   }
   function launchVolley() {
@@ -1082,9 +1100,10 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
           player.setZeroGImpulseScale(Math.pow(PHASE4_RULES.entangleImpulseFactor, entanglement));
           burst(_netPlayer);
           if (entanglement >= PHASE4_RULES.maxEntanglement) {
-            zeroGActive = false;
+            // Change 7: the trap must NOT drop the player. Keep zero-G on (gravity still cancelled),
+            // freeze them in place, and clear the pool so nothing else lands during the retry window.
             for (const b of netBalls) { b.active = false; b.telegraph = false; b.mesh.visible = false; }
-            player.setZeroGMode(false);
+            player.setZeroGFrozen(true);
             phase = 'zeroGTrapped'; phaseTime = 0; trappedTimer = PHASE4_RULES.trappedSeconds;
             options.onTrapped?.();
             return; // the trap cleared the whole pool; stop iterating (mirrors the stepBolts guard)
@@ -1109,15 +1128,17 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
       }
     }
   }
-  function emitThrusterPuff(sign: number) {
+  function emitThrusterPuff(dir: THREE.Vector3, big = false) {
     preparePuffPool();
     const puff = puffs[puffCursor % puffs.length]; puffCursor++;
+    // Puff sits just behind the player, opposite the thrust/push-off direction (changes 3/4).
     puff.mesh.position.set(
-      player.body.position.x - zeroGAxis.x * sign * 0.45,
-      player.body.position.y - zeroGAxis.y * sign * 0.45 - 0.1,
-      player.body.position.z - zeroGAxis.z * sign * 0.45);
-    puff.mesh.scale.setScalar(0.6);
-    (puff.mesh.material as THREE.MeshBasicMaterial).opacity = 0.7;
+      player.body.position.x - dir.x * 0.45,
+      player.body.position.y - dir.y * 0.45 - 0.1,
+      player.body.position.z - dir.z * 0.45);
+    puff.big = big;
+    puff.mesh.scale.setScalar(big ? 1.1 : 0.6);
+    (puff.mesh.material as THREE.MeshBasicMaterial).opacity = big ? 0.9 : 0.7;
     puff.mesh.visible = true;
     puff.life = PHASE4_RULES.puffLife;
   }
@@ -1126,8 +1147,9 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
       if (puff.life <= 0) { if (puff.mesh.visible) puff.mesh.visible = false; continue; }
       puff.life -= dt;
       const t = Math.max(0, puff.life / PHASE4_RULES.puffLife);
-      puff.mesh.scale.setScalar(0.6 + (1 - t) * 1.5);
-      (puff.mesh.material as THREE.MeshBasicMaterial).opacity = 0.7 * t;
+      const base = puff.big ? 1.1 : 0.6, grow = puff.big ? 2.2 : 1.5, peak = puff.big ? 0.9 : 0.7;
+      puff.mesh.scale.setScalar(base + (1 - t) * grow);
+      (puff.mesh.material as THREE.MeshBasicMaterial).opacity = peak * t;
       if (puff.life <= 0) puff.mesh.visible = false;
     }
   }
@@ -1140,9 +1162,15 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     _netToPlayer.normalize();
     zeroGAxis.crossVectors(_netUp, _netToPlayer).normalize();
     player.setZeroGAxis(zeroGAxis);
-    // One pooled thruster puff per consumed tap, on the opposite side (change F).
-    const tap = player.consumeThrusterTap();
-    if (tap !== 0) emitThrusterPuff(tap);
+    // One pooled thruster puff per consumed tap, behind the thrust direction (change 3).
+    const tapDir = player.consumeThrusterTap();
+    if (tapDir.lengthSq() > 1e-6) emitThrusterPuff(tapDir);
+    // A wall push-off gets a bigger puff plus a comic thud at the player (change 4).
+    const pushDir = player.consumePushOff();
+    if (pushDir.lengthSq() > 1e-6) {
+      emitThrusterPuff(pushDir, true);
+      emitComicEffect(scene, 'thud', { position: new THREE.Vector3(player.body.position.x, player.body.position.y, player.body.position.z) });
+    }
     stepPuffs(dt);
     if (telegraphTimer > 0) {
       telegraphTimer -= dt;

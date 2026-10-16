@@ -31,6 +31,33 @@
     </div>
     <div id="phase4-entangle-pips" aria-label="Net entanglement" style="display:flex;align-items:center;min-height:15px;"></div>
   </section>
+  <section id="phase4-push-prompt" class="hidden" aria-label="Wall push-off prompt"
+    style="position:fixed;inset:0;pointer-events:none;z-index:6;">
+    <div id="phase4-push-left" class="hidden" style="position:absolute;left:4vw;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;gap:5px;padding:9px 13px;border-radius:12px;background:rgba(6,20,30,.72);border:1px solid rgba(255,90,60,.7);box-shadow:0 2px 14px rgba(0,0,0,.5);">
+      <span class="p4-push-label" style="font:600 10px/1 system-ui,sans-serif;letter-spacing:.14em;color:#ff9d84;">TAP</span>
+      <span class="p4-push-key" style="font:700 30px/1 system-ui,sans-serif;color:#ffd9cf;text-shadow:0 0 10px rgba(255,90,60,.85);">A</span>
+      <span class="p4-push-pips" style="display:flex;gap:4px;"></span>
+      <span class="p4-push-count" style="font:600 11px/1 system-ui,sans-serif;color:#ffb9a6;">0/3</span>
+    </div>
+    <div id="phase4-push-right" class="hidden" style="position:absolute;right:4vw;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;gap:5px;padding:9px 13px;border-radius:12px;background:rgba(6,20,30,.72);border:1px solid rgba(255,90,60,.7);box-shadow:0 2px 14px rgba(0,0,0,.5);">
+      <span class="p4-push-label" style="font:600 10px/1 system-ui,sans-serif;letter-spacing:.14em;color:#ff9d84;">TAP</span>
+      <span class="p4-push-key" style="font:700 30px/1 system-ui,sans-serif;color:#ffd9cf;text-shadow:0 0 10px rgba(255,90,60,.85);">D</span>
+      <span class="p4-push-pips" style="display:flex;gap:4px;"></span>
+      <span class="p4-push-count" style="font:600 11px/1 system-ui,sans-serif;color:#ffb9a6;">0/3</span>
+    </div>
+    <div id="phase4-push-top" class="hidden" style="position:absolute;top:10vh;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:5px;padding:9px 13px;border-radius:12px;background:rgba(6,20,30,.72);border:1px solid rgba(255,90,60,.7);box-shadow:0 2px 14px rgba(0,0,0,.5);">
+      <span class="p4-push-label" style="font:600 10px/1 system-ui,sans-serif;letter-spacing:.14em;color:#ff9d84;">TAP</span>
+      <span class="p4-push-key" style="font:700 30px/1 system-ui,sans-serif;color:#ffd9cf;text-shadow:0 0 10px rgba(255,90,60,.85);">W</span>
+      <span class="p4-push-pips" style="display:flex;gap:4px;"></span>
+      <span class="p4-push-count" style="font:600 11px/1 system-ui,sans-serif;color:#ffb9a6;">0/3</span>
+    </div>
+    <div id="phase4-push-bottom" class="hidden" style="position:absolute;bottom:5vh;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:5px;padding:9px 13px;border-radius:12px;background:rgba(6,20,30,.72);border:1px solid rgba(255,90,60,.7);box-shadow:0 2px 14px rgba(0,0,0,.5);">
+      <span class="p4-push-label" style="font:600 10px/1 system-ui,sans-serif;letter-spacing:.14em;color:#ff9d84;">TAP</span>
+      <span class="p4-push-key" style="font:700 30px/1 system-ui,sans-serif;color:#ffd9cf;text-shadow:0 0 10px rgba(255,90,60,.85);">S</span>
+      <span class="p4-push-pips" style="display:flex;gap:4px;"></span>
+      <span class="p4-push-count" style="font:600 11px/1 system-ui,sans-serif;color:#ffb9a6;">0/3</span>
+    </div>
+  </section>
   <section id="escape-qte" class="hidden" role="status" aria-live="assertive" aria-label="Timed escape action">
     <div class="escape-caption">PRESS THE DISPLAYED KEY</div>
     <kbd id="escape-key">Y</kbd>

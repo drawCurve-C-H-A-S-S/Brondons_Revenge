@@ -11,7 +11,7 @@ import { createHangarVersus } from '../../helpers/scene/hangarVersus.js';
 import { createHoldToSkip } from '../../helpers/animation/holdToSkip.js';
 import { createRecoveryPickup } from '../../helpers/scene/recoveryPickup.js';
 import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
-import { BOSS_RULES, createLoadingBayBoss, type BossPillar } from '../../scripts/mechBaymaxBoss.js';
+import { BOSS_RULES, PHASE4_RULES, createLoadingBayBoss, type BossPillar } from '../../scripts/mechBaymaxBoss.js';
 import { preloadMusic } from '../../helpers/audio/bufferedMusic.js';
 import bgmUrl from '../../assets/bgm/DonRevBGM1.m4a?url';
 
@@ -149,6 +149,37 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
   }
   const keyLight = new THREE.DirectionalLight(0xf4e9d2, 2.5); keyLight.position.set(-5, 12, -8); scene.add(keyLight);
 
+  // --- Phase 4 red alarm beacons (additive; change 5). Built once, hidden until zero-G, disposed on exit. ---
+  // Four spinning emissive beacons in the upper corners; at most 2 real lights (no shadows) for performance.
+  const beacons: Array<{ spin: THREE.Mesh }> = [];
+  const beaconLights: THREE.PointLight[] = [];
+  const beaconHousingMaterial = new THREE.MeshStandardMaterial({ color: 0x2a2f36, metalness: 0.7, roughness: 0.5 });
+  const beaconLensMaterial = new THREE.MeshStandardMaterial({ color: 0x2a0000, emissive: PHASE4_RULES.beaconColor, emissiveIntensity: PHASE4_RULES.beaconEmissiveIntensity, side: THREE.DoubleSide, metalness: 0.2, roughness: 0.35 });
+  const beaconBaseGeometry = new THREE.BoxGeometry(0.72, 0.16, 0.72);
+  const beaconHousingGeometry = new THREE.CylinderGeometry(0.34, 0.4, 0.5, 16);
+  const beaconLensGeometry = new THREE.CylinderGeometry(0.27, 0.27, 0.36, 16, 1, false, 0, Math.PI);
+  const beaconGroup = new THREE.Group(); beaconGroup.name = 'Phase4Beacons'; beaconGroup.visible = false; scene.add(beaconGroup);
+  let beaconTime = 0;
+  {
+    const bx = 20 - PHASE4_RULES.beaconInsetX, bz = 24 - PHASE4_RULES.beaconInsetZ;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const mount = new THREE.Group();
+      mount.position.set(sx * bx, PHASE4_RULES.beaconY, sz * bz);
+      const base = new THREE.Mesh(beaconBaseGeometry, beaconHousingMaterial); base.position.y = -0.32; mount.add(base);
+      const housing = new THREE.Mesh(beaconHousingGeometry, beaconHousingMaterial); mount.add(housing);
+      const spin = new THREE.Mesh(beaconLensGeometry, beaconLensMaterial);
+      spin.scale.setScalar(PHASE4_RULES.beaconScale); spin.position.y = 0.02; mount.add(spin);
+      beacons.push({ spin });
+      beaconGroup.add(mount);
+      // Only two real lights (diagonal corners) so the shader light budget stays small; no shadows.
+      if ((sx > 0) === (sz > 0)) {
+        const light = new THREE.PointLight(PHASE4_RULES.beaconColor, PHASE4_RULES.beaconLightIntensity, PHASE4_RULES.beaconLightRange);
+        light.castShadow = false; light.visible = false; light.position.copy(mount.position);
+        beaconGroup.add(light); beaconLights.push(light);
+      }
+    }
+  }
+
   // --- Health Pack (appears after boss defeat) ---
   const healthPackPos = new THREE.Vector3(0, 1.2, -2.8);
   const healthPack = createRecoveryPickup('health', healthPackPos);
@@ -232,6 +263,16 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
   const NEAR_MISS = { duration: 0.4, slowMo: 0.45, fovPunch: 9, offset: 0.14 };
   let nearMissClock = 0, nearMissSide = 1, nearMissBaseFov = 70, nearMissApplied = false, phaseNoticeTime = 0;
   const nearMissRight = new THREE.Vector3();
+  // Wall push-off prompt elements (change 4) and zero-G camera-sway state (change 2).
+  const pushPrompt = {
+    container: document.getElementById('phase4-push-prompt'),
+    left: document.getElementById('phase4-push-left'),
+    right: document.getElementById('phase4-push-right'),
+    top: document.getElementById('phase4-push-top'),
+    bottom: document.getElementById('phase4-push-bottom'),
+  };
+  let frameDt = 1 / 60, cameraSwayCurrent = 0;
+  const swayRight = new THREE.Vector3();
   function triggerNearMiss(side: number) { nearMissSide = Math.sign(side) || 1; nearMissClock = NEAR_MISS.duration; }
   function showPhaseNotice(text: string) {
     if (!subtitles) return;
@@ -311,7 +352,7 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
       droneCutscene = null; returnToBattle();
     },
     // Phase 4 hooks (additive): subtitle notices plus the near-miss slow-mo / camera punch.
-    onPhaseFour() { showPhaseNotice('GRAVITY FIELD OFFLINE — TAP A / D TO DODGE THE NETS'); },
+    onPhaseFour() { showPhaseNotice('GRAVITY FIELD OFFLINE — TAP A / D / W / S TO DODGE THE NETS'); },
     onTrapped() { showPhaseNotice('ENTANGLED — RESETTING THE BARRAGE'); },
     onNearMiss(side) { triggerNearMiss(side); },
   });
@@ -581,6 +622,51 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
       }
     }
   }
+  // --- Phase 4 push-off prompt + beacon helpers (additive; changes 4 and 5). ---
+  function setPushSide(el: HTMLElement | null, active: boolean, letter: string, progress: number, required: number) {
+    if (!el) return;
+    el.classList.toggle('hidden', !active);
+    if (!active) return;
+    const key = el.querySelector('.p4-push-key'); if (key) key.textContent = letter;
+    const count = el.querySelector('.p4-push-count'); if (count) count.textContent = `${progress}/${required}`;
+    const pips = el.querySelector('.p4-push-pips');
+    if (pips) {
+      if (pips.childElementCount !== required) {
+        pips.textContent = '';
+        for (let i = 0; i < required; i++) {
+          const pip = document.createElement('i');
+          pip.style.cssText = 'width:9px;height:9px;border-radius:50%;border:1px solid #ff8a6a;background:#2a120c;transition:background .12s,box-shadow .12s;';
+          pips.appendChild(pip);
+        }
+      }
+      for (let i = 0; i < pips.childElementCount; i++) {
+        const pip = pips.children[i] as HTMLElement, on = i < progress;
+        pip.style.background = on ? '#ff5a3c' : '#2a120c';
+        pip.style.boxShadow = on ? '0 0 8px rgba(255,90,60,.9)' : 'none';
+      }
+    }
+  }
+  function updatePushPrompt(push: { key: number; progress: number; required: number; cooldown: number } | null) {
+    const k = push?.key ?? 0, progress = push?.progress ?? 0, required = push?.required ?? PHASE4_RULES.pushOffTaps;
+    pushPrompt.container?.classList.toggle('hidden', k === 0);
+    setPushSide(pushPrompt.left, k === -1, 'A', progress, required);
+    setPushSide(pushPrompt.right, k === 1, 'D', progress, required);
+    setPushSide(pushPrompt.top, k === 2, 'W', progress, required);
+    setPushSide(pushPrompt.bottom, k === -2, 'S', progress, required);
+  }
+  function updateBeacons(active: boolean) {
+    if (beaconGroup.visible !== active) {
+      beaconGroup.visible = active;
+      for (const light of beaconLights) light.visible = active;
+    }
+    if (!active) return;
+    beaconTime += cinematicDelta;
+    const pulse = 0.55 + 0.45 * Math.sin(beaconTime * PHASE4_RULES.beaconPulseSpeed * Math.PI * 2);
+    beaconLensMaterial.emissiveIntensity = PHASE4_RULES.beaconEmissiveIntensity * pulse;
+    for (const light of beaconLights) light.intensity = PHASE4_RULES.beaconLightIntensity * pulse;
+    const spinStep = cinematicDelta * PHASE4_RULES.beaconSpinSpeed * Math.PI * 2;
+    for (const beacon of beacons) beacon.spin.rotation.y += spinStep;
+  }
   function updateHud() {
     const s = boss.getStatus();
     hud?.classList.toggle('hidden', cleared || cinematic === 'versus' || cinematic === 'reveal' || cinematic === 'lift');
@@ -611,7 +697,11 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
           pip.style.background = wrapped ? '#ff5a3c' : '#0d2a38';
         }
       }
-    }
+      // Wall push-off prompt (change 4): matching key on the barrier side with tap progress.
+      updatePushPrompt(player.getZeroGPushOff());
+    } else updatePushPrompt(null);
+    // Red alarm beacons (change 5): spin + pulse only while phase-4 gravity is off.
+    updateBeacons(s.zeroGActive && !cleared);
   }
   const assetsReady = Promise.all([ready, boss.ready]).then(async () => {
     if (disposed || !renderer || defeated) return;
@@ -659,6 +749,20 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
     },
     // Near-miss camera punch (additive): FOV kick + small lateral offset, never touching the quaternion.
     applyNearMissCamera() {
+      // Zero-G camera sway (change 2): a few degrees of roll following lateral drift velocity. This runs
+      // after player.updateCamera zeroed rotation.z, so it is additive and never touches mouse-look yaw/pitch.
+      const swayActive = player.isZeroGMode() && !cleared && returnClock <= 0 && !cinematic && !droneCutscene;
+      if (swayActive) {
+        camera.updateMatrixWorld();
+        swayRight.setFromMatrixColumn(camera.matrixWorld, 0);
+        const v = player.body.velocity;
+        const lat = v.x * swayRight.x + v.y * swayRight.y + v.z * swayRight.z;
+        const target = THREE.MathUtils.clamp(-lat / PHASE4_RULES.maxZeroGSpeed, -1, 1) * PHASE4_RULES.cameraSwayRoll;
+        cameraSwayCurrent = THREE.MathUtils.damp(cameraSwayCurrent, target, PHASE4_RULES.cameraSwayResponse, frameDt);
+      } else {
+        cameraSwayCurrent = THREE.MathUtils.damp(cameraSwayCurrent, 0, PHASE4_RULES.cameraSwayResponse, frameDt);
+      }
+      if (Math.abs(cameraSwayCurrent) > 1e-5) camera.rotation.z += cameraSwayCurrent;
       if (nearMissClock <= 0) {
         if (nearMissApplied) { camera.fov = nearMissBaseFov; camera.updateProjectionMatrix(); nearMissApplied = false; }
         return;
@@ -680,6 +784,7 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
     updatePhysics(dt: number, thirdPerson = false) {
       if (disposed) return;
       dt = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, PHYSICS.maxFrameTime));
+      frameDt = dt;   // consumed by the zero-G camera sway in applyNearMissCamera (change 2)
       skipButton.classList.toggle('hidden', cinematic !== 'reveal' || cinematicTime < 3.5);
       skipHold.update(dt); if (disposed) return;
       if (deathClock > 0) { deathClock = Math.max(0, deathClock - dt); if (!deathClock) onRespawn?.(); return; }
@@ -777,6 +882,12 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
       skipHold.dispose(); skipButton.remove();
       window.removeEventListener('keydown', onKey); prompt?.classList.add('hidden');
       hud?.classList.add('hidden'); subtitles?.classList.add('hidden'); phase4Hud?.classList.add('hidden');
+      updatePushPrompt(null);   // hide the shared push-off prompt elements (change 4)
+      // Dispose the phase-4 beacons (change 5): built once here, so release them here.
+      beaconGroup.removeFromParent();
+      for (const light of beaconLights) light.removeFromParent();
+      beaconBaseGeometry.dispose(); beaconHousingGeometry.dispose(); beaconLensGeometry.dispose();
+      beaconHousingMaterial.dispose(); beaconLensMaterial.dispose();
       versus?.dispose(); versus = null;
       boss.dispose(); boyMixer?.stopAllAction(); if (boy) boyMixer?.uncacheRoot(boy);
       player.dispose(); physics.dispose(); disposeRoom(scene); rubbleGeometry.dispose();
