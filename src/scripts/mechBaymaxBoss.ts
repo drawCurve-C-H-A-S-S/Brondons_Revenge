@@ -92,7 +92,26 @@ export const PHASE4_RULES = Object.freeze({
   // Hologram decoy + anchor-ring visuals.
   decoyColor: 0x37d6ff, decoyHeight: 1.83, decoyIdleTimeScale: 0.35, decoyFlickerIn: 0.45,
   decoyTimeOffset: 1.7, decoyGlitchSeconds: 0.35,
-  ringRadius: 0.9, ringTube: 0.05, ringPulseSpeed: 2.0, ringColor: 0x65dfff,
+  ringRadius: 0.9, ringTube: 0.05, ringColor: 0x65dfff,
+  // Anchor-ring SHADER tunables. scene13 injects these as GLSL #defines (buildRingShaderDefines), so the
+  // ring shader exposes only the five animated uniforms (uTime/uColor/uProximity/uProgress/uFlash).
+  ringHotColor: 0xffffff,          // HOT_COLOR: white the progress arc + deploy flash shift toward
+  ringTimeOffset: 1.3,             // per-ring uTime offset so the three rings animate out of phase
+  ringProximityFalloff: 2.5,       // metres beyond deployRadius over which uProximity ramps 1 -> 0
+  ringFlashDecay: 3.5,             // uFlash decay per second after a deploy (1 -> 0 in ~0.29s)
+  ringWobbleSegments: 6,           // RING_SEGMENTS: wobble lobes around the hoop
+  ringWobbleSpeed: 2.2,            // RING_WOBBLE_SPEED: how fast the wobble scrolls
+  ringWobbleAmp: 0.02,             // RING_WOBBLE_AMP: base normal displacement (metres)
+  ringWobbleProxBoost: 1.5,        // RING_WOBBLE_PROX_BOOST: extra wobble amplitude at full proximity
+  ringDashCount: 10,               // RING_DASH_COUNT: chasing dashes around the hoop
+  ringDashSpeed: 0.35,             // RING_DASH_SPEED: base dash scroll speed (turns/second-ish)
+  ringProxGlow: 1.4,               // RING_PROX_GLOW: extra dash speed+brightness at full proximity
+  ringEdgeSoft: 0.35,              // RING_EDGE_SOFT: 0 = hard tube edge, 1 = flat/uniform
+  ringIdleAlpha: 0.22,             // RING_IDLE_ALPHA: faint body glow when idle (never fully dark)
+  ringProgressMix: 0.85,           // RING_PROGRESS_MIX: how far the charged arc shifts toward white
+  ringProgressGain: 1.1,           // RING_PROGRESS_GAIN: brightness boost across the charged arc
+  ringProgressTip: 0.8,            // RING_PROGRESS_TIP: brightness of the leading fill tip
+  ringFlashGain: 1.4,              // RING_FLASH_GAIN: brightness of the deploy flash
   // Detection-box HUD sizing + the model-fail glitch labels.
   detBoxHeight: 1.9, detBoxWidthFactor: 0.62, detGlitchReshuffle: 0.12, detCenterHeight: 0.95,
   detGlitchLabels: ['HUMAN 0.31', 'ERROR', '??', 'HUMAN 0.07', '#REF!', 'HUMAN 0.19'],

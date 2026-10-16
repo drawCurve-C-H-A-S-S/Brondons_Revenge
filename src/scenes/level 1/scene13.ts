@@ -12,6 +12,8 @@ import { createHoldToSkip } from '../../helpers/animation/holdToSkip.js';
 import { createHoldToDeploy } from '../../helpers/animation/holdToDeploy.js';
 import { createPhase4Decoys } from '../../scripts/phase4Decoys.js';
 import { createPhase4DetectionHud } from '../../scripts/phase4DetectionHud.js';
+import anchorRingVertexShader from '../../shaders/anchorRing.vert.glsl?raw';
+import anchorRingFragmentShader from '../../shaders/anchorRing.frag.glsl?raw';
 import { createRecoveryPickup } from '../../helpers/scene/recoveryPickup.js';
 import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
 import { BOSS_RULES, PHASE4_RULES, createLoadingBayBoss, type BossPillar, type BossDetectionTarget } from '../../scripts/mechBaymaxBoss.js';
@@ -365,13 +367,51 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
   const deployFill = document.getElementById('phase4-deploy-fill');
   // Anchor points (configurable in PHASE4_RULES), a preallocated probe vector, and a pooled ring marker each.
   const decoyAnchors: THREE.Vector3[] = [];
-  const decoyRings: Array<{ mesh: THREE.Mesh; material: THREE.MeshBasicMaterial }> = [];
+  const decoyRings: Array<{ mesh: THREE.Mesh; material: THREE.ShaderMaterial }> = [];
   const decoyConfidence: number[] = [];
+  // Per-ring deploy flash (0..1): spiked to 1 in plantDecoy(), decayed each frame in updatePhase4Decoys().
+  const ringFlash: number[] = [];
   const ringGeometry = new THREE.TorusGeometry(PHASE4_RULES.ringRadius, PHASE4_RULES.ringTube, 8, 40);
+  // Inject every ring tunable from PHASE4_RULES as a GLSL #define prefix so the shader keeps exactly the
+  // five animated uniforms. Floats use toFixed(4) so they are valid GLSL float literals (a trailing .0).
+  function buildRingShaderDefines(): string {
+    const R = PHASE4_RULES;
+    const f = (n: number) => Number(n).toFixed(4);
+    const hot = new THREE.Color(R.ringHotColor);
+    return [
+      '#define TAU 6.2831853',
+      `#define RING_SEGMENTS ${f(R.ringWobbleSegments)}`,
+      `#define RING_WOBBLE_SPEED ${f(R.ringWobbleSpeed)}`,
+      `#define RING_WOBBLE_AMP ${f(R.ringWobbleAmp)}`,
+      `#define RING_WOBBLE_PROX_BOOST ${f(R.ringWobbleProxBoost)}`,
+      `#define RING_DASH_COUNT ${f(R.ringDashCount)}`,
+      `#define RING_DASH_SPEED ${f(R.ringDashSpeed)}`,
+      `#define RING_PROX_GLOW ${f(R.ringProxGlow)}`,
+      `#define RING_EDGE_SOFT ${f(R.ringEdgeSoft)}`,
+      `#define RING_IDLE_ALPHA ${f(R.ringIdleAlpha)}`,
+      `#define RING_PROGRESS_MIX ${f(R.ringProgressMix)}`,
+      `#define RING_PROGRESS_GAIN ${f(R.ringProgressGain)}`,
+      `#define RING_PROGRESS_TIP ${f(R.ringProgressTip)}`,
+      `#define RING_FLASH_GAIN ${f(R.ringFlashGain)}`,
+      `#define HOT_COLOR vec3(${hot.r.toFixed(4)}, ${hot.g.toFixed(4)}, ${hot.b.toFixed(4)})`,
+      '',
+    ].join('\n');
+  }
+  const ringDefines = buildRingShaderDefines();
+  // Prototype material; each ring clones it so all three animate independently (clone deep-copies uniforms).
+  const ringMaterialProto = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 }, uColor: { value: new THREE.Color(PHASE4_RULES.ringColor) },
+      uProximity: { value: 0 }, uProgress: { value: 0 }, uFlash: { value: 0 },
+    },
+    vertexShader: ringDefines + anchorRingVertexShader, fragmentShader: ringDefines + anchorRingFragmentShader,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+  });
   for (let i = 0; i < decoyCount; i++) {
     decoyAnchors.push(new THREE.Vector3(PHASE4_RULES.decoyAnchorX[i], PHASE4_RULES.decoyAnchorY[i], PHASE4_RULES.decoyAnchorZ[i]));
     decoyConfidence.push(PHASE4_RULES.decoyConfidenceMin);
-    const material = new THREE.MeshBasicMaterial({ color: PHASE4_RULES.ringColor, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false });
+    ringFlash.push(0);
+    const material = ringMaterialProto.clone();
     const mesh = new THREE.Mesh(ringGeometry, material);
     mesh.name = `Phase4DecoyRing-${i}`; mesh.rotation.x = -Math.PI / 2; mesh.position.copy(decoyAnchors[i]);
     mesh.visible = false; mesh.frustumCulled = false; mesh.userData.minimap = false; scene.add(mesh);
@@ -391,7 +431,7 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
   }
   function plantDecoy(index: number) {
     if (index < 0 || decoys.isActive(index)) return;
-    if (decoys.plant(index, decoyAnchors[index])) { decoyConfidence[index] = rollDecoyConfidence(); showPhaseNotice('DECOY DEPLOYED'); }
+    if (decoys.plant(index, decoyAnchors[index])) { decoyConfidence[index] = rollDecoyConfidence(); ringFlash[index] = 1; showPhaseNotice('DECOY DEPLOYED'); }
   }
   const deployHold = createHoldToDeploy({
     holdSeconds: PHASE4_RULES.deployHoldSeconds, onDeploy: () => plantDecoy(nearestAnchor),
@@ -407,16 +447,9 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
   function updatePhase4Decoys(s: { modelFailing: boolean; aimedDecoyId: number }, phase4Visible: boolean, dt: number) {
     decoyElapsed += dt;
     decoys.update(dt);
-    // Pulsing ring markers: shown only for anchors that are still free, and only while floating.
-    for (let i = 0; i < decoyCount; i++) {
-      const marker = decoyRings[i];
-      const show = phase4Visible && !decoys.isActive(i);
-      marker.mesh.visible = show;
-      if (!show) continue;
-      const pulse = 0.5 + 0.5 * Math.sin(decoyElapsed * PHASE4_RULES.ringPulseSpeed + i * 1.3);
-      marker.mesh.scale.setScalar(1 + pulse * 0.16);
-      marker.material.opacity = 0.3 + pulse * 0.4;
-    }
+    // Anchor rings are drawn by the custom ring shader; their uniforms are set further below, after
+    // deployHold.update(), so proximity/progress/flash reflect this frame. (The old JS scale/opacity pulse
+    // was removed — the shader replaces it.)
     // Nearest free anchor within deploy range (3D; the player floats in the dodge plane).
     nearestAnchor = -1;
     if (phase4Visible && player.isEnabled() && player.getHealth() > 0) {
@@ -446,6 +479,34 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
       t.confidence = THREE.MathUtils.clamp(decoyConfidence[i] + (Math.random() - 0.5) * PHASE4_RULES.decoyConfidenceJitter, 0, 1);
     }
     deployHold.update(dt);
+    // Drive the anchor-ring shader uniforms. No per-frame allocation: only scalar writes + Math.hypot.
+    const ringEye = player.body.position;
+    for (let i = 0; i < decoyCount; i++) {
+      const marker = decoyRings[i];
+      // The deploy flash spikes to 1 in plantDecoy() and decays fast here.
+      if (ringFlash[i] > 0) ringFlash[i] = Math.max(0, ringFlash[i] - dt * PHASE4_RULES.ringFlashDecay);
+      const ringActive = decoys.isActive(i);
+      // Show for a free anchor, or briefly while its deploy flash is still burning off.
+      const show = phase4Visible && (!ringActive || ringFlash[i] > 0);
+      marker.mesh.visible = show;
+      if (!show) continue;
+      const u = marker.material.uniforms;
+      // uTime: shared clock + a per-ring offset so the three rings animate independently.
+      u.uTime.value = decoyElapsed + i * PHASE4_RULES.ringTimeOffset;
+      // uProximity: 1 inside deployRadius, ramping to 0 over ringProximityFalloff beyond it.
+      let prox = 0;
+      if (!ringActive) {
+        const a = decoyAnchors[i];
+        const dist = Math.hypot(ringEye.x - a.x, ringEye.y - a.y, ringEye.z - a.z);
+        prox = dist <= PHASE4_RULES.deployRadius ? 1
+          : THREE.MathUtils.clamp(1 - (dist - PHASE4_RULES.deployRadius) / PHASE4_RULES.ringProximityFalloff, 0, 1);
+      }
+      u.uProximity.value = prox;
+      // uProgress: the hold-E fill, only for the ring currently being deployed.
+      u.uProgress.value = (!ringActive && i === nearestAnchor) ? deployHold.progress : 0;
+      // uFlash: the deploy pulse.
+      u.uFlash.value = ringFlash[i];
+    }
     if (phase4Visible) {
       detectionHud.show();
       detectionHud.update(dt, detectionTargets, s.modelFailing, s.aimedDecoyId < 0 ? 0 : s.aimedDecoyId + 1);
@@ -1123,7 +1184,7 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
       deployHold.dispose(); detectionHud.dispose(); decoys.dispose();
       deployPrompt?.classList.add('hidden');
       for (const ringMark of decoyRings) { ringMark.mesh.removeFromParent(); ringMark.material.dispose(); }
-      decoyRings.length = 0; ringGeometry.dispose();
+      decoyRings.length = 0; ringMaterialProto.dispose(); ringGeometry.dispose();
       boss.dispose(); boyMixer?.stopAllAction(); if (boy) boyMixer?.uncacheRoot(boy);
       player.dispose(); physics.dispose(); disposeRoom(scene); rubbleGeometry.dispose();
     },
