@@ -149,10 +149,32 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
   }
   const keyLight = new THREE.DirectionalLight(0xf4e9d2, 2.5); keyLight.position.set(-5, 12, -8); scene.add(keyLight);
 
+  // --- Phase 4 room-light dimming (additive; round 1 change 2b). Snapshot the bay lights exactly as
+  // they stand before the beacons/player/boss exist, so we can scale them down during the intro and
+  // restore them when gravity returns. Phases 1-3 are untouched (the tween only runs in phase 4). ---
+  const roomLights: Array<{ light: THREE.Light; base: number }> = [];
+  scene.traverse(node => { if (node instanceof THREE.Light) roomLights.push({ light: node, base: node.intensity }); });
+  let roomLightScale = 1, lightTween: { from: number; to: number; time: number; duration: number } | null = null;
+  function applyRoomLightScale(scale: number) {
+    roomLightScale = scale;
+    for (const entry of roomLights) entry.light.intensity = entry.base * scale;
+  }
+  function startLightDim(to: number, duration: number) {
+    lightTween = { from: roomLightScale, to, time: 0, duration: Math.max(0.001, duration) };
+  }
+  function updateLightDim(dt: number) {
+    if (!lightTween) return;
+    lightTween.time += dt;
+    const t = Math.min(1, lightTween.time / lightTween.duration);
+    applyRoomLightScale(THREE.MathUtils.lerp(lightTween.from, lightTween.to, THREE.MathUtils.smootherstep(t, 0, 1)));
+    if (t >= 1) lightTween = null;
+  }
+
   // --- Phase 4 red alarm beacons (additive; change 5). Built once, hidden until zero-G, disposed on exit. ---
   // Four spinning emissive beacons in the upper corners; at most 2 real lights (no shadows) for performance.
   const beacons: Array<{ spin: THREE.Mesh }> = [];
-  const beaconLights: THREE.PointLight[] = [];
+  const beaconLights: THREE.SpotLight[] = [];
+  const beaconLightTargets: THREE.Object3D[] = [];
   const beaconHousingMaterial = new THREE.MeshStandardMaterial({ color: 0x2a2f36, metalness: 0.7, roughness: 0.5 });
   const beaconLensMaterial = new THREE.MeshStandardMaterial({ color: 0x2a0000, emissive: PHASE4_RULES.beaconColor, emissiveIntensity: PHASE4_RULES.beaconEmissiveIntensity, side: THREE.DoubleSide, metalness: 0.2, roughness: 0.35 });
   const beaconBaseGeometry = new THREE.BoxGeometry(0.72, 0.16, 0.72);
@@ -172,10 +194,15 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
       beacons.push({ spin });
       beaconGroup.add(mount);
       // Only two real lights (diagonal corners) so the shader light budget stays small; no shadows.
+      // Round 1 change 2c: rotating red SpotLights whose targets sweep the walls, floor and ceiling.
       if ((sx > 0) === (sz > 0)) {
-        const light = new THREE.PointLight(PHASE4_RULES.beaconColor, PHASE4_RULES.beaconLightIntensity, PHASE4_RULES.beaconLightRange);
+        const light = new THREE.SpotLight(PHASE4_RULES.beaconColor, PHASE4_RULES.beaconSpotIntensity,
+          PHASE4_RULES.beaconSpotDistance, PHASE4_RULES.beaconSpotAngle, PHASE4_RULES.beaconSpotPenumbra, PHASE4_RULES.beaconSpotDecay);
         light.castShadow = false; light.visible = false; light.position.copy(mount.position);
-        beaconGroup.add(light); beaconLights.push(light);
+        const target = new THREE.Object3D(); target.position.set(0, PHASE4_RULES.beaconSweepHeightCenter, 0);
+        light.target = target;
+        beaconGroup.add(light); beaconGroup.add(target);
+        beaconLights.push(light); beaconLightTargets.push(target);
       }
     }
   }
@@ -199,7 +226,7 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
   door.openImmediately();
   let deathClock = 0;
   let bossVictory = false;
-  let disposed = false, cleared = defeated, cinematic: 'entry' | 'versus' | 'awakening' | 'reveal' | 'lift' | null = defeated || checkpoint || startAtPhaseFour ? null : 'entry', cinematicTime = 0;
+  let disposed = false, cleared = defeated, cinematic: 'entry' | 'versus' | 'awakening' | 'reveal' | 'lift' | 'gravityIntro' | null = defeated || checkpoint || startAtPhaseFour ? null : 'entry', cinematicTime = 0;
   let versus: ReturnType<typeof createHangarVersus> | null = null;
   let arenaSupplyTime = 0, supplyNoticeTime = 0;
   let droneCutscene: { root: THREE.Object3D; stage: 'incoming' | 'impact'; clock: number; time: number; poseTime: number; impactPosition: THREE.Vector3 | null;
@@ -260,6 +287,8 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
   const phase4Hud = document.getElementById('phase4-hud');
   const phase4Heat = document.getElementById('phase4-heat-fill');
   const phase4Pips = document.getElementById('phase4-entangle-pips');
+  // Round 1 change 2d: centre-screen flashing "gravity offline" warning shown during the intro.
+  const warningEl = document.getElementById('phase4-warning');
   const NEAR_MISS = { duration: 0.4, slowMo: 0.45, fovPunch: 9, offset: 0.14 };
   let nearMissClock = 0, nearMissSide = 1, nearMissBaseFov = 70, nearMissApplied = false, phaseNoticeTime = 0;
   const nearMissRight = new THREE.Vector3();
@@ -293,6 +322,13 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
   }
   const skipHold = createHoldToSkip({ button: skipButton, onSkip: finishVictoryDialogue,
     isAvailable: () => !disposed && cinematic === 'reveal' && cinematicTime >= 3.5 });
+  // Round 1 change 2: a separate hold-to-skip instance for the phase-4 intro. The existing
+  // skipButton/skipHold stay wired to the victory reveal and are left byte-for-byte unchanged.
+  const introSkipButton = document.createElement('button');
+  introSkipButton.type = 'button'; introSkipButton.className = 'scene-dialogue-skip hidden';
+  document.body.appendChild(introSkipButton);
+  const introSkip = createHoldToSkip({ button: introSkipButton, onSkip: () => finishPhase4Intro(),
+    isAvailable: () => !disposed && cinematic === 'gravityIntro' && cinematicTime >= PHASE4_RULES.introSkipAvailableAt });
   const status = document.getElementById('loading-bay-status');
   status?.classList.add('hidden');
   const cloudMaterial = new THREE.MeshBasicMaterial({ color: 0x05070b, transparent: true, opacity: 1, depthWrite: false });
@@ -352,7 +388,7 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
       droneCutscene = null; returnToBattle();
     },
     // Phase 4 hooks (additive): subtitle notices plus the near-miss slow-mo / camera punch.
-    onPhaseFour() { showPhaseNotice('GRAVITY FIELD OFFLINE — TAP A / D / W / S TO DODGE THE NETS'); },
+    onPhaseFour() { startPhase4Intro(); },
     onTrapped() { showPhaseNotice('ENTANGLED — RESETTING THE BARRAGE'); },
     onNearMiss(side) { triggerNearMiss(side); },
   });
@@ -551,6 +587,18 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
       drawOrbit(orbitShot, THREE.MathUtils.smootherstep(cinematicTime, 0, 4.5));
       return true;
     }
+    // Round 1 change 2: slow boss orbit across the whole phase-4 intro (taunt, dim, warning, player line).
+    if (cinematic === 'gravityIntro') {
+      const actual = boss.getCinematicBounds(liveBossBounds);
+      if (!orbitShot || orbitShot.kind !== 'boss') {
+        const envelope = new THREE.Box3(new THREE.Vector3(boss.root.position.x - 5.8, 0.05, boss.root.position.z - 5.8),
+          new THREE.Vector3(boss.root.position.x + 5.8, 11.5, boss.root.position.z + 5.8)).union(actual);
+        orbitShot = selectOrbit('boss', envelope, boss.root.rotation.y + 0.3);
+      }
+      orbitShot.bounds.union(actual);
+      drawOrbit(orbitShot, THREE.MathUtils.smootherstep(cinematicTime, 0, PHASE4_RULES.introEndAt));
+      return true;
+    }
     if (!cinematic) return false;
     if (cinematic === 'versus') return true;
     if (cinematic === 'entry') {
@@ -570,6 +618,28 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
   function updateCinematic(dt: number) {
     if (!cinematic) return;
     cinematicTime += dt;
+    // Round 1 change 2: phase-4 intro beats (taunt, dim, beacons, warning, player line, then drift-up).
+    if (cinematic === 'gravityIntro') {
+      const R = PHASE4_RULES;
+      if (!introDimStarted && cinematicTime >= R.introDimAt) { introDimStarted = true; startLightDim(R.introDimFraction, R.introDimSeconds); }
+      if (!introBeaconsOn && cinematicTime >= R.introBeaconsAt) introBeaconsOn = true;
+      if (warningEl) {
+        const inWarning = cinematicTime >= R.introWarningAt && cinematicTime < R.introWarningAt + R.introWarningSeconds;
+        warningEl.classList.toggle('hidden', !inWarning);
+        if (inWarning) warningEl.style.opacity = (Math.sin(cinematicTime * 12) * 0.5 + 0.5) < 0.5 ? '0.25' : '1';
+      }
+      if (subtitles) {
+        if (cinematicTime >= R.introTauntAt && cinematicTime < R.introTauntAt + R.introTauntSeconds) {
+          subtitles.classList.remove('hidden');
+          subtitles.textContent = "Hahaha. You thought destroying my weapons meant you'd won? I control this entire ship, including its gravity.";
+        } else if (cinematicTime >= R.introPlayerLineAt && cinematicTime < R.introPlayerLineAt + R.introPlayerLineSeconds) {
+          subtitles.classList.remove('hidden');
+          subtitles.textContent = 'Oh no... oh no, no, no.';
+        } else subtitles.classList.add('hidden');
+      }
+      if (cinematicTime >= R.introEndAt) finishPhase4Intro();
+      return;
+    }
     if (cinematic === 'versus') {
       versus?.update(cinematicTime);
       if (cinematicTime >= BOSS_VERSUS_SECONDS) {
@@ -663,9 +733,42 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
     beaconTime += cinematicDelta;
     const pulse = 0.55 + 0.45 * Math.sin(beaconTime * PHASE4_RULES.beaconPulseSpeed * Math.PI * 2);
     beaconLensMaterial.emissiveIntensity = PHASE4_RULES.beaconEmissiveIntensity * pulse;
-    for (const light of beaconLights) light.intensity = PHASE4_RULES.beaconLightIntensity * pulse;
     const spinStep = cinematicDelta * PHASE4_RULES.beaconSpinSpeed * Math.PI * 2;
     for (const beacon of beacons) beacon.spin.rotation.y += spinStep;
+    // Round 1 change 2c: sweep each spotlight's target around the room so the red beam travels
+    // across the walls, floor and ceiling. Two lights, offset by half a turn for full coverage.
+    for (let i = 0; i < beaconLights.length; i++) {
+      const light = beaconLights[i], target = beaconLightTargets[i];
+      light.intensity = PHASE4_RULES.beaconSpotIntensity * pulse;
+      const a = beaconTime * PHASE4_RULES.beaconSweepSpeed * Math.PI * 2 + i * Math.PI;
+      target.position.set(
+        Math.sin(a) * PHASE4_RULES.beaconSweepRadiusX,
+        PHASE4_RULES.beaconSweepHeightCenter + Math.sin(a * PHASE4_RULES.beaconSweepTilt + i * 1.7) * PHASE4_RULES.beaconSweepHeightAmp,
+        Math.cos(a) * PHASE4_RULES.beaconSweepRadiusZ);
+    }
+  }
+  // --- Phase 4 intro sequence (round 1 change 2). Plays once on first entry; skipped on retries and
+  // on the return to zero-G after an exposed window. Uses the cinematic camera + #boss-subtitles. ---
+  let introDimStarted = false, introBeaconsOn = false, prevZeroGActive = false;
+  function startPhase4Intro() {
+    if (disposed || cleared) { boss.beginZeroGBarrage(); return; }
+    captureShot();
+    cinematic = 'gravityIntro'; cinematicTime = 0;
+    introDimStarted = false; introBeaconsOn = false;
+    freeze();
+  }
+  function finishPhase4Intro() {
+    if (cinematic !== 'gravityIntro') return;   // idempotent: natural end and hold-to-skip both call this
+    cinematic = null;
+    introSkipButton.classList.add('hidden');
+    if (warningEl) warningEl.classList.add('hidden');
+    // Guarantee the end-state even on an early skip: beacons on, bay lights dimmed.
+    introBeaconsOn = true;
+    if (roomLightScale > PHASE4_RULES.introDimFraction + 1e-3) startLightDim(PHASE4_RULES.introDimFraction, PHASE4_RULES.introDimSeconds);
+    boss.beginZeroGBarrage();   // opens the barrage: enables zero-G, the player drifts up (beat f)
+    returnToBattle();           // releases the player and blends the camera back over 0.3 s
+    // A short control hint once floating begins (returnToBattle hid the subtitles just above).
+    if (subtitles) { subtitles.textContent = 'GRAVITY OFFLINE — TAP A / D / W / S TO DODGE THE NETS'; subtitles.classList.remove('hidden'); phaseNoticeTime = 3.2; }
   }
   function updateHud() {
     const s = boss.getStatus();
@@ -700,8 +803,12 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
       // Wall push-off prompt (change 4): matching key on the barrier side with tap progress.
       updatePushPrompt(player.getZeroGPushOff());
     } else updatePushPrompt(null);
-    // Red alarm beacons (change 5): spin + pulse only while phase-4 gravity is off.
-    updateBeacons(s.zeroGActive && !cleared);
+    // Red alarm beacons (change 5 + round 1 change 2c): on during the intro and while gravity is off.
+    updateBeacons((s.zeroGActive || (cinematic === 'gravityIntro' && introBeaconsOn)) && !cleared);
+    // Round 1 change 2b: dim the bay lights while gravity is off; restore smoothly when it returns.
+    if (prevZeroGActive && !s.zeroGActive) startLightDim(1, PHASE4_RULES.lightRestoreSeconds);
+    else if (!prevZeroGActive && s.zeroGActive) startLightDim(PHASE4_RULES.introDimFraction, PHASE4_RULES.introDimSeconds);
+    prevZeroGActive = s.zeroGActive;
   }
   const assetsReady = Promise.all([ready, boss.ready]).then(async () => {
     if (disposed || !renderer || defeated) return;
@@ -778,15 +885,18 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
     },
     onPlayerDeath() {
       if (!onRespawn) return false;
-      if (!deathClock) { deathClock = 2.5; boss.dispose(); freeze(); phase4Hud?.classList.add('hidden'); if (subtitles) { subtitles.textContent = 'WARDEN CHECKPOINT / RESTARTING'; subtitles.classList.remove('hidden'); } }
+      if (!deathClock) { deathClock = 2.5; boss.dispose(); freeze(); phase4Hud?.classList.add('hidden'); if (cinematic === 'gravityIntro') cinematic = null; startLightDim(1, PHASE4_RULES.lightRestoreSeconds); if (warningEl) warningEl.classList.add('hidden'); introSkipButton.classList.add('hidden'); if (subtitles) { subtitles.textContent = 'WARDEN CHECKPOINT / RESTARTING'; subtitles.classList.remove('hidden'); } }
       return true;
     },
     updatePhysics(dt: number, thirdPerson = false) {
       if (disposed) return;
       dt = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, PHYSICS.maxFrameTime));
       frameDt = dt;   // consumed by the zero-G camera sway in applyNearMissCamera (change 2)
+      updateLightDim(dt);   // phase-4 bay-light dim/restore tween (round 1 change 2b); runs even during the death clock
       skipButton.classList.toggle('hidden', cinematic !== 'reveal' || cinematicTime < 3.5);
       skipHold.update(dt); if (disposed) return;
+      introSkipButton.classList.toggle('hidden', cinematic !== 'gravityIntro' || cinematicTime < PHASE4_RULES.introSkipAvailableAt);
+      introSkip.update(dt); if (disposed) return;
       if (deathClock > 0) { deathClock = Math.max(0, deathClock - dt); if (!deathClock) onRespawn?.(); return; }
       if (returnClock > 0) {
         returnClock = Math.max(0, returnClock - dt);
@@ -880,12 +990,16 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
     dispose() {
       if (disposed) return; disposed = true;
       skipHold.dispose(); skipButton.remove();
+      introSkip.dispose(); introSkipButton.remove();   // round 1 change 2: the phase-4 intro skip control
       window.removeEventListener('keydown', onKey); prompt?.classList.add('hidden');
       hud?.classList.add('hidden'); subtitles?.classList.add('hidden'); phase4Hud?.classList.add('hidden');
       updatePushPrompt(null);   // hide the shared push-off prompt elements (change 4)
+      if (warningEl) warningEl.classList.add('hidden');   // round 1 change 2d
+      applyRoomLightScale(1); lightTween = null;   // restore bay lights to their stored base (round 1 change 2b)
       // Dispose the phase-4 beacons (change 5): built once here, so release them here.
       beaconGroup.removeFromParent();
-      for (const light of beaconLights) light.removeFromParent();
+      for (const light of beaconLights) { light.removeFromParent(); light.dispose(); }
+      for (const target of beaconLightTargets) target.removeFromParent();
       beaconBaseGeometry.dispose(); beaconHousingGeometry.dispose(); beaconLensGeometry.dispose();
       beaconHousingMaterial.dispose(); beaconLensMaterial.dispose();
       versus?.dispose(); versus = null;

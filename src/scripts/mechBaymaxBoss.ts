@@ -45,22 +45,32 @@ export const PHASE4_RULES = Object.freeze({
   // Camera sway/roll that follows drift velocity (change 2); roll only, never touches mouse-look yaw/pitch.
   cameraSwayRoll: 0.06, cameraSwayResponse: 6,
   // Four red rotating beacons, one per upper corner, visible only while gravity is off (change 5).
-  // At most 2 real lights are added (no shadows); the rest are emissive meshes.
+  // Two real SpotLights (no shadows) sweep the room; the other two corners are emissive meshes only.
   beaconColor: 0xff2020, beaconSpinSpeed: 2.5, beaconPulseSpeed: 3.0, beaconEmissiveIntensity: 2.2,
-  beaconLightIntensity: 8, beaconLightRange: 26, beaconY: 12, beaconInsetX: 2, beaconInsetZ: 2, beaconScale: 1,
+  beaconY: 12, beaconInsetX: 2, beaconInsetZ: 2, beaconScale: 1,
+  // Two rotating red spotlights that sweep the walls/floor/ceiling while gravity is off (round 1 change 2c).
+  beaconSpotIntensity: 70, beaconSpotDistance: 70, beaconSpotAngle: 0.5, beaconSpotPenumbra: 0.55, beaconSpotDecay: 1.1,
+  beaconSweepSpeed: 0.25, beaconSweepRadiusX: 14, beaconSweepRadiusZ: 18,
+  beaconSweepHeightCenter: 6, beaconSweepHeightAmp: 6, beaconSweepTilt: 0.7,
   // Bay bounds the player is clamped inside, plus exclusion circles (change 1).
   boundsMinX: -19, boundsMaxX: 19, boundsMinZ: -23, boundsMaxZ: 23,
   boundsCeiling: 12, liftHoleX: 0, liftHoleZ: 0, liftHoleRadius: 5.0, liftHoleMaxY: 2.5,
   pillarClearance: 2.2, bounceRestitution: 0.35,
-  // Net volleys: 1 -> 3 balls, 3.0s -> 1.8s interval, spread across a 3.0 m lane (change C).
-  ballsStart: 1, ballsEnd: 3, volleyIntervalStart: 3.0, volleyIntervalEnd: 1.8,
-  barrageDuration: 24, laneWidth: 3.0, laneSlots: 5,
+  // Net volleys: ONE ball per volley aimed at the launch-time player position, 3.0s -> 1.8s interval (round 1 change 1).
+  volleyIntervalStart: 3.0, volleyIntervalEnd: 1.8, barrageDuration: 24,
   telegraphSeconds: 0.6, netSpeed: 13, netDamage: 12, netRadius: 0.34, netLife: 4.0,
   nearMissRadius: 1.15, volleysToOverload: 8,
   // Entanglement reduces thruster impulse 15% per wrap; max wraps traps the player (change D).
   entangleImpulseFactor: 0.85, maxEntanglement: 3, trappedSeconds: 1.3,
   // Boss hover anchor during the barrage and the awakening stand-up (change A uses 'rising').
   bossHoverX: 0, bossHoverZ: 14, bossHoverY: 3.2, awakeningSeconds: 1.2,
+  // Phase-4 intro sequence (round 1 change 2): plays once on first entry, skipped on retries/returns.
+  // Times are seconds from intro start; the boss hovers in phaseFourAwakening until scene13 calls beginZeroGBarrage.
+  introTauntAt: 0.3, introTauntSeconds: 4.5,
+  introDimAt: 3.0, introDimSeconds: 1.5, introDimFraction: 0.2,
+  introBeaconsAt: 3.2, introWarningAt: 5.0, introWarningSeconds: 2.5,
+  introPlayerLineAt: 7.6, introPlayerLineSeconds: 2.4,
+  introEndAt: 10.2, introSkipAvailableAt: 1.0, lightRestoreSeconds: 1.2,
   netPoolSize: 8, puffPoolSize: 10, puffLife: 0.4,
 });
 export type BossPhase = 'dormant' | 'flying' | 'windup' | 'rushing' | 'recovering' | 'falling' | 'exposed' | 'rising'
@@ -150,6 +160,8 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   let phaseThree = false, health = BOSS_RULES.health as number, round = 1, remaining = 0;
   // --- Phase 4 (zero-gravity net barrage) state. Additive; inert until phaseFour is set. ---
   let phaseFour = false, zeroGActive = false, healthSnapshot = BOSS_RULES.health as number;
+  // Round 1 change 2: true from first phase-4 entry until scene13 finishes the intro and calls beginZeroGBarrage.
+  let zeroGIntroPending = false;
   let entanglement = 0, volleysSurvived = 0, volleyTimer = 0, telegraphTimer = -1, trappedTimer = 0;
   let netPoolReady = false, puffPoolReady = false, puffCursor = 0;
   let phase: BossPhase = 'dormant';
@@ -964,6 +976,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     root.position.set(PHASE4_RULES.bossHoverX, root.position.y, PHASE4_RULES.bossHoverZ);
     // Stand the mech up with a short awakening, then the update loop opens the barrage.
     phase = 'phaseFourAwakening'; phaseTime = 0; remaining = 0; pillarStun = false;
+    zeroGIntroPending = !!options.onPhaseFour;   // scene13 runs the intro, then calls beginZeroGBarrage
     options.onPhaseFour?.();
   }
   // The boss owns PHASE4_RULES and the live pillar list, so it hands the player a plain config.
@@ -1047,37 +1060,21 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   function launchVolley() {
     prepareNetPool();
     _netPlayer.set(player.body.position.x, player.body.position.y, player.body.position.z);
-    _netToPlayer.copy(_netPlayer).sub(root.position); _netToPlayer.y = 0;
-    if (_netToPlayer.lengthSq() < 1e-4) _netToPlayer.set(0, 0, -1);
-    _netToPlayer.normalize();
-    _netPerp.crossVectors(_netUp, _netToPlayer).normalize();
-    const ramp = Math.min(1, volleysSurvived / Math.max(1, PHASE4_RULES.volleysToOverload - 1));
-    const balls = Math.round(PHASE4_RULES.ballsStart + (PHASE4_RULES.ballsEnd - PHASE4_RULES.ballsStart) * ramp);
-    const slots = PHASE4_RULES.laneSlots, spacing = PHASE4_RULES.laneWidth / (slots - 1);
-    // Distinct random slots guarantee spread and leave (slots - balls) >= 2 open gaps (change C).
-    const indices = Array.from({ length: slots }, (_, i) => i);
-    for (let i = indices.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = indices[i]; indices[i] = indices[j]; indices[j] = t; }
-    let launched = 0;
-    for (let n = 0; n < balls; n++) {
-      const ball = netBalls.find(b => !b.active && !b.telegraph);
-      if (!ball) break;
-      const offset = (indices[n] - (slots - 1) / 2) * spacing;
-      _netTarget.copy(_netPlayer).addScaledVector(_netPerp, offset);
-      _netOrigin.copy(getShoulderWorld(n % 2 ? 'r' : 'l'));
-      ball.origin.copy(_netOrigin); ball.target.copy(_netTarget);
-      ball.mesh.position.copy(_netTarget);            // danger marker sits at the arrival point
-      ball.mesh.material = netTelegraphMaterial;
-      ball.mesh.scale.setScalar(PHASE4_RULES.netRadius / 0.5 * 1.4);
-      ball.mesh.visible = true;
-      ball.telegraph = true; ball.active = false; ball.nearMissed = false; ball.life = PHASE4_RULES.telegraphSeconds;
-      ball.velocity.set(0, 0, 0);
-      launched++;
-    }
-    if (launched) {
-      telegraphTimer = PHASE4_RULES.telegraphSeconds;
-      volleysSurvived++;
-      emitComicEffect(scene, 'pew', { source: root, position: getShoulderWorld('l') });
-    }
+    // Round 1 change 1: exactly ONE net per volley, aimed at the launch-time player position (no spread).
+    const ball = netBalls.find(b => !b.active && !b.telegraph);
+    if (!ball) return;
+    _netTarget.copy(_netPlayer);
+    _netOrigin.copy(getShoulderWorld('l'));
+    ball.origin.copy(_netOrigin); ball.target.copy(_netTarget);
+    ball.mesh.position.copy(_netTarget);            // danger marker sits at the arrival point
+    ball.mesh.material = netTelegraphMaterial;
+    ball.mesh.scale.setScalar(PHASE4_RULES.netRadius / 0.5 * 1.4);
+    ball.mesh.visible = true;
+    ball.telegraph = true; ball.active = false; ball.nearMissed = false; ball.life = PHASE4_RULES.telegraphSeconds;
+    ball.velocity.set(0, 0, 0);
+    telegraphTimer = PHASE4_RULES.telegraphSeconds;
+    volleysSurvived++;
+    emitComicEffect(scene, 'pew', { source: root, position: getShoulderWorld('l') });
   }
   function stepNetBalls(dt: number) {
     _netPlayer.set(player.body.position.x, player.body.position.y, player.body.position.z);
@@ -1242,7 +1239,8 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
       phase = 'gravity'; phaseTime = 0; spawnDroneWave(); options.onPhaseThreeEnd?.();
     }
     // --- Phase 4 state handling (additive; phases 1-3 never enter these branches). ---
-    if (phase === 'phaseFourAwakening' && phaseTime >= PHASE4_RULES.awakeningSeconds) startZeroGBarrage();
+    // Round 1 change 2: on first entry the boss waits here until scene13's intro calls beginZeroGBarrage.
+    if (phase === 'phaseFourAwakening' && phaseTime >= PHASE4_RULES.awakeningSeconds && !zeroGIntroPending) startZeroGBarrage();
     else if (phase === 'zeroG') updateZeroG(dt);
     else if (phase === 'zeroGTrapped') { trappedTimer -= dt; if (trappedTimer <= 0) retryPhaseFour(); }
     else if (phase === 'zeroGOverload' && phaseTime >= 0.15) beginFall(false);
@@ -1305,9 +1303,16 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
         root.visible = true;
         root.position.set(PHASE4_RULES.bossHoverX, root.position.y, PHASE4_RULES.bossHoverZ);
         phase = 'phaseFourAwakening'; phaseTime = 0; remaining = 0; pillarStun = false;
+        zeroGIntroPending = !!options.onPhaseFour;
         options.onPhaseFour?.();
       };
       if (modelLoaded) enter(); else void modelReady.then(enter).catch(() => {});
+    },
+    // Round 1 change 2: scene13 plays the phase-4 intro, then calls this to open the barrage.
+    beginZeroGBarrage() {
+      if (disposed) return;
+      zeroGIntroPending = false;
+      if (phase === 'phaseFourAwakening') startZeroGBarrage();
     },
     async prepareRendering(renderer: THREE.WebGLRenderer, camera: THREE.Camera) {
       if (disposed) return;
