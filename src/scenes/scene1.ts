@@ -8,8 +8,7 @@ import { loadModel } from '../core/loader.js';
 import { createMothership } from '../helpers/scene/mothership.js';
 import { CutsceneManager } from '../helpers/animation/CutsceneManager.js';
 import { disposeRoom } from '../helpers/scene/shipRoom.js';
-import starfieldVert from '../shaders/starfield.vert.glsl?raw';
-import starfieldFrag from '../shaders/starfield.frag.glsl?raw';
+import { createStarfield } from '../helpers/scene/starfield.js';
 
 export function createScene({ audioManager, loadShip = loadModel }: {
   audioManager?: unknown;
@@ -19,49 +18,7 @@ export function createScene({ audioManager, loadShip = loadModel }: {
   scene.background = new THREE.Color(0x020510);
   scene.fog = new THREE.Fog(0x020510, 30, 120);
 
-  // --- Noise-based starfield skybox ---
-  const starfieldUniforms = {
-    uTime: { value: 0.0 },
-  };
-  const starfieldMat = new THREE.ShaderMaterial({
-    vertexShader: starfieldVert,
-    fragmentShader: starfieldFrag,
-    uniforms: starfieldUniforms,
-    side: THREE.BackSide,
-    depthWrite: false,
-  });
-  const starfield = new THREE.Mesh(new THREE.BoxGeometry(400, 400, 400), starfieldMat);
-  starfield.frustumCulled = false;
-  starfield.renderOrder = 0;
-  scene.add(starfield);
-
-  // --- Points-based stars (like level 2) ---
-  function makeStars(count: number, pointSize: number, brightness: number) {
-    const positions = new Float32Array(count * 3);
-    for (let i = 0; i < positions.length; i += 3) {
-      const angle = Math.random() * Math.PI * 2, v = Math.random() * 2 - 1;
-      const r = 200 * (0.75 + Math.random() * 0.25), sinV = Math.sqrt(1 - v * v);
-      positions[i] = Math.cos(angle) * sinV * r;
-      positions[i + 1] = v * r;
-      positions[i + 2] = Math.sin(angle) * sinV * r;
-    }
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    const material = new THREE.PointsMaterial({
-      color: 0xffffff,
-      size: pointSize,
-      sizeAttenuation: true,
-      transparent: true,
-      opacity: brightness,
-    });
-    const stars = new THREE.Points(geometry, material);
-    stars.name = 'Starfield';
-    stars.renderOrder = 1;
-    stars.material.fog = false;
-    scene.add(stars);
-  }
-  makeStars(3000, 0.9, 0.82);
-  makeStars(600, 1.8, 1.0);
+  const starfield = createStarfield({ scene });
 
   // --- Mothership ---
   const mothership = createMothership(loadShip), ship = mothership.root;
@@ -212,6 +169,7 @@ export function createScene({ audioManager, loadShip = loadModel }: {
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
   camera.position.set(5, 4, 6);
   camera.lookAt(0, 0.5, 0);
+  let prevCameraPosition = camera.position.clone();
 
   // --- Physics ---
   const physicsWorld = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
@@ -224,17 +182,29 @@ export function createScene({ audioManager, loadShip = loadModel }: {
     physicsWorld.step(1 / 60, dt, 3);
     const t = performance.now() * 0.001;
 
-    // Keep starfield aligned with camera
-    starfield.position.copy(camera.position);
-    starfield.quaternion.copy(camera.quaternion);
+    // Clamp camera to sphere (radius 85)
+    const maxRadius = 85;
+    if (camera.position.length() > maxRadius) {
+      camera.position.copy(prevCameraPosition);
+    }
+    prevCameraPosition.copy(camera.position);
+
+    // Parallax: move star layers opposite to camera (inner layer moves more)
+    for (let i = 0; i < starfield.starLayers.length; i++) {
+      const layer = starfield.starLayers[i];
+      const speed = layer.renderOrder < 0 ? 0.05 : 0.02; // inner layer faster
+      layer.position.x = -camera.position.x * speed;
+      layer.position.y = -camera.position.y * speed;
+      layer.position.z = -camera.position.z * speed;
+    }
 
     // Hovering animation
     ship.position.y = 15 + Math.sin(t * 1.2) * 2.5;
     ship.rotation.z = Math.sin(t * 0.8) * 0.04;
     ship.rotation.x = Math.sin(t * 0.6) * 0.02;
 
-    // Update starfield shader time
-    starfieldUniforms.uTime.value = t;
+    // Update starfield
+    starfield.update(t);
   }
 
   // --- Cutscene ---
@@ -276,8 +246,7 @@ export function createScene({ audioManager, loadShip = loadModel }: {
       cutsceneManager.clear();
       mothership.dispose();
       disposeRoom(scene);
-      starfield.geometry.dispose();
-      starfieldMat.dispose();
+      starfield.dispose();
     },
   };
 }

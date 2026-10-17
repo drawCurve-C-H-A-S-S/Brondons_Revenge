@@ -3,6 +3,7 @@ import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createEarthTextures, createEarthGroup, updateEarthGroup } from '../earthTexture.js';
 import { disposeRoom } from '../../helpers/scene/shipRoom.js';
+import { createStarfield, type Starfield } from '../../helpers/scene/starfield.js';
 
 const cockpitGeometry = new Map<string, THREE.BufferGeometry>();
 
@@ -281,27 +282,11 @@ export function createEscapePod() {
   return root;
 }
 
-export function addPlanetBackdrop(scene: THREE.Scene, position: THREE.Vector3, radius: number, starRadius: number) {
+export function addPlanetBackdrop(scene: THREE.Scene, position: THREE.Vector3, radius: number, starRadius: number): { planet: THREE.Group; starfield: Starfield } {
   const earthGroup = createEarthGroup(scene, position, radius, createEarthTextures());
   earthGroup.name = 'NearestPlanet';
-  function makeStars(count: number, pointSize: number, brightness: number) {
-    const positions = new Float32Array(count * 3);
-    for (let i = 0; i < positions.length; i += 3) {
-      const angle = Math.random() * Math.PI * 2, v = Math.random() * 2 - 1;
-      const r = starRadius * (0.75 + Math.random() * 0.25), sinV = Math.sqrt(1 - v * v);
-      positions[i] = Math.cos(angle) * sinV * r;
-      positions[i + 1] = v * r;
-      positions[i + 2] = Math.sin(angle) * sinV * r;
-    }
-    const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    const material = new THREE.PointsMaterial({
-      color: new THREE.Color(brightness, brightness * 0.97, 1), size: starRadius * pointSize, sizeAttenuation: true,
-    });
-    const stars = new THREE.Points(geometry, material); stars.name = 'Starfield'; scene.add(stars);
-  }
-  makeStars(3000, 0.00045, 0.82);
-  makeStars(600, 0.00090, 1.0);
-  return earthGroup;
+  const starfield = createStarfield({ scene, scale: starRadius / 170, sizeScale: starRadius / 100, glowOpacity: 0.08 });
+  return { planet: earthGroup, starfield };
 }
 
 export function animatePlanetBackdrop(group: THREE.Group, dt: number): void {

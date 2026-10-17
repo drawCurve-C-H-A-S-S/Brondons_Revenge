@@ -72,7 +72,7 @@ export function createScene({ entryState, checkpoint = false, onFailure, onLaunc
   liftRim.name = 'HangarLiftLandingRim'; liftRim.rotation.x = Math.PI / 2; liftRim.position.set(0, 0.025, -29); scene.add(liftRim);
   const ship = createEscapeShip(); ship.root.position.set(0, 0, 21); ship.root.rotation.y = Math.PI; ship.setThrust(0); scene.add(ship.root);
   const shipCollider = physics.addBox({ x: 3, y: 2.6, z: 7 }, { x: 0, y: 1.3, z: 21 });
-  const planet = addPlanetBackdrop(scene, new THREE.Vector3(0, 60, 1500), 320, 2400); planet.visible = false;
+  const { planet, starfield } = addPlanetBackdrop(scene, new THREE.Vector3(0, 60, 1500), 320, 2400); planet.visible = false;
   scene.add(new THREE.HemisphereLight(0xa8cce9, 0x2b3139, 2.2));
   const sun = new THREE.DirectionalLight(0xb9d8ff, 3); sun.position.set(-20, 50, 30); scene.add(sun);
   for (const z of [-25, -5, 15]) { const light = new THREE.PointLight(0xb3def7, 180, 40); light.position.set(0, 12, z); scene.add(light); }
@@ -606,6 +606,7 @@ export function createScene({ entryState, checkpoint = false, onFailure, onLaunc
       motionScale = THREE.MathUtils.damp(motionScale, slowMotion, 8, realDt);
       dt *= motionScale; animationDelta = dt;
       clock += dt;
+      starfield.update(clock);
       if (phase === 'arrival') {
         if (!loaded) clock = Math.min(clock, 1.4);
         const h = 3 * (1 - THREE.MathUtils.smoothstep(clock, 0, 2.4)); lift.position.y = h - 0.155; player.setPosition(0, h + 0.32, -29);
@@ -724,6 +725,7 @@ export function createScene({ entryState, checkpoint = false, onFailure, onLaunc
     dispose() {
       if (disposed) return; disposed = true;
       versus.dispose();
+      starfield.dispose();
       window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); window.removeEventListener('blur', onBlur); window.removeEventListener('focus', onFocus);
       window.removeEventListener(qteTapEvent, onQteTap, true);
       if (qteCaption) qteCaption.textContent = desktopCaption;

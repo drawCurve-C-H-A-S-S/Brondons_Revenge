@@ -26,8 +26,7 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
 
   const planetRadius = 900;
   const planetPosition = entryState?.planetPosition.clone() ?? new THREE.Vector3(0, 200, 14000);
-  const planet = addPlanetBackdrop(scene, planetPosition, planetRadius, 30000);
-  const starfield = scene.getObjectByName('Starfield');
+  const { planet, starfield } = addPlanetBackdrop(scene, planetPosition, planetRadius, 30000);
   scene.add(new THREE.HemisphereLight(0xa3cfff, 0x181321, 2));
   const sun = new THREE.DirectionalLight(0xffecd8, 3.5); sun.position.set(-5000, 7000, -2500); scene.add(sun);
   const pod = createEscapePod(); pod.name = 'CrashPod'; scene.add(pod);
@@ -292,7 +291,10 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
       beacon.intensity = 12 + Math.sin(clock * 5) * 6;
     }
     if (caption) caption.textContent = clock < 2 ? 'ESCAPE POD DETECTED' : clock < 7 ? 'FOLLOWING THE POD' : clock < 12 ? 'ATMOSPHERIC ENTRY' : clock < 17 ? 'BRACE FOR IMPACT' : clock < 20 ? 'IMPACT CONFIRMED' : 'A SIGNAL FROM THE WRECK...';
-    if (starfield) starfield.position.copy(shuttle.root.position);
+    if (starfield) {
+      for (const layer of starfield.starLayers) layer.position.copy(shuttle.root.position);
+      for (const cube of starfield.nebulaCubes) cube.position.copy(shuttle.root.position);
+    }
     player.setPosition(shuttle.root.position.x, shuttle.root.position.y, shuttle.root.position.z);
     cameraView();
   }
@@ -333,6 +335,7 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
       animationDelta = 0;
       if (disposed || finished || paused || document.hidden || document.body.classList.contains('quick-menu-open')) return;
       dt = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, 0.1)); clock += dt; animationDelta = dt;
+      starfield.update(clock);
       if (!site.isReady() && clock > 21) clock = 21;
       updateVisuals(dt);
       skipButton.classList.toggle('hidden', !site.isReady() || (clock - 11) * 1.3 < 17);
@@ -345,6 +348,7 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
     dispose() {
       if (disposed) return; disposed = true;
       skipHold.dispose(); skipButton.remove();
+      starfield.dispose();
       window.removeEventListener('blur', onBlur); window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onVisibility);
       caption?.classList.add('hidden'); document.body.classList.remove('space-cinematic');
       site.scene.removeFromParent(); site.dispose(); player.dispose(); physics.dispose(); disposeRoom(scene);

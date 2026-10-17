@@ -2,6 +2,14 @@
 // Uses FBM noise for nebula clouds and hash-based points for stars
 
 uniform float uTime;
+uniform vec3 uColor;
+uniform vec3 uBlendColor;
+uniform vec3 uNoiseOffset;
+uniform float uOpacity;
+uniform bool uInvertAlpha;
+uniform int uOctaves;
+uniform bool uHasBlend;
+uniform bool uDither;
 
 varying vec3 vDirection;
 
@@ -42,7 +50,8 @@ float fbm(vec3 p) {
   float amplitude = 0.5;
   float frequency = 1.0;
   
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 8; i++) {
+    if (i >= uOctaves) break;
     value += amplitude * noise(p * frequency);
     amplitude *= 0.5;
     frequency *= 2.0;
@@ -52,7 +61,7 @@ float fbm(vec3 p) {
 
 void main() {
   vec3 dir = normalize(vDirection);
-  vec3 pos = dir * 10.0; // scale for noise space
+  vec3 pos = dir * 10.0 + uNoiseOffset; // scale for noise space, apply offset
   
   // Animate: slowly drift through noise field
   pos += vec3(uTime * 0.15, uTime * 0.08, uTime * 0.12);
@@ -64,42 +73,29 @@ void main() {
   // Combine nebula layers
   float cloud = nebula * 0.7 + nebula2 * 0.3;
   
-  // Stars (high-frequency noise with sharp threshold)
-  float stars = noise(pos * 4.0);
-  float starMask = smoothstep(0.92, 0.96, stars);
-  
-  // Bright stars (rarer, brighter)
-  float brightStars = noise(pos * 2.0 + 50.0);
-  float brightStarMask = smoothstep(0.94, 0.97, brightStars);
-  
-  // Color palette: dark void → muted purple/orange/red nebula → pink highlights → white stars
+  // Base: dark void with colored cloud overlay
   vec3 voidColor = vec3(0.02, 0.01, 0.03);
-  vec3 purpleColor = vec3(0.25, 0.18, 0.28); // muted purple
-  vec3 orangeColor = vec3(0.35, 0.22, 0.15); // muted orange
-  vec3 redColor = vec3(0.30, 0.15, 0.18); // muted red
-  vec3 highlightColor = vec3(0.45, 0.30, 0.40); // muted pink-purple
-  vec3 starColor = vec3(1.0, 0.95, 0.90); // warm white
+  float cloudAlpha = smoothstep(0.35, 0.55, cloud) * uOpacity;
+  if (uInvertAlpha) {
+    cloudAlpha = smoothstep(0.55, 0.75, cloud) * uOpacity; // sparser
+  }
+  vec3 finalColor = uColor;
+  if (uHasBlend) {
+    float blendNoise = noise(pos * 0.4 + 300.0);
+    finalColor = mix(uColor, uBlendColor, blendNoise);
+  }
+  vec3 color = mix(voidColor, finalColor, cloudAlpha / uOpacity);
   
-  // Color variation based on position (smooth blending between colors)
-  float colorRegion = noise(pos * 0.4 + 300.0);
-  float purpleWeight = smoothstep(0.66, 0.33, colorRegion);
-  float orangeWeight = smoothstep(0.33, 0.0, colorRegion) * smoothstep(0.66, 1.0, colorRegion);
-  float redWeight = smoothstep(0.33, 0.66, colorRegion);
-  vec3 nebulaBase = purpleColor * purpleWeight + orangeColor * orangeWeight + redColor * redWeight;
-  nebulaBase = normalize(nebulaBase + 0.001) * length(nebulaBase); // normalize to prevent oversaturation
+  // Comic-style dithering
+  if (uDither) {
+    vec2 gridPos = vDirection.xy * 30.0; // larger grid for bigger dots
+    float ditherPattern = fract(sin(dot(gridPos, vec2(12.9898, 78.233))) * 43758.5453);
+    float threshold = 0.5 + (ditherPattern - 0.5) * 0.8; // more aggressive
+    if (cloudAlpha < threshold * uOpacity) {
+      color = vec3(0.0); // pure black
+      cloudAlpha = 0.0;
+    }
+  }
   
-  // Base: void with nebula overlay (semi-transparent clouds)
-  vec3 color = voidColor;
-  float cloudAlpha = smoothstep(0.35, 0.55, cloud) * 0.5; // 50% max opacity
-  color = mix(color, nebulaBase, cloudAlpha);
-  
-  // Pink highlights on dense clouds
-  float highlightAlpha = smoothstep(0.50, 0.70, cloud) * 0.3;
-  color = mix(color, highlightColor, highlightAlpha);
-  
-  // Subtle color variation based on position
-  float colorVar = noise(pos * 0.5 + 200.0);
-  color = mix(color, color * vec3(0.9, 0.85, 1.0), colorVar * 0.3);
-  
-  gl_FragColor = vec4(color, 1.0);
+  gl_FragColor = vec4(color, cloudAlpha);
 }
