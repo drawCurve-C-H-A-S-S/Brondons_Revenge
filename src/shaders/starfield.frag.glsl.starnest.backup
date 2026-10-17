@@ -1,0 +1,53 @@
+// Star Nest by Pablo Roman Andrioli (adapted for three.js)
+// License: MIT
+
+uniform float uTime;
+
+varying vec3 vDirection;
+
+#define iterations 8
+#define formuparam 0.53
+
+#define volsteps 15
+#define stepsize 0.18
+
+#define zoom   0.800
+#define tile   1.050
+#define speed  0.003
+
+#define brightness 0.0015
+#define darkmatter 0.350
+#define distfading 0.680
+#define saturation 0.700
+
+void main() {
+  vec3 dir = normalize(vDirection);
+  vec2 uv = dir.xy / (dir.z + 1.0) * zoom;
+  float time = uTime * speed + 0.25;
+
+  vec3 from = vec3(1., 0.5, 0.5);
+  from += vec3(time * 2., time, -2.);
+
+  // volumetric rendering
+  float s = 0.1, fade = 1.;
+  vec3 v = vec3(0.);
+  for (int r = 0; r < volsteps; r++) {
+    vec3 p = from + s * dir * 0.5;
+    p = abs(vec3(tile) - mod(p, vec3(tile * 2.))); // tiling fold
+    float pa, a = pa = 0.;
+    for (int i = 0; i < iterations; i++) {
+      p = abs(p) / dot(p, p) - formuparam; // the magic formula
+      a += abs(length(p) - pa); // absolute sum of average change
+      pa = length(p);
+    }
+    float dm = max(0., darkmatter - a * a * 0.001); // dark matter
+    a *= a * a; // add contrast
+    if (r > 6) fade *= 1. - dm; // dark matter, don't render near
+    v += fade;
+    v += vec3(s * 1.3, s * s * 0.6, s * s * s * s * 1.4) * a * brightness * fade; // purple-tinted stars
+    fade *= distfading; // distance fading
+    s += stepsize;
+  }
+  v = mix(vec3(length(v)), v, saturation); // color adjust
+  gl_FragColor = vec4(v * 0.02, 1.);
+}

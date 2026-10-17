@@ -8,8 +8,8 @@ import { loadModel } from '../core/loader.js';
 import { createMothership } from '../helpers/scene/mothership.js';
 import { CutsceneManager } from '../helpers/animation/CutsceneManager.js';
 import { disposeRoom } from '../helpers/scene/shipRoom.js';
-// import comicVert from '../shaders/comic.vert.glsl?raw';
-// import comicFrag from '../shaders/comic.frag.glsl?raw';
+import starfieldVert from '../shaders/starfield.vert.glsl?raw';
+import starfieldFrag from '../shaders/starfield.frag.glsl?raw';
 
 export function createScene({ audioManager, loadShip = loadModel }: {
   audioManager?: unknown;
@@ -19,28 +19,49 @@ export function createScene({ audioManager, loadShip = loadModel }: {
   scene.background = new THREE.Color(0x020510);
   scene.fog = new THREE.Fog(0x020510, 30, 120);
 
-  // --- Starfield ---
-  const starCount = 4000;
-  const starPositions = new Float32Array(starCount * 3);
-  const starSizes = new Float32Array(starCount);
-  const minStarDistance = 50;
-  for (let i = 0; i < starCount; i++) {
-    const theta = Math.random() * Math.PI * 2;
-    const phi = Math.acos(2 * Math.random() - 1);
-    const r = minStarDistance + Math.random() * 50;
-    starPositions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-    starPositions[i * 3 + 1] = r * Math.cos(phi);
-    starPositions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
-    starSizes[i] = 0.3 + Math.random() * 1.2;
-  }
-  const starGeo = new THREE.BufferGeometry();
-  starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-  starGeo.setAttribute('size', new THREE.BufferAttribute(starSizes, 1));
-  const starMat = new THREE.PointsMaterial({
-    color: 0xffffff, size: 0.6, sizeAttenuation: true, transparent: true, opacity: 0.9,
+  // --- Noise-based starfield skybox ---
+  const starfieldUniforms = {
+    uTime: { value: 0.0 },
+  };
+  const starfieldMat = new THREE.ShaderMaterial({
+    vertexShader: starfieldVert,
+    fragmentShader: starfieldFrag,
+    uniforms: starfieldUniforms,
+    side: THREE.BackSide,
+    depthWrite: false,
   });
-  const stars = new THREE.Points(starGeo, starMat);
-  scene.add(stars);
+  const starfield = new THREE.Mesh(new THREE.BoxGeometry(400, 400, 400), starfieldMat);
+  starfield.frustumCulled = false;
+  starfield.renderOrder = 0;
+  scene.add(starfield);
+
+  // --- Points-based stars (like level 2) ---
+  function makeStars(count: number, pointSize: number, brightness: number) {
+    const positions = new Float32Array(count * 3);
+    for (let i = 0; i < positions.length; i += 3) {
+      const angle = Math.random() * Math.PI * 2, v = Math.random() * 2 - 1;
+      const r = 200 * (0.75 + Math.random() * 0.25), sinV = Math.sqrt(1 - v * v);
+      positions[i] = Math.cos(angle) * sinV * r;
+      positions[i + 1] = v * r;
+      positions[i + 2] = Math.sin(angle) * sinV * r;
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const material = new THREE.PointsMaterial({
+      color: 0xffffff,
+      size: pointSize,
+      sizeAttenuation: true,
+      transparent: true,
+      opacity: brightness,
+    });
+    const stars = new THREE.Points(geometry, material);
+    stars.name = 'Starfield';
+    stars.renderOrder = 1;
+    stars.material.fog = false;
+    scene.add(stars);
+  }
+  makeStars(3000, 0.9, 0.82);
+  makeStars(600, 1.8, 1.0);
 
   // --- Mothership ---
   const mothership = createMothership(loadShip), ship = mothership.root;
@@ -203,42 +224,17 @@ export function createScene({ audioManager, loadShip = loadModel }: {
     physicsWorld.step(1 / 60, dt, 3);
     const t = performance.now() * 0.001;
 
+    // Keep starfield aligned with camera
+    starfield.position.copy(camera.position);
+    starfield.quaternion.copy(camera.quaternion);
+
     // Hovering animation
     ship.position.y = 15 + Math.sin(t * 1.2) * 2.5;
     ship.rotation.z = Math.sin(t * 0.8) * 0.04;
     ship.rotation.x = Math.sin(t * 0.6) * 0.02;
 
-    /* Primitive spaceship animation (kept for reference).
-    // Pulse engine glow
-    const pulse = 1.5 + Math.sin(t * 8) * 0.5;
-    engineLightL.intensity = pulse;
-    engineLightR.intensity = pulse;
-
-    // Update shader time
-    comicMaterial.uniforms.uTime.value = t;
-    comicMaterialBlue.uniforms.uTime.value = t;
-    comicMaterialRed.uniforms.uTime.value = t;
-    */
-
-    // Animate starfield
-    const positions = stars.geometry.attributes.position.array as Float32Array;
-    const speed = 8;
-    for (let i = 0; i < starCount; i++) {
-      positions[i * 3 + 2] -= speed * dt;
-      const x = positions[i * 3];
-      const y = positions[i * 3 + 1];
-      const z = positions[i * 3 + 2];
-      const distFromCenter = Math.sqrt(x * x + y * y + z * z);
-      if (positions[i * 3 + 2] < -80 || distFromCenter < minStarDistance) {
-        const theta = Math.random() * Math.PI * 2;
-        const phi = Math.acos(2 * Math.random() - 1);
-        const r = minStarDistance + Math.random() * 50;
-        positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-        positions[i * 3 + 1] = r * Math.cos(phi);
-        positions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta) + 80;
-      }
-    }
-    stars.geometry.attributes.position.needsUpdate = true;
+    // Update starfield shader time
+    starfieldUniforms.uTime.value = t;
   }
 
   // --- Cutscene ---
@@ -280,6 +276,8 @@ export function createScene({ audioManager, loadShip = loadModel }: {
       cutsceneManager.clear();
       mothership.dispose();
       disposeRoom(scene);
+      starfield.geometry.dispose();
+      starfieldMat.dispose();
     },
   };
 }
