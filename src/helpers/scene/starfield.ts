@@ -9,6 +9,7 @@ export interface StarfieldConfig {
   glowOpacity?: number;
   scale?: number;
   sizeScale?: number;
+  dither?: boolean;
 }
 
 export interface Starfield {
@@ -26,13 +27,14 @@ export function createStarfield(config: StarfieldConfig): Starfield {
     glowOpacity = 0.15,
     scale = 1.0,
     sizeScale = 1.0,
+    dither = true,
   } = config;
 
   // --- Nebula cubemaps ---
   const nebulaColors = [
     { color: new THREE.Vector3(0.35, 0.24, 0.42), offset: new THREE.Vector3(0, 0, 0), opacity: 0.15, octaves: 2, blendColor: new THREE.Vector3(0.48, 0.28, 0.18) },
-    { color: new THREE.Vector3(0.55, 0.20, 0.25), offset: new THREE.Vector3(200, 150, 125), opacity: 0.2, octaves: 3 },
-    { color: new THREE.Vector3(0.58, 0.35, 0.50), offset: new THREE.Vector3(300, 250, 200), opacity: 0.2, octaves: 3 },
+    { color: new THREE.Vector3(0.55, 0.20, 0.25), offset: new THREE.Vector3(200, 150, 125), opacity: 0.2, octaves: 3, blendColor: new THREE.Vector3(0.65, 0.35, 0.15) },
+    { color: new THREE.Vector3(0.58, 0.35, 0.50), offset: new THREE.Vector3(300, 250, 200), opacity: 0.2, octaves: 3, blendColor: new THREE.Vector3(0.45, 0.25, 0.45) },
     { color: new THREE.Vector3(0.0, 0.0, 0.0), offset: new THREE.Vector3(400, 350, 300), opacity: 0.3, invertAlpha: true, octaves: 4 },
   ];
   const nebulaCubes: THREE.Mesh[] = [];
@@ -50,7 +52,11 @@ export function createStarfield(config: StarfieldConfig): Starfield {
       uInvertAlpha: { value: invertAlpha },
       uOctaves: { value: octaves },
       uHasBlend: { value: hasBlend },
-      uDither: { value: true },
+      uDither: { value: dither },
+      uRidgeStrength: { value: i < 2 ? 0.6 : 0.0 },
+      uWarpStrength: { value: 0.5 },
+      uThresholdLow: { value: i === 2 ? 0.35 : 0.45 },
+      uThresholdHigh: { value: i === 2 ? 0.55 : 0.6 },
     };
     const mat = new THREE.ShaderMaterial({
       vertexShader: starfieldVert,

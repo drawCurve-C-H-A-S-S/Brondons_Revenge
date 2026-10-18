@@ -10,6 +10,10 @@ uniform bool uInvertAlpha;
 uniform int uOctaves;
 uniform bool uHasBlend;
 uniform bool uDither;
+uniform float uRidgeStrength;
+uniform float uWarpStrength;
+uniform float uThresholdLow;
+uniform float uThresholdHigh;
 
 varying vec3 vDirection;
 
@@ -59,6 +63,26 @@ float fbm(vec3 p) {
   return value;
 }
 
+// Ridge noise: sharp filaments instead of soft blobs
+float ridgeNoise(vec3 p) {
+  return 1.0 - abs(noise(p) * 2.0 - 1.0);
+}
+
+// Ridge FBM: layered ridge noise for structured detail
+float ridgeFbm(vec3 p) {
+  float value = 0.0;
+  float amplitude = 0.5;
+  float frequency = 1.0;
+  
+  for (int i = 0; i < 8; i++) {
+    if (i >= uOctaves) break;
+    value += amplitude * ridgeNoise(p * frequency);
+    amplitude *= 0.5;
+    frequency *= 2.0;
+  }
+  return value;
+}
+
 void main() {
   vec3 dir = normalize(vDirection);
   vec3 pos = dir * 10.0 + uNoiseOffset; // scale for noise space, apply offset
@@ -66,18 +90,25 @@ void main() {
   // Animate: slowly drift through noise field
   pos += vec3(uTime * 0.15, uTime * 0.08, uTime * 0.12);
   
-  // Nebula clouds (FBM noise)
-  float nebula = fbm(pos * 0.3);
-  float nebula2 = fbm(pos * 0.15 + 100.0); // second layer for variation
+  // Nebula clouds (FBM noise, with ridge for structured layers)
+  vec3 p1 = pos * 0.3;
+  vec3 p2 = pos * 0.15 + 100.0;
+  
+  // Domain warp: feed noise back into itself for swirling structure
+  vec3 warped1 = p1 + fbm(p1) * uWarpStrength;
+  vec3 warped2 = p2 + fbm(p2) * uWarpStrength;
+  
+  float nebula = mix(fbm(warped1), ridgeFbm(p1), uRidgeStrength);
+  float nebula2 = mix(fbm(warped2), ridgeFbm(p2), uRidgeStrength);
   
   // Combine nebula layers
   float cloud = nebula * 0.7 + nebula2 * 0.3;
   
   // Base: dark void with colored cloud overlay
   vec3 voidColor = vec3(0.02, 0.01, 0.03);
-  float cloudAlpha = smoothstep(0.35, 0.55, cloud) * uOpacity;
+  float cloudAlpha = smoothstep(uThresholdLow, uThresholdHigh, cloud) * uOpacity;
   if (uInvertAlpha) {
-    cloudAlpha = smoothstep(0.55, 0.75, cloud) * uOpacity; // sparser
+    cloudAlpha = smoothstep(uThresholdHigh, uThresholdHigh + 0.08, cloud) * uOpacity; // sparser
   }
   vec3 finalColor = uColor;
   if (uHasBlend) {
@@ -85,6 +116,15 @@ void main() {
     finalColor = mix(uColor, uBlendColor, blendNoise);
   }
   vec3 color = mix(voidColor, finalColor, cloudAlpha / uOpacity);
+
+  // Brightest areas shift to orange instead of white
+  float density = cloudAlpha / uOpacity;
+  if (!uInvertAlpha) {
+    color = mix(color, vec3(1.0, 0.6, 0.1), pow(density, 4.0) * 0.2);
+    // Very narrow white hot spots on the densest cores (raw cloud, not saturated alpha)
+    float whiteCore = smoothstep(0.65, 0.75, cloud);
+    color = mix(color, vec3(1.0), whiteCore * 0.7);
+  }
   
   // Comic-style dithering
   if (uDither) {

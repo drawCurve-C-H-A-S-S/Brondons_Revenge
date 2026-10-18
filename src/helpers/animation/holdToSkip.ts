@@ -31,7 +31,10 @@ export function createHoldToSkip({ button, onSkip, isAvailable = () => true, isP
   function onKeyUp(event: KeyboardEvent) {
     if (event.code === 'Enter' || event.code === 'NumpadEnter') reset();
   }
-  function onClick(event: MouseEvent) { event.preventDefault(); }
+  function onClick(event: MouseEvent) {
+    event.preventDefault();
+    if (available() && !completed) { completed = true; held = false; onSkip(); }
+  }
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup', onKeyUp);
   window.addEventListener('blur', reset);
