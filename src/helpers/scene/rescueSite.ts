@@ -920,7 +920,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     model.scale.multiplyScalar(1.75 / Math.max(0.01, bounds.getSize(new THREE.Vector3()).y));
     bounds.setFromObject(model); const center = bounds.getCenter(new THREE.Vector3()); model.position.set(-center.x, -bounds.min.y, -center.z);
     model.traverse(node => { if (node instanceof THREE.Mesh) { node.castShadow = true; node.receiveShadow = true; } });
-    boy.add(model); brendan.setActivity(brendanActivity);
+    brendan.pivot.add(model); brendan.setActivity(brendanActivity);
   }).catch(error => {
     if (!disposed) { console.error('[Rescue] Could not load Brendan:', error); throw error; }
   });
@@ -992,6 +992,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     distanceToSafePath: (x: number, z: number) => routeDistance(x, z), isJungleObstacleBody: (body: CANNON.Body) => obstacleVisuals.has(body), breakJungleObstacle,
     disintegrateTrees,
     setBrendanActivity(value: BrendanActivity) { brendanActivity = value; brendan?.setActivity(value); },
+    getBrendanTarget: () => ({ root: boy, damage: (amount: number) => brendan?.damage(amount) ?? false, knockDown: () => brendan?.knockDown() ?? false }),
     bridge, water, waterfall, mountain, damageBridge, breakBridge,
     setImpact(age: number) {
       crater.visible = age >= 0;

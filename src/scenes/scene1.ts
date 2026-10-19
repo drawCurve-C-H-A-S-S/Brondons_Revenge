@@ -8,8 +8,7 @@ import { loadModel } from '../core/loader.js';
 import { createMothership } from '../helpers/scene/mothership.js';
 import { CutsceneManager } from '../helpers/animation/CutsceneManager.js';
 import { disposeRoom } from '../helpers/scene/shipRoom.js';
-// import comicVert from '../shaders/comic.vert.glsl?raw';
-// import comicFrag from '../shaders/comic.frag.glsl?raw';
+import { createStarfield } from '../helpers/scene/starfield.js';
 
 export function createScene({ audioManager, loadShip = loadModel }: {
   audioManager?: unknown;
@@ -19,28 +18,7 @@ export function createScene({ audioManager, loadShip = loadModel }: {
   scene.background = new THREE.Color(0x020510);
   scene.fog = new THREE.Fog(0x020510, 30, 120);
 
-  // --- Starfield ---
-  const starCount = 4000;
-  const starPositions = new Float32Array(starCount * 3);
-  const starSizes = new Float32Array(starCount);
-  const minStarDistance = 50;
-  for (let i = 0; i < starCount; i++) {
-    const theta = Math.random() * Math.PI * 2;
-    const phi = Math.acos(2 * Math.random() - 1);
-    const r = minStarDistance + Math.random() * 50;
-    starPositions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-    starPositions[i * 3 + 1] = r * Math.cos(phi);
-    starPositions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
-    starSizes[i] = 0.3 + Math.random() * 1.2;
-  }
-  const starGeo = new THREE.BufferGeometry();
-  starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-  starGeo.setAttribute('size', new THREE.BufferAttribute(starSizes, 1));
-  const starMat = new THREE.PointsMaterial({
-    color: 0xffffff, size: 0.6, sizeAttenuation: true, transparent: true, opacity: 0.9,
-  });
-  const stars = new THREE.Points(starGeo, starMat);
-  scene.add(stars);
+  const starfield = createStarfield({ scene });
 
   // --- Mothership ---
   const mothership = createMothership(loadShip), ship = mothership.root;
@@ -191,6 +169,7 @@ export function createScene({ audioManager, loadShip = loadModel }: {
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
   camera.position.set(5, 4, 6);
   camera.lookAt(0, 0.5, 0);
+  let prevCameraPosition = camera.position.clone();
 
   // --- Physics ---
   const physicsWorld = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
@@ -203,42 +182,29 @@ export function createScene({ audioManager, loadShip = loadModel }: {
     physicsWorld.step(1 / 60, dt, 3);
     const t = performance.now() * 0.001;
 
+    // Clamp camera to sphere (radius 85)
+    const maxRadius = 85;
+    if (camera.position.length() > maxRadius) {
+      camera.position.copy(prevCameraPosition);
+    }
+    prevCameraPosition.copy(camera.position);
+
+    // Parallax: move star layers opposite to camera (inner layer moves more)
+    for (let i = 0; i < starfield.starLayers.length; i++) {
+      const layer = starfield.starLayers[i];
+      const speed = layer.renderOrder < 0 ? 0.05 : 0.02; // inner layer faster
+      layer.position.x = -camera.position.x * speed;
+      layer.position.y = -camera.position.y * speed;
+      layer.position.z = -camera.position.z * speed;
+    }
+
     // Hovering animation
     ship.position.y = 15 + Math.sin(t * 1.2) * 2.5;
     ship.rotation.z = Math.sin(t * 0.8) * 0.04;
     ship.rotation.x = Math.sin(t * 0.6) * 0.02;
 
-    /* Primitive spaceship animation (kept for reference).
-    // Pulse engine glow
-    const pulse = 1.5 + Math.sin(t * 8) * 0.5;
-    engineLightL.intensity = pulse;
-    engineLightR.intensity = pulse;
-
-    // Update shader time
-    comicMaterial.uniforms.uTime.value = t;
-    comicMaterialBlue.uniforms.uTime.value = t;
-    comicMaterialRed.uniforms.uTime.value = t;
-    */
-
-    // Animate starfield
-    const positions = stars.geometry.attributes.position.array as Float32Array;
-    const speed = 8;
-    for (let i = 0; i < starCount; i++) {
-      positions[i * 3 + 2] -= speed * dt;
-      const x = positions[i * 3];
-      const y = positions[i * 3 + 1];
-      const z = positions[i * 3 + 2];
-      const distFromCenter = Math.sqrt(x * x + y * y + z * z);
-      if (positions[i * 3 + 2] < -80 || distFromCenter < minStarDistance) {
-        const theta = Math.random() * Math.PI * 2;
-        const phi = Math.acos(2 * Math.random() - 1);
-        const r = minStarDistance + Math.random() * 50;
-        positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-        positions[i * 3 + 1] = r * Math.cos(phi);
-        positions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta) + 80;
-      }
-    }
-    stars.geometry.attributes.position.needsUpdate = true;
+    // Update starfield
+    starfield.update(t);
   }
 
   // --- Cutscene ---
@@ -280,6 +246,7 @@ export function createScene({ audioManager, loadShip = loadModel }: {
       cutsceneManager.clear();
       mothership.dispose();
       disposeRoom(scene);
+      starfield.dispose();
     },
   };
 }

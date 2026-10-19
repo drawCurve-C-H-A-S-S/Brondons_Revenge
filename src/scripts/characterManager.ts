@@ -24,6 +24,27 @@ interface Vec3Like { x: number; y: number; z: number; }
 export const HOLOGRAM_TRANSFER_DURATION = 1.95;
 export const TELEPORT_TRANSFER_DURATION = 0.18;
 
+// Zero-G weightless limb sway (Bay Warden phase 4). Additive posing applied at the very end of
+// update(), ONLY while playerState.zeroGMode is true, blended in/out and suppressed during any
+// weapon/attack/cinematic action so swings are untouched. Limbs trail opposite the drift velocity
+// (inertia), scaled by speed with a springy overshoot; idle adds a slow float with slightly spread
+// arms. Angles are radians; signs are authored to match the trail direction (flip a constant to reverse).
+const ZERO_G_SWAY = Object.freeze({
+  referenceSpeed: 4.5,        // mirrors PHASE4_RULES.maxZeroGSpeed
+  blendTime: 0.4,             // seconds to fade the effect in/out
+  springStiffness: 62,        // under-damped spring toward the velocity target -> organic overshoot
+  springDamping: 7.5,
+  lateralAmplitude: 0.42,     // arms/legs swing opposite left/right drift
+  armVerticalAmplitude: 0.34, // moving up -> arms drift down; moving down -> arms float up
+  legVerticalAmplitude: 0.26, // moving up -> legs dangle
+  lowerArmFollow: 0.55,       // fraction of the upper-arm angle echoed by the forearm
+  calfFollow: 0.5,            // fraction of the thigh angle echoed by the calf
+  idleSwayAmplitude: 0.075,   // slow gentle float when nearly stationary
+  idleSwayFrequency: 0.9,
+  idleSpread: 0.16,           // slightly spread arms at rest
+  idleSwayTimeScale: 1,
+});
+
 interface HologramTransition { blend: number; opacity: number; time: number; melt?: number; }
 
 export function hologramTransitionAt(time: number, arriving = false, duration = HOLOGRAM_TRANSFER_DURATION): HologramTransition {
@@ -618,6 +639,10 @@ export async function loadCharacter(loader?: GLTFLoader) {
     hand: model.getObjectByName(`foot_${suffix}`),
     joints: [model.getObjectByName(`calf_${suffix}`), model.getObjectByName(`thigh_${suffix}`)],
   }));
+  // Zero-G limb-sway per-instance state (reused every frame; no allocations).
+  const _swayRight = new THREE.Vector3();
+  let swayBlend = 0, swayTime = 0;
+  let swayLat = 0, swayLatVel = 0, swayVert = 0, swayVertVel = 0;
   const swimmingLegs = ['thigh_l', 'thigh_r', 'calf_l', 'calf_r'].flatMap(name => {
     const bone = model.getObjectByName(name);
     return bone ? [{ bone, quaternion: bone.quaternion.clone() }] : [];
@@ -946,6 +971,48 @@ export async function loadCharacter(loader?: GLTFLoader) {
       const feetY = Math.min(...ventFeet.map(bone => bone.getWorldPosition(ventFootPosition).y));
       model.position.y += playerBodyPos.y - playerRadius + ventSoleOffset - feetY;
       model.updateMatrixWorld(true);
+    }
+    // --- Zero-G weightless limb sway (Bay Warden phase 4). Additive; runs after the mixer, IK and the
+    // layer save/restore so it never accumulates (next frame's restore + mixer.update() reset these bones).
+    // Gated on zeroGMode; suppressed while any weapon/attack/cinematic action owns the arms. ---
+    const zeroGVelocity = playerState.zeroGVelocity;
+    const hasVel = playerState.zeroGMode && !!zeroGVelocity;
+    const attacking = actionClips.has(name) && !currentAction.paused;
+    const weaponBusy = armed || pistolBlend > 0.01 || crowbarEquipped || lightsaberEquipped || interactionTime >= 0;
+    const swayActive = hasVel && !cinematic && !attacking && !weaponBusy;
+    swayBlend = THREE.MathUtils.damp(swayBlend, swayActive ? 1 : 0, 3 / ZERO_G_SWAY.blendTime, dt);
+    let latNorm = 0, vertNorm = 0, relSpeed = 0;
+    if (hasVel && zeroGVelocity) {
+      _swayRight.set(1, 0, 0).applyQuaternion(model.quaternion);
+      const invRef = 1 / ZERO_G_SWAY.referenceSpeed;
+      latNorm = THREE.MathUtils.clamp(zeroGVelocity.dot(_swayRight) * invRef, -1, 1);
+      vertNorm = THREE.MathUtils.clamp(zeroGVelocity.y * invRef, -1, 1);
+      relSpeed = THREE.MathUtils.clamp(zeroGVelocity.length() * invRef, 0, 1);
+      swayTime += dt * ZERO_G_SWAY.idleSwayTimeScale;
+    }
+    const swayK = ZERO_G_SWAY.springStiffness, swayC = ZERO_G_SWAY.springDamping;
+    swayLatVel += (latNorm - swayLat) * swayK * dt; swayLatVel *= Math.exp(-swayC * dt); swayLat += swayLatVel * dt;
+    swayVertVel += (vertNorm - swayVert) * swayK * dt; swayVertVel *= Math.exp(-swayC * dt); swayVert += swayVertVel * dt;
+    if (swayBlend > 0.0005) {
+      const idle = 1 - relSpeed;
+      const idleSway = Math.sin(swayTime * ZERO_G_SWAY.idleSwayFrequency) * ZERO_G_SWAY.idleSwayAmplitude * idle;
+      const spread = ZERO_G_SWAY.idleSpread * idle;
+      const blend = swayBlend;
+      const armX = -swayVert * ZERO_G_SWAY.armVerticalAmplitude + idleSway * 0.25;
+      const armZ = -swayLat * ZERO_G_SWAY.lateralAmplitude;
+      const legX = swayVert * ZERO_G_SWAY.legVerticalAmplitude + idleSway * 0.15;
+      const legZ = -swayLat * ZERO_G_SWAY.lateralAmplitude * 0.6;
+      for (let i = 0; i < 2; i++) {
+        const sign = i === 0 ? 1 : -1;   // mirror l/r (matches the swimming-pose convention)
+        const upperArm = armChains[i].joints[1], lowerArm = armChains[i].joints[0];
+        if (upperArm) { upperArm.rotateX(armX * blend); upperArm.rotateZ(sign * (armZ + spread + idleSway * 0.3) * blend); }
+        if (lowerArm) { lowerArm.rotateX(armX * ZERO_G_SWAY.lowerArmFollow * blend); lowerArm.rotateZ(sign * (armZ * ZERO_G_SWAY.lowerArmFollow + spread * 0.4) * blend); }
+        const thigh = legChains[i].joints[1], calf = legChains[i].joints[0];
+        if (thigh) { thigh.rotateX(legX * blend); thigh.rotateZ(sign * legZ * blend); }
+        if (calf) { calf.rotateX(legX * ZERO_G_SWAY.calfFollow * blend); }
+      }
+    } else if (swayBlend !== 0) {
+      swayBlend = 0; swayLat = swayLatVel = swayVert = swayVertVel = 0;
     }
   }
 

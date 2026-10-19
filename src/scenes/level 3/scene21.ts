@@ -11,7 +11,6 @@ import { createFinaleMech, type MechFactory } from '../../helpers/scene/finaleMe
 import { createFinalePresentation } from '../../helpers/scene/finalePresentation.js';
 import { createFinaleRenderer } from '../../helpers/scene/finaleRenderer.js';
 import { createFinaleShipTransformation } from '../../helpers/scene/finaleShipTransformation.js';
-import { createFinaleCreditSprite } from '../../helpers/scene/finaleCreditSprite.js';
 import { createMothership } from '../../helpers/scene/mothership.js';
 import { createHoldToSkip } from '../../helpers/animation/holdToSkip.js';
 import { createBeamMaterial, FRAME_COLORS } from '../../helpers/scene/finaleMaterials.js';
@@ -371,8 +370,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     director.duel.setPhysicalPaths(heroMech.samplePhysicalPaths());
     if (postProcessing) await postProcessing.prepare();
     if (disposed) return;
-    presentation.setCreditSprite(await createFinaleCreditSprite(renderer));
-    if (!disposed) director.assetsLoaded();
+    director.assetsLoaded();
   });
   void ready.catch(error => {
     if (disposed) return;
@@ -1204,6 +1202,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
     scene, camera, player, ready, ownsWeaponInput: true, forceThirdPerson: true,
     updatePhysics, prepareRendering,
     isCinematic: () => (lastPhase !== 'ground' && lastPhase !== 'space') || director.duel.getState().special?.cinematic === true,
+    restartAtCheckpoint: () => { retryCheckpoint(); return true; },
     onPlayerDeath: () => true,
     hideCharacter: () => lastPhase !== 'reveal' && lastPhase !== 'enemyTransform'
       && !(lastPhase === 'heroTransform' && director.getState().phaseTime < HERO_TRANSFORM.pilotMerge),

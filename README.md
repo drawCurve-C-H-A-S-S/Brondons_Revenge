@@ -386,8 +386,8 @@ they are the ship's only surveillance-free area.
 The prison's eye-opening canvas uses a close-up captured from Brondon's actual
 cel-shaded model, preserving his magenta eyes, blond hair and angular brows.
 Animated eyelid masks retain the flutter, blink and gradual opening.
-The camera holds below the foot end of his floating body until this eye-opening
-shot finishes, then transitions to the wider dialogue framing.
+The camera opens on the three-quarter view of his floating body instead of the
+foot end, and returns to that angle after the eye-opening close-up.
 
 - The passage has **four cabins on each side**: Brondon, Branden and Brendan are
   unlocked; the five student cabins are locked.
@@ -900,8 +900,9 @@ the sword. Each prompt earns **one, two or three stars**. Up to two misses are r
 death and checkpoint retry. A successful run ends with a skyward sword charge,
 forward rush, disappearance, reappearance behind the enemy, a quiet pause and a
 delayed storm of slashes. Donus's return brings back the actual Scene 1 mothership
-and Prime Frame's authored dance. Centered credits run in **90 seconds**, retaining
-the image-only dancing Brondon copies. A visible **hold Enter to skip** control
+and Prime Frame's authored dance. Centered credits run in **90 seconds**, with
+rolling text but no background dancing copies or sprite generation.
+A visible **hold Enter to skip** control
 skips the boss introduction; the same control skips the ending dialogue in
 Scenes 13 and 16 without losing their unlocks or scene handoff. Scene 1 ends
 directly on **Play / Don't Play**, with no opening credits roll.
@@ -910,8 +911,11 @@ Scene 1 has a small **View Credits** button in the bottom-right corner of its me
 credits sheet and the rolling credits use the game's comic typography, halftone
 paper panels, ink outlines, offset shadows and coloured caption badges.
 The credits sheet shares the end roll's attribution list: creation and story by
-**CHASS**, music by **Caleb**, model and animation authors, engine/physics libraries
-and development tools. Unconfirmed asset sources remain explicitly marked for
+**CHASS**, music by **Caleb** produced in **GarageBand for iOS**, the new Brondon
+and DonfromStreets (Brendan) GLB models by **Husain**, and the other generic
+character models from **Quaternius's Universal Animation Library (UAL)**.
+It also credits animation authors, engine/physics libraries and development
+tools. Unconfirmed asset sources remain explicitly marked for
 verification rather than assigned to an author.
 
 The shuttle recall preserves its parked world transform, lifts clear of the ground
@@ -1000,7 +1004,7 @@ The final-boss shortcuts include **Bomb release / 50% health**, which starts at
 the exact bomb-release frame with **900 / 1800** enemy health, and **Final QTE
 start**, which starts the first QTE at time zero. Loading warm-up does not advance
 either checkpoint's timeline. **Epilogue - Rolling credits** jumps straight to
-the actual end credits, with the same music, dancing sprites and 90-second roll
+the actual end credits, with the same music and 90-second text roll
 as a completed game; it does not replay the boss fight.
 Shielding keeps the mech's head facing forward;
 its normal opponent-tracking remains separate from the guard's torso/arm pose.
@@ -1094,8 +1098,9 @@ teleport execution is required to defeat Sudoers 5. HUD panels, recharge
 indicators and controls use the game's shared comic-paper panels, ink outlines,
 hard shadows and resource colors; the VS and game-over layouts are preserved. Hold **Enter** during the
 reveal and transformations to skip ahead to the VS introduction.
-Victory credits are centered over differently oriented dancing-Brondon sprites
-rendered from the character model; these are images, not cloned players or physics.
+Victory credits are centered without background dancers or character sprite rendering.
+Brondon's cockpit close-ups use the same character model as on-foot gameplay;
+Prime Frame retains its existing mech model.
 The epilogue also flies in the shared opening mothership and plays Prime Frame's
 native `Dance_Loop`; the credit timeline and scrolling share one duration.
 

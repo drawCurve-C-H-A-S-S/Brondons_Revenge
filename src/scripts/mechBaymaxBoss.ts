@@ -27,9 +27,64 @@ export const BOSS_RULES = Object.freeze({
   droneShotInterval: 2.4, droneShotStagger: 0.4, droneShotFirstDelay: 1.4,
   droneLaserSpeed: 15, droneLaserDamage: 5, parryDamage: 50,
 });
+// Phase 4 (zero-gravity net barrage) tuning. Additive; never referenced by phases 1-3.
+// On gravity-off the player drifts up once, then free-floats inside a height band, tapping
+// A/D (strafe) and W/S (world-up) to dodge telegraphed net volleys, and can push off barriers.
+// All values are meters/seconds unless noted.
+export const PHASE4_RULES = Object.freeze({
+  phaseFourThreshold: 0.25,
+  // Player thruster feel (consumed by player.setZeroGMode; see the tap re-tune note in the report).
+  // tapImpulse re-tuned for the lower damping so ~5 taps over 2.5 s still cross one 3.0 m lane.
+  // Mashing is rewarded: strong impulses, high top speed, and very little heat per tap.
+  tapImpulse: 1.25, moveDamping: 0.995, verticalDamping: 0.99, maxZeroGSpeed: 8, impulseEaseSeconds: 0.12,
+  heatPerTap: 0.05, heatCoolPerSecond: 0.6, overheatLock: 0.8,
+  // Free-float height band (change 1): one-time drift-up, then float between deck+bandMin and ceiling-margin.
+  floatDeckY: 0, floatBandMin: 1.5, floatBandCeilingMargin: 1.5, driftUpHeight: 3.0, driftUpSpeed: 1.6,
+  // Subtle idle bob/drift so the floating player never looks frozen (change 1).
+  idleBobAmp: 0.08, idleBobFreq: 0.3, idleDriftAmp: 0.05,
+  // Wall push-off (change 4): tap the prompted key pushOffTaps times within pushOffWindow for a strong, heat-free shove.
+  pushOffDistance: 1.5, pushOffTaps: 3, pushOffWindow: 0.8, pushOffImpulse: 16.0, pushOffCooldown: 0.9,
+  // Camera sway/roll that follows drift velocity (change 2); roll only, never touches mouse-look yaw/pitch.
+  cameraSwayRoll: 0.06, cameraSwayResponse: 6,
+  // Four red rotating beacons, one per upper corner, visible only while gravity is off (change 5).
+  // Two real SpotLights (no shadows) sweep the room; the other two corners are emissive meshes only.
+  beaconColor: 0xff2020, beaconSpinSpeed: 2.5, beaconPulseSpeed: 3.0, beaconEmissiveIntensity: 2.2,
+  beaconY: 12, beaconInsetX: 2, beaconInsetZ: 2, beaconScale: 1,
+  // Two rotating red spotlights that sweep the walls/floor/ceiling while gravity is off (round 1 change 2c).
+  beaconSpotIntensity: 70, beaconSpotDistance: 70, beaconSpotAngle: 0.5, beaconSpotPenumbra: 0.55, beaconSpotDecay: 1.1,
+  beaconSweepSpeed: 0.25, beaconSweepRadiusX: 14, beaconSweepRadiusZ: 18,
+  beaconSweepHeightCenter: 6, beaconSweepHeightAmp: 6, beaconSweepTilt: 0.7,
+  // Bay bounds the player is clamped inside, plus exclusion circles (change 1).
+  boundsMinX: -19, boundsMaxX: 19, boundsMinZ: -23, boundsMaxZ: 23,
+  boundsCeiling: 12, liftHoleX: 0, liftHoleZ: 0, liftHoleRadius: 5.0, liftHoleMaxY: 2.5,
+  pillarClearance: 2.2, bounceRestitution: 0.35,
+  // Net volleys: ONE ball per volley aimed at the launch-time player position, 3.0s -> 1.8s interval (round 1 change 1).
+  volleyIntervalStart: 3.0, volleyIntervalEnd: 1.8, barrageDuration: 24,
+  telegraphSeconds: 0.6, netSpeed: 13, netDamage: 12, netRadius: 0.34, netLife: 4.0,
+  nearMissRadius: 1.15, volleysToOverload: 8,
+  // Entanglement reduces thruster impulse 15% per wrap; max wraps traps the player (change D).
+  entangleImpulseFactor: 0.85, maxEntanglement: 3, trappedSeconds: 1.3,
+  // Boss hover anchor during the barrage and the awakening stand-up (change A uses 'rising').
+  bossHoverX: 0, bossHoverZ: 14, bossHoverY: 3.2, awakeningSeconds: 1.2,
+  // Phase-4 intro sequence (round 1 change 2): plays once on first entry, skipped on retries/returns.
+  // Times are seconds from intro start; the boss hovers in phaseFourAwakening until scene13 calls beginZeroGBarrage.
+  introTauntAt: 0.3, introTauntSeconds: 4.5,
+  introDimAt: 3.0, introDimSeconds: 1.5, introDimFraction: 0.2,
+  introBeaconsAt: 3.2, introWarningAt: 5.0, introWarningSeconds: 2.5,
+  introPlayerLineAt: 7.6, introPlayerLineSeconds: 2.4,
+  introEndAt: 10.2, introSkipAvailableAt: 1.0, lightRestoreSeconds: 1.2,
+  netPoolSize: 8, puffPoolSize: 10, puffLife: 0.4,
+});
+// Phase 4 boss behaviour: scanning beam, slow homing drones, and the blue back target.
+export const ZERO_G_BOSS = Object.freeze({
+  scanSweepSpeed: 1.15, scanStartOffset: 1.45, scanMinSeconds: 1.6, scanFoundTolerance: 0.14, scanFoundPause: 0.9,
+  droneInterval: 2.2, droneMaxAlive: 3, droneSpeed: 4.4, droneTurnResponse: 1.9, droneTriggerRadius: 1.5,
+  droneBlastRadius: 3.2, droneLife: 11, droneDamage: 30, blastSeconds: 0.9, droneFirstDelay: 0.8, laserInterval: 1.1, laserFirstDelay: 0.8, backHitsRequired: 3, backHitGrace: 0.35,
+  turnRate: 0.75, needBehindAfter: 16, backTargetRadius: 0.6,
+});
 export type BossPhase = 'dormant' | 'flying' | 'windup' | 'rushing' | 'recovering' | 'falling' | 'exposed' | 'rising'
   | 'phaseThreeAwakening' | 'gravityWindup' | 'gravity' | 'droneExplosion' | 'phaseThreeTargets'
-  | 'phaseThreeRecovery' | 'defeated';
+  | 'phaseThreeRecovery' | 'phaseFourAwakening' | 'zeroG' | 'zeroGTrapped' | 'zeroGOverload' | 'defeated';
 export interface BossPillar { position: THREE.Vector3; intact: () => boolean; shatter: () => void; }
 interface BossOptions {
   loadDrone?: () => ReturnType<typeof loadToolModel>;
@@ -39,6 +94,14 @@ interface BossOptions {
   onDroneApproach?: (drone: THREE.Object3D) => void;
   onDroneExplosion?: (drone: THREE.Object3D, position: THREE.Vector3) => void;
   onDroneExplosionEnd?: () => void;
+  // Phase 4 hooks (additive). onNearMiss receives the lateral side (-1 | 1) the net passed.
+  onPhaseFour?: () => void;
+  onTrapped?: () => void;
+  onNearMiss?: (side: number) => void;
+  onScanFound?: () => void;
+  onNeedBehind?: () => void;
+  onBackHit?: () => void;
+  onBackDamaged?: (hits: number, required: number) => void;
 }
 type DroneState = 'launch' | 'orbit' | 'windup' | 'charge';
 type Drone = {
@@ -68,11 +131,17 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   const phaseThreeShellMat = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0x8c130f, emissiveIntensity: 0.8, metalness: 0.6, roughness: 0.3 });
   const auraBlue = new THREE.MeshBasicMaterial({ color: 0x65dfff, transparent: true, opacity: 0.15, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
   const auraRed = new THREE.MeshBasicMaterial({ color: 0xff3020, transparent: true, opacity: 0.32, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  const phaseFourShellMat = new THREE.MeshStandardMaterial({ color: 0x120a1c, emissive: 0x6a1fc4, emissiveIntensity: 0.9, metalness: 0.6, roughness: 0.3 });
+  const auraPurple = new THREE.MeshBasicMaterial({ color: 0xa44dff, transparent: true, opacity: 0.34, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  const auraCrimson = new THREE.MeshBasicMaterial({ color: 0xff1238, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  const auraVoid = new THREE.MeshBasicMaterial({ color: 0x07000d, transparent: true, opacity: 0.6, depthWrite: false, side: THREE.DoubleSide });
+  const phaseFourAuraColor = new THREE.Color(0x9a3dff), phaseFourAuraCrimson = new THREE.Color(0xff1238);
 
   // --- Aura rings (kept for cross-scene test compatibility). ---
   const auraRoot = new THREE.Group(); auraRoot.name = 'BossEnergyAura'; root.add(auraRoot);
-  const auraRings = [0, 1, 2].map(index => {
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(3.5 + index * 0.75, 0.045, 8, 64), auraBlue);
+  // Rings 0-2 are the original aura; 3-9 only appear in phase 4 as a darker, thicker purple / black / crimson storm.
+  const auraRings = Array.from({ length: 10 }, (_, index) => {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(3.5 + index * 0.62, index < 3 ? 0.045 : 0.09, 8, 64), auraBlue);
     ring.rotation.set(index * 0.82, index * 0.47, index * 0.35); ring.position.y = 4.4; auraRoot.add(ring); return ring;
   });
   const auraLight = new THREE.PointLight(0x52dfff, 7, 13, 2); auraLight.position.set(0, 5.2, 0); root.add(auraLight);
@@ -104,16 +173,45 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
 
   // --- Floating orbiting targets. ---
   let phaseThree = false, health = BOSS_RULES.health as number, round = 1, remaining = 0;
+  // --- Phase 4 (zero-gravity net barrage) state. Additive; inert until phaseFour is set. ---
+  let phaseFour = false, zeroGActive = false, healthSnapshot = BOSS_RULES.health as number;
+  // Round 1 change 2: true from first phase-4 entry until scene13 finishes the intro and calls beginZeroGBarrage.
+  let zeroGIntroPending = false;
+  let entanglement = 0, volleysSurvived = 0;
+  let puffPoolReady = false, puffCursor = 0;
   let phase: BossPhase = 'dormant';
   let phaseTime = 0, elapsed = 0, shotClock = 0, headCooldown = 0, scanning = false, disposed = false;
   let transformProgress = 0, targetsPhaseThreeMode = false;
-  const healthPhase = () => health <= BOSS_RULES.health * BOSS_RULES.phaseThreeThreshold ? 3
+  const healthPhase = () => health <= BOSS_RULES.health * PHASE4_RULES.phaseFourThreshold ? 4
+    : health <= BOSS_RULES.health * BOSS_RULES.phaseThreeThreshold ? 3
     : health <= BOSS_RULES.health * BOSS_RULES.phaseTwoThreshold ? 2 : 1;
-  let lastPhaseThreeState = false;
+  let lastTintKey = 0, bossWalking = false;
   let volleyQueue = 0, volleyClock = 0, volleyPattern: AttackPattern = 'single', volleyMuzzle = 0;
   const bolts: Array<{ mesh: THREE.Mesh; velocity: THREE.Vector3; life: number; damage: number; parried: boolean; owner: 'boss' | 'player' }> = [];
   const droneBoltMaterial = new THREE.MeshBasicMaterial({ color: 0xff9424 });
   const fragments: Array<{ mesh: THREE.Mesh; velocity: THREE.Vector3; life: number }> = [];
+  // Phase 4 pooled projectiles, thruster puffs, and the shared dodge axis (all preallocated once).
+  const zeroGAxis = new THREE.Vector3(1, 0, 0);
+  const puffs: Array<{ mesh: THREE.Mesh; life: number; big: boolean }> = [];
+  const puffGeometry = new THREE.SphereGeometry(0.16, 8, 6);
+  const puffMaterial = new THREE.MeshBasicMaterial({ color: 0xd6f4ff, transparent: true, opacity: 0.7, depthWrite: false });
+  // Phase 4 scan beam, back target, and drone bookkeeping.
+  let zgStage: 'scan' | 'drones' = 'scan', scanBearing = 0, scanDirection = 1, scanClock = 0, scanFoundClock = -1;
+  let zgDroneClock = 0, zgLaserClock = 0, zgStageClock = 0, needBehindSent = false, zgBlastClock = -1, bossYaw = 0;
+  let backHits = 0, backHitGraceUntil = 0;
+  const scanBeamMaterial = new THREE.MeshBasicMaterial({ color: 0xb45cff, transparent: true, opacity: 0.38,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  const scanBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 1.0, 1, 24, 1, true), scanBeamMaterial);
+  scanBeam.name = 'BossScanBeam'; scanBeam.visible = false; scanBeam.frustumCulled = false; scene.add(scanBeam);
+  const backTargetMaterial = new THREE.MeshBasicMaterial({ color: 0x38b6ff });
+  const backTargetMesh = new THREE.Mesh(sphereGeometry, backTargetMaterial);
+  backTargetMesh.name = 'BossBackTarget'; backTargetMesh.scale.setScalar(ZERO_G_BOSS.backTargetRadius * 2);
+  backTargetMesh.visible = false; backTargetMesh.userData.breakableWeapon = 'pistol';
+  const backRing = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.07, 8, 32),
+    new THREE.MeshBasicMaterial({ color: 0xbfe9ff })); backTargetMesh.add(backRing);
+  backRing.scale.setScalar(0.5);
+  root.add(backTargetMesh);
+  const backLocal = new THREE.Vector3(0, 5.2, -2);
 
   function burst(position: THREE.Vector3) {
     for (let i = 0; i < 14; i++) {
@@ -170,12 +268,25 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     if (health > 0) emitComicEffect(scene, 'hit', { source: root, position: getHeadWorldPosition(), weapon });
     burst(getHeadWorldPosition());
     if (!health) finishBoss();
+    else if (healthPhase() === 4 && !phaseFour) enterPhaseFour();
     else if (healthPhase() === 3 && !phaseThree) enterPhaseThree();
     else if (previousPhase === 1 && healthPhase() === 2) { phase = 'rising'; phaseTime = 0; remaining = 0; }
     return true;
   }
   const headTarget: DamageTarget = { root: headHitbox, damage: damageBody };
   const bodyTarget: DamageTarget = { root: bodyHitbox, damage: damageBody };
+  const backTarget: DamageTarget = { root: backTargetMesh, damage(amount: number, weapon?: string) {
+    if (disposed || phase !== 'zeroG' || !player.isEnabled() || (weapon !== 'pistol' && weapon !== 'lightsaber')
+      || !Number.isFinite(amount) || amount <= 0) return false;
+    // A short grace window stops one burst of shots counting as several hits.
+    if (elapsed < backHitGraceUntil) return false;
+    backHitGraceUntil = elapsed + ZERO_G_BOSS.backHitGrace;
+    backHits++;
+    emitComicEffect(scene, 'hit', { source: backTargetMesh, weapon });
+    if (backHits >= ZERO_G_BOSS.backHitsRequired) overloadZeroG();
+    else options.onBackDamaged?.(backHits, ZERO_G_BOSS.backHitsRequired);
+    return true;
+  } };
 
   function checkArmorCleared() {
     if (['flying', 'windup', 'rushing', 'recovering', 'gravity'].includes(phase)
@@ -392,6 +503,9 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
         restPoses.set(name, { pos: bone.position.clone(), quat: bone.quaternion.clone() });
       }
       bodyTarget.root = modelRoot;
+      // Anchor the blue weak point on the rear of the shell at chest height.
+      const rearZ = bounds.min.z - center.z - 0.15, rearH = bounds.max.y - bounds.min.y;
+      backLocal.set(0, rearH * 0.62, rearZ);
       buildColliders(modelRoot);
       modelLoaded = true; pose();
   }).catch(error => {
@@ -521,16 +635,19 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   }
 
 
+  function droneLive() {
+    return phase === 'gravity' || (phaseThree && !phaseFour && (phase === 'windup' || phase === 'rushing' || phase === 'recovering'));
+  }
   function droneTargets(): DamageTarget[] {
     return drones.filter(drone => drone.active).map(drone => ({ root: drone.root, body: drone.body, damage(amount: number, weapon?: string) {
-      if (disposed || phase !== 'gravity' || !player.isEnabled() || (weapon !== 'pistol' && weapon !== 'lightsaber') || !Number.isFinite(amount) || amount <= 0 || !drone.active) return false;
+      if (disposed || (!droneLive() && phase !== 'zeroG') || !player.isEnabled() || (weapon !== 'pistol' && weapon !== 'lightsaber') || !Number.isFinite(amount) || amount <= 0 || !drone.active) return false;
       const position = drone.root.getWorldPosition(new THREE.Vector3());
       emitComicEffect(scene, 'boom', { source: drone.root, position, size: BOSS_RULES.droneSize });
       drone.active = false; drone.root.visible = false;
       if (drone.body.world === world) world.removeBody(drone.body);
       drone.body.velocity.setZero(); drone.body.force.setZero();
       burst(position);
-      checkArmorCleared();
+      if (phase !== 'zeroG') checkArmorCleared();
       return true;
     } }));
   }
@@ -596,7 +713,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
       drone.body.force.set(-world.gravity.x * drone.body.mass, -world.gravity.y * drone.body.mass, -world.gravity.z * drone.body.mass);
       if (phase === 'droneExplosion') drone.body.velocity.setZero();
     }
-    if (phase === 'gravity') {
+    if (droneLive()) {
       droneOrbitCentre.copy(root.position); droneOrbitCentre.y += 5.3;
       let chargingDrone = drones.find(drone => drone.active && (drone.state === 'windup' || drone.state === 'charge'));
       for (const drone of drones) {
@@ -726,11 +843,13 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
       : phase === 'rising' ? 1 - THREE.MathUtils.smootherstep(phaseTime, 0, 1.2) : 0;
     const transform = phase === 'phaseThreeAwakening' ? THREE.MathUtils.smootherstep(phaseTime, 0, 1.25) * 0.35
       : phase === 'gravityWindup' ? 0.35 + THREE.MathUtils.smootherstep(phaseTime, 0, BOSS_RULES.transformSeconds) * 0.65
-      : phase === 'gravity' || phase === 'droneExplosion' ? 1 : 0;
+      : phase === 'gravity' || phase === 'droneExplosion' || phaseFour
+        || (phaseThree && (phase === 'windup' || phase === 'rushing' || phase === 'recovering')) ? 1 : 0;
     transformProgress = transform;
     const windup = phase === 'windup' ? THREE.MathUtils.smoothstep(phaseTime, 0, BOSS_RULES.windupSeconds) : 0;
-    const run = phase === 'rushing' ? 1 : phase === 'recovering' ? 1 - THREE.MathUtils.smoothstep(phaseTime, 0, 0.65) : 0;
-    const stride = phaseTime * 19;
+    const run = phase === 'rushing' ? 1 : phase === 'recovering' ? 1 - THREE.MathUtils.smoothstep(phaseTime, 0, 0.65)
+      : bossWalking ? 0.5 : 0;
+    const stride = phaseTime * (bossWalking ? 9 : 19);
     root.rotation.x = -drop * 0.16 + run * 0.14;
     root.position.y = drop > 0 ? -drop * 3.4 : run > 0 ? Math.abs(Math.sin(stride)) * 0.09
       : windup > 0 ? Math.abs(Math.sin(phaseTime * 65)) * 0.04 : 0.18 + Math.sin(elapsed * 1.6) * 0.1;
@@ -759,35 +878,43 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     if (lowest < 0.035) { root.position.y += 0.035 - lowest; syncColliders(); }
     headHitbox.position.copy(root.worldToLocal(getHeadWorldPosition()));
     headHitbox.scale.setScalar(drop > 0 ? 1.4 : 1);
+    backTargetMesh.visible = phase === 'zeroG';
+    if (phaseFour) for (const target of targets) target.mesh.visible = false;
+    backTargetMesh.position.copy(backLocal);
+    backTargetMesh.scale.setScalar(ZERO_G_BOSS.backTargetRadius * 2 * (1 + Math.sin(elapsed * 6) * 0.08));
+    backRing.rotation.z = elapsed * 2;
 
     // --- Visor and eye lighting. ---
     // Yellow visor during exposed (goggles scanning), red in phase 3, green normally.
     const isExposedPhase = isExposed || (phase === 'rising' && drop > 0.3);
-    helmetLight.color.setHex(isExposedPhase ? 0xffd126 : phaseThree ? 0xff2a12 : 0x2af08a);
+    helmetLight.color.setHex(isExposedPhase ? 0xffd126 : phaseFour ? 0xb04dff : phaseThree ? 0xff2a12 : 0x2af08a);
     helmetLight.intensity = isExposedPhase ? 8 + Math.sin(elapsed * 8) * 2 : phaseThree ? 6 + Math.sin(elapsed * 6) * 2 : 4;
     eyeLight.intensity = phaseThree && phase !== 'defeated' ? 22 + Math.sin(elapsed * 9) * 5 : 0;
-    eyeLight.color.setHex(phaseThree ? 0xff251b : 0xffd126);
+    eyeLight.color.setHex(phaseFour ? 0xb04dff : phaseThree ? 0xff251b : 0xffd126);
     if (isExposedPhase) eyeLight.intensity = 15 + Math.sin(elapsed * 7) * 4;
-    auraLight.color.setHex(phaseThree ? 0xff251b : 0x52dfff);
-    auraLight.intensity = phaseThree ? 18 + Math.sin(elapsed * 4) * 3 : 7;
+    auraLight.color.setHex(phaseFour ? 0x7a2fd0 : phaseThree ? 0xff251b : 0x52dfff);
+    auraLight.intensity = phaseFour ? 10 : phaseThree ? 18 + Math.sin(elapsed * 4) * 3 : 7;
 
     // Aura rings.
     auraRings.forEach((ring, index) => {
-      ring.material = phaseThree ? auraRed : auraBlue;
-      ring.visible = phaseThree && phase !== 'defeated';
-      ring.rotation.x = index * 0.82 + elapsed * 0.96 * (index + 1) * (index % 2 ? -1 : 1);
-      ring.rotation.z = index * 0.35 + elapsed * 1.44 * (index + 1);
+      ring.material = phaseFour ? auraPurple : phaseThree ? auraRed : auraBlue;
+      ring.visible = phaseThree && phase !== 'defeated' && index < 3;
+      ring.scale.setScalar(1);
+      ring.rotation.x = index * 0.82 + elapsed * 0.5 * (index + 1) * (index % 2 ? -1 : 1);
+      ring.rotation.z = index * 0.35 + elapsed * 0.7 * (index + 1);
     });
 
-    // Phase 3 shell tint - only update when phase changes, not every frame.
-    if (modelRoot && phaseThree !== lastPhaseThreeState) {
-      lastPhaseThreeState = phaseThree;
+    // Shell tint - only update when the tint changes, not every frame.
+    const tintKey = phaseFour ? 2 : phaseThree ? 1 : 0;
+    if (modelRoot && tintKey !== lastTintKey) {
+      lastTintKey = tintKey;
+      const shell = tintKey === 2 ? phaseFourShellMat : tintKey === 1 ? phaseThreeShellMat : blackMat;
       modelRoot.traverse(node => {
         if (node instanceof THREE.Mesh && node !== headHitbox && node !== bodyHitbox) {
           if (node.material instanceof THREE.MeshStandardMaterial) {
-            node.material.color.copy((phaseThree ? phaseThreeShellMat : blackMat).color);
-            node.material.emissive.copy((phaseThree ? phaseThreeShellMat : blackMat).emissive);
-            node.material.emissiveIntensity = phaseThree ? 0.8 : 0.3;
+            node.material.color.copy(shell.color);
+            node.material.emissive.copy(shell.emissive);
+            node.material.emissiveIntensity = tintKey === 2 ? 0.9 : tintKey === 1 ? 0.8 : 0.3;
           }
         }
       });
@@ -858,6 +985,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
         const activeTargets = disposed || phase === 'defeated' || phase === 'droneExplosion' ? []
           : phase === 'exposed' ? [bodyTarget]
           : ['flying', 'windup', 'rushing', 'recovering', 'gravity'].includes(phase) ? [...targets.filter(t => t.hits() > 0), ...droneTargets()]
+          : phase === 'zeroG' ? [backTarget, ...droneTargets()]
           : [];
         let hitTarget = false;
         for (const target of activeTargets) {
@@ -892,6 +1020,237 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     }
   }
 
+  // --- Phase 4: zero-gravity net barrage. Additive; inert until phaseFour is set. ---
+  // Reused temporaries so the 120 Hz net/puff simulation never allocates per frame.
+  const _netFrom = new THREE.Vector3(), _netTo = new THREE.Vector3(), _netDir = new THREE.Vector3();
+  const _netRel = new THREE.Vector3(), _netLat = new THREE.Vector3(), _netPlayer = new THREE.Vector3();
+  const _netToPlayer = new THREE.Vector3(), _netPerp = new THREE.Vector3(), _netUp = new THREE.Vector3(0, 1, 0);
+  const _netOrigin = new THREE.Vector3(), _netTarget = new THREE.Vector3();
+
+  function enterPhaseFour() {
+    phaseFour = true;
+    clearBolts(); removeDrones();
+    entanglement = 0; volleysSurvived = 0;
+    root.rotation.z = 0;
+    root.position.set(PHASE4_RULES.bossHoverX, root.position.y, PHASE4_RULES.bossHoverZ);
+    // Stand the mech up with a short awakening, then the update loop opens the barrage.
+    phase = 'phaseFourAwakening'; phaseTime = 0; remaining = 0; pillarStun = false;
+    zeroGIntroPending = !!options.onPhaseFour;   // scene13 runs the intro, then calls beginZeroGBarrage
+    options.onPhaseFour?.();
+  }
+  // The boss owns PHASE4_RULES and the live pillar list, so it hands the player a plain config.
+  // This keeps player.ts free of any import from this module (the boss already imports the player).
+  function buildZeroGConfig() {
+    const exclusions: Array<{ x: number; z: number; radius: number; maxY?: number }> = [
+      // The open lift shaft only blocks horizontal movement near the deck; above liftHoleMaxY the player floats free over it (change 1).
+      { x: PHASE4_RULES.liftHoleX, z: PHASE4_RULES.liftHoleZ, radius: PHASE4_RULES.liftHoleRadius, maxY: PHASE4_RULES.liftHoleMaxY },
+    ];
+    for (const pillar of pillars) {
+      if (!pillar.intact()) continue;
+      exclusions.push({ x: pillar.position.x, z: pillar.position.z, radius: PHASE4_RULES.pillarClearance });
+    }
+    return {
+      axis: zeroGAxis,
+      tapImpulse: PHASE4_RULES.tapImpulse, moveDamping: PHASE4_RULES.moveDamping, verticalDamping: PHASE4_RULES.verticalDamping,
+      maxSpeed: PHASE4_RULES.maxZeroGSpeed, impulseEaseSeconds: PHASE4_RULES.impulseEaseSeconds,
+      heatPerTap: PHASE4_RULES.heatPerTap, heatCoolPerSecond: PHASE4_RULES.heatCoolPerSecond, overheatLock: PHASE4_RULES.overheatLock,
+      deckY: PHASE4_RULES.floatDeckY, bandMin: PHASE4_RULES.floatBandMin, bandCeilingMargin: PHASE4_RULES.floatBandCeilingMargin,
+      driftUpHeight: PHASE4_RULES.driftUpHeight, driftUpSpeed: PHASE4_RULES.driftUpSpeed,
+      idleBobAmp: PHASE4_RULES.idleBobAmp, idleBobFreq: PHASE4_RULES.idleBobFreq, idleDriftAmp: PHASE4_RULES.idleDriftAmp,
+      pushOffDistance: PHASE4_RULES.pushOffDistance, pushOffTaps: PHASE4_RULES.pushOffTaps, pushOffWindow: PHASE4_RULES.pushOffWindow,
+      pushOffImpulse: PHASE4_RULES.pushOffImpulse, pushOffCooldown: PHASE4_RULES.pushOffCooldown,
+      bounds: { minX: PHASE4_RULES.boundsMinX, maxX: PHASE4_RULES.boundsMaxX, minZ: PHASE4_RULES.boundsMinZ, maxZ: PHASE4_RULES.boundsMaxZ, ceiling: PHASE4_RULES.boundsCeiling },
+      exclusions, restitution: PHASE4_RULES.bounceRestitution,
+    };
+  }
+  function startZeroGBarrage() {
+    // Snapshot health at the start of EVERY round: first entry and each exposed-window return.
+    healthSnapshot = health;
+    root.position.set(PHASE4_RULES.bossHoverX, root.position.y, PHASE4_RULES.bossHoverZ);
+    preparePuffPool();
+    player.setZeroGImpulseScale(1);
+    player.setZeroGMode(true, buildZeroGConfig());
+    zeroGActive = true; phase = 'zeroG'; phaseTime = 0;
+    zgStage = 'scan'; scanClock = 0; scanFoundClock = -1; zgDroneClock = ZERO_G_BOSS.droneFirstDelay; zgLaserClock = ZERO_G_BOSS.laserFirstDelay; zgStageClock = 0; backHits = 0; backHitGraceUntil = 0;
+    scanDirection = Math.random() < 0.5 ? -1 : 1; scanBearing = NaN;
+    zgBlastClock = -1; blast.visible = false; blastLight.intensity = 0;
+  }
+  function overloadZeroG() {
+    // Back target hit: drop the mech into the existing fall -> exposed window.
+    zeroGActive = false;
+    scanBeam.visible = false;
+    for (const drone of drones) if (drone.active) explodeZeroGDrone(drone, false);
+    player.setZeroGMode(false);
+    emitComicEffect(scene, 'boom', { source: root });
+    emitComicEffect(scene, 'clank', { source: root });
+    phase = 'zeroGOverload'; phaseTime = 0;
+    options.onBackHit?.();
+  }
+  function preparePuffPool() {
+    if (puffPoolReady) return; puffPoolReady = true;
+    for (let i = 0; i < PHASE4_RULES.puffPoolSize; i++) {
+      const mesh = new THREE.Mesh(puffGeometry, puffMaterial.clone());
+      mesh.name = `BossThrusterPuff-${i}`; mesh.visible = false; mesh.frustumCulled = false; scene.add(mesh);
+      puffs.push({ mesh, life: 0, big: false });
+    }
+  }
+  const _zgPlayer = new THREE.Vector3(), _zgDesired = new THREE.Vector3();
+  function launchZeroGDrone() {
+    const drone = drones.find(item => !item.active && !item.exploded);
+    if (!drone) return;
+    const side = drone.index % 2 ? 'r' as const : 'l' as const;
+    drone.launchFrom.copy(getShoulderWorld(side));
+    drone.root.position.copy(drone.launchFrom);
+    drone.active = true; drone.root.visible = true; drone.state = 'launch'; drone.stateTime = 0;
+    for (const rest of drone.emissiveRest) { rest.material.emissive.setHex(0xa44dff); rest.material.emissiveIntensity = 2; }
+    drone.mixer.setTime(0);
+    const body = drone.body;
+    body.position.set(drone.launchFrom.x, drone.launchFrom.y, drone.launchFrom.z);
+    body.previousPosition.copy(body.position); body.interpolatedPosition.copy(body.position);
+    body.quaternion.set(0, 0, 0, 1); body.previousQuaternion.copy(body.quaternion); body.interpolatedQuaternion.copy(body.quaternion);
+    body.angularVelocity.setZero(); body.torque.setZero(); body.aabbNeedsUpdate = true;
+    // Launch upward and outward; the homing steering then curves toward the player slowly.
+    body.velocity.set(0, 2.2, 0);
+    body.wakeUp(); if (body.world !== world) world.addBody(body);
+    emitComicEffect(scene, 'pew', { source: root, position: drone.launchFrom, size: 0.9 });
+  }
+  function explodeZeroGDrone(drone: Drone, hurt: boolean) {
+    const position = drone.root.position.clone();
+    drone.active = false; drone.root.visible = false;
+    if (drone.body.world === world) world.removeBody(drone.body);
+    drone.body.velocity.setZero(); drone.body.force.setZero();
+    burst(position);
+    if (!hurt) return;
+    emitComicEffect(scene, 'boom', { source: drone.root, position });
+    blast.position.copy(position); blastLight.position.copy(position); blast.visible = true; zgBlastClock = 0;
+    _zgPlayer.set(player.body.position.x, player.getHeadY() - 0.4, player.body.position.z);
+    if (_zgPlayer.distanceTo(position) <= ZERO_G_BOSS.droneBlastRadius) {
+      player.takeDamage(PLAYER_MAX_HEALTH * ZERO_G_BOSS.droneDamage / 100, true);
+    }
+  }
+  function stepZeroGDrones(dt: number) {
+    _zgPlayer.set(player.body.position.x, player.getHeadY() - 0.4, player.body.position.z);
+    for (const drone of drones) {
+      if (!drone.active) continue;
+      drone.stateTime += dt;
+      drone.root.position.copy(drone.body.position);
+      // Hover motors cancel world gravity so the drones drift at their own slow pace.
+      drone.body.force.set(-world.gravity.x * drone.body.mass, -world.gravity.y * drone.body.mass, -world.gravity.z * drone.body.mass);
+      _zgDesired.copy(_zgPlayer).sub(drone.root.position);
+      const distance = _zgDesired.length();
+      if (distance < ZERO_G_BOSS.droneTriggerRadius || drone.stateTime > ZERO_G_BOSS.droneLife) { explodeZeroGDrone(drone, true); continue; }
+      const speed = ZERO_G_BOSS.droneSpeed * Math.min(1, drone.stateTime / 1.2);
+      _zgDesired.multiplyScalar(speed / Math.max(distance, 1e-4));
+      const blend = 1 - Math.exp(-dt * ZERO_G_BOSS.droneTurnResponse);
+      drone.body.velocity.x += (_zgDesired.x - drone.body.velocity.x) * blend;
+      drone.body.velocity.y += (_zgDesired.y - drone.body.velocity.y) * blend;
+      drone.body.velocity.z += (_zgDesired.z - drone.body.velocity.z) * blend;
+      drone.root.lookAt(_zgPlayer);
+    }
+  }
+  function updateScanBeam(dt: number) {
+    const head = getHeadWorldPosition();
+    _netToPlayer.set(player.body.position.x - root.position.x, 0, player.body.position.z - root.position.z);
+    const playerBearing = Math.atan2(_netToPlayer.x, _netToPlayer.z);
+    if (Number.isNaN(scanBearing)) scanBearing = playerBearing - scanDirection * ZERO_G_BOSS.scanStartOffset;
+    if (scanFoundClock < 0) {
+      scanClock += dt;
+      scanBearing += scanDirection * ZERO_G_BOSS.scanSweepSpeed * dt;
+      let delta = playerBearing - scanBearing;
+      delta = Math.atan2(Math.sin(delta), Math.cos(delta));
+      if (scanClock > ZERO_G_BOSS.scanMinSeconds && Math.abs(delta) < ZERO_G_BOSS.scanFoundTolerance
+        || scanClock > 8) {
+        scanFoundClock = 0; scanBearing = playerBearing;
+        emitComicEffect(scene, 'boom', { source: root, position: head });
+        options.onScanFound?.();
+      }
+    } else {
+      scanFoundClock += dt; scanBearing = playerBearing;
+      if (scanFoundClock >= ZERO_G_BOSS.scanFoundPause) { zgStage = 'drones'; zgStageClock = 0; scanBeam.visible = false; return; }
+    }
+    // Only the beam sweeps the room; the Warden himself holds his facing while scanning.
+    bossYaw = root.rotation.y;
+    // Beam from the visor, pitched down so it rakes across the player's floating altitude.
+    const reach = Math.max(8, Math.hypot(_netToPlayer.x, _netToPlayer.z) + 14);
+    const pitchY = (player.body.position.y - head.y) / Math.max(4, Math.hypot(_netToPlayer.x, _netToPlayer.z));
+    _netDir.set(Math.sin(scanBearing), pitchY, Math.cos(scanBearing)).normalize();
+    scanBeam.visible = true;
+    scanBeam.position.copy(head).addScaledVector(_netDir, reach / 2);
+    scanBeam.quaternion.setFromUnitVectors(_yAxis, _netDir.clone().negate());
+    scanBeam.scale.set(scanFoundClock >= 0 ? 1.5 : 1, reach, scanFoundClock >= 0 ? 1.5 : 1);
+    scanBeamMaterial.opacity = 0.3 + Math.sin(elapsed * 30) * 0.08 + (scanFoundClock >= 0 ? 0.25 : 0);
+  }
+  function emitThrusterPuff(dir: THREE.Vector3, big = false) {
+    preparePuffPool();
+    const puff = puffs[puffCursor % puffs.length]; puffCursor++;
+    // Puff sits just behind the player, opposite the thrust/push-off direction (changes 3/4).
+    puff.mesh.position.set(
+      player.body.position.x - dir.x * 0.45,
+      player.body.position.y - dir.y * 0.45 - 0.1,
+      player.body.position.z - dir.z * 0.45);
+    puff.big = big;
+    puff.mesh.scale.setScalar(big ? 1.1 : 0.6);
+    (puff.mesh.material as THREE.MeshBasicMaterial).opacity = big ? 0.9 : 0.7;
+    puff.mesh.visible = true;
+    puff.life = PHASE4_RULES.puffLife;
+  }
+  function stepPuffs(dt: number) {
+    for (const puff of puffs) {
+      if (puff.life <= 0) { if (puff.mesh.visible) puff.mesh.visible = false; continue; }
+      puff.life -= dt;
+      const t = Math.max(0, puff.life / PHASE4_RULES.puffLife);
+      const base = puff.big ? 1.1 : 0.6, grow = puff.big ? 2.2 : 1.5, peak = puff.big ? 0.9 : 0.7;
+      puff.mesh.scale.setScalar(base + (1 - t) * grow);
+      (puff.mesh.material as THREE.MeshBasicMaterial).opacity = peak * t;
+      if (puff.life <= 0) puff.mesh.visible = false;
+    }
+  }
+  function updateZeroG(dt: number) {
+    root.position.x = PHASE4_RULES.bossHoverX;
+    root.position.z = PHASE4_RULES.bossHoverZ;
+    // Dodge axis: horizontal, perpendicular to the boss -> player line.
+    _netToPlayer.set(player.body.position.x - root.position.x, 0, player.body.position.z - root.position.z);
+    if (_netToPlayer.lengthSq() < 1e-4) _netToPlayer.set(0, 0, -1);
+    _netToPlayer.normalize();
+    zeroGAxis.crossVectors(_netUp, _netToPlayer).normalize();
+    player.setZeroGAxis(zeroGAxis);
+    // One pooled thruster puff per consumed tap, behind the thrust direction (change 3).
+    const tapDir = player.consumeThrusterTap();
+    if (tapDir.lengthSq() > 1e-6) emitThrusterPuff(tapDir);
+    // A wall push-off gets a bigger puff plus a comic thud at the player (change 4).
+    const pushDir = player.consumePushOff();
+    if (pushDir.lengthSq() > 1e-6) {
+      emitThrusterPuff(pushDir, true);
+      emitComicEffect(scene, 'boom', { position: new THREE.Vector3(player.body.position.x, player.body.position.y, player.body.position.z) });
+      emitComicEffect(scene, 'thud', { position: new THREE.Vector3(player.body.position.x, player.body.position.y, player.body.position.z) });
+    }
+    stepPuffs(dt);
+    zgStageClock += dt;
+    if (zgStage === 'scan') updateScanBeam(dt);
+    else {
+      bossYaw = Math.atan2(player.body.position.x - root.position.x, player.body.position.z - root.position.z);
+      zgDroneClock -= dt;
+      const alive = drones.filter(drone => drone.active).length;
+      if (zgDroneClock <= 0 && alive < ZERO_G_BOSS.droneMaxAlive) { launchZeroGDrone(); zgDroneClock = ZERO_G_BOSS.droneInterval; }
+      // The Warden keeps firing parryable lasers at the player in zero-G.
+      zgLaserClock -= dt;
+      if (zgLaserClock <= 0 && player.getHealth() > 0) {
+        chargedAim.copy(player.body.position); releaseVolley(Math.random() < 0.5 ? 'twin' : Math.random() < 0.5 ? 'spread' : 'single'); zgLaserClock = ZERO_G_BOSS.laserInterval;
+      }
+      if (!needBehindSent && zgStageClock >= ZERO_G_BOSS.needBehindAfter) { needBehindSent = true; options.onNeedBehind?.(); }
+    }
+    stepZeroGDrones(dt);
+    const yawDiff = Math.atan2(Math.sin(bossYaw - root.rotation.y), Math.cos(bossYaw - root.rotation.y));
+    const maxTurn = (zgStage === 'scan' ? 5 : ZERO_G_BOSS.turnRate) * dt;
+    root.rotation.y += THREE.MathUtils.clamp(yawDiff, -maxTurn, maxTurn);
+    if (zgBlastClock >= 0) {
+      zgBlastClock += dt;
+      const progress = zgBlastClock / ZERO_G_BOSS.blastSeconds;
+      if (progress >= 1) { zgBlastClock = -1; blast.visible = false; blastLight.intensity = 0; }
+      else updateDroneExplosionVisuals(progress, dt);
+    }
+  }
+
   function update(dt: number) {
     if (disposed) return;
     elapsed += dt; phaseTime += dt; headCooldown = Math.max(0, headCooldown - dt);
@@ -906,8 +1265,24 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     if (phase === 'defeated' || !modelLoaded) return;
     if (phase === 'droneExplosion') { updateDrones(dt); return; }
     if (player.getHealth() <= 0) { removeDrones(); clearBolts(); return; }
-    if (phase === 'flying' || phase === 'dormant' || phase === 'gravityWindup' || phase === 'gravity') {
+    if (phase === 'flying' || phase === 'dormant' || phase === 'gravityWindup' || phase === 'gravity'
+      || phase === 'phaseFourAwakening' || phase === 'zeroGTrapped' || phase === 'zeroGOverload') {
       root.rotation.y = Math.atan2(player.body.position.x - root.position.x, player.body.position.z - root.position.z);
+    }
+    // Phase 3: walk back to the phase-4 hover point, then charge from there like phase 2.
+    bossWalking = false;
+    if (phaseThree && !phaseFour && (phase === 'gravityWindup' || phase === 'gravity')) {
+      const dx = PHASE4_RULES.bossHoverX - root.position.x, dz = PHASE4_RULES.bossHoverZ - root.position.z, gap = Math.hypot(dx, dz);
+      if (gap > 0.12) {
+        const step = Math.min(gap, 4.2 * dt);
+        root.position.x += dx / gap * step; root.position.z += dz / gap * step; bossWalking = true;
+      }
+      if (phase === 'gravity' && gap <= 0.4 && player.isEnabled() && player.getHealth() > 0) {
+        rushClock += dt;
+        if (rushClock >= BOSS_RULES.rushInterval * 0.8) {
+          phase = 'windup'; phaseTime = 0; rushClock = 0; clearBolts(); rushAim.copy(player.body.position);
+        }
+      }
     }
     root.rotation.z = phase === 'windup' ? root.rotation.z : 0;
     if (phase === 'phaseThreeAwakening' && phaseTime >= 1.25) {
@@ -929,10 +1304,18 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
       if (phaseTime >= BOSS_RULES.windupSeconds) { phase = 'rushing'; phaseTime = 0; rushHit = false; root.rotation.z = 0; }
     } else if (phase === 'rushing') stepRush(dt);
     else if (phase === 'recovering') {
-      if (phaseTime >= 0.9) { phase = 'flying'; phaseTime = 0; shotClock = 0; }
+      if (phaseTime >= 0.9) {
+        if (phaseThree && !phaseFour) { phase = 'gravity'; phaseTime = 0; shotClock = 0; }
+        else { phase = 'flying'; phaseTime = 0; shotClock = 0; }
+      }
     } else if (phase === 'gravityWindup' && phaseTime >= BOSS_RULES.transformSeconds && droneTemplate) {
       phase = 'gravity'; phaseTime = 0; spawnDroneWave(); options.onPhaseThreeEnd?.();
     }
+    // --- Phase 4 state handling (additive; phases 1-3 never enter these branches). ---
+    // Round 1 change 2: on first entry the boss waits here until scene13's intro calls beginZeroGBarrage.
+    if (phase === 'phaseFourAwakening' && phaseTime >= PHASE4_RULES.awakeningSeconds && !zeroGIntroPending) startZeroGBarrage();
+    else if (phase === 'zeroG') updateZeroG(dt);
+    else if (phase === 'zeroGOverload' && phaseTime >= 0.15) beginFall(false);
     if (phase === 'falling' && phaseTime >= 0.85) {
       phase = 'exposed'; phaseTime = 0;
       remaining = pillarStun ? BOSS_RULES.pillarStunSeconds : BOSS_RULES.exposedSeconds;
@@ -943,10 +1326,16 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
         phase = 'rising'; phaseTime = 0; remaining = 0;
       }
     } else if (phase === 'rising' && phaseTime >= 1.2) {
-      round++; shotClock = 0; rushClock = 0; remaining = 0; pillarStun = false;
-      targets.forEach(target => target.reset(healthPhase() === 3 ? 'phase3' : 'phase1'));
-      if (healthPhase() === 3) { removeDrones(); phase = 'gravityWindup'; phaseTime = 0; }
-      else { phase = 'flying'; phaseTime = 0; }
+      if (phaseFour) {
+        // Change A: loop straight back into the barrage, skipping the fly-in cinematic and keeping
+        // current health. startZeroGBarrage re-snapshots health for the next retry (change E).
+        startZeroGBarrage();
+      } else {
+        round++; shotClock = 0; rushClock = 0; remaining = 0; pillarStun = false;
+        targets.forEach(target => target.reset(healthPhase() === 3 ? 'phase3' : 'phase1'));
+        if (healthPhase() === 3) { removeDrones(); phase = 'gravityWindup'; phaseTime = 0; }
+        else { phase = 'flying'; phaseTime = 0; }
+      }
     }
     pose();
 
@@ -966,7 +1355,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
       }
     }
 
-    if (phase === 'gravity') updateDrones(dt);
+    if (phase === 'gravity' || (phaseThree && !phaseFour && (phase === 'windup' || phase === 'rushing' || phase === 'recovering'))) updateDrones(dt);
     if (player.isEnabled()) stepBolts(dt);
   }
   pose();
@@ -976,6 +1365,27 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   return {
     root, head: headHitbox, body: bodyHitbox, targets, headTarget, bodyTarget, ready: Promise.all([modelReady, droneReady]),
     start() { if (phase === 'dormant') { phase = 'flying'; phaseTime = 0; shotClock = 0; } },
+    // Developer entry (scene 13.5): skip straight to the phase-4 zero-G barrage.
+    startAtPhaseFour() {
+      const enter = () => {
+        if (disposed || !modelLoaded) return;
+        phaseFour = true; phaseThree = true;
+        health = Math.min(health, Math.ceil(BOSS_RULES.health * PHASE4_RULES.phaseFourThreshold));
+        removeDrones(); clearBolts();
+        root.visible = true;
+        root.position.set(PHASE4_RULES.bossHoverX, root.position.y, PHASE4_RULES.bossHoverZ);
+        phase = 'phaseFourAwakening'; phaseTime = 0; remaining = 0; pillarStun = false;
+        zeroGIntroPending = !!options.onPhaseFour;
+        options.onPhaseFour?.();
+      };
+      if (modelLoaded) enter(); else void modelReady.then(enter).catch(() => {});
+    },
+    // Round 1 change 2: scene13 plays the phase-4 intro, then calls this to open the barrage.
+    beginZeroGBarrage() {
+      if (disposed) return;
+      zeroGIntroPending = false;
+      if (phase === 'phaseFourAwakening') startZeroGBarrage();
+    },
     async prepareRendering(renderer: THREE.WebGLRenderer, camera: THREE.Camera) {
       if (disposed) return;
       const textures = new Set<THREE.Texture>();
@@ -1010,10 +1420,33 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     getDamageTargets: (): DamageTarget[] => {
       if (disposed || phase === 'defeated' || phase === 'droneExplosion') return [];
       if (phase === 'exposed') return [bodyTarget];
-      if (['flying', 'windup', 'rushing', 'recovering', 'gravity'].includes(phase)) return [...targets.filter(target => target.hits() > 0), ...droneTargets()];
+      if (phase === 'zeroG') return [backTarget, ...droneTargets()];
+      if (droneLive() || ['flying', 'windup', 'rushing', 'recovering', 'gravity'].includes(phase)) return [...targets.filter(target => target.hits() > 0), ...droneTargets()];
       return [];
     },
     getParryableBolts: () => bolts,
+    // Defeat cutscene: two clipped clones of the (slumped) shell so scene13 can split the boss vertically in half.
+    createSplitHalves() {
+      if (!modelRoot || disposed) return null;
+      return ([1, -1] as const).map(side => {
+        const group = new THREE.Group(); group.name = side > 0 ? 'BossHalfRight' : 'BossHalfLeft';
+        group.position.copy(root.position); group.quaternion.copy(root.quaternion);
+        const model = skeletonClone(modelRoot!) as THREE.Group, plane = new THREE.Plane(), materials: THREE.Material[] = [];
+        model.traverse(node => {
+          if (!(node instanceof THREE.Mesh)) return;
+          node.frustumCulled = false; node.castShadow = true;
+          const material = (node.material as THREE.Material).clone();
+          material.side = THREE.DoubleSide; material.clippingPlanes = [plane]; node.material = material; materials.push(material);
+        });
+        group.add(model);
+        return { group, plane, side, dispose() { materials.forEach(material => material.dispose()); group.removeFromParent(); } };
+      });
+    },
+    // Zero-G teleport support: where the blue target sits, which way the boss faces, and whether throws are legal now.
+    getBackWorldPosition: (out = new THREE.Vector3()) => { root.updateMatrixWorld(true); return out.copy(backLocal).applyMatrix4(root.matrixWorld); },
+    getRootPosition: (out = new THREE.Vector3()) => out.copy(root.position),
+    getYaw: () => root.rotation.y,
+    isTeleportWindow: () => phase === 'zeroG',
     setGogglesActive(active: boolean) {
       scanning = active;
       targetMaterials.forEach(material => material.setHighlighted(active));
@@ -1021,10 +1454,21 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     getStatus: () => ({ phase, phaseThree, combatPhase: healthPhase(), health, maxHealth: BOSS_RULES.health, pillarStun,
       round, remaining, targets: targets.map(t => t.hits()), charging, drones: drones.filter(drone => drone.active).length,
       droneLoadError, projectiles: bolts.length, pillarsRemaining: pillars.filter(p => p.intact()).length,
-      transformProgress, phaseThreeTargetsActive: targetsPhaseThreeMode }),
+      transformProgress, phaseThreeTargetsActive: targetsPhaseThreeMode,
+      phaseFour, zeroGActive, entanglement, maxEntanglement: PHASE4_RULES.maxEntanglement,
+      thrusterHeat: player.getZeroGHeat(), overheated: player.isZeroGOverheated(),
+      volleysSurvived, volleysToOverload: PHASE4_RULES.volleysToOverload }),
     dispose() {
       if (disposed) return; disposed = true; if (phase === 'droneExplosion') options.onDroneExplosionEnd?.();
       unregister(); clearBolts(); disposeDronePool(); fragments.forEach(f => f.mesh.removeFromParent());
+      // Phase 4 cleanup (additive): release the zero-G mode and dispose the net/puff pools.
+      zeroGActive = false;
+      if (phaseFour) player.setZeroGMode(false);
+      scanBeam.removeFromParent(); scanBeam.geometry.dispose(); scanBeamMaterial.dispose();
+      backTargetMaterial.dispose(); backRing.geometry.dispose(); (backRing.material as THREE.Material).dispose();
+      for (const puff of puffs) { puff.mesh.removeFromParent(); (puff.mesh.material as THREE.Material).dispose(); }
+      puffs.length = 0;
+      puffGeometry.dispose(); puffMaterial.dispose();
       for (const { body } of colliders) if (body.world === world) world.removeBody(body);
       mixer?.stopAllAction(); if (modelRoot) { disposeTemplate(modelRoot); modelRoot = null; }
       root.removeFromParent();
@@ -1035,7 +1479,7 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
       for (const mesh of [...smokePuffs, ...sparks]) (mesh.material as THREE.Material).dispose();
       if (droneTemplate) { disposeTemplate(droneTemplate); droneTemplate = null; }
       for (const material of [blackMat, visorGreen, visorRed, heartCore, ...targetMaterials, targetCrossMat,
-        phaseThreeShellMat, auraBlue, auraRed, shardMaterial, droneBoltMaterial]) material.dispose();
+        phaseThreeShellMat, auraBlue, auraRed, auraPurple, auraCrimson, auraVoid, phaseFourShellMat, shardMaterial, droneBoltMaterial]) material.dispose();
       auraRings.forEach(ring => ring.geometry.dispose());
       headHitbox.geometry.dispose(); bodyHitbox.geometry.dispose();
       (headHitbox.material as THREE.Material).dispose(); (bodyHitbox.material as THREE.Material).dispose();

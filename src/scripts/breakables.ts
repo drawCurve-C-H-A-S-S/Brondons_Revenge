@@ -99,7 +99,7 @@ export function createBreakables(scene: THREE.Scene, world: CANNON.World) {
     const item: Breakable = {
       id, root, body, weapon, material, broken: false, hitsRemaining: hits,
       damage(amount, usedWeapon) {
-        const matchesWeapon = usedWeapon === weapon || (weapon === 'crowbar' && usedWeapon === 'lightsaber');
+        const matchesWeapon = usedWeapon === weapon;
         if (disposed || item.broken || !matchesWeapon || !Number.isFinite(amount) || amount <= 0) return false;
         item.hitsRemaining--;
         material.hit(hits - item.hitsRemaining);

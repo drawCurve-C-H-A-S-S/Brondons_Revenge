@@ -4,7 +4,7 @@ import type { CinematicPose } from './characterManager.js';
 import { inputHint } from './gamepadInput.js';
 import type { Player, PlayerState } from './player.js';
 
-export interface ChairSeat { root: THREE.Object3D; yaw: number; }
+export interface ChairSeat { root: THREE.Object3D; yaw: number; /** World-space cushion point, for seats whose proxy has no top face to raycast. */ surface?: () => THREE.Vector3; }
 interface SeatingOptions {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
@@ -79,9 +79,9 @@ export function createChairSeating({ scene, camera, player, chairs, canInteract,
     const height = bounds.max.y - bounds.min.y;
     const surfaceRay = new THREE.Raycaster();
     const normalMatrix = new THREE.Matrix3(), normal = new THREE.Vector3();
-    let surface: THREE.Vector3 | null = null;
+    let surface: THREE.Vector3 | null = seat.surface?.() ?? null;
     const center = bounds.getCenter(new THREE.Vector3());
-    for (const [dx, dz] of [[0, 0], [-0.07, 0], [0.07, 0], [0, -0.07], [0, 0.07]]) {
+    for (const [dx, dz] of surface ? [] : [[0, 0], [-0.07, 0], [0.07, 0], [0, -0.07], [0, 0.07]]) {
       surfaceRay.set(new THREE.Vector3(center.x + dx, bounds.min.y + height * 0.72, center.z + dz), new THREE.Vector3(0, -1, 0));
       for (const hit of surfaceRay.intersectObject(seat.root, true)) {
         if (!hit.face || hit.point.y < bounds.min.y + height * 0.28) continue;

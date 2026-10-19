@@ -65,6 +65,15 @@ test('prologue and wake-up skip controls share Enter-only progress, pause reset,
   assert.doesNotMatch(wake, /wakeSkipBtn\.addEventListener\('click'/);
 });
 
+test('prologue opens on the later three-quarter angle instead of the feet', async () => {
+  const source = await readFile(new URL('../src/scenes/prologue/prologue_scene_1.ts', import.meta.url), 'utf8');
+  assert.match(source, /const openingView = new THREE\.Vector3\(2\.6, 2\.1, 2\.8\)/);
+  assert.match(source, /time: 0, pos: openingView/);
+  assert.match(source, /time: DIALOGUE_START, pos: openingView/);
+  assert.doesNotMatch(source, /footEndView/);
+  assert.match(source, /eyeOpening\.draw\(elapsed\)/);
+});
+
 test('hangar has physical cover, container ladders, refuges and a ceiling vent ladder', async () => {
   const server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom',
     optimizeDeps: { noDiscovery: true, include: [] } });

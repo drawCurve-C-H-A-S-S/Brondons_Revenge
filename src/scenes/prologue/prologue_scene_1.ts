@@ -377,12 +377,11 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
   const EYE_SHOT_START = 5.2;
   const EYE_SHOT_END = 10.0;
   const DIALOGUE_START = 11.2;
-  const footEndView = new THREE.Vector3(0, HOVER_HEIGHT - 0.35, 2.7);
+  const openingView = new THREE.Vector3(2.6, 2.1, 2.8);
   type Keyframe = { time: number; pos: THREE.Vector3; look: THREE.Vector3; fov: number };
   const keyframes: Keyframe[] = [
-    { time: 0, pos: footEndView, look: subjectCenter.clone(), fov: 48 },
-    { time: EYE_SHOT_END, pos: footEndView, look: subjectCenter.clone(), fov: 48 },
-    { time: DIALOGUE_START, pos: new THREE.Vector3(2.6, 2.1, 2.8), look: subjectCenter.clone(), fov: 52 },
+    { time: 0, pos: openingView, look: subjectCenter.clone(), fov: 52 },
+    { time: DIALOGUE_START, pos: openingView, look: subjectCenter.clone(), fov: 52 },
   ];
 
   const tmpLook = new THREE.Vector3();

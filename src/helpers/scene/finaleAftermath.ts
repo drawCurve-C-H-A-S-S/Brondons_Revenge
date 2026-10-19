@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { loadMCModel } from '../../core/loader.js';
+import { loadPlayerModel } from '../../core/loader.js';
 import { PLANET_RUPTURE, cinematicProgress, samplePlanetAftermath } from '../../scripts/finaleChoreography.js';
 import { captureFinaleResources, normalizeFinaleActor } from './finaleActors.js';
 import { RESCUE_SITE } from './rescueSite.js';
@@ -115,7 +115,7 @@ export function createFinaleAftermath(scene: THREE.Scene, boy: THREE.Group, fore
   const cockpitMaterials = new Map<THREE.Material, { opacity: number; depthWrite: boolean }>();
   const boyBones: Array<{ bone: THREE.Object3D; rest: THREE.Quaternion }> = [];
   let boyHead: THREE.Object3D | null = null;
-  const ready = Promise.all([forestReady, loadMCModel()]).then(([, asset]) => {
+  const ready = Promise.all([forestReady, loadPlayerModel()]).then(([, asset]) => {
     pilotResources = captureFinaleResources(asset.scene);
     if (disposed) { pilotResources.dispose(); return; }
     boyHead = boy.getObjectByName('Head') ?? null;

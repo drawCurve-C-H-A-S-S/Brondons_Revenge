@@ -7,6 +7,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createServer } from 'vite';
 
 let server, createScene, createFacility, siteRules, createMechDuel, createFinaleDirector, immunitySeconds;
+let MeleeSwing, traceShot, UnarmedCombatController;
 before(async () => {
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false },
     appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
@@ -15,13 +16,17 @@ before(async () => {
   siteRules = await server.ssrLoadModule('/helpers/scene/rescueSite.ts');
   ({ createMechDuel, BOSS_IMMUNITY_SECONDS: immunitySeconds } = await server.ssrLoadModule('/scripts/mechDuel.ts'));
   ({ createFinaleDirector } = await server.ssrLoadModule('/scripts/finaleDirector.ts'));
+  ({ MeleeSwing } = await server.ssrLoadModule('/scripts/melee.ts'));
+  ({ traceShot } = await server.ssrLoadModule('/scripts/pistol.ts'));
+  ({ UnarmedCombatController } = await server.ssrLoadModule('/scripts/unarmedCombat.ts'));
 });
 after(async () => server?.close());
 
 function asset() {
   const scene = new THREE.Group();
   scene.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial()));
-  return { scene, animations: ['Idle', 'Walk', 'Hit', 'Attack', 'Charge', 'TurnOff'].map(name => new THREE.AnimationClip(name, 1, [])) };
+  return { scene, animations: ['Idle', 'Walk', 'Hit', 'Attack', 'Charge', 'TurnOff',
+    'Idle_Loop', 'Walk_Loop', 'Idle_Talking_Loop', 'Interact'].map(name => new THREE.AnimationClip(name, 1, [])) };
 }
 function officeStudent() {
   const result = asset(), pelvis = new THREE.Bone(); pelvis.name = 'pelvis'; pelvis.position.y = 0.6;
@@ -78,9 +83,10 @@ function dom(t) {
   for (const id of ['space-cinematic-caption', 'loading-bay-status', 'interact-prompt']) {
     const el = new Element(); el.id = id; elements.set(id, el); body.append(el);
   }
-  globalThis.document = Object.assign(new EventTarget(), { body, hidden: false, pointerLockElement: null,
+  globalThis.document = Object.assign(new EventTarget(), { body, baseURI: 'http://localhost/', hidden: false, pointerLockElement: null,
     getElementById: id => elements.get(id) ?? null, createElement: tag => tag === 'canvas' ? new Canvas() : new Element(tag) });
   t.mock.method(GLTFLoader.prototype, 'loadAsync', async () => asset());
+  t.mock.method(globalThis, 'fetch', async () => new Response('test asset'));
   t.mock.method(THREE.TextureLoader.prototype, 'load', (url, onLoad) => {
     const texture = new THREE.Texture({ width: 1024, height: 768 });
     queueMicrotask(() => onLoad(texture)); return texture;
@@ -106,6 +112,60 @@ const target = (data, name) => {
   const found = data.getDamageTargets().find(target => target.root.name === name);
   assert.ok(found, `Missing damage target ${name}`); return found;
 };
+
+test('real jungle trilobites can be tackled and shot after moving and animating', async t => {
+  const json = JSON.parse(await readFile(new URL('../src/assets/models/Tools/Enemy_Trilobite.gltf', import.meta.url), 'utf8'));
+  for (const buffer of json.buffers) {
+    const bytes = await readFile(new URL(`../src/assets/models/Tools/${buffer.uri}`, import.meta.url));
+    buffer.uri = `data:application/octet-stream;base64,${bytes.toString('base64')}`;
+  }
+  delete json.materials; delete json.textures; delete json.images;
+  for (const mesh of json.meshes) for (const primitive of mesh.primitives) delete primitive.material;
+  const oldProgress = globalThis.ProgressEvent;
+  globalThis.ProgressEvent = class extends Event {};
+  t.after(() => { globalThis.ProgressEvent = oldProgress; });
+  const trilobite = await new GLTFLoader().parseAsync(JSON.stringify(json), '');
+  const { data } = await fixture(t, { loadModel: async name => name === 'Enemy_Trilobite' ? trilobite : asset() });
+  t.mock.method(Math, 'random', () => 0.4);
+  data.player.setPosition(-57, 0.3, 49);
+  step(data, 3.2);
+  const bot = data.getDamageTargets().find(item => item.root.name.startsWith('Jungle-robot'));
+  assert.ok(bot, 'A real patrol has spawned');
+  const enemy = data.robots.find(enemy => enemy.root === bot.root);
+  enemy.mixer.stopAllAction();
+  enemy.actions.get('Run').reset().play();
+  enemy.action = 'Run'; enemy.phase = 'chasing';
+  step(data, 0.3);
+  // Isolate combat geometry from streamed jungle cover.
+  const scene = new THREE.Scene(); scene.add(bot.root);
+  bot.root.position.set(0, 0, -1.3); bot.root.rotation.set(0, 0, 0);
+  data.player.setPosition(0, 0.3, 0);
+  const start = new THREE.Vector3(0, 0.3, 0), end = new THREE.Vector3(0, 0.3, -1.1);
+  const swing = new MeleeSwing('tackle', 2, 0.28, 1.8);
+  assert.equal(swing.update({ scene, world: null, player: data.player, character: null, targets: [bot] }, { start, end }), true);
+  data.updatePhysics(1 / 60);
+  assert.notEqual(bot.root.rotation.z, 0, 'Tackle puts the patrol into knockdown');
+  bot.root.position.set(0, 0, -3); bot.root.rotation.set(0, 0, 0);
+  const bounds = new THREE.Box3().setFromObject(bot.root, true);
+  const center = bounds.getCenter(new THREE.Vector3());
+  const shot = traceShot(scene, null, new THREE.Ray(new THREE.Vector3(center.x, bounds.max.y - 0.025, 0),
+    new THREE.Vector3(0, 0, -1)), [bot]);
+  assert.equal(shot.target?.root, bot.root, 'A shot at the visible shell hits the patrol');
+  data.scene.add(bot.root);
+  data.player.setPosition(-57, 0.3, 49); data.player.setRotation(0);
+  enemy.body.position.set(-57, enemy.radius, 46.6); enemy.body.velocity.set(0, 0, 0);
+  enemy.phase = 'hit'; enemy.timer = 10;
+  step(data, 0.1);
+  const combat = new UnarmedCombatController(() => ({ scene: data.scene, world: data.physicsWorld,
+    player: data.player, character: null, targets: data.getDamageTargets(), thirdPerson: false,
+    unarmed: false, attackClips: [], firstPersonHands: () => null }));
+  t.cleanup(() => combat.dispose());
+  key('KeyW'); key('ShiftLeft'); step(data, 0.2); key('KeyC');
+  assert.equal(data.player.getState().sliding, true, JSON.stringify(data.player.getState()));
+  for (let frame = 0; frame < 45; frame++) { data.updatePhysics(1 / 60); combat.update(1 / 60); }
+  key('KeyW', 'keyup'); key('ShiftLeft', 'keyup'); key('KeyC', 'keyup');
+  assert.equal(enemy.phase, 'stunned', 'Close-range slide reaches knockdown before the collider stops it');
+});
 
 test('one route replaces scenes 18 and 19, including their platform course', async () => {
   const source = path => readFile(new URL(`../src/${path}`, import.meta.url), 'utf8');

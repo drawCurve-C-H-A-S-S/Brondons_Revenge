@@ -55,7 +55,7 @@ export function createFinalePresentation(onInput: (code: string, pressed: boolea
       <span></span><h1></h1><p></p><button type="button">RETRY LAST CHECKPOINT</button>
     </section>
     <section class="finale-credits" aria-label="Credits" hidden>
-      <div class="finale-credit-dancers" aria-hidden="true"></div><div class="finale-credits-roll"></div>
+      <div class="finale-credits-roll"></div>
     </section>
     <nav class="finale-touch" aria-label="Mech controls">
       <div class="finale-touch-movement">
@@ -130,7 +130,6 @@ export function createFinalePresentation(onInput: (code: string, pressed: boolea
   const retry = get<HTMLButtonElement>('.finale-result button');
   const credits = get('.finale-credits');
   const roll = get('.finale-credits-roll');
-  const dancers = get('.finale-credit-dancers');
   const events = new AbortController();
   let qteKey = '', muted = false, audioContext: AudioContext | null = null;
   const activeOscillators = new Set<OscillatorNode>();
@@ -301,25 +300,6 @@ export function createFinalePresentation(onInput: (code: string, pressed: boolea
       const progress = Math.min(1, Math.max(0, time) / FINALE_DURATION.credits);
       const travel = window.innerHeight + roll.scrollHeight + window.innerHeight * 0.25;
       roll.style.transform = `translate(-50%, ${window.innerHeight - progress * travel}px)`;
-    },
-    setCreditSprite(sprite: { image: string; frames: number; duration: number; aspect: number }) {
-      dancers.replaceChildren();
-      for (let i = 0; i < 24; i++) {
-        const dancer = document.createElement('span'); dancer.className = 'finale-credit-dancer';
-        const column = i % 6, row = Math.floor(i / 6);
-        dancer.style.left = `${column * 19 - 3 + Math.sin(i * 2.3) * 5}%`;
-        dancer.style.top = `${row * 30 - 8 + Math.cos(i * 1.7) * 6}%`;
-        dancer.style.setProperty('--dancer-size', `${90 + i % 4 * 25}px`);
-        dancer.style.setProperty('--dancer-aspect', String(sprite.aspect));
-        dancer.style.setProperty('--dancer-turn', `${[0, -35, 24, 90, -90, 165, -145][i % 7]}deg`);
-        dancer.style.setProperty('--dancer-flip', i % 3 === 0 ? '-1' : '1');
-        dancer.style.backgroundImage = `url("${sprite.image}")`;
-        dancer.style.backgroundSize = `${(sprite.frames + 1) * 100}% 100%`;
-        dancer.style.animationDuration = `${sprite.duration}s`;
-        dancer.style.animationTimingFunction = `steps(${sprite.frames})`;
-        dancer.style.animationDelay = `${-i * 0.073}s`;
-        dancers.appendChild(dancer);
-      }
     },
     pause(value: boolean) {
       muted = value;

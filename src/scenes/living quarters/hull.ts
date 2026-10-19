@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
 import { createShipInteriorMaterials } from '../../helpers/scene/shipInterior.js';
 import { CABINS, QUARTERS, cabinCenter, cabinDoorPoint } from './layout.js';
-import { cabinNameTexture, shipLabelTexture } from './furnishings.js';
+import { comicNameTexture } from './furnishings.js';
 import { createBulkheadKeypad } from './surfaces.js';
+import { BATHROOM } from './bathroom.js';
 import type { QuartersProgress } from './layout.js';
 
 type Physics = ReturnType<typeof createScenePhysics>;
@@ -18,17 +19,16 @@ export function createQuartersHull(scene: THREE.Scene, physics: Physics, progres
     if (solid) physics.addBoxFromMesh(mesh);
     return mesh;
   }
-  function label(parent: THREE.Object3D, name: string, lines: string[], width: number, height: number,
-    at: [number, number, number], yaw = 0, accent = 0x65d9e8) {
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height),
-      new THREE.MeshBasicMaterial({ map: shipLabelTexture(lines, accent), toneMapped: false }));
-    mesh.name = name; mesh.position.set(...at); mesh.rotation.y = yaw; parent.add(mesh); return mesh;
-  }
   const half = QUARTERS.hallwayWidth / 2, roomHalf = QUARTERS.cabinWidth / 2, depthHalf = QUARTERS.cabinDepth / 2;
   const roof = box(scene, 'QuartersHallCeiling', [QUARTERS.hallwayWidth, 0.18, QUARTERS.hallwayLength],
     [0, QUARTERS.height + 0.09, 0], dark, true); roof.userData.minimap = false;
   box(scene, 'QuartersHallDeck', [QUARTERS.hallwayWidth, 0.2, QUARTERS.hallwayLength], [0, -0.1, 0], deck, true);
-  box(scene, 'QuartersAftWall', [QUARTERS.hallwayWidth, QUARTERS.height, 0.18], [0, QUARTERS.height / 2, -16], steel, true);
+  // The aft wall spans the bathroom's full width and opens onto it through a sliding door.
+  const aftSide = (BATHROOM.halfWidth * 2 + 0.18 - QUARTERS.doorWidth) / 2;
+  for (const side of [-1, 1]) box(scene, 'QuartersAftWall', [aftSide, QUARTERS.height, 0.18],
+    [side * (QUARTERS.doorWidth + aftSide) / 2, QUARTERS.height / 2, -16], steel, true);
+  box(scene, 'QuartersAftLintel', [QUARTERS.doorWidth, QUARTERS.height - QUARTERS.doorHeight, 0.18],
+    [0, (QUARTERS.height + QUARTERS.doorHeight) / 2, -16], steel, true);
   for (const side of [-1, 1]) {
     box(scene, 'HallDeckGuide', [0.035, 0.022, 31.7], [side * (half - 0.17), 0.012, 0], cyan);
     for (const z of [-15.7, -7.6, 0, 7.6, 15.7]) {
@@ -44,8 +44,8 @@ export function createQuartersHull(scene: THREE.Scene, physics: Physics, progres
   function door(name: string, position: THREE.Vector3, yaw: number, locked: boolean) {
     const root = new THREE.Group(); root.name = name; root.position.copy(position); root.rotation.y = yaw; scene.add(root);
     const width = QUARTERS.doorWidth, height = QUARTERS.doorHeight;
-    for (const side of [-1, 1]) box(root, 'BulkheadJamb', [0.16, height + 0.18, 0.28], [side * (width / 2 + 0.07), (height + 0.18) / 2, 0], trim);
-    box(root, 'BulkheadHeader', [width + 0.3, 0.18, 0.28], [0, height + 0.09, 0], trim);
+    for (const side of [-1, 1]) box(root, 'BulkheadJamb', [0.16, height, 0.28], [side * (width / 2 + 0.07), height / 2, 0], trim);
+    box(root, 'BulkheadHeader', [width + 0.3, 0.2, 0.3], [0, height + 0.08, 0], trim);
     const leaves = [-1, 1].map(side => {
       const mesh = box(root, 'BulkheadLeaf', [width / 2, height, 0.12], [side * width / 4, height / 2, 0], dark);
       box(mesh, 'DoorArmorInset', [width / 2 - 0.1, height - 0.35, 0.135], [0, 0, 0], steel);
@@ -88,10 +88,9 @@ export function createQuartersHull(scene: THREE.Scene, physics: Physics, progres
 
     const sign = new THREE.Group(); sign.name = `CabinIdentitySign-${cabin.id}`;
     sign.position.set(cabin.side * (half - 0.115), 1.52, cabin.z - 1.45); sign.rotation.y = -cabin.side * Math.PI / 2; scene.add(sign);
-    box(sign, 'IdentityPlateBacking', [1.04, 0.29, 0.045], [0, 0, 0], dark);
-    const plate = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.25),
-      new THREE.MeshBasicMaterial({ map: cabinNameTexture(cabin.occupant), toneMapped: false }));
-    plate.name = 'IdentityPlate'; plate.position.z = 0.026; sign.add(plate);
+    const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.4),
+      new THREE.MeshBasicMaterial({ map: comicNameTexture(cabin.occupant, CABINS.indexOf(cabin)), transparent: true, toneMapped: false }));
+    plate.name = 'IdentityPlate'; plate.position.z = 0.01; sign.add(plate);
     signs.set(cabin.id, sign);
     if (cabin.locked) {
       const mask = box(scene, `LockedCabinMapMask-${cabin.id}`, [QUARTERS.cabinWidth - 0.2, 3.19, QUARTERS.cabinDepth - 0.2],
@@ -110,6 +109,7 @@ export function createQuartersHull(scene: THREE.Scene, physics: Physics, progres
   box(scene, 'ForwardBulkheadLintel', [QUARTERS.doorWidth, QUARTERS.height - QUARTERS.doorHeight, 0.18],
     [0, (QUARTERS.height + QUARTERS.doorHeight) / 2, 16], steel, true);
   const forwardDoor = door('QuartersForwardBulkhead', new THREE.Vector3(0, 0, 16), 0, !progress.bulkheadUnlocked);
+  const bathroomDoor = door('BathroomDoor', new THREE.Vector3(0, 0, -16), 0, false);
   box(scene, 'ForwardTransferDeck', [QUARTERS.hallwayWidth, 0.2, 1.6], [0, -0.1, 16.8], deck, true);
   const transferRoof = box(scene, 'ForwardTransferCeiling', [QUARTERS.hallwayWidth, 0.18, 1.6],
     [0, QUARTERS.height + 0.09, 16.8], dark, true); transferRoof.userData.minimap = false;
@@ -117,7 +117,6 @@ export function createQuartersHull(scene: THREE.Scene, physics: Physics, progres
     [side * half, QUARTERS.height / 2, 16.8], steel, true);
   const transferEnd = box(scene, 'ForwardTransferEndCap', [QUARTERS.hallwayWidth, QUARTERS.height, 0.12],
     [0, QUARTERS.height / 2, 17.55], dark, true); transferEnd.userData.minimap = false;
-  label(scene, 'ForwardBulkheadStatus', ['FORWARD BULKHEAD', 'DECK ONE PASSAGE'], 1.45, 0.29, [0, 2.91, 15.87], Math.PI, 0xe3bf75);
   const keypad = createBulkheadKeypad(progress);
   const keypadRoot = new THREE.Group(); keypadRoot.name = 'ForwardBulkheadKeypad'; keypadRoot.position.set(1.52, 1.38, 15.85);
   keypadRoot.rotation.y = Math.PI; scene.add(keypadRoot);
@@ -125,7 +124,7 @@ export function createQuartersHull(scene: THREE.Scene, physics: Physics, progres
   const keypadScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.54, 0.84),
     new THREE.MeshBasicMaterial({ map: keypad.texture, toneMapped: false }));
   keypadScreen.name = 'BulkheadKeypadScreen'; keypadScreen.position.z = 0.066; keypadRoot.add(keypadScreen);
-  return { doors, signs, masks, forwardDoor, keypad, keypadRoot, keypadScreen };
+  return { doors, signs, masks, forwardDoor, bathroomDoor, keypad, keypadRoot, keypadScreen };
 }
 
 export type CabinDoor = ReturnType<typeof createQuartersHull>['forwardDoor'];

@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { loadToolModel, loadTexture } from '../../core/loader.js';
+import { loadToolModel, loadTexture, loadVergilsChair } from '../../core/loader.js';
 import playScreenUrl from '../../assets/textures/brondon-play-screen.png?url';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
 import { cabinCenter, cabinPoint, type CabinDefinition, type QuartersProgress } from './layout.js';
-import { createRescueDesktop, drawDesktopBackground } from './surfaces.js';
+import { createRescueDesktop, createSdpBrowserDesktop, drawDesktopBackground } from './surfaces.js';
 import { createCrewChest } from '../../helpers/scene/crewChest.js';
 import { createGoggles } from '../../scripts/rewardChest.js';
 import { createTeleportCrystal } from '../../scripts/teleportationDevice.js';
@@ -47,6 +47,29 @@ export function shipLabelTexture(lines: readonly string[], accent: number, width
     context.fillText(line, 52, 40 + (height - 80) * (index + 0.5) / lines.length);
   });
   const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+/** Comic-book name plate: bold outlined lettering on a coloured burst with halftone dots. */
+export function comicNameTexture(name: string, seed: number) {
+  const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 256;
+  const g = canvas.getContext('2d')!;
+  const fills = ['#ffd93b', '#ff6b6b', '#4dd0e1', '#a5e05a', '#ff9f43', '#c58cff', '#ff7ab8', '#6fa8ff'];
+  const text = name.toUpperCase();
+  g.translate(256, 128); g.rotate(((seed % 3) - 1) * 0.05); g.translate(-256, -128);
+  g.fillStyle = '#111'; g.beginPath(); g.roundRect(26, 34, 468, 204, 26); g.fill();
+  g.fillStyle = fills[seed % fills.length]; g.strokeStyle = '#111'; g.lineWidth = 12;
+  g.beginPath(); g.roundRect(14, 20, 468, 204, 26); g.fill(); g.stroke();
+  g.save(); g.clip();
+  g.fillStyle = 'rgba(255,255,255,0.35)';
+  for (let y = 30; y < 224; y += 22) for (let x = (y / 22) % 2 ? 14 : 3; x < 482; x += 22) { g.beginPath(); g.arc(x, y, 5, 0, Math.PI * 2); g.fill(); }
+  g.restore();
+  let size = 130; g.font = `italic 900 ${size}px Bangers, Impact, 'Comic Sans MS', sans-serif`;
+  while (g.measureText(text).width > 410 && size > 30) { size -= 6; g.font = `italic 900 ${size}px Bangers, Impact, 'Comic Sans MS', sans-serif`; }
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
+  g.lineWidth = 16; g.strokeStyle = '#111'; g.strokeText(text, 250, 126);
+  g.fillStyle = '#fff'; g.fillText(text, 246, 122);
+  const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = 4;
   return texture;
 }
 
@@ -136,7 +159,8 @@ function posterTexture(cabin: CabinDefinition) {
 export async function createCabinFurnishings(cabin: CabinDefinition, physics: Physics, progress: QuartersProgress,
   load: CabinModelLoader = loadToolModel) {
   const names: CabinProp[] = ['Prop_Desk_Small', 'Prop_Chair', ...(cabin.id === 'brondon' ? ['Gun_Revolver' as const] : [])];
-  const results = await Promise.allSettled(names.map(load));
+  const vergilChair = cabin.id === 'student-02';
+  const results = await Promise.allSettled(names.map((name, index) => vergilChair && index === 1 ? loadVergilsChair() : load(name)));
   const models = results.flatMap(result => result.status === 'fulfilled' ? [result.value.scene] : []);
   const failed = results.find(result => result.status === 'rejected');
   if (failed?.status === 'rejected') {
@@ -170,11 +194,11 @@ export async function createCabinFurnishings(cabin: CabinDefinition, physics: Ph
     desk.position.add(new THREE.Vector3(cabin.side * -0.55, 0, 2.65)); root.add(desk);
     collider(deskSize, cabinPoint(cabin, -0.55, deskSize.y / 2, 2.65));
     const chair = models[1]; chair.name = 'CabinChair';
-    const chairSize = fitRoomProp(chair, 1.12, 0.75, 0.85, Math.PI);
+    const chairSize = fitRoomProp(chair, vergilChair ? 0.96 : 1.12, 0.75, 0.85, vergilChair ? 0 : Math.PI);
     chair.position.add(new THREE.Vector3(cabin.side * -0.55, 0, 1.65)); root.add(chair);
     collider(chairSize, cabinPoint(cabin, -0.55, chairSize.y / 2, 1.65));
 
-    const desktop = cabin.id === 'branden' ? createRescueDesktop(progress) : null;
+    const desktop = cabin.id === 'branden' ? createRescueDesktop(progress) : cabin.id === 'brendan' ? createSdpBrowserDesktop() : null;
     const playScreen = cabin.id === 'brondon' ? await loadTexture(playScreenUrl) : null;
     if (playScreen) { playScreen.colorSpace = THREE.SRGBColorSpace; playScreen.name = 'CrewGameMenu-brondon'; }
     const terminal = createShipTerminal(playScreen ?? desktop?.texture ?? desktopTexture(cabin)), computer = terminal.root, screen = terminal.screen;

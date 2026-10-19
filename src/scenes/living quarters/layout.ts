@@ -44,6 +44,17 @@ export const CABINS: readonly CabinDefinition[] = [
 export const CABIN_BY_ID = new Map(CABINS.map(cabin => [cabin.id, cabin]));
 export const FORWARD_BULKHEAD_CODE = '4817';
 
+/** Student cabins are sealed in the campaign; developer mode opens them. */
+export function setStudentCabinAccess(open: boolean) {
+  for (const cabin of CABINS) if (cabin.role === 'student') cabin.locked = !open;
+  for (const room of LIVING_QUARTERS_MAP.rooms) {
+    const cabin = CABINS.find(candidate => candidate.mapId === room.id);
+    if (!cabin) continue;
+    room.locked = cabin.locked;
+    room.description = cabin.locked ? 'Student cabin / Interior unavailable' : `${cabin.role === 'student' ? 'Student' : 'Lecturer'} cabin / Bed, workstation${cabin.role === 'lecturer' ? ' and personal chest' : ''}`;
+  }
+}
+
 export function cabinRoomName(cabin: CabinDefinition) {
   return `${cabin.occupant}${cabin.occupant.endsWith("'") ? 's' : "'s"} room`;
 }

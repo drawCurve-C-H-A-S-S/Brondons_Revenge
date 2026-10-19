@@ -75,11 +75,10 @@ export function createScene({ entryState, fromExterior = false, onReturn, onResp
   const entrance = createSlidingPortal(scene, physics, { x: 0, y: 0, z: D, yaw: Math.PI },
     W * 2, CEIL, 'AI RESEARCH / ACCESS', { doorHeight: 3.2, landingFloor: false });
   entrance.group.name = 'FacilityEntranceDoor';
+  const entranceVoid = new THREE.Mesh(new THREE.PlaneGeometry(3, 3.2),
+    new THREE.MeshBasicMaterial({ color: 0x000000, fog: false, toneMapped: false, side: THREE.DoubleSide }));
+  entranceVoid.name = 'FacilityDoorwayBlackVoid'; entranceVoid.position.set(0, 1.6, -0.18); entrance.group.add(entranceVoid);
   if (fromExterior) entrance.openImmediately();
-  box([4, 0.4, 8], [0, -0.2, D + 4], floorMat);
-  for (const x of [-2, 2]) box([0.4, 3.6, 8], [x, 1.8, D + 4], wall);
-  box([4, 0.3, 8], [0, 3.45, D + 4], dark);
-  box([4, 3.6, 0.4], [0, 1.8, D + 8], wall);
   box([W * 2, 0.4, D * 2], [0, CEIL + 0.2, 0], dark);               // roof
   // Mezzanine slab over the north half → second floor walkable at y = 4.2.
   // The south half (z > MEZZ_EDGE) stays a double-height atrium for the stair.
@@ -352,7 +351,11 @@ export function createScene({ entryState, fromExterior = false, onReturn, onResp
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 200);
   const spawn = { x: 0, y: PHYSICS.playerRadius, z: D - 6 };
   const player = createPlayer({ camera, physicsWorld, spawnPosition: spawn });
-  if (entryState?.pilotState && fromExterior) player.restoreTransition(entryState.pilotState, entrance.frame);
+  // Keys released during the load never reach this scene, so held keys stay blocked until released again.
+  if (entryState?.pilotState && fromExterior) player.restoreTransition({
+    ...entryState.pilotState, velocity: new THREE.Vector3(), heldKeys: [], blockedKeys: entryState.pilotState.heldKeys,
+    sprinting: false, crouching: false, intentionalJump: false, jumpQueued: false, slide: undefined, bobIntensity: 0,
+  }, entrance.frame);
   else player.setRotation(0);
   player.enable();
   player.updateCamera(0);
@@ -547,6 +550,7 @@ export function createScene({ entryState, fromExterior = false, onReturn, onResp
   }
 
   return {
+    restartAtCheckpoint: () => { if (!onRespawn) return false; onRespawn(); return true; },
     roomId: 'scene20', scene, camera, physics, physicsWorld, player, entrance, cutsceneManager: null,
     isCinematic: () => browser.active || revealTime >= 0,
     hideCharacter: () => revealTime >= 0 || browser.active,

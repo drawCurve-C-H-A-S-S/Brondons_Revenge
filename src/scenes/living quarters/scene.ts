@@ -5,10 +5,12 @@ import { createHoldToSkip } from '../../helpers/animation/holdToSkip.js';
 import { createPlayer, type PlayerState, type PlayerTransitionState } from '../../scripts/player.js';
 import { HOLOGRAM_TRANSFER_DURATION, hologramTransitionAt } from '../../scripts/characterManager.js';
 import { CABINS, CABIN_BY_ID, QUARTERS, LIVING_QUARTERS_MAP, cabinPoint, cabinDoorPoint,
-  createQuartersProgress, cabinRoomName, FORWARD_BULKHEAD_CODE, quartersEquipmentReady,
+  createQuartersProgress, cabinRoomName, FORWARD_BULKHEAD_CODE, quartersEquipmentReady, setStudentCabinAccess,
   type CabinId, type QuartersLocation, type QuartersProgress } from './layout.js';
 import { createCabinFurnishings, disposeQuartersObject, type CabinFurnishings, type CabinModelLoader } from './furnishings.js';
 import { createQuartersHull } from './hull.js';
+import { createCommunalBathroom, type BathroomFixture } from './bathroom.js';
+import { createShowerCensor } from './showerCensor.js';
 import { createInspectionView, type InspectionTarget } from './inspectionView.js';
 import { inputHint } from '../../scripts/gamepadInput.js';
 import { createChairSeating } from '../../scripts/chairSeating.js';
@@ -21,6 +23,7 @@ interface QuartersOptions {
   entryState?: PlayerTransitionState;
   deferActivation?: boolean;
   allowComputerPlay?: boolean;
+  developerAccess?: boolean;
   loadCabinModel?: CabinModelLoader;
   warmRoom?: (scene: THREE.Scene, camera: THREE.PerspectiveCamera) => Promise<void>;
   onPistolCollected?: () => void;
@@ -31,8 +34,9 @@ interface QuartersOptions {
   onExitToPassage?: (state: PlayerTransitionState) => Promise<boolean>;
 }
 interface Interaction {
-  kind: 'sign' | 'door' | 'forward' | 'keypad' | 'chest' | 'teleporter' | 'poster' | 'computer';
+  kind: 'sign' | 'door' | 'forward' | 'keypad' | 'chest' | 'teleporter' | 'poster' | 'computer' | 'fixture';
   cabin?: CabinId;
+  fixture?: BathroomFixture;
   root: THREE.Object3D;
   point: THREE.Vector3;
 }
@@ -50,7 +54,7 @@ export async function preloadAssets() {
 }
 
 export function createScene({ progress = createQuartersProgress(), skipArrival = false, fromPassage = false, entryState, deferActivation = false,
-  allowComputerPlay = false,
+  allowComputerPlay = false, developerAccess = false,
   loadCabinModel, warmRoom, onPistolCollected, onTeleporterCollected, onCrystalCollected, onGogglesCollected,
   preparePassage, onExitToPassage }: QuartersOptions = {}) {
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x0a121d); scene.fog = new THREE.Fog(0x0a121d, 22, 48);
@@ -64,7 +68,9 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
     yaw: fromPassage ? 0 : brondon.side * Math.PI / 2, pitch: 0, heldKeys: [], sprinting: false,
     intentionalJump: false, jumpQueued: false }, { x: 0, y: 0, z: 0, yaw: -Math.PI });
   player.setRotation(fromPassage ? 0 : brondon.side * Math.PI / 2); player.disable();
+  setStudentCabinAccess(developerAccess);
   const hull = createQuartersHull(scene, physics, progress);
+  const bathroom = createCommunalBathroom(scene, physics);
   const interiors = new Map<CabinId, CabinFurnishings>(), pending = new Map<CabinId, Promise<CabinFurnishings>>();
   const doorRequests = new Set<CabinId>(), doorLoading = new Set<CabinId>(), doorErrors = new Set<CabinId>();
   let lastDoorError: CabinId | null = null;
@@ -95,6 +101,7 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
   const skip = element('button', 'quarters-skip', '', 'hidden'); skip.type = 'button'; ui.append(skip);
   const loading = element('div', 'quarters-loading', '', 'hidden'); loading.setAttribute('role', 'status'); ui.append(loading);
   document.body.append(ui);
+  const censor = createShowerCensor(ui, camera);
   const inspection = createInspectionView(camera, ui, () => {
     inspectionCaptionTime = 0; subtitle.classList.add('hidden');
     document.body.classList.remove('quarters-cinematic');
@@ -112,8 +119,8 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
     scene, camera, player, prompt,
     chairs: () => {
       const focus = findTarget();
-      return [...interiors.entries()].filter(([id]) => id !== 'brondon' || focus?.kind !== 'computer' || focus.cabin !== id)
-        .map(([, room]) => ({ root: room.chair, yaw: Math.PI }));
+      return [...[...interiors.entries()].filter(([id]) => id !== 'brondon' || focus?.kind !== 'computer' || focus.cabin !== id)
+        .map(([, room]) => ({ root: room.chair as THREE.Object3D, yaw: Math.PI })), ...bathroom.seats];
     },
     canInteract: () => active && !disposed && !paused && !cinematic && !inspection.active && !passageTransferring,
   });
@@ -193,7 +200,7 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
   function startDoor(id: CabinId) {
     const cabin = CABIN_BY_ID.get(id)!;
     if (cabin.locked) { showNotice(`${cabinRoomName(cabin)}. Door is locked.`); return; }
-    if (id === 'brondon' && location === 'brondon' && (!progress.pistolCollected || !progress.teleporterCollected)) {
+    if (id === 'brondon' && location === 'brondon' && !developerAccess && (!progress.pistolCollected || !progress.teleporterCollected)) {
       const missing = !progress.pistolCollected && !progress.teleporterCollected ? 'your pistol from the chest and the blue-LED teleportation device from your bed'
         : !progress.pistolCollected ? 'your pistol from the chest' : 'the blue-LED teleportation device from your bed';
       showNotice(`Prime: Collect ${missing} before leaving your room.`, 4);
@@ -275,11 +282,13 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
       }
       candidates.push({ kind: 'forward', root: hull.forwardDoor.root, point: new THREE.Vector3(0, 1.3, 16) },
         { kind: 'keypad', root: hull.keypadRoot, point: hull.keypadRoot.position.clone() });
+      if (player.body.position.z < -16.1) for (const fixture of bathroom.fixtures) candidates.push({ kind: 'fixture', fixture, root: fixture.root, point: fixture.point });
     } else {
       const room = interiors.get(location), cabin = CABIN_BY_ID.get(location)!;
       candidates.push({ kind: 'door', cabin: location, root: hull.doors.get(location)!.root, point: cabinDoorPoint(cabin).setY(1.3) });
       if (room) {
-        candidates.push({ kind: 'chest', cabin: location, root: room.chest, point: room.chestPoint },
+        if (cabin.role === 'lecturer') candidates.push({ kind: 'chest', cabin: location, root: room.chest, point: room.chestPoint });
+        candidates.push(
           { kind: 'poster', cabin: location, root: room.poster, point: room.poster.getWorldPosition(new THREE.Vector3()) },
           { kind: 'computer', cabin: location, root: room.computer, point: room.computer.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.3, 0)) });
         if (location === 'brondon' && !progress.teleporterCollected)
@@ -315,10 +324,11 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
     switch (candidate.kind) {
       case 'sign': return '';
       case 'door': return cabin!.locked ? 'E / Check locked door'
-        : cabin!.id === 'brondon' && location === 'brondon' && (!progress.pistolCollected || !progress.teleporterCollected)
+        : cabin!.id === 'brondon' && location === 'brondon' && !developerAccess && (!progress.pistolCollected || !progress.teleporterCollected)
           ? 'E / Recover your pistol and bed teleporter before leaving'
           : doorErrors.has(cabin!.id) ? 'E / Retry cabin loading'
         : `E / ${doorRequests.has(cabin!.id) ? doorLoading.has(cabin!.id) ? 'Cancel door opening' : 'Close door' : 'Open door'}`;
+      case 'fixture': return candidate.fixture!.prompt?.() ?? `E / Turn ${candidate.fixture!.isOn() ? 'off' : 'on'} the ${candidate.fixture!.label}`;
       case 'forward': return progress.bulkheadUnlocked ? `E / ${forwardRequested ? 'Close' : 'Open'} bulkhead` : 'E / Check forward bulkhead';
       case 'keypad': return `E / ${progress.bulkheadUnlocked ? 'Inspect unlocked' : 'Use bulkhead'} keypad`;
       case 'chest': return `E / ${progress.openedChests.has(candidate.cabin!) ? 'Inspect' : 'Open'} personal chest`;
@@ -349,6 +359,7 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
     switch (candidate.kind) {
       case 'door': startDoor(candidate.cabin!); break;
       case 'forward': startBulkhead(); break;
+      case 'fixture': candidate.fixture!.toggle(); break;
       case 'keypad':
         inspect({ screen: hull.keypadScreen, display: hull.keypad, width: 0.54, height: 0.84,
           title: 'Forward bulkhead keypad', pointer: 'light', onAction: action => {
@@ -380,6 +391,9 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
                 inspectionCaptionTime = 12;
               } else if (action === 'close-file') { inspectionCaptionTime = 0; subtitle.classList.add('hidden'); }
             } });
+        } else if (candidate.cabin === 'brendan' && room?.desktop) {
+          inspect({ screen: room.screen, display: room.desktop, width: 0.6, height: 0.34,
+            title: "Brendan's computer", pointer: 'arrow', instructions: 'Click anywhere on the page to open it', onAction: () => {} });
         } else {
           showNotice(`${cabin!.occupant}'s computer / Local survey archive. The ship network is disconnected in this wing.`);
         }
@@ -527,6 +541,8 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
     }
     hull.forwardDoor.setLocked(!progress.bulkheadUnlocked);
     const p = player.body.position;
+    hull.bathroomDoor.update(frame, Math.abs(p.x) < QUARTERS.doorWidth / 2 + 0.6 && Math.abs(p.z + 16) < 2);
+    bathroom.update(frame, p);
     hull.forwardDoor.update(frame, progress.bulkheadUnlocked && quartersEquipmentReady(progress) && (forwardRequested && passagePrepared
       || hull.forwardDoor.open > 0 && Math.abs(p.z - 16) < player.radius + 0.16 && Math.abs(p.x) < QUARTERS.doorWidth / 2 + player.radius));
     showInteriors(cinematic?.cabin);
@@ -577,6 +593,7 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
       ? hologramTransitionAt(cinematic.time, true) : null,
     isCinematic: () => cinematic !== null || inspection.active || seating.active || browser.active,
     hideCharacter: () => inspection.active || browser.active,
+    updateCharacterAppearance: (character: { model: THREE.Object3D } | null) => censor.update(character?.model ?? null, bathroom.isShowering()),
     get ownsWeaponInput() { return cinematic !== null || inspection.active || seating.active || browser.active || passageTransferring || !progress.pistolCollected; },
     getCinematicWeapon: () => null,
     getCinematicDelta: () => lastDelta,
@@ -604,7 +621,7 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
       if (disposed) return; disposed = true;
       window.removeEventListener('keydown', onKey); browser.dispose(); seating.dispose(); skipHold.dispose(); inspection.dispose(); ui.remove();
       if (active) document.body.classList.remove('quarters-cinematic');
-      interiors.forEach(room => room.dispose()); interiors.clear(); player.dispose(); physics.dispose(); disposeQuartersObject(scene);
+      interiors.forEach(room => room.dispose()); interiors.clear(); bathroom.dispose(); censor.dispose(); player.dispose(); physics.dispose(); disposeQuartersObject(scene);
     },
   };
 }

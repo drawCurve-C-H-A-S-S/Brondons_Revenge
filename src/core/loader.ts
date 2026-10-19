@@ -11,6 +11,7 @@ import sharkModelUrl from '../assets/models/Dino/Shark.glb';
 import bossModelUrl from '../assets/models/bayboss.glb';
 import mothershipModelUrl from '../assets/models/mothership.glb';
 import gundamModelUrl from '../assets/models/gundam.glb';
+import vergilsChairUrl from '../assets/models/vergils chair.glb';
 import { assetUrl, cachedAssetUrl, fetchAsset, type PreloadTask } from './assetCache.js';
 
 const gltfLoader = new GLTFLoader();
@@ -135,6 +136,8 @@ export async function loadBrendanModel() {
 }
 export async function loadSubjectModel() { return cloneModel(await modelTemplate(subjectModelUrl)); }
 export async function loadGundamModel() { return cloneModel(await modelTemplate(gundamModelUrl)); }
+/** The authored backrest sits on -Z, the opposite of Prop_Chair, so callers add half a turn. */
+export async function loadVergilsChair() { return cloneModel(await modelTemplate(vergilsChairUrl)); }
 export async function preloadToolModel(name: ToolModelName) { await toolTemplate(name); }
 
 const playerCelShading = new WeakMap<THREE.Object3D, { value: number }>();

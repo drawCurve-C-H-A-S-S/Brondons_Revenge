@@ -39,7 +39,7 @@ const POEM = [
 ] as const;
 const BOLTS = ['rust:bolt-1', 'rust:bolt-2', 'rust:bolt-3'];
 const CHAIN = 'rust:winch-chain', BARS = 'rust:winch-bars', CLAMP = 'rust:blue-clamp';
-const FAR_CLAMP = 'rust:far-blue-clamp', HANGING = 'rust:hanging-lock', TEST_TARGET = 'rust:grille-test-target';
+const FAR_CLAMP = 'rust:far-blue-clamp', HANGING = 'rust:hanging-lock';
 const RELEASES = [...BOLTS, CHAIN, CLAMP, FAR_CLAMP, HANGING];
 
 function wallMaterial() {
@@ -228,8 +228,10 @@ export function createScene({ entryState, preview = false, deferActivation = fal
     ropeBalance = THREE.MathUtils.damp(ropeBalance, weight, 9, dt);
     const speed = Math.min(Math.hypot(player.body.velocity.x, player.body.velocity.z) / 4, 1.5);
     const strength = reducedMotion?.matches ? 0 : ropeBalance * (0.45 + speed * 0.55);
-    ropeRoll = (Math.sin(clock * 3.4) + Math.sin(clock * 7.1) * 0.22) * 0.028 * strength;
-    ropeSway = Math.sin(clock * 3.4 + 0.8) * 0.055 * strength;
+    const closeness = broken(HANGING) ? 0 : Math.max(0, 1 - Math.abs(ropeProgress - 0.5) / 0.5);
+    const intensity = 1 + closeness * closeness * 4.5;
+    ropeRoll = (Math.sin(clock * 3.4) + Math.sin(clock * 7.1) * 0.22) * 0.028 * strength * intensity;
+    ropeSway = Math.sin(clock * 3.4 + 0.8) * 0.055 * strength * intensity;
   }
 
   // The liner sits inside the deck opening; no coplanar rim or overlapping escape steps.
@@ -386,7 +388,7 @@ export function createScene({ entryState, preview = false, deferActivation = fal
     if (id === CHAIN) chainReleasedAt = clock;
     if ((id === CLAMP || id === FAR_CLAMP) && broken(CLAMP) && broken(FAR_CLAMP)) clampReleasedAt = clock;
     const item = breakables.objects.find(item => item.id === id);
-    if (item && id !== TEST_TARGET && id !== BARS && !mirrorShot) startPresentation('release', item.root.position);
+    if (item && id !== BARS && !mirrorShot) startPresentation('release', item.root.position);
   }
   for (const [index, y] of [9.4, 10.15, 10.9].entries()) {
     breakables.add(BOLTS[index], 'crowbar', new THREE.Vector3(17, y, 27.25), new THREE.Vector3(2.2, 0.55, 0.65), release);
@@ -431,9 +433,6 @@ export function createScene({ entryState, preview = false, deferActivation = fal
   const hanger = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 13.8 - hangingPoint.y - 0.35, 8), steel);
   hanger.position.set(hangingPoint.x, (13.8 + hangingPoint.y + 0.35) / 2, hangingPoint.z);
   scene.add(hanger);
-  const practiceTarget = breakables.add(TEST_TARGET, 'pistol', new THREE.Vector3(17, 1.65, 26.28),
-    new THREE.Vector3(0.45, 0.45, 0.16), release);
-
   const mirrors: Reflector[] = [];
   function addMirror(position: THREE.Vector3, incoming: THREE.Vector3, outgoing: THREE.Vector3) {
     const normal = outgoing.clone().normalize().sub(incoming.clone().normalize()).normalize();
@@ -477,6 +476,10 @@ export function createScene({ entryState, preview = false, deferActivation = fal
     beam.visible = false; scene.add(beam); return beam;
   });
   let beamLife = 0;
+  function notifyJam() {
+    caption.textContent = 'The relay is out of sync. Both blue clasps must break together. Use the rebuild console.';
+    captionTime = 6; caption.classList.remove('hidden');
+  }
   function reflectShot(point: THREE.Vector3, _origin: THREE.Vector3) {
     if (preview || !active || melting) return;
     scene.updateMatrixWorld(true);
@@ -486,6 +489,7 @@ export function createScene({ entryState, preview = false, deferActivation = fal
     });
     if (!initialMirror) return;
     if (presentation || mirrorShot) return;
+    if (clamp.broken !== farClamp.broken) { notifyJam(); return; }
     const bothIntact = !clamp.broken && !farClamp.broken;
     const hits: MirrorHit[] = [];
     let position = initialMirror.position.clone(), direction = new THREE.Vector3();
@@ -522,6 +526,7 @@ export function createScene({ entryState, preview = false, deferActivation = fal
     if (hits.length) {
       mirrorShot = { time: 0, hits, bonus: bothIntact && hits.length === 2 };
       startPresentation('mirror', hits[0].target.root.position, hits[1]?.target.root.position, hits[hits.length - 1].at);
+      if (hits.length === 1) notifyJam();
     }
   }
   // A visible cable connects the high blue clasp to the grille's lifting eye.
@@ -585,10 +590,6 @@ export function createScene({ entryState, preview = false, deferActivation = fal
     net.rotation.x = -angle; net.rotation.z = 0;
     net.updateMatrixWorld(true);
     moveBody(netBody, net);
-    if (!practiceTarget.broken) {
-      practiceTarget.root.position.copy(net.localToWorld(new THREE.Vector3(0, -0.55, -0.27)));
-      practiceTarget.root.quaternion.copy(net.quaternion); moveBody(practiceTarget.body, practiceTarget.root);
-    }
     cableCurve.points[0].copy(clampPoint).add(new THREE.Vector3(0, 0.8, 0)).lerp(new THREE.Vector3(25.3, 0.2, 26.4), slide);
     cableCurve.points[2].set(net.position.x + 2.6, net.position.y + 2.2 * Math.cos(angle), net.position.z - 2.2 * Math.sin(angle));
     cableCurve.points[1].lerpVectors(cableCurve.points[0], cableCurve.points[2], 0.5);
@@ -731,7 +732,7 @@ export function createScene({ entryState, preview = false, deferActivation = fal
       camera.translateX(ropeSway); camera.rotateZ(ropeRoll);
     },
     getTightropeState: () => ({ balance: ropeBalance, progress: ropeProgress, roll: ropeRoll, sway: ropeSway }),
-    getDamageTargets: () => playable() ? breakables.getDamageTargets() : [],
+    getDamageTargets: () => playable() ? breakables.getDamageTargets().filter(item => item !== clamp && item !== farClamp) : [],
     onPistolShot: reflectShot,
     setGogglesActive: breakables.setHighlighted,
     setMenuPaused(value: boolean) { paused = value; player.clearInput(); },

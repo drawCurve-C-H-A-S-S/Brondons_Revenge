@@ -94,7 +94,7 @@ export class UnarmedCombatController {
         this.tackle.reset(); this.tackle.prime(segment); this.previousSlideTime = 0;
       }
       this.tacklePlayer = player;
-      if (state.slideTime >= 0.3 && this.previousSlideTime <= 0.9) this.tackle.update(context, segment);
+      if (state.slideTime >= 0.04 && this.previousSlideTime <= 0.9) this.tackle.update(context, segment);
       else this.tackle.prime(segment);
       this.previousSlideTime = state.slideTime;
       return;

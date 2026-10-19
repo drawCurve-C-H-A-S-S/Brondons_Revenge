@@ -690,6 +690,7 @@ export function createScene(options: StageTwoOptions) {
   if (progress.checkpoint === 'surveillance') enterGuardRoom(); else enterMaze();
   updateObjective();
   return {
+    restartAtCheckpoint: () => { if (disposed) return false; restoreCheckpoint(); return true; },
     roomId: 'stage-two', scene, camera, player, physicsWorld: physics.world, ready, cutsceneManager: null,
     requiresRecoveredPistol: true, handlesPlayerDeath: true,
     activate() { active = true; ui.classList.remove('hidden'); syncBodyClass(); if (playable.has(phase)) player.enable(); },

@@ -1,291 +1,825 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Brondon's Revenge</title>
-  <link rel="stylesheet" href="./styles/main.css" />
-</head>
-<body data-scene="scene1">
-  <section id="startup-loading" class="startup-loading" role="status" aria-live="polite">
-    <strong>BRONDON'S REVENGE</strong>
-    <p>Preparing the opening soundtrack first...</p>
-  </section>
-  <div id="music-warning" class="music-warning hidden" role="status" aria-live="polite"></div>
-  <div id="look-reticle" class="hidden" aria-hidden="true"></div>
-  <div id="crosshair" aria-hidden="true"></div>
-  <div id="interact-prompt" class="hidden">Press E to open chest</div>
-  <div id="adaptive-hint" class="hidden" role="status" aria-live="polite"></div>
-  <div id="controller-notice" class="hidden" role="status" aria-live="polite"></div>
-  <div id="scene-checkpoint" class="hidden" role="status" aria-live="polite">CHECKPOINT SAVED</div>
-  <section id="boss-hud" class="hidden" aria-label="Bay Warden health">
-    <div id="boss-health-label">BAY WARDEN</div>
-    <div id="boss-health-track"><div id="boss-health-fill"></div></div>
-  </section>
-  <div id="boss-subtitles" class="hidden" role="status" aria-live="polite"></div>
-  <section id="escape-qte" class="hidden" role="status" aria-live="assertive" aria-label="Timed escape action">
-    <div class="escape-caption">PRESS THE DISPLAYED KEY</div>
-    <kbd id="escape-key">Y</kbd>
-    <div id="escape-timer-track"><div id="escape-timer-fill"></div></div>
-    <div id="escape-action"></div>
-    <div class="escape-hint">Y: shoot · U: crowbar · I: dodge · O: saber spin · E: launch</div>
-  </section>
-  <section id="flight-hud" class="hidden" aria-label="Shuttle flight instruments">
-    <div class="space-health-heading"><span>SHUTTLE HULL</span><span id="space-health-label">260 / 260</span></div>
-    <div id="space-health-track" role="progressbar" aria-label="Shuttle hull integrity" aria-valuemin="0" aria-valuemax="260" aria-valuenow="260"><div id="space-health-fill"></div></div>
-    <div id="flight-powerups" aria-label="Collected power-ups"></div>
-  </section>
-  <div id="space-alert" class="hidden" role="status" aria-live="polite"></div>
-  <div id="space-damage" class="hidden" aria-hidden="true"></div>
-  <div id="player-damage" aria-hidden="true"></div>
-  <section id="space-pause" class="hidden" aria-label="Flight status">
-    <div id="space-pause-title">FLIGHT PAUSED</div>
-    <div id="space-pause-hint">Click or Escape to resume</div>
-  </section>
-  <div id="space-cinematic-caption" class="hidden" role="status" aria-live="polite"></div>
-  <div id="flight-target" class="hidden" aria-hidden="true">NEAREST PLANET</div>
-  <div id="space-crosshair" class="hidden" aria-hidden="true"></div>
-  <section id="space-boss-hud" class="hidden" aria-label="Capital ship health">
-    <div id="space-boss-label">CAPITAL SHIP</div>
-    <div id="space-boss-track" role="progressbar" aria-label="Encounter target health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><div id="space-boss-fill"></div></div>
-  </section>
-  <div id="goggles-overlay" class="hidden" aria-hidden="true"></div>
-  <div id="hud">
-    <div id="health-bar" role="progressbar" aria-label="Player health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><div id="health-bar-fill"></div><div id="health-bar-label">100 / 100</div></div>
-    <div id="shield-bar" role="progressbar" aria-label="Player shield" aria-valuemin="0" aria-valuemax="50" aria-valuenow="0"><div id="shield-bar-fill"></div><div id="shield-bar-label">0 / 50</div></div>
-    <button id="view-toggle-btn" type="button" data-view="3" aria-label="Third-person camera. Switch to first person." title="Switch camera (V)">
-      <svg viewBox="0 0 48 40" aria-hidden="true" focusable="false">
-        <g class="view-camera">
-          <rect x="11" y="7" width="26" height="17" rx="2.5" />
-          <path d="M17 7l2.2-3.2h9.6L31 7" />
-          <circle cx="24" cy="15.5" r="5.4" />
-        </g>
-        <circle class="view-lens" cx="24" cy="15.5" r="1.9" />
-        <text class="view-num" data-mode="1" x="17" y="37" text-anchor="middle">1</text>
-        <text class="view-num" data-mode="3" x="31" y="37" text-anchor="middle">3</text>
-      </svg>
-    </button>
-  </div>
-  <section id="control-card" class="hidden" aria-labelledby="control-card-title">
-    <header><h2 id="control-card-title"></h2><button id="control-card-close" type="button" aria-label="Dismiss controls">×</button></header>
-    <div id="control-card-content" role="status" aria-live="polite"></div>
-    <footer>H to dismiss · closes automatically</footer>
-  </section>
-  <div id="minimap" class="hidden" role="img" aria-label="Top-down map of the current scene">
-    <span class="minimap-north" aria-hidden="true">N</span>
-    <span id="minimap-player" aria-hidden="true"></span>
-    <span class="minimap-stair" id="minimap-stair-left" aria-hidden="true">⇅</span>
-    <span class="minimap-stair" id="minimap-stair-right" aria-hidden="true">⇅</span>
-    <span id="minimap-deck"></span>
-  </div>
-  
-  <!-- Credit roll overlay -->
-  <div id="credits-overlay" class="hidden">
-    <div id="credits-content">
-      <p class="credit-eyebrow">A GAME BY CHASS</p>
-      <h1 class="credit-title">BRONDON'S REVENGE</h1>
-      <p class="credit-intro">The people, tools and artwork behind the journey.</p>
-      <section class="credit-section credit-team">
-        <h2 class="credit-role">Creative team</h2>
-        <dl class="credit-contributors">
-          <div><dt>Created by</dt><dd>CHASS</dd></div>
-          <div><dt>Story</dt><dd>CHASS</dd></div>
-          <div><dt>Music &amp; soundtrack</dt><dd>Caleb</dd></div>
-        </dl>
-      </section>
-      <section class="credit-section">
-        <h2 class="credit-role">Models &amp; artwork</h2>
-        <ul class="credit-list">
-          <li><a href="https://skfb.ly/6vSDA" target="_blank" rel="noreferrer">Space Ship mk2</a>
-            <p class="credit-detail">antoniojmonteiro <span class="credit-license">CC BY 4.0</span></p></li>
-          <li><a href="https://skfb.ly/pC9vt" target="_blank" rel="noreferrer">Dante_dmc1__cutscene_model</a>
-            <p class="credit-detail">0PALITE <span class="credit-license">CC BY 4.0</span></p>
-            <p class="credit-note">Used as Brondon (Don.glb). The listing identifies this as a reupload, with Moccacino-chan as the original source.</p></li>
-          <li><a href="https://gobkit.com/" target="_blank" rel="noreferrer">Free Character "Shark"</a>
-            <p class="credit-detail">Gobkit <span class="credit-license">CC0 1.0</span></p></li>
-        </ul>
-      </section>
-      <section class="credit-section">
-        <h2 class="credit-role">Character animation</h2>
-        <p class="credit-name">Quaternius</p>
-        <p class="credit-detail"><a href="https://quaternius.com/packs/universalanimationlibrary.html" target="_blank" rel="noreferrer">Universal Animation Library [Standard]</a><br />
-          <a href="https://quaternius.com/packs/universalanimationlibrary2.html" target="_blank" rel="noreferrer">Universal Animation Library 2 [Standard]</a>
-          <span class="credit-license">CC0 1.0</span></p>
-        <p class="credit-note">Combat animations extracted, retargeted and baked for this game.</p>
-      </section>
-      <section class="credit-section">
-        <h2 class="credit-role">Engine &amp; physics</h2>
-        <dl class="credit-contributors">
-          <div><dt>3D rendering</dt><dd><a href="https://threejs.org/" target="_blank" rel="noreferrer">Three.js 0.170.0</a></dd></div>
-          <div><dt>Physics</dt><dd><a href="https://github.com/pmndrs/cannon-es" target="_blank" rel="noreferrer">cannon-es 0.20.0</a></dd></div>
-        </dl>
-        <p class="credit-note">Thanks to the Three.js and cannon-es contributors. Both libraries are MIT licensed.</p>
-        <p class="credit-note">Three.js provides OrbitControls, GLTFLoader, FBXLoader, OBJLoader, SkeletonUtils and AnimationMixer.</p>
-      </section>
-      <section class="credit-section">
-        <h2 class="credit-role">Runtime libraries</h2>
-        <ul class="credit-list">
-          <li><a href="https://github.com/qiao/PathFinding.js" target="_blank" rel="noreferrer">PathFinding.js 0.4.18</a>
-            <p class="credit-detail">qiao &amp; contributors <span class="credit-license">MIT</span></p></li>
-          <li><a href="https://github.com/matt-way/gifuct-js" target="_blank" rel="noreferrer">gifuct-js 2.1.2</a>
-            <p class="credit-detail">matt-way &amp; contributors <span class="credit-license">MIT</span></p></li>
-          <li><a href="https://github.com/gkjohnson/three-bvh-csg" target="_blank" rel="noreferrer">three-bvh-csg 0.0.17</a>
-            &amp; <a href="https://github.com/gkjohnson/three-mesh-bvh" target="_blank" rel="noreferrer">three-mesh-bvh 0.8.3</a>
-            <p class="credit-detail">gkjohnson &amp; contributors <span class="credit-license">MIT</span></p></li>
-          <li><a href="https://github.com/google/draco" target="_blank" rel="noreferrer">Draco 1.5.7</a>
-            <p class="credit-detail">Google &amp; contributors <span class="credit-license">Apache-2.0</span></p></li>
-        </ul>
-        <p class="credit-note">Controller support uses the browser's built-in Gamepad API.</p>
-      </section>
-      <section class="credit-section">
-        <h2 class="credit-role">Development tools</h2>
-        <p class="credit-detail"><a href="https://github.com/vitejs/vite" target="_blank" rel="noreferrer">Vite 6.4.3</a> &amp; contributors (MIT)<br />
-          <a href="https://github.com/microsoft/TypeScript" target="_blank" rel="noreferrer">TypeScript 5.9.3</a> by Microsoft &amp; contributors (Apache-2.0)<br />
-          <a href="https://github.com/eugeneware/ffmpeg-static" target="_blank" rel="noreferrer">ffmpeg-static 5.3.0</a> by eugeneware &amp; contributors (GPL-3.0-or-later)</p>
-        <p class="credit-note">Build-time tools, not included in the game. ffmpeg-static supports local audio conversion.
-          Development-only types: @types/three and @types/pathfinding (MIT).</p>
-      </section>
-      <footer class="credit-closing">
-        <p class="credit-role">SPECIAL THANKS TO</p>
-        <p class="credit-name">DADDY SONUS AND YOUR MOM</p>
-        <p class="credit-thanks">Thank you for playing.</p>
-        <p class="credit-eyebrow">BRONDON'S REVENGE / THE END</p>
-      </footer>
-    </div>
-  </div>
-  
-  <!-- Menu buttons -->
-  <div id="menu-buttons" class="hidden">
-    <div class="menu-actions">
-      <button id="play-btn" class="menu-btn">PLAY</button>
-      <button id="quit-btn" class="menu-btn">DON'T PLAY</button>
-      <p class="controller-menu-hint">Left stick / D-pad: choose · A: select · +: menu</p>
-    </div>
-    <button id="view-credits-btn" class="scene-credits-btn" type="button">View Credits</button>
-  </div>
-  
-  <!-- Fade overlay for transitions -->
-  <div id="fade-overlay" class="hidden"></div>
-  
-  <!-- Skip button for scene one -->
-  <button id="skip-btn" class="hidden">SKIP</button>
-  
-  <dialog id="pause-menu" aria-labelledby="pause-menu-title">
-    <p class="scene-menu-eyebrow">GAME PAUSED</p>
-    <header class="scene-menu-header">
-      <h1 id="pause-menu-title">Pause</h1>
-      <button id="pause-close" type="button" aria-label="Close menu" title="Close menu (M / Esc)">×</button>
-    </header>
-    <section id="pause-home" class="pause-panel">
-      <button id="pause-resume" type="button">Resume</button>
-      <button id="pause-ship-map" type="button" class="hidden">View Ship Map</button>
-      <button id="pause-sound" type="button">Sound</button>
-      <button id="pause-controls" type="button">Controls</button>
-      <button id="pause-credits" type="button">View Credits</button>
-      <label id="pause-stealth-settings" class="hidden" for="stealth-hints-toggle">
-        <span>Prime hints</span><input id="stealth-hints-toggle" type="checkbox" checked />
-      </label>
-      <button id="pause-developer" type="button">Developer Mode</button>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Brondon's Revenge</title>
+    <link rel="stylesheet" href="./styles/main.css" />
+  </head>
+  <body data-scene="scene1">
+    <section
+      id="startup-loading"
+      class="startup-loading"
+      role="status"
+      aria-live="polite"
+    >
+      <strong>BRONDON'S REVENGE</strong>
+      <p>Preparing the opening soundtrack first...</p>
     </section>
-    <section id="pause-map-panel" class="pause-panel hidden" aria-label="Ship map">
-      <div id="ship-map-view"></div>
-      <button type="button" data-pause-back>Back</button>
+    <div
+      id="music-warning"
+      class="music-warning hidden"
+      role="status"
+      aria-live="polite"
+    ></div>
+    <div id="look-reticle" class="hidden" aria-hidden="true"></div>
+    <div id="crosshair" aria-hidden="true"></div>
+    <div id="interact-prompt" class="hidden">Press E to open chest</div>
+    <div
+      id="adaptive-hint"
+      class="hidden"
+      role="status"
+      aria-live="polite"
+    ></div>
+    <div
+      id="controller-notice"
+      class="hidden"
+      role="status"
+      aria-live="polite"
+    ></div>
+    <div id="scene-checkpoint" class="hidden" role="status" aria-live="polite">
+      CHECKPOINT SAVED
+    </div>
+    <section id="boss-hud" class="hidden" aria-label="Bay Warden health">
+      <div id="boss-health-label">BAY WARDEN</div>
+      <div id="boss-health-track"><div id="boss-health-fill"></div></div>
     </section>
-    <section id="pause-controls-panel" class="pause-panel hidden" aria-label="Controls reference">
-      <div id="input-mode-tabs" role="tablist" aria-label="Input device">
-        <button id="input-keyboard" type="button" role="tab" aria-selected="true" aria-controls="pause-controls-list">Keyboard &amp; Mouse</button>
-        <button id="input-controller" type="button" role="tab" aria-selected="false" aria-controls="controller-controls-settings pause-controls-list" tabindex="-1">Controller</button>
+    <div
+      id="boss-subtitles"
+      class="hidden"
+      role="status"
+      aria-live="polite"
+    ></div>
+    <section id="phase4-hud" class="hidden" aria-label="Bay Warden phase 4 thruster status"
+      style="position:fixed;left:50%;bottom:15vh;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:7px;pointer-events:none;z-index:6;">
+      <div id="phase4-heat-track" role="progressbar" aria-label="Thruster heat" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
+        style="width:min(240px,46vw);height:10px;border-radius:6px;background:rgba(6,20,30,.72);border:1px solid rgba(159,232,255,.55);overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.55);">
+        <div id="phase4-heat-fill" style="width:0%;height:100%;background:#7fe3ff;transition:width .08s linear,background .2s ease;"></div>
       </div>
-      <div id="controller-controls-settings" class="hidden" role="region" aria-label="Controller settings">
-        <fieldset id="controller-type-options">
-          <legend>Choose your controller</legend>
-          <p>Pick the type that matches your controller so its buttons and prompts use the correct layout.</p>
-          <div class="controller-type-buttons" role="group" aria-label="Controller type">
-            <button type="button" data-controller-type="switch" aria-pressed="false">Switch</button>
-            <button type="button" data-controller-type="xbox" aria-pressed="false">Xbox</button>
-            <button type="button" data-controller-type="playstation" aria-pressed="false">PlayStation</button>
-          </div>
-        </fieldset>
-        <p id="controller-status" role="status" aria-live="polite">Choose a controller type. Plug it in, then press a button to let the browser detect it.</p>
-        <label id="controller-layout-options" class="hidden">
-          <input id="controller-swap-ab" type="checkbox" />
-          <span id="controller-swap-label">Swap A/B for this controller</span>
+      <div id="phase4-entangle-pips" aria-label="Net entanglement" style="display:flex;align-items:center;min-height:15px;"></div>
+    </section>
+    <style>
+      body.p4-bars-right #boss-subtitles:not(.prime-line) { display:none !important; }
+      #boss-subtitles.prime-line { top:12px !important; left:12px !important; right:auto !important; bottom:auto !important; transform:none !important; width:auto !important; max-width:min(300px, 34vw) !important; padding:8px 12px !important; font:400 14px/1.25 var(--comic-body) !important; text-align:left !important; background:#f7fbff !important; color:#17191f !important; border:3px solid #17191f !important; border-radius:6px !important; box-shadow:4px 4px 0 #17191f !important; animation:primeSlide .35s ease-out; }
+      @keyframes primeSlide { from { transform:translateX(-30px); opacity:0; } to { transform:none; opacity:1; } }
+      #health-bar, #shield-bar { transition: transform .45s cubic-bezier(.3,.7,.3,1), left .45s ease, right .45s ease, opacity .45s ease; }
+      body.p4-bars-right #health-bar, body.p4-bars-right #shield-bar { left:auto !important; right:3vw !important; transform:none !important; opacity:1 !important; }
+      #phase4-push-prompt > div { background:#ffdb57 !important; border:3px solid #17191f !important; border-radius:6px !important; box-shadow:4px 4px 0 #17191f !important; padding:6px 14px !important; }
+      #phase4-push-prompt .p4-push-pips, #phase4-push-prompt .p4-push-count { display:none !important; }
+      #phase4-push-prompt .p4-push-label { font:400 13px/1 var(--comic-display) !important; color:#17191f !important; letter-spacing:.08em !important; }
+      #phase4-push-prompt .p4-push-key { font:400 26px/1 var(--comic-display) !important; color:#f34851 !important; }
+      #phase4-warning { font-family:var(--comic-display) !important; font-weight:400 !important; letter-spacing:.06em !important; background:#ffdb57 !important; color:#17191f !important; border:3px solid #17191f !important; box-shadow:5px 5px 0 #17191f !important; text-shadow:none !important; }
+    </style>
+    <section id="phase4-push-prompt" class="hidden" aria-label="Wall push-off prompt"
+      style="position:fixed;inset:0;pointer-events:none;z-index:6;">
+      <div id="phase4-push-left" class="hidden" style="position:absolute;left:4vw;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;gap:5px;padding:9px 13px;border-radius:12px;background:rgba(6,20,30,.72);border:1px solid rgba(255,90,60,.7);box-shadow:0 2px 14px rgba(0,0,0,.5);">
+        <span class="p4-push-label" style="font:600 10px/1 system-ui,sans-serif;letter-spacing:.14em;color:#ff9d84;">TAP</span>
+        <span class="p4-push-key" style="font:700 30px/1 system-ui,sans-serif;color:#ffd9cf;text-shadow:0 0 10px rgba(255,90,60,.85);">A</span>
+        <span class="p4-push-pips" style="display:flex;gap:4px;"></span>
+        <span class="p4-push-count" style="font:600 11px/1 system-ui,sans-serif;color:#ffb9a6;">0/3</span>
+      </div>
+      <div id="phase4-push-right" class="hidden" style="position:absolute;right:4vw;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;gap:5px;padding:9px 13px;border-radius:12px;background:rgba(6,20,30,.72);border:1px solid rgba(255,90,60,.7);box-shadow:0 2px 14px rgba(0,0,0,.5);">
+        <span class="p4-push-label" style="font:600 10px/1 system-ui,sans-serif;letter-spacing:.14em;color:#ff9d84;">TAP</span>
+        <span class="p4-push-key" style="font:700 30px/1 system-ui,sans-serif;color:#ffd9cf;text-shadow:0 0 10px rgba(255,90,60,.85);">D</span>
+        <span class="p4-push-pips" style="display:flex;gap:4px;"></span>
+        <span class="p4-push-count" style="font:600 11px/1 system-ui,sans-serif;color:#ffb9a6;">0/3</span>
+      </div>
+      <div id="phase4-push-top" class="hidden" style="position:absolute;top:10vh;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:5px;padding:9px 13px;border-radius:12px;background:rgba(6,20,30,.72);border:1px solid rgba(255,90,60,.7);box-shadow:0 2px 14px rgba(0,0,0,.5);">
+        <span class="p4-push-label" style="font:600 10px/1 system-ui,sans-serif;letter-spacing:.14em;color:#ff9d84;">TAP</span>
+        <span class="p4-push-key" style="font:700 30px/1 system-ui,sans-serif;color:#ffd9cf;text-shadow:0 0 10px rgba(255,90,60,.85);">W</span>
+        <span class="p4-push-pips" style="display:flex;gap:4px;"></span>
+        <span class="p4-push-count" style="font:600 11px/1 system-ui,sans-serif;color:#ffb9a6;">0/3</span>
+      </div>
+      <div id="phase4-push-bottom" class="hidden" style="position:absolute;bottom:5vh;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:5px;padding:9px 13px;border-radius:12px;background:rgba(6,20,30,.72);border:1px solid rgba(255,90,60,.7);box-shadow:0 2px 14px rgba(0,0,0,.5);">
+        <span class="p4-push-label" style="font:600 10px/1 system-ui,sans-serif;letter-spacing:.14em;color:#ff9d84;">TAP</span>
+        <span class="p4-push-key" style="font:700 30px/1 system-ui,sans-serif;color:#ffd9cf;text-shadow:0 0 10px rgba(255,90,60,.85);">S</span>
+        <span class="p4-push-pips" style="display:flex;gap:4px;"></span>
+        <span class="p4-push-count" style="font:600 11px/1 system-ui,sans-serif;color:#ffb9a6;">0/3</span>
+      </div>
+    </section>
+    <div id="phase4-warning" class="hidden" role="status" aria-live="assertive"
+      style="position:fixed;top:38%;left:50%;transform:translate(-50%,-50%);z-index:7;pointer-events:none;text-align:center;font:800 clamp(20px,4.4vw,46px)/1.15 system-ui,sans-serif;letter-spacing:.06em;color:#ff2a1a;text-shadow:0 0 18px rgba(255,32,32,.9),0 0 42px rgba(255,32,32,.55);background:rgba(20,0,0,.28);border:2px solid rgba(255,42,26,.55);border-radius:12px;padding:16px 26px;box-shadow:0 0 34px rgba(255,32,32,.35),inset 0 0 22px rgba(255,32,32,.18);">WARNING: SHIP ARTIFICIAL GRAVITY OFFLINE</div>
+    <section
+      id="escape-qte"
+      class="hidden"
+      role="status"
+      aria-live="assertive"
+      aria-label="Timed escape action"
+    >
+      <div class="escape-caption">PRESS THE DISPLAYED KEY</div>
+      <kbd id="escape-key">Y</kbd>
+      <div id="escape-timer-track"><div id="escape-timer-fill"></div></div>
+      <div id="escape-action"></div>
+      <div class="escape-hint">
+        Y: shoot · U: crowbar · I: dodge · O: saber spin · E: launch
+      </div>
+    </section>
+    <section
+      id="flight-hud"
+      class="hidden"
+      aria-label="Shuttle flight instruments"
+    >
+      <div class="space-health-heading">
+        <span>SHUTTLE HULL</span><span id="space-health-label">260 / 260</span>
+      </div>
+      <div
+        id="space-health-track"
+        role="progressbar"
+        aria-label="Shuttle hull integrity"
+        aria-valuemin="0"
+        aria-valuemax="260"
+        aria-valuenow="260"
+      >
+        <div id="space-health-fill"></div>
+      </div>
+      <div id="flight-powerups" aria-label="Collected power-ups"></div>
+    </section>
+    <div id="space-alert" class="hidden" role="status" aria-live="polite"></div>
+    <div id="space-damage" class="hidden" aria-hidden="true"></div>
+    <div id="player-damage" aria-hidden="true"></div>
+    <section id="space-pause" class="hidden" aria-label="Flight status">
+      <div id="space-pause-title">FLIGHT PAUSED</div>
+      <div id="space-pause-hint">Click or Escape to resume</div>
+    </section>
+    <div
+      id="space-cinematic-caption"
+      class="hidden"
+      role="status"
+      aria-live="polite"
+    ></div>
+    <div id="flight-target" class="hidden" aria-hidden="true">
+      NEAREST PLANET
+    </div>
+    <div id="space-crosshair" class="hidden" aria-hidden="true"></div>
+    <section
+      id="space-boss-hud"
+      class="hidden"
+      aria-label="Capital ship health"
+    >
+      <div id="space-boss-label">CAPITAL SHIP</div>
+      <div
+        id="space-boss-track"
+        role="progressbar"
+        aria-label="Encounter target health"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow="100"
+      >
+        <div id="space-boss-fill"></div>
+      </div>
+    </section>
+    <div id="goggles-overlay" class="hidden" aria-hidden="true"></div>
+    <div id="hud">
+      <div
+        id="health-bar"
+        role="progressbar"
+        aria-label="Player health"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow="100"
+      >
+        <div id="health-bar-fill"></div>
+        <div id="health-bar-label">100 / 100</div>
+      </div>
+      <div
+        id="shield-bar"
+        role="progressbar"
+        aria-label="Player shield"
+        aria-valuemin="0"
+        aria-valuemax="50"
+        aria-valuenow="0"
+      >
+        <div id="shield-bar-fill"></div>
+        <div id="shield-bar-label">0 / 50</div>
+      </div>
+      <button
+        id="view-toggle-btn"
+        type="button"
+        data-view="3"
+        aria-label="Third-person camera. Switch to first person."
+        title="Switch camera (V)"
+      >
+        <svg viewBox="0 0 48 40" aria-hidden="true" focusable="false">
+          <g class="view-camera">
+            <rect x="11" y="7" width="26" height="17" rx="2.5" />
+            <path d="M17 7l2.2-3.2h9.6L31 7" />
+            <circle cx="24" cy="15.5" r="5.4" />
+          </g>
+          <circle class="view-lens" cx="24" cy="15.5" r="1.9" />
+          <text
+            class="view-num"
+            data-mode="1"
+            x="17"
+            y="37"
+            text-anchor="middle"
+          >
+            1
+          </text>
+          <text
+            class="view-num"
+            data-mode="3"
+            x="31"
+            y="37"
+            text-anchor="middle"
+          >
+            3
+          </text>
+        </svg>
+      </button>
+    </div>
+    <section
+      id="control-card"
+      class="hidden"
+      aria-labelledby="control-card-title"
+    >
+      <header>
+        <h2 id="control-card-title"></h2>
+        <button
+          id="control-card-close"
+          type="button"
+          aria-label="Dismiss controls"
+        >
+          ×
+        </button>
+      </header>
+      <div id="control-card-content" role="status" aria-live="polite"></div>
+      <footer>H to dismiss · closes automatically</footer>
+    </section>
+    <div
+      id="minimap"
+      class="hidden"
+      role="img"
+      aria-label="Top-down map of the current scene"
+    >
+      <span class="minimap-north" aria-hidden="true">N</span>
+      <span id="minimap-player" aria-hidden="true"></span>
+      <span class="minimap-stair" id="minimap-stair-left" aria-hidden="true"
+        >⇅</span
+      >
+      <span class="minimap-stair" id="minimap-stair-right" aria-hidden="true"
+        >⇅</span
+      >
+      <span id="minimap-deck"></span>
+    </div>
+
+    <!-- Credit roll overlay -->
+    <div id="credits-overlay" class="hidden">
+      <div id="credits-content">
+        <p class="credit-eyebrow">A GAME BY CHASS</p>
+        <h1 class="credit-title">BRONDON'S REVENGE</h1>
+        <p class="credit-intro">
+          The people, tools and artwork behind the journey.
+        </p>
+        <section class="credit-section credit-team">
+          <h2 class="credit-role">Creative team</h2>
+          <dl class="credit-contributors">
+            <div>
+              <dt>Created by</dt>
+              <dd>CHASS</dd>
+            </div>
+            <div>
+              <dt>Story</dt>
+              <dd>CHASS</dd>
+            </div>
+            <div>
+              <dt>Music &amp; soundtrack</dt>
+              <dd>Caleb</dd>
+            </div>
+            <div>
+              <dt>Music production software</dt>
+              <dd>GarageBand for iOS</dd>
+            </div>
+          </dl>
+        </section>
+        <section class="credit-section">
+          <h2 class="credit-role">Models &amp; artwork</h2>
+          <ul class="credit-list">
+            <li>
+              Brondon &amp; DonfromStreets (Brendan)
+              <p class="credit-detail">Husain</p>
+              <p class="credit-note">
+                New GLB character models: Don.glb (Brondon) and DonfromStreets.glb (Brendan).
+              </p>
+            </li>
+            <li>
+              <a href="https://quaternius.com/packs/universalanimationlibrary.html" target="_blank" rel="noreferrer">
+                Universal Animation Library (UAL) character models
+              </a>
+              <p class="credit-detail">
+                Quaternius <span class="credit-license">CC0 1.0</span>
+              </p>
+              <p class="credit-note">
+                Used for the other generic characters throughout the game.
+              </p>
+            </li>
+            <li>
+              <a href="https://skfb.ly/6vSDA" target="_blank" rel="noreferrer"
+                >Space Ship mk2</a
+              >
+              <p class="credit-detail">
+                antoniojmonteiro <span class="credit-license">CC BY 4.0</span>
+              </p>
+            </li>
+            <li>
+              <a href="https://skfb.ly/pC9vt" target="_blank" rel="noreferrer"
+                >Dante_dmc1__cutscene_model</a
+              >
+              <p class="credit-detail">
+                0PALITE <span class="credit-license">CC BY 4.0</span>
+              </p>
+              <p class="credit-note">
+                The listing identifies this as a reupload, with Moccacino-chan
+                as the original source.
+              </p>
+            </li>
+            <li>
+              <a href="https://gobkit.com/" target="_blank" rel="noreferrer"
+                >Free Character "Shark"</a
+              >
+              <p class="credit-detail">
+                Gobkit <span class="credit-license">CC0 1.0</span>
+              </p>
+            </li>
+          </ul>
+        </section>
+        <section class="credit-section">
+          <h2 class="credit-role">Character animation</h2>
+          <p class="credit-name">Quaternius</p>
+          <p class="credit-detail">
+            <a
+              href="https://quaternius.com/packs/universalanimationlibrary.html"
+              target="_blank"
+              rel="noreferrer"
+              >Universal Animation Library [Standard]</a
+            ><br />
+            <a
+              href="https://quaternius.com/packs/universalanimationlibrary2.html"
+              target="_blank"
+              rel="noreferrer"
+              >Universal Animation Library 2 [Standard]</a
+            >
+            <span class="credit-license">CC0 1.0</span>
+          </p>
+          <p class="credit-note">
+            Combat animations extracted, retargeted and baked for this game.
+          </p>
+        </section>
+        <section class="credit-section">
+          <h2 class="credit-role">Engine &amp; physics</h2>
+          <dl class="credit-contributors">
+            <div>
+              <dt>3D rendering</dt>
+              <dd>
+                <a href="https://threejs.org/" target="_blank" rel="noreferrer"
+                  >Three.js 0.170.0</a
+                >
+              </dd>
+            </div>
+            <div>
+              <dt>Physics</dt>
+              <dd>
+                <a
+                  href="https://github.com/pmndrs/cannon-es"
+                  target="_blank"
+                  rel="noreferrer"
+                  >cannon-es 0.20.0</a
+                >
+              </dd>
+            </div>
+          </dl>
+          <p class="credit-note">
+            Thanks to the Three.js and cannon-es contributors. Both libraries
+            are MIT licensed.
+          </p>
+          <p class="credit-note">
+            Three.js provides OrbitControls, GLTFLoader, FBXLoader, OBJLoader,
+            SkeletonUtils and AnimationMixer.
+          </p>
+        </section>
+        <section class="credit-section">
+          <h2 class="credit-role">Runtime libraries</h2>
+          <ul class="credit-list">
+            <li>
+              <a
+                href="https://github.com/qiao/PathFinding.js"
+                target="_blank"
+                rel="noreferrer"
+                >PathFinding.js 0.4.18</a
+              >
+              <p class="credit-detail">
+                qiao &amp; contributors <span class="credit-license">MIT</span>
+              </p>
+            </li>
+            <li>
+              <a
+                href="https://github.com/matt-way/gifuct-js"
+                target="_blank"
+                rel="noreferrer"
+                >gifuct-js 2.1.2</a
+              >
+              <p class="credit-detail">
+                matt-way &amp; contributors
+                <span class="credit-license">MIT</span>
+              </p>
+            </li>
+            <li>
+              <a
+                href="https://github.com/gkjohnson/three-bvh-csg"
+                target="_blank"
+                rel="noreferrer"
+                >three-bvh-csg 0.0.17</a
+              >
+              &amp;
+              <a
+                href="https://github.com/gkjohnson/three-mesh-bvh"
+                target="_blank"
+                rel="noreferrer"
+                >three-mesh-bvh 0.8.3</a
+              >
+              <p class="credit-detail">
+                gkjohnson &amp; contributors
+                <span class="credit-license">MIT</span>
+              </p>
+            </li>
+            <li>
+              <a
+                href="https://github.com/google/draco"
+                target="_blank"
+                rel="noreferrer"
+                >Draco 1.5.7</a
+              >
+              <p class="credit-detail">
+                Google &amp; contributors
+                <span class="credit-license">Apache-2.0</span>
+              </p>
+            </li>
+          </ul>
+          <p class="credit-note">
+            Controller support uses the browser's built-in Gamepad API.
+          </p>
+        </section>
+        <section class="credit-section">
+          <h2 class="credit-role">Development tools</h2>
+          <p class="credit-detail">
+            <a
+              href="https://github.com/vitejs/vite"
+              target="_blank"
+              rel="noreferrer"
+              >Vite 6.4.3</a
+            >
+            &amp; contributors (MIT)<br />
+            <a
+              href="https://github.com/microsoft/TypeScript"
+              target="_blank"
+              rel="noreferrer"
+              >TypeScript 5.9.3</a
+            >
+            by Microsoft &amp; contributors (Apache-2.0)<br />
+            <a
+              href="https://github.com/eugeneware/ffmpeg-static"
+              target="_blank"
+              rel="noreferrer"
+              >ffmpeg-static 5.3.0</a
+            >
+            by eugeneware &amp; contributors (GPL-3.0-or-later)
+          </p>
+          <p class="credit-note">
+            Build-time tools, not included in the game. ffmpeg-static supports
+            local audio conversion. Development-only types: @types/three and
+            @types/pathfinding (MIT).
+          </p>
+        </section>
+        <footer class="credit-closing">
+          <p class="credit-role">SPECIAL THANKS TO</p>
+          <p class="credit-name">DADDY SONUS AND YOUR MOM</p>
+          <p class="credit-thanks">Thank you for playing.</p>
+          <p class="credit-eyebrow">BRONDON'S REVENGE / THE END</p>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Menu buttons -->
+    <div id="menu-buttons" class="hidden">
+      <div class="menu-actions">
+        <button id="play-btn" class="menu-btn">PLAY</button>
+        <button id="options-btn" class="menu-btn" type="button">Options</button>
+        <button id="quit-btn" class="menu-btn">DON'T PLAY</button>
+        <p class="controller-menu-hint">
+          Left stick / D-pad: choose · A: select · +: menu
+        </p>
+      </div>
+      <button id="view-credits-btn" class="scene-credits-btn" type="button">
+        View Credits
+      </button>
+    </div>
+
+    <!-- Fade overlay for transitions -->
+    <div id="fade-overlay" class="hidden"></div>
+
+    <!-- Skip button for scene one -->
+    <button id="skip-btn" class="hidden">SKIP</button>
+
+    <div id="pause-overlay"></div>
+    <div id="pause-starfield"></div>
+    <div id="pause-character-preview"></div>
+    <div id="pause-side-bar"><span>PAUSE</span></div>
+    <div id="scene-starfield"></div>
+    <div id="scene-character-preview"></div>
+    <div id="scene-side-bar"><span>DEVELOPER</span></div>
+    <dialog id="pause-menu" aria-labelledby="pause-menu-title">
+      <h1 id="pause-menu-title" class="hidden">Pause</h1>
+      <section id="pause-home" class="pause-panel">
+        <button id="pause-resume" type="button">Resume</button>
+        <button id="pause-restart-checkpoint" type="button">
+          Restart at last checkpoint
+        </button>
+        <button id="pause-ship-map" type="button" class="hidden">
+          View Ship Map
+        </button>
+        <button id="pause-sound" type="button">Sound</button>
+        <button id="pause-display" type="button">Display</button>
+        <button id="pause-controls" type="button">Controls</button>
+        <button id="pause-credits" type="button">View Credits</button>
+        <label
+          id="pause-stealth-settings"
+          class="hidden"
+          for="stealth-hints-toggle"
+        >
+          <span>Prime hints</span
+          ><input id="stealth-hints-toggle" type="checkbox" checked />
         </label>
-        <div id="controller-setup" class="hidden">
-          <p>Calibration covers only the buttons used for gameplay, menus and skipping cinematics, plus both sticks. Stick clicks, system buttons and unused extras are not required. Release all buttons and center both sticks before starting.</p>
-          <p id="controller-setup-step" role="status" aria-live="polite"></p>
-          <button id="controller-setup-start" type="button">Calibrate game controls</button>
-          <button id="controller-setup-cancel" type="button" class="hidden">Cancel calibration</button>
+        <button id="pause-developer" type="button">Developer Mode</button>
+      </section>
+      <section
+        id="pause-map-panel"
+        class="pause-panel hidden"
+        aria-label="Ship map"
+      >
+        <div id="ship-map-view"></div>
+        <button type="button" data-pause-back>Back</button>
+      </section>
+      <section
+        id="pause-controls-panel"
+        class="pause-panel hidden"
+        aria-label="Controls reference"
+      >
+        <div class="controls-group">
+          <div id="input-mode-tabs" role="tablist" aria-label="Input device">
+            <button
+              id="input-keyboard"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="pause-controls-list"
+            >
+              Keyboard &amp; Mouse
+            </button>
+            <button
+              id="input-controller"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="controller-controls-settings pause-controls-list"
+              tabindex="-1"
+            >
+              Controller
+            </button>
+          </div>
         </div>
-      </div>
-      <p id="pause-controls-description"></p>
-      <div id="pause-controls-list" role="tabpanel" aria-labelledby="input-keyboard" tabindex="0"></div>
-      <button type="button" data-pause-back>Back</button>
-    </section>
-    <section id="pause-sound-panel" class="pause-panel hidden" aria-label="Sound settings">
-      <label for="bgm-volume">BGM <output id="bgm-volume-value" for="bgm-volume">100%</output></label>
-      <input id="bgm-volume" type="range" min="0" max="100" step="1" value="100" />
-      <label for="sfx-volume">SFX <output id="sfx-volume-value" for="sfx-volume">100%</output></label>
-      <input id="sfx-volume" type="range" min="0" max="100" step="1" value="100" />
-      <button type="button" data-pause-back>Back</button>
-    </section>
-    <form id="pause-developer-form" class="pause-panel hidden">
-      <p>Unlock scene selection and all controls for local playtesting.</p>
-      <button id="developer-unlock" type="submit">Unlock</button>
-      <button type="button" data-pause-back>Back</button>
-    </form>
-    <p class="controller-menu-hint">Left stick / D-pad: choose · A: select · B: back · +: resume</p>
-  </dialog>
-  <dialog id="scene-quick-menu" aria-labelledby="scene-menu-title" aria-describedby="scene-menu-description">
-    <header class="scene-menu-header">
-      <div>
-        <p class="scene-menu-eyebrow">GAME PAUSED</p>
-        <h1 id="scene-menu-title">Developer Mode</h1>
-      </div>
-      <button id="scene-quick-close" type="button">Back <kbd>Esc</kbd></button>
-    </header>
-    <p id="scene-menu-description">Chapters are listed in story order. Jump to a level or stage with full health, a crowbar, pistol, lightsaber, goggles, and teleportation device.</p>
-    <p class="scene-menu-gear">Hold <kbd data-input-key="Tab">Tab</kbd> to select weapons · <kbd data-input-key="KeyQ">Q</kbd> place anchor · <kbd data-input-key="KeyT">T</kbd> teleport · <kbd data-input-key="KeyN">N</kbd> goggles</p>
-    <button id="scene-quick-controls" type="button">All Controls</button>
-    <button id="scene-quick-credits" type="button">View Credits</button>
-    <div id="scene-quick-list" role="group" aria-label="Choose a level or stage"></div>
-    <p id="scene-menu-error" role="alert"></p>
-    <footer class="scene-menu-footer">Arrow keys to select · Enter to load · Click a scene to jump</footer>
-    <p class="controller-menu-hint">Left stick / D-pad: choose · A: select · B: back</p>
-  </dialog>
-  <dialog id="credits-dialog" aria-labelledby="credits-dialog-title">
-    <header class="scene-menu-header">
-      <div>
-        <p class="scene-menu-eyebrow">PEOPLE / ARTWORK / TECHNOLOGY</p>
-        <h2 id="credits-dialog-title">Credits</h2>
-      </div>
-      <button id="credits-dialog-close" type="button">Close</button>
-    </header>
-    <div id="credits-dialog-content" role="region" aria-label="Credits and asset licenses" tabindex="0"></div>
-    <p class="credit-dialog-hint">Scroll to explore · Esc to return</p>
-  </dialog>
+        <div class="controls-group">
+          <div
+            id="controller-controls-settings"
+            class="hidden"
+            role="region"
+            aria-label="Controller settings"
+          >
+            <fieldset id="controller-type-options">
+              <legend>Choose your controller</legend>
+              <p>
+                Pick the type that matches your controller so its buttons and
+                prompts use the correct layout.
+              </p>
+              <div
+                class="controller-type-buttons"
+                role="group"
+                aria-label="Controller type"
+              >
+                <button
+                  type="button"
+                  data-controller-type="switch"
+                  aria-pressed="false"
+                >
+                  Switch
+                </button>
+                <button
+                  type="button"
+                  data-controller-type="xbox"
+                  aria-pressed="false"
+                >
+                  Xbox
+                </button>
+                <button
+                  type="button"
+                  data-controller-type="playstation"
+                  aria-pressed="false"
+                >
+                  PlayStation
+                </button>
+              </div>
+            </fieldset>
+            <p id="controller-status" role="status" aria-live="polite">
+              Choose a controller type. Plug it in, then press a button to let the
+              browser detect it.
+            </p>
+            <label id="controller-layout-options" class="hidden">
+              <input id="controller-swap-ab" type="checkbox" />
+              <span id="controller-swap-label">Swap A/B for this controller</span>
+            </label>
+            <div id="controller-setup" class="hidden">
+              <p>
+                Calibration covers only the buttons used for gameplay, menus and
+                skipping cinematics, plus both sticks. Stick clicks, system
+                buttons and unused extras are not required. Release all buttons
+                and center both sticks before starting.
+              </p>
+              <p id="controller-setup-step" role="status" aria-live="polite"></p>
+              <button id="controller-setup-start" type="button">
+                Calibrate game controls
+              </button>
+              <button id="controller-setup-cancel" type="button" class="hidden">
+                Cancel calibration
+              </button>
+            </div>
+          </div>
+          <p id="pause-controls-description"></p>
+          <div
+            id="pause-controls-list"
+            role="tabpanel"
+            aria-labelledby="input-keyboard"
+            tabindex="0"
+          ></div>
+        </div>
+        <button type="button" data-pause-back>Back</button>
+      </section>
+      <section
+        id="pause-sound-panel"
+        class="pause-panel hidden"
+        aria-label="Sound settings"
+      >
+        <div class="sound-slider-group">
+          <label for="bgm-volume"
+            >BGM
+            <output id="bgm-volume-value" for="bgm-volume">100%</output></label
+          >
+          <input
+            id="bgm-volume"
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            value="100"
+          />
+        </div>
+        <div class="sound-slider-group">
+          <label for="sfx-volume"
+            >SFX
+            <output id="sfx-volume-value" for="sfx-volume">100%</output></label
+          >
+          <input
+            id="sfx-volume"
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            value="100"
+          />
+        </div>
+        <button type="button" data-pause-back>Back</button>
+      </section>
+      <section
+        id="pause-display-panel"
+        class="pause-panel hidden"
+        aria-label="Display settings"
+      >
+        <div class="sound-slider-group">
+          <label for="bloom-level"
+            >Bloom
+            <output id="bloom-level-value" for="bloom-level">0%</output></label
+          >
+          <input
+            id="bloom-level"
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            value="0"
+          />
+        </div>
+        <div class="sound-slider-group">
+          <label for="interface-visibility-toggle"
+            >Hide HUD (/)
+            <input id="interface-visibility-toggle" type="checkbox" />
+          </label>
+        </div>
+        <button type="button" data-pause-back>Back</button>
+      </section>
+      <section id="pause-developer-form" class="pause-panel hidden">
+        <h1
+          style="
+            color: white;
+            transform: rotate(14deg);
+            transform-origin: right center;
+          "
+        >
+          Unlock scene selection and all controls for local playtesting.
+        </h1>
+        <button id="developer-unlock" type="button">Unlock</button>
+        <button type="button" data-pause-back>Back</button>
+      </section>
+      <p class="controller-menu-hint">
+        Left stick / D-pad: choose · A: select · B: back · +: resume
+      </p>
+    </dialog>
+    <dialog
+      id="scene-quick-menu"
+      aria-labelledby="scene-menu-title"
+    >
+      <button id="scene-quick-close" type="button" style="position: absolute; top: 20px; right: 120px;">
+        Back <kbd>Esc</kbd>
+      </button>
+      <div id="scene-quick-list" style="overflow-y: auto; display: flex; flex-direction: column;"></div>
+      <p id="scene-menu-error" role="alert"></p>
+      <footer class="scene-menu-footer">
+        Arrow keys to select · Enter to load · Click a scene to jump
+      </footer>
+      <p class="controller-menu-hint">
+        Left stick / D-pad: choose · A: select · B: back
+      </p>
+    </dialog>
+    <dialog id="credits-dialog" aria-labelledby="credits-dialog-title">
+      <header class="scene-menu-header">
+        <div>
+          <p class="scene-menu-eyebrow">PEOPLE / ARTWORK / TECHNOLOGY</p>
+          <h2 id="credits-dialog-title">Credits</h2>
+        </div>
+        <button id="credits-dialog-close" type="button">Close</button>
+      </header>
+      <div
+        id="credits-dialog-content"
+        role="region"
+        aria-label="Credits and asset licenses"
+        tabindex="0"
+      ></div>
+      <p class="credit-dialog-hint">Scroll to explore · Esc to return</p>
+    </dialog>
 
-  <div id="touch-controls" class="hidden">
-    <div class="touch-move-base"><div class="touch-knob"></div></div>
-    <div id="touch-flight-stick" class="touch-flight-stick"><div id="touch-flight-knob" class="touch-knob"></div></div>
-    <div class="touch-buttons-right">
-      <button id="touch-fire" class="touch-btn touch-btn-fire" type="button">FIRE</button>
-      <button id="touch-evade" class="touch-btn touch-btn-evade" type="button">EVADE</button>
-      <button id="touch-jump" class="touch-btn" type="button">JUMP</button>
-      <button id="touch-sprint" class="touch-btn" type="button">RUN</button>
-      <button id="touch-interact" class="touch-btn" type="button">USE</button>
-      <button id="touch-attack" class="touch-btn touch-btn-attack" type="button">ATTACK</button>
-      <button id="touch-pistol" class="touch-btn" type="button">PISTOL</button>
-      <button id="touch-crowbar" class="touch-btn" type="button">CROW</button>
-      <button id="touch-lightsaber" class="touch-btn hidden" type="button">SABER</button>
-      <button id="touch-goggles" class="touch-btn" type="button">GOGGLES</button>
-      <button id="touch-crouch" class="touch-btn" type="button">CROUCH</button>
-      <button id="touch-view" class="touch-btn" type="button">VIEW</button>
-      <button id="touch-menu" class="touch-btn" type="button">MENU</button>
-      <button id="touch-action9" class="touch-btn" type="button">DANCE</button>
+    <div id="touch-controls" class="hidden">
+      <div class="touch-move-base"><div class="touch-knob"></div></div>
+      <div id="touch-flight-stick" class="touch-flight-stick">
+        <div id="touch-flight-knob" class="touch-knob"></div>
+      </div>
+      <div class="touch-buttons-right">
+        <button id="touch-fire" class="touch-btn touch-btn-fire" type="button">
+          FIRE
+        </button>
+        <button
+          id="touch-evade"
+          class="touch-btn touch-btn-evade"
+          type="button"
+        >
+          EVADE
+        </button>
+        <button id="touch-jump" class="touch-btn" type="button">JUMP</button>
+        <button id="touch-sprint" class="touch-btn" type="button">RUN</button>
+        <button id="touch-interact" class="touch-btn" type="button">USE</button>
+        <button
+          id="touch-attack"
+          class="touch-btn touch-btn-attack"
+          type="button"
+        >
+          ATTACK
+        </button>
+        <button id="touch-pistol" class="touch-btn" type="button">
+          PISTOL
+        </button>
+        <button id="touch-crowbar" class="touch-btn" type="button">CROW</button>
+        <button id="touch-lightsaber" class="touch-btn hidden" type="button">
+          SABER
+        </button>
+        <button id="touch-goggles" class="touch-btn" type="button">
+          GOGGLES
+        </button>
+        <button id="touch-crouch" class="touch-btn" type="button">
+          CROUCH
+        </button>
+        <button id="touch-view" class="touch-btn" type="button">VIEW</button>
+        <button id="touch-menu" class="touch-btn" type="button">MENU</button>
+        <button id="touch-action9" class="touch-btn" type="button">
+          DANCE
+        </button>
+      </div>
     </div>
-  </div>
 
-  <script type="module" src="./main.ts"></script>
-</body>
+    <script type="module" src="./main.ts"></script>
+  </body>
 </html>

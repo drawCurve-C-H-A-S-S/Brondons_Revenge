@@ -114,7 +114,7 @@ export class CrowbarController {
     }
     if (previousSwing > 0) {
       // The attack follows player aim; presentation rigs must not shorten its physical reach.
-      const segment = getAttackSegment(player, progress);
+      const segment = getAttackSegment(player, progress, 1, 1.65, true);
       if (frame > 0) {
         if (this.melee.update(context, segment, [this.root]) && this.status) this.status.dataset.hit = 'true';
       } else this.melee.prime(segment);

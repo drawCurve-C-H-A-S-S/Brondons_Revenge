@@ -35,7 +35,10 @@ export function createScene({ entryState, fromFacility = false, onRespawn, onFin
   const player = createPlayer({ camera, physicsWorld, spawnPosition: spawn });
   const waterfallContact: WaterfallCharacterContact = { position: player.body.position, headY: player.getHeadY(), radius: player.radius };
   if (entryState?.pilotState && fromFacility) {
-    player.restoreTransition(entryState.pilotState, door.frame); door.openImmediately();
+    player.restoreTransition({
+      ...entryState.pilotState, velocity: new THREE.Vector3(), heldKeys: [], blockedKeys: entryState.pilotState.heldKeys,
+      sprinting: false, crouching: false, intentionalJump: false, jumpQueued: false, slide: undefined, bobIntensity: 0,
+    }, door.frame); door.openImmediately();
   } else if (entryState?.pilotState) player.restoreTransition({
     ...entryState.pilotState, position: spawn, velocity: { x: 0, y: 0, z: 0 },
     yaw: spawnYaw, pitch: 0, heldKeys: [], blockedKeys: [], crouching: false, sprinting: false,
@@ -167,7 +170,8 @@ export function createScene({ entryState, fromFacility = false, onRespawn, onFin
       if (!actions.has('Idle') && actions.has('Walk')) actions.set('Idle', actions.get('Walk')!);
       if (!actions.has('Run') && actions.has('Walk')) actions.set('Run', actions.get('Walk')!);
     }
-    const ring = new THREE.Mesh(spawnGeometry, spawnMaterial); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.07; ring.visible = false; root.add(ring);
+    const ring = new THREE.Mesh(spawnGeometry, spawnMaterial); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.07; ring.visible = false;
+    ring.raycast = () => {}; root.add(ring);
     enemies.push({ root, body, motor: createGroundMotor(body, radius), mixer, actions, action: '', ring, kind, radius, maxHealth,
       attackDamage: dino ? 10000 : 12, attackRange: dino ? 1.2 : 1.6, attackDuration: dino ? 0 : 0.85,
       phase: 'dormant', health: maxHealth, timer: 0, cooldown: 1.5, struck: false, navigationClock: 0, goal: new THREE.Vector3(), speed: dino ? 5.2 : 3.2 + index * 0.25,
@@ -463,6 +467,7 @@ export function createScene({ entryState, fromFacility = false, onRespawn, onFin
       ...turrets.filter(turret => turret.health > 0)
         .map((turret): DamageTarget => ({ root: turret.root, damage: (amount, weapon) => damageTurret(turret, amount, weapon) })),
       ...miniboss.getDamageTargets(),
+      { ...site.getBrendanTarget(), body: brendanBody },
     ];
   }
   function updateSentries(dt: number) {
@@ -787,6 +792,10 @@ export function createScene({ entryState, fromFacility = false, onRespawn, onFin
         camera.fov = THREE.MathUtils.lerp(entryState.cameraFov ?? 75, 75, t); camera.updateProjectionMatrix();
       }
     },
+    restartAtCheckpoint() {
+      if (disposed || completed) return false;
+      completed = true; onRespawn(captureArrival()); return true;
+    },
     onPlayerDeath() {
       if (!deathClock && !completed) {
         deathClock = 2.5; stopDefense(); freezePlayer(); status?.classList.add('hidden');
@@ -844,6 +853,14 @@ export function createScene({ entryState, fromFacility = false, onRespawn, onFin
             enemy.gaitClock += animationDt * 8;
             const swing = Math.sin(enemy.gaitClock) * 0.26;
             enemy.legs[0].rotateX(swing); enemy.legs[1].rotateX(-swing);
+          }
+          if (enemy.kind === 'robot') {
+            // Raycasting and melee use cached skinned bounds, which must follow the current pose.
+            enemy.root.updateMatrixWorld(true);
+            enemy.root.traverse(node => {
+              if (!(node instanceof THREE.SkinnedMesh)) return;
+              node.skeleton.update(); node.computeBoundingBox(); node.computeBoundingSphere();
+            });
           }
         }
       }

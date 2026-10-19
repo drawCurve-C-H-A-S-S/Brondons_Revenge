@@ -289,7 +289,17 @@ test('the world has no generated mech pads and the ship flight is wired into Sce
   assert.match(mechs, /fitWeaponToHand\(swordGripSocket, swordBone, 0\)/);
   assert.match(mechs, /loadToolModel\('Gun_Rifle'\)/);
   assert.match(credits, /translate\(-50%,/);
-  assert.match(credits, /setCreditSprite/);
+  assert.doesNotMatch(credits, /setCreditSprite|finale-credit-dancer/);
+  assert.doesNotMatch(scene, /createFinaleCreditSprite/);
+  assert.match(mechs, /hero: async \(\) => \(\{ \.\.\.\(await loadMCModel\(\)\)/);
+});
+
+test('finale cockpit uses the on-foot Brondon model rather than the mech model', async () => {
+  const source = await readFile(new URL('../src/helpers/scene/finaleAftermath.ts', import.meta.url), 'utf8');
+  assert.match(source, /Promise\.all\(\[forestReady, loadPlayerModel\(\)\]\)/);
+  assert.doesNotMatch(source, /loadMCModel/);
+  assert.match(source, /clip\.name === 'Sitting_Idle_Loop'/);
+  assert.match(source, /clip\.name === 'Sitting_Talking_Loop'/);
 });
 
 test('blade sweeps hit armor at reach but miss distant and vertically separated targets', () => {

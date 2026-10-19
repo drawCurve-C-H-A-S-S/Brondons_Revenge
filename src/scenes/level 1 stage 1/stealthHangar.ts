@@ -227,7 +227,7 @@ export function createStealthHangar(scene: THREE.Scene, physics: Physics, deckY:
   const { x: ventLadderX, z: landingZ, height: ventRise, side: ventLadderSide } = HANGAR_LAYOUT.ventAccess;
   const ventLadderZ = landingZ - ventLadderSide * LADDER.bodyOffset;
   const ventLadderHeight = deckY + ventRise + 0.125;
-  for (const offset of [-0.48, 0.48]) detail([0.07, ventRise + 0.6, 0.08], [ventLadderX + offset, (ventRise + 0.6) / 2, ventLadderZ], yellow);
+  for (const offset of [-0.48, 0.48]) detail([0.07, ventRise + 0.3, 0.08], [ventLadderX + offset, (ventRise + 0.3) / 2, ventLadderZ], yellow);
   for (let y = 0.25; y < ventRise + 0.4; y += LADDER.rungSpacing) detail([1.02, 0.055, 0.09], [ventLadderX, y, ventLadderZ], steel);
   for (const side of [-1, 1]) {
     const shaft = box([0.12, 1.35, 1.7], [ventLadderX + side * hatchHalf, ventRise + 0.75, landingZ], dark);

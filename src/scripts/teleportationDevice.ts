@@ -126,7 +126,6 @@ export class TeleportationDeviceController {
     const ctx = this.context();
 
     if (ctx.isBossFight()) {
-      ctx.showMessage('Cannot place device during boss fight!');
       return;
     }
 
@@ -149,7 +148,6 @@ export class TeleportationDeviceController {
     const ctx = this.context();
 
     if (ctx.isBossFight()) {
-      ctx.showMessage('Cannot teleport during boss fight!');
       return;
     }
 

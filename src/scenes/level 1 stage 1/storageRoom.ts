@@ -166,6 +166,10 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
   const doorIndicator = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.025, 0.012), lightStrip);
   doorIndicator.position.set(1.27, 1.38, 0.11);
   doorPivot.add(doorIndicator);
+  // Mirror the hardware onto the passage side so the door reads as a door from both sides.
+  for (const part of [handle, doorInset, doorIndicator]) {
+    const mirrored = part.clone(); mirrored.position.z = -part.position.z; doorPivot.add(mirrored);
+  }
   const doorPosition = new THREE.Vector3();
   const doorRotation = new THREE.Quaternion();
 
@@ -978,7 +982,17 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     getCinematicDelta: () => lastDelta,
     getHologramTransition: () => arrivalTime < HOLOGRAM_TRANSFER_DURATION ? hologramTransitionAt(arrivalTime, true) : null,
     applyCinematicCamera: () => {
-      if (climbing) { player.updateCamera(0, true); applyTraversalCamera(camera, player, true); }
+      if (climbing) {
+        player.updateCamera(0, true); applyTraversalCamera(camera, player, true);
+        if (climbing.ladder.id === 'VentAccessLadder') {
+          // The camera trails behind and above the climber, so it must stay under the hangar roof slab and look up through the hatch.
+          const p = player.body.position, ceilingLimit = deckY + HANGAR_LAYOUT.ventAccess.height - 0.5;
+          if (camera.position.y > ceilingLimit) {
+            camera.position.y = ceilingLimit;
+            camera.lookAt(p.x, p.y - player.radius + 1.05, p.z);
+          }
+        }
+      }
       else applyCinematicCamera();
     },
     getCinematicPose: () => corridorDeathAt >= 0 ? { clip: 'Death01', time: corridorDeathFinished ? 2.5 : elapsed - corridorDeathAt }

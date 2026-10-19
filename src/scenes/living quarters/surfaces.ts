@@ -108,6 +108,62 @@ export function createFileDesktop({ title, owner, lines, onRead }: {
   };
 }
 
+/** A fake browser tab on the SDP site; every click lands on a 503 page. */
+export function createSdpBrowserDesktop(): InteractiveDisplay {
+  const { canvas, context, texture } = canvasDisplay(800, 450), cursor = new THREE.Vector2(400, 260);
+  texture.name = 'CrewDesktop-brendan';
+  let focused = false, failed = false;
+  function chrome(tab: string) {
+    context.fillStyle = '#dfe3e8'; context.fillRect(0, 0, 800, 70);
+    context.fillStyle = '#ffffff'; context.fillRect(10, 8, 200, 24);
+    context.textAlign = 'left'; context.textBaseline = 'middle'; context.font = '13px sans-serif';
+    context.fillStyle = '#222'; context.fillText(tab, 20, 21);
+    context.fillStyle = '#ffffff'; context.fillRect(70, 38, 650, 24);
+    context.fillStyle = '#4a5560'; context.font = '14px monospace';
+    context.fillText(failed ? 'https://sdp.ms.wits.ac.za/' : 'https://sdp.ms.wits.ac.za', 80, 51);
+    context.textBaseline = 'alphabetic';
+  }
+  function draw() {
+    context.textAlign = 'left';
+    if (failed) {
+      context.fillStyle = '#f5f5f5'; context.fillRect(0, 0, 800, 450); chrome('503 Service Unavailable');
+      context.fillStyle = '#333'; context.font = 'bold 54px sans-serif'; context.fillText('503', 70, 190);
+      context.font = 'bold 28px sans-serif'; context.fillText('Service Unavailable', 70, 232);
+      context.font = '18px sans-serif'; context.fillStyle = '#666';
+      context.fillText('The server is temporarily unable to handle your request.', 70, 272);
+      context.fillText('Please try again later.', 70, 298);
+      context.font = '14px monospace'; context.fillText('sdp.ms.wits.ac.za', 70, 400);
+    } else {
+      context.fillStyle = '#ffffff'; context.fillRect(0, 0, 800, 450); chrome('SDP - Wits');
+      context.fillStyle = '#003c71'; context.fillRect(0, 70, 800, 70);
+      context.fillStyle = '#ffffff'; context.font = 'bold 30px sans-serif'; context.fillText('Software Design Project', 40, 115);
+      context.fillStyle = '#222'; context.font = 'bold 26px sans-serif'; context.fillText('School of Computer Science & Applied Mathematics', 40, 200);
+      context.font = '18px sans-serif'; context.fillStyle = '#555';
+      context.fillText('Project submissions, group portals and course resources.', 40, 235);
+      context.fillStyle = '#003c71'; context.fillRect(40, 275, 170, 44);
+      context.fillStyle = '#ffffff'; context.font = 'bold 18px sans-serif'; context.fillText('Open portal', 66, 303);
+    }
+    if (focused) {
+      context.save(); context.translate(cursor.x, cursor.y);
+      context.beginPath(); context.moveTo(0, 0); context.lineTo(0, 23); context.lineTo(6, 17);
+      context.lineTo(12, 29); context.lineTo(17, 26); context.lineTo(11, 15); context.lineTo(21, 15); context.closePath();
+      context.fillStyle = '#ffffff'; context.strokeStyle = '#07182b'; context.lineWidth = 2;
+      context.fill(); context.stroke(); context.restore();
+    }
+    texture.needsUpdate = true;
+  }
+  draw();
+  return {
+    canvas, texture, cursor,
+    point(x, y) { cursor.set(THREE.MathUtils.clamp(x, 0, 799), THREE.MathUtils.clamp(y, 0, 449)); draw(); },
+    click() { failed = true; draw(); return null; },
+    key: code => { if (code === 'Enter' || code === 'NumpadEnter') { failed = true; draw(); return 'handled'; } return null; },
+    focus(value) { focused = value; draw(); },
+    reset() { focused = failed = false; cursor.set(400, 260); draw(); },
+    update() {},
+  };
+}
+
 export function createBulkheadKeypad(progress: QuartersProgress): InteractiveDisplay {
   return createKeypad({ code: FORWARD_BULKHEAD_CODE, title: 'FORWARD BULKHEAD',
     isUnlocked: () => progress.bulkheadUnlocked, onUnlock: () => { progress.bulkheadUnlocked = true; } });

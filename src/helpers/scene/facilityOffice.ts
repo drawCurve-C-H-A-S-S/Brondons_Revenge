@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { loadSubjectModel, loadToolModel } from '../../core/loader.js';
+import { loadSubjectModel, loadToolModel, loadVergilsChair } from '../../core/loader.js';
 import { createScenePhysics } from '../physics/scenePhysics.js';
 import { fitRoomProp, disposeRoom } from './shipRoom.js';
 import { normalizeFinaleActor, SUDOERS_5 } from './finaleActors.js';
@@ -38,7 +38,7 @@ export function createFacilityOffice(scene: THREE.Scene, physics: ReturnType<typ
   const seats = [[-3.5, tableZ], [-1.8, tableZ - 2.4], [1.8, tableZ - 2.4], [3.5, tableZ], [0, tableZ + 2.5]] as const;
   const students: Array<{ root: THREE.Group; mixer: THREE.AnimationMixer; model: THREE.Group }> = [];
   let disposed = false;
-  const ready = Promise.allSettled(seats.flatMap(() => [loadStudent(), loadChair('Prop_Chair')])).then(results => {
+  const ready = Promise.allSettled(seats.flatMap(() => [loadStudent(), loadVergilsChair()])).then(results => {
     const assets = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
     const failure = results.find(result => result.status === 'rejected');
     if (disposed || failure?.status === 'rejected') {
@@ -50,7 +50,7 @@ export function createFacilityOffice(scene: THREE.Scene, physics: ReturnType<typ
       seats.forEach(([x, z], index) => {
         const asset = assets[index * 2], chair = assets[index * 2 + 1].scene;
         const yaw = Math.atan2(-x, tableZ - z);
-        fitRoomProp(chair, 1.12, 0.8, 0.9, yaw + Math.PI);
+        fitRoomProp(chair, 0.96, 0.8, 0.9, yaw);
         chair.position.add(new THREE.Vector3(x, floor, z)); root.add(chair);
         const actor = new THREE.Group(); actor.name = SUDOERS_5[index].name;
         actor.position.set(x, floor, z); actor.rotation.y = yaw; root.add(actor);
