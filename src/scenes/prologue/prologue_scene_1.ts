@@ -586,7 +586,7 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
   const skipHold = createHoldToSkip({ button: skipButton, onSkip: finishCutscene, isAvailable: () => !preview && !playable && !finished });
   const exitPrompt = document.createElement('div');
   exitPrompt.id = 'prologue-exit-prompt';
-  exitPrompt.textContent = inputHint('Press E to teleport to your room');
+  exitPrompt.textContent = inputHint('Press E to start your revenge');
   exitPrompt.style.display = 'none';
   if (!preview) document.body.appendChild(exitPrompt);
   const presentCameraStart = new THREE.Vector3();
@@ -617,12 +617,12 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
     player.setPosition(0, PHYSICS.playerRadius, 0);
     player.setRotation(0, 0);
     player.clearInput();
-    player.enable();
+    player.disable();
     camera.fov = 75;
     camera.updateProjectionMatrix();
     speakerEl.textContent = 'Prime';
     overlay.dataset.speaker = 'Prime';
-    textEl.textContent = inputHint('Your room is the only teleport anchor I can reach. Your pistol and teleportation device are there. Press E when you are ready.');
+    textEl.textContent = inputHint('Press E to start your revenge.');
     hintEl.classList.add('hidden');
     overlay.classList.remove('hidden', 'fading');
     exitPrompt.style.display = 'block';
@@ -727,7 +727,7 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
   function retryTeleport(error?: unknown) {
     if (disposed) return;
     console.error('[Prologue] Transfer to living quarters failed:', error ?? 'Destination could not be prepared');
-    finished = false; exitTime = -1; player.clearInput(); player.enable();
+    finished = false; exitTime = -1; player.clearInput(); player.disable();
     speakerEl.textContent = 'Prime'; textEl.textContent = inputHint('The teleport link was interrupted. Press E to try again.');
     overlay.classList.remove('hidden'); exitPrompt.style.display = 'block';
   }
@@ -998,7 +998,7 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
     forceThirdPerson: true,
     isThirdPersonView: () => true,
     canToggleView: () => false,
-    controlsReady: () => playable && exitTime < 0,
+    controlsReady: () => false,
     getCinematicDelta: () => lastDelta,
     setMenuPaused: (value: boolean) => { if (value) skipHold.reset(); },
     getCinematicState: () => null,

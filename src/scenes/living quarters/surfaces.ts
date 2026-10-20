@@ -1,3 +1,4 @@
+import { playSfx } from '../../helpers/audio/sfx.js';
 import * as THREE from 'three';
 import { FORWARD_BULKHEAD_CODE, type QuartersProgress } from './layout.js';
 
@@ -216,6 +217,7 @@ export function createKeypad({ code, title, isUnlocked, onUnlock, validate }: {
     texture.needsUpdate = true;
   }
   function press(label: string): SurfaceAction | null {
+    playSfx('keypad', 0.8);
     pressed = label === 'BACK' ? 'CLR' : label; pressTime = 0.18;
     if (isUnlocked()) { draw(); return null; }
     message = ''; messageTime = 0;

@@ -39,6 +39,7 @@ interface FinaleOptions {
   checkpoint?: FinaleCheckpoint;
   renderer: THREE.WebGLRenderer;
   onFinished: () => void;
+  onVictoryComplete?: () => void;
   onRetry: (checkpoint: FinaleCheckpoint) => void;
   mechFactories?: Partial<Record<'hero' | 'enemy', MechFactory>>;
   loadStudents?: typeof loadSubjectModel;
@@ -114,7 +115,7 @@ const LINES: Partial<Record<FinalePhase, { start: number; end: number; speaker: 
   ],
 };
 
-export function createScene({ entryState, checkpoint, renderer, onFinished, onRetry,
+export function createScene({ entryState, checkpoint, renderer, onFinished, onVictoryComplete, onRetry,
   mechFactories, loadStudents = loadSubjectModel }: FinaleOptions) {
   const physics = createScenePhysics();
   const site = createRescueSite(physics, { culling: true,
@@ -272,7 +273,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
   const spaceReached = checkpoint?.stage === 'space' || checkpoint?.stage === 'finisher' || checkpoint?.stage === 'credits';
   let reachedSpace = spaceReached, paused = false, blurred = false, disposed = false;
   let lastPhase: FinalePhase = 'loading', lastFirework = -1;
-  let animationDelta = 0, finishedCallbackSent = false;
+  let animationDelta = 0, finishedCallbackSent = false, victoryCallbackSent = false;
   let versusCaptured = false, lastBoardingCue = -1, lastClashSpark = -1;
   let finisherEffectIndex = -1, finisherEffectClock = -1, lastExecutionCut = -1;
   let endingEntry: FinaleFramingEntry | null = null;
@@ -1035,6 +1036,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onRe
       lastPhase = phase;
       keys.clear();
       if (phase === 'space' || phase === 'finisher') reachedSpace = true;
+      if (phase === 'credits' && !victoryCallbackSent) { victoryCallbackSent = true; onVictoryComplete?.(); }
       if (phase === 'done' && !finishedCallbackSent) {
         finishedCallbackSent = true;
         onFinished();

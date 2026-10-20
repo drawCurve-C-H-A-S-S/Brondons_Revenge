@@ -29,13 +29,13 @@ export const LOADING_CHAPTERS = {
   stage2: {
     chapter: 'LEVEL 1 / MINIGAME STAGE', title: 'THE SURVEILLANCE HUB', images: [image('stage2-camera-wall')],
     tips: ['Take down the door guard silently before using the cameras.',
-      'Set a return marker with Q. Visit a camera room with E and return with T.',
+      'Visit a camera room with E and return with T.',
       'Each minigame chest contains a keycard. Try your latest card at the elevator.'],
   },
   cargo: {
     chapter: 'LEVEL 1 / MINIGAME STAGE / CARGO', title: 'THE CARGO HOLD', images: [image('stage2-cargo')],
     tips: ['Move the cargo to solve the room\'s challenge and open its reward chest.',
-      'Place your return marker in surveillance before visiting a camera room.'],
+      'Take down the guard in surveillance first, then return from any camera room with T.'],
   },
   range: {
     chapter: 'LEVEL 1 / MINIGAME STAGE / RANGE', title: 'THE TARGET RANGE', images: [image('stage2-range')],
@@ -135,6 +135,7 @@ export const SCENE_CHOICES = [
   [21.5, 'Level 3 Final Boss - Bomb release / 50% health'],
   [21.9, 'Level 3 Final Boss - Final QTE start'],
   [22, 'Epilogue - Rolling credits'],
+  [99, "Brondon's Museum"],
 ] as const;
 
 export function createLoadingSlideDeck(destination: LoadingDestination, random = Math.random) {

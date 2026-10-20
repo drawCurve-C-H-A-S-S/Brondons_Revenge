@@ -1,4 +1,5 @@
 import { getAudioSettings, subscribeAudioSettings } from '../audio/AudioManager.js';
+import { playSfx } from '../audio/sfx.js';
 import { DUEL, type FinaleQteState, type MechMove } from '../../scripts/mechDuel.js';
 import { finisherActionTime, SWORD_ATTACK_LABELS } from '../../scripts/finaleChoreography.js';
 import { FINALE_DURATION } from '../../scripts/finaleDirector.js';
@@ -310,6 +311,7 @@ export function createFinalePresentation(onInput: (code: string, pressed: boolea
       activeOscillators.clear();
     },
     sound(kind: 'hit' | 'launch' | 'parry' | 'special' | 'qte' | 'explode') {
+      if (kind === 'explode' && !muted && !getAudioSettings().paused) playSfx('explosion', 0.9);
       if (!audioContext || audioContext.state !== 'running' || muted || getAudioSettings().paused || activeOscillators.size >= 12) return;
       const oscillator = audioContext.createOscillator(), gain = audioContext.createGain(), now = audioContext.currentTime;
       const frequency = { hit: 110, launch: 210, parry: 840, special: 65, qte: 660, explode: 45 }[kind];

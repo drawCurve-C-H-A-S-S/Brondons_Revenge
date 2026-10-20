@@ -1,3 +1,4 @@
+import { playSfx } from '../../helpers/audio/sfx.js';
 /** Scene 7 - Cafeteria / Galley */
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
@@ -315,6 +316,7 @@ export function createScene({ entryState, clearedCrates = new Set<string>(), onC
     doorTarget = nearDoor ? 1 : 0;
     
     const slideDelta = 1.5 * dt;
+    if (doorOpen === 0 && doorTarget > 0) playSfx('shipDoor');
     doorOpen = doorOpen < doorTarget ? Math.min(doorOpen + slideDelta, 1) : Math.max(doorOpen - slideDelta, 0);
     const offset = doorOpen * slideD;
     doorL.position.x = -panelW / 2 - offset; doorR.position.x = panelW / 2 + offset; doorSeam.visible = doorOpen < 0.1;

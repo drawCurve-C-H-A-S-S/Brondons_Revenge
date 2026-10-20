@@ -4,7 +4,7 @@ import type { CinematicPose } from './characterManager.js';
 import { inputHint } from './gamepadInput.js';
 import type { Player, PlayerState } from './player.js';
 
-export interface ChairSeat { root: THREE.Object3D; yaw: number; /** World-space cushion point, for seats whose proxy has no top face to raycast. */ surface?: () => THREE.Vector3; }
+export interface ChairSeat { root: THREE.Object3D; yaw: number; /** World-space cushion point, for seats whose proxy has no top face to raycast. */ surface?: () => THREE.Vector3; onStand?: () => void; }
 interface SeatingOptions {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
@@ -28,6 +28,7 @@ interface Sitting {
   cameraPosition: THREE.Vector3;
   cameraRotation: THREE.Quaternion;
   cameraFov: number;
+  onStand?: () => void;
 }
 
 const ENTER_SECONDS = 1.1, EXIT_SECONDS = 1.1, HEAL_SECONDS = 4;
@@ -101,6 +102,7 @@ export function createChairSeating({ scene, camera, player, chairs, canInteract,
       phase: 'enter', time: 0, healTime: 0, position, surface, floor: bounds.min.y,
       start: new THREE.Vector3().copy(player.body.position), yaw: seat.yaw, startYaw: state.yaw, startPitch: state.pitch,
       bodyType: player.body.type, cameraPosition: camera.position.clone(), cameraRotation: camera.quaternion.clone(), cameraFov: camera.fov,
+      onStand: seat.onStand,
     };
     player.setInputLocked(true); player.body.type = CANNON.Body.KINEMATIC; player.body.updateMassProperties();
     player.body.velocity.set(0, 0, 0); player.body.force.set(0, 0, 0);
@@ -113,7 +115,7 @@ export function createChairSeating({ scene, camera, player, chairs, canInteract,
     if (event.target instanceof HTMLElement && event.target.closest('button, dialog, input, textarea, select, [contenteditable="true"]')) return;
     if (sitting) {
       event.preventDefault(); event.stopImmediatePropagation();
-      if (sitting.phase === 'rest') { sitting.phase = 'exit'; sitting.time = 0; }
+      if (sitting.phase === 'rest') { sitting.phase = 'exit'; sitting.time = 0; sitting.onStand?.(); }
       return;
     }
     const seat = findChair(); if (!seat) return;
@@ -125,7 +127,7 @@ export function createChairSeating({ scene, camera, player, chairs, canInteract,
     get active() { return sitting !== null; },
     get resting() { return sitting?.phase === 'rest'; },
     sit,
-    stand() { if (sitting?.phase === 'rest') { sitting.phase = 'exit'; sitting.time = 0; } },
+    stand() { if (sitting?.phase === 'rest') { sitting.phase = 'exit'; sitting.time = 0; sitting.onStand?.(); } },
     get delta() { return lastDelta; },
     update(dt: number) {
       lastDelta = Math.max(0, Math.min(0.1, dt));

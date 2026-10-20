@@ -1,3 +1,4 @@
+import { playSfx } from '../../helpers/audio/sfx.js';
 import * as THREE from 'three';
 import { inputHint } from '../../scripts/gamepadInput.js';
 import { teleportPlayer, createTeleportCrystal } from '../../scripts/teleportationDevice.js';
@@ -475,6 +476,7 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
     const clip = boyClips.find(item => pattern.test(item.name)) ?? boyClips.find(item => /idle/i.test(item.name));
     if (!clip) return;
     boyClipName = name;
+    if (name === 'talk') playSfx('brendan', 0.8);
     const next = boyMixer.clipAction(clip);
     next.reset(); next.setLoop(name === 'death' ? THREE.LoopOnce : THREE.LoopRepeat, Infinity); next.clampWhenFinished = name === 'death';
     next.timeScale = name === 'death' ? 0.5 : 1;

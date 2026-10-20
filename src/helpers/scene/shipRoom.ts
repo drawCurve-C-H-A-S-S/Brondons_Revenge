@@ -1,3 +1,4 @@
+import { playSfx } from '../audio/sfx.js';
 import * as THREE from 'three';
 import { disposeComicEffects } from './comicEffects.js';
 import { createScenePhysics, PHYSICS } from '../physics/scenePhysics.js';
@@ -80,6 +81,7 @@ export function createSlidingPortal(scene: THREE.Scene, physics: Physics, frame:
       // Never close on an actor already inside the opening, even when a plate releases.
       const cargoInside = options.cargo?.().some(body => { const b = group.worldToLocal(new THREE.Vector3().copy(body.position)); return Math.abs(b.x) < 2.1 && Math.abs(b.z) < 0.85 && b.y < h; });
       const occupied = open > 0.9 && ((Math.abs(p.x) < 1.8 && Math.abs(p.z) < 1.1 && p.y < h) || cargoInside);
+      if (open === 0 && !locked && (allowed || occupied)) playSfx('shipDoor');
       open = THREE.MathUtils.clamp(open + ((!locked && (allowed || occupied)) ? dt * 1.8 : -dt * (options.closeSpeed ?? 1.8)), 0, 1);
       indicator.color.setHex(allowed ? 0x65ffb6 : 0xffb34b); indicator.emissive.copy(indicator.color); sync();
       if (!locked && player.isEnabled() && !crossed && callback && open > 0.95 && Math.abs(p.x) <= w / 2 + player.radius && p.y < h && p.z <= 0) {

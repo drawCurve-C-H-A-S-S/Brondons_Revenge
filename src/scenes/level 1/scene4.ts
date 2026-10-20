@@ -1,3 +1,4 @@
+import { playSfx } from '../../helpers/audio/sfx.js';
 /**
  * Scene 4 - Computer room / bridge with better lighting, ship consoles.
  */
@@ -618,6 +619,7 @@ export function createScene({ audioManager, entryState, entryDoor = 'back', cafe
       sLightMat.emissive.setHex(0xff0000);
     }
     const slideDelta = doorSlideSpeed * dt;
+     if (doorBack.open === 0 && doorBack.targetOpen > 0) playSfx('shipDoor');
     if (doorBack.open < doorBack.targetOpen) doorBack.open = Math.min(doorBack.open + slideDelta, 1);
     else if (doorBack.open > doorBack.targetOpen) doorBack.open = Math.max(doorBack.open - slideDelta, 0);
     const slideOffset = doorBack.open * doorSlideDistance;
@@ -633,6 +635,7 @@ export function createScene({ audioManager, entryState, entryDoor = 'back', cafe
       frontDoor.sLightMat.color.setHex(0xff0000);
       frontDoor.sLightMat.emissive.setHex(0xff0000);
     }
+     if (frontDoor.open === 0 && frontDoor.targetOpen > 0) playSfx('shipDoor');
     if (frontDoor.open < frontDoor.targetOpen) frontDoor.open = Math.min(frontDoor.open + slideDelta, 1);
     else if (frontDoor.open > frontDoor.targetOpen) frontDoor.open = Math.max(frontDoor.open - slideDelta, 0);
     const frontSlideOffset = frontDoor.open * doorSlideDistance;

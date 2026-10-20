@@ -4,6 +4,7 @@ import PF from 'pathfinding';
 import { loadToolModel } from '../../core/loader.js';
 import { disposeRoom } from '../../helpers/scene/shipRoom.js';
 import { clearComicEffects, emitComicEffect } from '../../helpers/scene/comicEffects.js';
+import { playSfx, playSfxAt } from '../../helpers/audio/sfx.js';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
 import { KNOCKDOWN_DURATION, knockdownTilt } from '../../helpers/animation/knockdown.js';
 import type { DamageTarget } from '../../scripts/pistol.js';
@@ -323,7 +324,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
   function completeTakedown(id: string) {
     const actor = actors.find(candidate => candidate.id === id);
     if (!actor || alarmed || actor.mode === 'down' || actor.kind === 'eye') return false;
-    emitComicEffect(scene, 'clank', { source: actor.root });
+    emitComicEffect(scene, 'clank', { source: actor.root }); playSfx('clank', 0.9);
     actor.mode = 'down'; actor.health = 0; actor.suspicion = 0; actor.downTime = 0;
     actor.body.collisionResponse = false; actor.beam.visible = actor.footprint.visible = false;
     animation(actor, 'down'); return true;
@@ -342,10 +343,11 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
         }
         actor.health = 0; actor.mode = 'down'; actor.downTime = 0; actor.suspicion = 0;
         actor.body.collisionResponse = false; animation(actor, 'down'); updateBeam(actor);
-        emitComicEffect(scene, 'clank', { source: actor.root }); silentDroneShot = true; return true;
+        emitComicEffect(scene, 'clank', { source: actor.root }); playSfx('clank', 0.9); silentDroneShot = true; return true;
       }
       actor.health -= amount;
       emitComicEffect(scene, actor.health <= 0 ? 'clank' : 'hit', { source: actor.root, weapon });
+      playSfx('clank', actor.health <= 0 ? 0.9 : 0.3);
       if (actor.health <= 0) { actor.mode = 'down'; actor.downTime = 0; actor.body.collisionResponse = false; animation(actor, 'down'); }
       if (weapon) forceAlarm(actor.id);
       return true;
@@ -357,6 +359,7 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
       return true;
     } }));
 
+  const stepDistances = new Map<StealthActor, number>();
   function move(actor: StealthActor, dt: number, speed: number) {
     while (actor.path.length && distance(actor.root.position, actor.path[0]) < 0.18) actor.path.shift();
     const next = actor.path[0];
@@ -373,6 +376,12 @@ export function createStealthDirector(scene: THREE.Scene, physics: Physics, hang
       if (blocked) return false;
     }
     actor.root.position.copy(proposed);
+    const walked = (stepDistances.get(actor) ?? 0) + travel;
+    if (walked >= 0.9 && actor.kind !== 'eye') {
+      stepDistances.set(actor, 0);
+      const listener = callbacks.getPlayerPosition?.() ?? observer?.position;
+      if (listener) playSfxAt('robotStep', actor.root.position, listener, 18, 0.8);
+    } else stepDistances.set(actor, walked);
     desiredRotation.setFromAxisAngle(up, Math.atan2(direction.x, direction.z));
     actor.root.quaternion.slerp(desiredRotation, 1 - Math.exp(-dt * 7));
     return true;

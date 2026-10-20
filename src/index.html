@@ -313,6 +313,22 @@
               </p>
             </li>
             <li>
+              <a href="https://skfb.ly/6RCzI" target="_blank" rel="noreferrer"
+                >Toilet Paper</a
+              >
+              <p class="credit-detail">
+                sergey-is <span class="credit-license">CC BY 4.0</span>
+              </p>
+            </li>
+            <li>
+              <a href="https://skfb.ly/6S9CM" target="_blank" rel="noreferrer"
+                >Toilet</a
+              >
+              <p class="credit-detail">
+                HippoStance <span class="credit-license">CC BY 4.0</span>
+              </p>
+            </li>
+            <li>
               <a href="https://skfb.ly/6vSDA" target="_blank" rel="noreferrer"
                 >Space Ship mk2</a
               >
@@ -459,6 +475,18 @@
           </p>
         </section>
         <section class="credit-section">
+          <h2 class="credit-role">Sound effects</h2>
+          <p class="credit-detail">
+            Footsteps by <a href="https://pixabay.com/users/yarzur_ofc-49620193/" target="_blank" rel="noreferrer">Diego Nasc</a> from Pixabay<br />
+            Door opening and explosions by <a href="https://pixabay.com/users/dragon-studio-38165424/" target="_blank" rel="noreferrer">DRAGON-STUDIO</a> from Pixabay<br />
+            Keypad beep by <a href="https://pixabay.com/users/mr_berrydev-40649933/" target="_blank" rel="noreferrer">Mr_Berrydev</a> from Pixabay<br />
+            Sword slash by <a href="https://pixabay.com/users/daviddumaisaudio-41768500/" target="_blank" rel="noreferrer">David Dumais</a> from Pixabay<br />
+            Crowbar swing by <a href="https://pixabay.com/users/oxidvideos-37598254/" target="_blank" rel="noreferrer">Alex</a> from Pixabay<br />
+            Gunshot, red bombs, waterfall, spaceship door, robot clank, punch, toilet flush and Brendan's voice by
+            <a href="https://pixabay.com/users/freesound_community-46691455/" target="_blank" rel="noreferrer">freesound_community</a> from Pixabay
+          </p>
+        </section>
+        <section class="credit-section">
           <h2 class="credit-role">Development tools</h2>
           <p class="credit-detail">
             <a
@@ -500,17 +528,58 @@
 
     <!-- Menu buttons -->
     <div id="menu-buttons" class="hidden">
-      <div class="menu-actions">
+      <div id="title-actions" class="menu-actions">
         <button id="play-btn" class="menu-btn">PLAY</button>
-        <button id="options-btn" class="menu-btn" type="button">Options</button>
         <button id="quit-btn" class="menu-btn">DON'T PLAY</button>
         <p class="controller-menu-hint">
           Left stick / D-pad: choose · A: select · +: menu
         </p>
       </div>
-      <button id="view-credits-btn" class="scene-credits-btn" type="button">
-        View Credits
-      </button>
+      <div id="mode-select" class="menu-actions hidden">
+        <button id="story-mode-btn" class="menu-btn" type="button">Story Mode</button>
+        <button id="arcade-mode-btn" class="menu-btn" type="button">Arcade Mode</button>
+        <button id="mode-back-btn" class="menu-btn menu-btn-quiet" type="button">Back</button>
+      </div>
+      <div id="character-select" class="hidden">
+        <h2>Choose your character</h2>
+        <div class="character-cards">
+          <button class="character-card" type="button" data-character="brondon">
+            <span class="character-card-name">Brondon</span>
+            <span class="character-card-note">The hero of the story</span>
+          </button>
+          <button class="character-card" type="button" data-character="brendan">
+            <span class="character-card-name">Brendan</span>
+            <span class="character-card-note">Street-smart wildcard</span>
+          </button>
+        </div>
+        <button id="character-back-btn" class="menu-btn menu-btn-quiet" type="button">Back</button>
+      </div>
+      <div id="title-icon-bar">
+        <button id="options-btn" class="title-icon-btn" type="button" aria-label="Settings" title="Settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.5 7.5 0 0 0-1.7-1L15 3.3h-4l-.4 2.7a7.5 7.5 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1c.5.4 1.1.7 1.7 1l.4 2.7h4l.4-2.7c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.4zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg>
+        </button>
+        <button id="view-credits-btn" class="title-icon-btn" type="button" aria-label="Credits" title="Credits">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.9 6.3 6.9.7-5.2 4.6 1.5 6.8L12 16.9 5.9 20.4l1.5-6.8L2.2 9l6.9-.7z"/></svg>
+        </button>
+        <button id="disclaimer-btn" class="title-icon-btn" type="button" aria-label="Disclaimer" aria-expanded="false" title="Disclaimer">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L1 21h22zm1 15h-2v-2h2zm0-4h-2V9h2z"/></svg>
+        </button>
+        <p id="disclaimer-text" class="hidden" role="note">Warning: this game is highly addictive.</p>
+      </div>
+    </div>
+
+    <!-- Arcade results -->
+    <div id="arcade-results" class="hidden" role="dialog" aria-labelledby="arcade-results-title">
+      <div class="arcade-results-card">
+        <p class="arcade-results-eyebrow">Stage complete</p>
+        <h2 id="arcade-results-title"></h2>
+        <div class="arcade-grade" id="arcade-grade">S</div>
+        <dl class="arcade-stats" id="arcade-stats"></dl>
+        <div class="arcade-results-actions">
+          <button id="arcade-play-again" class="menu-btn" type="button">Play again</button>
+          <button id="arcade-return" class="menu-btn" type="button">Return to Brondon's Museum</button>
+        </div>
+      </div>
     </div>
 
     <!-- Fade overlay for transitions -->
@@ -535,6 +604,9 @@
         </button>
         <button id="pause-ship-map" type="button" class="hidden">
           View Ship Map
+        </button>
+        <button id="pause-return-museum" type="button" class="hidden">
+          Return to Museum
         </button>
         <button id="pause-sound" type="button">Sound</button>
         <button id="pause-display" type="button">Display</button>

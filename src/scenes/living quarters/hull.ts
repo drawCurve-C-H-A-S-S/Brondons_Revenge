@@ -1,3 +1,4 @@
+import { playSfx } from '../../helpers/audio/sfx.js';
 import * as THREE from 'three';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
 import { createShipInteriorMaterials } from '../../helpers/scene/shipInterior.js';
@@ -54,6 +55,7 @@ export function createQuartersHull(scene: THREE.Scene, physics: Physics, progres
     });
     let openness = 0;
     function update(dt: number, open: boolean) {
+      if (openness === 0 && open && !locked) playSfx('shipDoor');
       openness = THREE.MathUtils.clamp(openness + (open && !locked ? 1 : -1) * dt * 2.4, 0, 1);
       for (const leaf of leaves) {
         leaf.mesh.position.x = leaf.side * (width / 4 + openness * (width / 2 + 0.06));

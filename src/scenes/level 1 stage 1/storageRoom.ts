@@ -1,3 +1,4 @@
+import { playSfx } from '../../helpers/audio/sfx.js';
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { loadToolModel, preloadToolModel } from '../../core/loader.js';
@@ -514,6 +515,7 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
 
   function endPeek(open: boolean) {
     peeking = false;
+    if (open !== doorOpen) playSfx('door');
     doorOpen = open;
     player.setInputLocked(false);
     player.setLookLocked(false);
@@ -579,8 +581,8 @@ export function createScene({ onComplete, hintsEnabled = true, restoreCheckpoint
     if (climbing) return;
     if (peeking) endPeek(true);
     else if (!checkpoint && nearDoor()) {
-      if (player.body.position.z < 0) { doorOpen = !doorOpen; }
-      else if (doorOpen) doorOpen = false;
+      if (player.body.position.z < 0) { doorOpen = !doorOpen; playSfx('door'); }
+      else if (doorOpen) { doorOpen = false; playSfx('door'); }
       else beginPeek();
     } else if (nearQuartersDoor()) {
       quartersRequested = !quartersRequested;

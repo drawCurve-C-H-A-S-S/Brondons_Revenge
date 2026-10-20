@@ -1,3 +1,4 @@
+import { playSfx } from '../audio/sfx.js';
 import * as THREE from 'three';
 import { createEnergyMaterial, createBeamMaterial, FRAME_COLORS } from './finaleMaterials.js';
 import type { MechSide } from '../../scripts/mechDuel.js';
@@ -121,7 +122,7 @@ export function createFinaleEffects(scene: THREE.Scene, reducedMotion: boolean, 
   let lastChargeSpark = -1, lastSpeedFrame = -1;
   const projectileSparkFrames = new Array<number>(32).fill(-1);
   const up = new THREE.Vector3(0, 1, 0), direction = new THREE.Vector3();
-  function slash(from: THREE.Vector3, to: THREE.Vector3, tint: number = FRAME_COLORS.hero) {
+  function slash(from: THREE.Vector3, to: THREE.Vector3, tint: number = FRAME_COLORS.hero) { playSfx('slash', 0.8);
     const item = slashPool[slashCursor++ % slashPool.length];
     direction.copy(to).sub(from);
     item.mesh.position.copy(from).lerp(to, 0.5);

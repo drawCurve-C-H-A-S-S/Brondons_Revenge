@@ -1,3 +1,4 @@
+import { playSfx } from '../../helpers/audio/sfx.js';
 import * as THREE from 'three';
 import { emitComicEffect } from '../../helpers/scene/comicEffects.js';
 
@@ -159,7 +160,7 @@ export function createSidescrollPhase({ scene, camera, ship, boss, rail, shoot, 
         device.rotation.y = THREE.MathUtils.smootherstep(appearanceTime, 0.85, appearanceDuration - 1.4) * Math.PI * 2;
         cooldown -= dt;
         if (cooldown <= 0) {
-          volley++; cooldown = volley % 3 === 0 ? 1.8 : 1.25;
+          volley++; playSfx('redBomb', 0.6); cooldown = volley % 3 === 0 ? 1.8 : 1.25;
           const from = new THREE.Vector3(0, boss.position.y + (volley % 2 ? 18 : -18), railZ + 185);
           if (volley % 3 === 0) {
             const gap = Math.sin(elapsed) * 65;

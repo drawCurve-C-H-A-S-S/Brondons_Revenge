@@ -1,3 +1,4 @@
+import { playSfx } from '../../helpers/audio/sfx.js';
 /**
  * Scene 3 - Passageway with dirty tiles, flickering lights, two sliding doors.
  */
@@ -507,6 +508,7 @@ export function createScene({ audioManager, entryState, entryDoor, hasCrowbar = 
         door.sLightMat.emissive.setHex(0xff0000);
       }
       const slideDelta = doorSlideSpeed * dt;
+       if (door.open === 0 && door.targetOpen > 0) playSfx('shipDoor');
       if (door.open < door.targetOpen) door.open = Math.min(door.open + slideDelta, 1);
       else if (door.open > door.targetOpen) door.open = Math.max(door.open - slideDelta, 0);
       const slideOffset = door.open * doorSlideDistance;
@@ -531,6 +533,7 @@ export function createScene({ audioManager, entryState, entryDoor, hasCrowbar = 
         door.sLightMat.emissive.setHex(0xff0000);
       }
       const slideDelta = doorSlideSpeed * dt;
+       if (door.open === 0 && door.targetOpen > 0) playSfx('shipDoor');
       if (door.open < door.targetOpen) door.open = Math.min(door.open + slideDelta, 1);
       else if (door.open > door.targetOpen) door.open = Math.max(door.open - slideDelta, 0);
       const slideOffset = door.open * doorSlideDistance;

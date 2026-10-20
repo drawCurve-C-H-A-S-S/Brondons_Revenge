@@ -1,3 +1,4 @@
+import { playSfx } from '../helpers/audio/sfx.js';
 import * as THREE from 'three';
 import type * as CANNON from 'cannon-es';
 import { UNARMED_ATTACK_SPEED, type UnarmedAttackName } from '../core/combatAnimations.js';
@@ -61,6 +62,7 @@ export class UnarmedCombatController {
     const clip = context.attackClips.find(clip => clip.name === move.clip)!;
     if (!player.requestAction(move.clip)) return false;
     this.lastPunch = move.clip;
+    playSfx('melee');
     this.punch = { move, player, elapsed: 0, duration: clip.duration / UNARMED_ATTACK_SPEED };
     this.fists.reset();
     this.fists.prime(getAttackSegment(player, 0.4, move.side, 1.15));

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { yieldToMainThread } from '../../core/loader.js';
+import { playSfx } from '../audio/sfx.js';
 
 export type ComicEffectKind = 'hit' | 'boom' | 'clank' | 'pew' | 'thud';
 interface ComicEffectOptions {
@@ -119,6 +120,7 @@ export function emitComicEffect(container: THREE.Object3D, kind: ComicEffectKind
       : options.weapon === 'lightsaber' || options.weapon === 'laser' ? 'ZAP!' : options.weapon === 'crowbar' ? 'KRAK!' : ['BAM!', 'PING!', 'KRAK!'][system.serial % 3]
     : `${kind.toUpperCase()}!`;
   const anchor = options.anchor ?? ((kind === 'hit' || kind === 'pew') ? options.source ?? null : null);
+  if (kind === 'boom') playSfx('explosion', Math.min(1, 0.55 + size * 0.04));
   const localPoint = anchor ? anchor.worldToLocal(point.clone()) : point.clone();
   system.active.push({ kind, word, source: options.source, anchor, point, localPoint, size, age: 0,
     side: system.serial++ % 2 ? -1 : 1, sprite: null });

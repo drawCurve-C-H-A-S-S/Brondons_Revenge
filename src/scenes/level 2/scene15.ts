@@ -1,3 +1,4 @@
+import { playSfx } from '../../helpers/audio/sfx.js';
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
@@ -586,7 +587,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     }
     const charging = boss.fireCd < 0.65;
     // The generators bloom as they charge and the glow fades out right after the volley.
-    bloomPulse = phase === 'bossArmor' && charging ? Math.max(bloomPulse, 1 - Math.max(0, boss.fireCd) / 0.65) : Math.max(0, bloomPulse - dt * 3);
+    bloomPulse = (phase === 'bossArmor' || phase === 'bossCore') && charging ? Math.max(bloomPulse, 1 - Math.max(0, boss.fireCd) / 0.65) : Math.max(0, bloomPulse - dt * 3);
     for (const target of [...boss.generators, boss.core]) {
       if (target.health <= 0) continue;
       target.ring.rotation.z += dt * 0.7;
@@ -752,7 +753,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
           rocket.velocity.copy(rocket.target).sub(rocket.mesh.position).normalize().multiplyScalar(220).addScaledVector(FORWARD, FLIGHT_RULES.cruise);
           rocket.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), rocket.velocity.clone().addScaledVector(FORWARD, -FLIGHT_RULES.cruise).normalize());
           rocket.blastRadius = phase === 'topdownScrambler' ? 18 : 11;
-          rocket.life = 6; rocket.delay = 0.8; rocket.marker.position.copy(rocket.target); rocket.mesh.visible = rocket.marker.visible = true;
+          playSfx('redBomb', 0.5, 1.4); rocket.life = 6; rocket.delay = 0.8; rocket.marker.position.copy(rocket.target); rocket.mesh.visible = rocket.marker.visible = true;
         }
       }
     }
@@ -779,7 +780,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
         const contact = before / (before - after);
         rocket.blast.position.lerpVectors(previous, rocket.mesh.position, contact);
         rocket.blast.position.z += FLIGHT_RULES.cruise * dt * (1 - contact);
-        rocket.blastAge = 0; rocket.damaged = false; rocket.blast.scale.setScalar(0);
+        playSfx('explosion', 0.8); rocket.blastAge = 0; rocket.damaged = false; rocket.blast.scale.setScalar(0);
         rocket.blast.material.opacity = 0.8; rocket.blast.visible = true; rocket.life = 0;
       }
       if (rocket.life <= 0) rocket.mesh.visible = rocket.marker.visible = false;
@@ -1150,8 +1151,9 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       return true;
     },
     roomId: 'scene15', scene, camera, physicsWorld, player, ship, planet, ready: shieldReady, cutsceneManager: null,
-    getBloomTargets: (): THREE.Object3D[] => phase === 'bossArmor' && boss
-      ? boss.generators.filter(t => t.health > 0).flatMap(t => [t.mesh, t.ring]) : [],
+    getBloomTargets: (): THREE.Object3D[] => !boss ? []
+      : phase === 'bossArmor' ? boss.generators.filter(t => t.health > 0).flatMap(t => [t.mesh, t.ring])
+      : phase === 'bossCore' && boss.core.health > 0 ? [boss.core.mesh, boss.core.ring] : [],
     getBloomPulse: () => bloomPulse,
     getMusicTrack: (): 'level-2' | 'level-2-boss' => redScramblerCleared ? 'level-2-boss' : 'level-2',
     hasBossVictory: () => phase === 'victory',

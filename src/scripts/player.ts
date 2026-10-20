@@ -1,3 +1,4 @@
+import { playSfx } from '../helpers/audio/sfx.js';
 /**
  * Player controller - first-person camera with WASD movement and head bobbing.
  */
@@ -635,7 +636,21 @@ export function createPlayer({ camera, physicsWorld, spawnPosition }: PlayerOpti
     }
   }
 
+  let stepDistance = 0, stepX = NaN, stepZ = NaN;
+  function updateFootsteps() {
+    const { x, z } = playerBody.position;
+    const moved = Number.isNaN(stepX) ? 0 : Math.hypot(x - stepX, z - stepZ);
+    stepX = x; stepZ = z;
+    if (moved > 1 || !enabled || zeroGMode || climbing || sliding || !isOnGround) { stepDistance = 0; return; }
+    stepDistance += moved;
+    const stride = sprinting ? 1.9 : crouching ? 1.1 : 1.45;
+    if (stepDistance < stride) return;
+    stepDistance = 0;
+    playSfx('footstep', crouching ? 0.2 : 0.4);
+  }
+
   function afterPhysicsStep() {
+    updateFootsteps();
     if (sideScrollDepth !== null) {
       playerBody.position.z = sideScrollDepth;
       playerBody.velocity.z = 0;

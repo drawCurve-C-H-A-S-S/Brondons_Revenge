@@ -1,3 +1,4 @@
+import { playSfx, updateWaterfallAudio, stopWaterfallAudio } from '../../helpers/audio/sfx.js';
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { createScenePhysics, createGroundMotor, PHYSICS, registerPhysicsActor } from '../../helpers/physics/scenePhysics.js';
@@ -627,10 +628,12 @@ export function createScene({ entryState, fromFacility = false, onRespawn, onFin
       }
     },
   });
+  let boyVoiced = false;
   function updateHud() {
     if (completed || deathClock > 0 || sharkClock >= 0 || muralClock >= 0) return;
     const nearBoy = arrivalClock < 7 && Math.hypot(player.body.position.x - boy.position.x, player.body.position.z - boy.position.z) < 12;
     caption?.classList.toggle('hidden', !nearBoy);
+    if (nearBoy && !boyVoiced) { boyVoiced = true; playSfx('brendan', 0.8); }
     if (nearBoy && caption) caption.textContent = '"I will stay with the ships. The facility is ahead. Follow the stone path; the waterfall may hide something."';
     if (status) status.textContent = patrolLoadError || dinoLoadError || sharkLoadError ? 'JUNGLE ASSETS COULD NOT LOAD / RESTART THIS CHECKPOINT'
       : site.waterfall.locked ? 'WATERFALL WARDEN / DEFEAT IT TO UNSEAL THE ARENA'
@@ -810,6 +813,7 @@ export function createScene({ entryState, fromFacility = false, onRespawn, onFin
       waterfallContact.headY = player.getHeadY();
       site.setBrendanActivity(arrivalClock < 7 && !fromFacility ? 'talk' : 'ambient');
       site.update(dt, waterfallContact);
+      updateWaterfallAudio(Math.hypot(player.body.position.x - site.waterfall.center.x, player.body.position.z - site.waterfall.center.z));
       brendanBody.position.set(boy.position.x, boy.position.y + 0.875, boy.position.z);
       brendanBody.aabbNeedsUpdate = true; physicsWorld.broadphase.dirty = true;
       if (deathClock > 0) {
@@ -867,7 +871,7 @@ export function createScene({ entryState, fromFacility = false, onRespawn, onFin
       updateHud();
     },
     dispose() {
-      if (disposed) return; disposed = true; unregister(); stopDefense(); miniboss.dispose(); landSquad.dispose();
+      if (disposed) return; disposed = true; unregister(); stopWaterfallAudio(); stopDefense(); miniboss.dispose(); landSquad.dispose();
       window.removeEventListener('blur', onBlur); window.removeEventListener('focus', onFocus);
       scene.onBeforeRender = () => {}; physicsFocus.length = 0;
       status?.classList.add('hidden'); caption?.classList.add('hidden'); prompt?.classList.add('hidden');

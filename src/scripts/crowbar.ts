@@ -1,3 +1,4 @@
+import { playSfx } from '../helpers/audio/sfx.js';
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { createCrowbar } from './items/createCrowbar.js';
@@ -77,7 +78,7 @@ export class CrowbarController {
   private swing() {
     const { scene, camera, player, openDoor } = this.context();
     if (document.hidden || document.body.classList.contains('quick-menu-open') || !this.equipped || this.cooldown > 0 || !player?.isEnabled() || player.getState().sliding || player.getState().climbing || player.getState().ventMode || player.getState().boxHandling || !scene || !camera) return false;
-    player.requestAction('Sword_Attack');
+    player.requestAction('Sword_Attack'); playSfx('crowbar');
     openDoor();
     this.melee.reset();
     this.cooldown = CROWBAR_SWING_DURATION;

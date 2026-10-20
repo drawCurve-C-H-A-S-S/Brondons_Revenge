@@ -15,6 +15,7 @@ import { createSceneMinimap, prepareSceneRendering } from "./core/renderer.js";
 import { configureAssetCache, type PreloadTask } from "./core/assetCache.js";
 import { GAME_ASSET_URLS, preloadGameAssets } from "./core/gamePreload.js";
 import { SCENE_CHOICES } from "./core/chapters.js";
+import { MUSEUM_EXHIBITS } from "./scenes/museum/museumCatalog.js";
 import {
   createShipMap,
   createShipMapProgress,
@@ -137,6 +138,7 @@ const sceneImports = {
   17: () => import("./scenes/level 3/scene17.js"),
   20: () => import("./scenes/level 3/scene20.js"),
   21: () => import("./scenes/level 3/scene21.js"),
+  99: () => import("./scenes/museum/museum.js"),
 };
 type SceneModuleId = keyof typeof sceneImports;
 const sceneModules = new Map<SceneModuleId, Promise<unknown>>();
@@ -562,15 +564,29 @@ function showTeleportDeviceMessage(message: string) {
   }, 3000);
 }
 
+// Prime speaks from the top-left corner of the screen during gameplay.
+function installPrimeDialoguePlacement() {
+  const mark = (node: Node) => {
+    const element = node instanceof Element ? node : node.parentElement;
+    if (!element || element.closest("#prologue-dialogue, .finale-dialogue")) return;
+    const text = (element.textContent ?? "").trim();
+    if (element.classList.contains("quarters-speaker") && text.toLowerCase() === "prime") {
+      element.parentElement?.classList.add("prime-top-left");
+      return;
+    }
+    if (element.children.length || text.length > 400) return;
+    element.classList.toggle("prime-top-left", /^prime:/i.test(text));
+  };
+  new MutationObserver((records) => {
+    for (const record of records) mark(record.target);
+  }).observe(document.body, { childList: true, characterData: true, subtree: true });
+}
+installPrimeDialoguePlacement();
+
+// The crystal hanging in the camera room is always the way back; no marker needed.
+const CAMERA_CRYSTAL_ANCHOR = { x: 28, z: -55, yaw: Math.PI };
 function surveillanceMarkerPlaced() {
-  const marker = teleportDevice.getState();
-  return (
-    stageTwoProgress.guardDown &&
-    marker.placed &&
-    marker.placementScene === "stage2-infiltration" &&
-    !!marker.placementPosition &&
-    isSurveillancePoint(marker.placementPosition)
-  );
+  return stageTwoProgress.guardDown;
 }
 
 function isCameraVisit(id: string) {
@@ -607,24 +623,28 @@ const teleportDevice = new TeleportationDeviceController(() => ({
   getPlayerPosition: () =>
     currentPlayer ? { ...currentPlayer.body.position } : { x: 0, y: 0, z: 0 },
   getPlayerRotation: () => currentPlayer?.getState().yaw ?? 0,
+  getAimDirection: () => {
+    const direction = new THREE.Vector3(0, 0, -1);
+    activeCamera?.getWorldDirection(direction);
+    return direction;
+  },
   onTeleport: (sceneId, position, rotation) => {
     void teleportToAnchor(sceneId, position, rotation);
   },
   showMessage: showTeleportDeviceMessage,
-  placementMessage: (sceneId, position) =>
-    sceneId === "stage2-infiltration" && isSurveillancePoint(position)
-      ? "Prime: Marker set. E on a screen to travel, T to return."
-      : isCameraVisit(sceneId) || sceneId === "stage2-infiltration"
-        ? "Prime: Set the marker inside the camera room."
-        : "Purple marker placed. Press T to return; hold Tab to choose weapons.",
-  returnError: (state) =>
-    (isCameraVisit(activeSceneId) || activeSceneId === "stage2-infiltration") &&
-    !(
-      state.placementScene === "stage2-infiltration" &&
-      state.placementPosition &&
-      isSurveillancePoint(state.placementPosition)
-    )
-      ? "Prime: Your marker must be in the camera room. R restarts."
+  placementMessage: () =>
+    "Purple marker placed. Press T to return; hold Tab to choose weapons.",
+  returnOverride: () =>
+    isCameraVisit(activeSceneId) && surveillanceMarkerPlaced()
+      ? {
+          sceneId: "stage2-infiltration",
+          position: {
+            x: CAMERA_CRYSTAL_ANCHOR.x,
+            y: currentPlayer?.radius ?? 0.3,
+            z: CAMERA_CRYSTAL_ANCHOR.z,
+          },
+          rotation: CAMERA_CRYSTAL_ANCHOR.yaw,
+        }
       : null,
 }));
 
@@ -753,6 +773,7 @@ async function initializeApp() {
   initializeControls();
   setupViewToggle();
   setupSceneQuickMenu();
+  setupArcadeResults();
   initTouchControls();
   setupControllerInput();
 
@@ -1695,14 +1716,46 @@ let menuButtonsShown = false;
 function showMenuButtons() {
   const menuButtons = document.getElementById("menu-buttons")!;
   menuButtons.classList.remove("hidden");
+  showTitlePanel("title", false);
   if (isControllerActive() && !quickMenuOpen)
     focusControllerMenuItem(document.getElementById("play-btn")!);
   if (menuButtonsShown) return;
   menuButtonsShown = true;
 
   document.getElementById("play-btn")!.addEventListener("click", () => {
+    showTitlePanel("mode");
+  });
+  document.getElementById("story-mode-btn")!.addEventListener("click", () => {
+    arcade.active = false;
+    arcade.run = null;
     menuButtons.classList.add("hidden");
     void transitionToScene2();
+  });
+  document.getElementById("arcade-mode-btn")!.addEventListener("click", () => {
+    showTitlePanel("character");
+  });
+  document
+    .getElementById("mode-back-btn")!
+    .addEventListener("click", () => showTitlePanel("title"));
+  document
+    .getElementById("character-back-btn")!
+    .addEventListener("click", () => showTitlePanel("mode"));
+  document
+    .querySelectorAll<HTMLElement>(".character-card")
+    .forEach((card) =>
+      card.addEventListener("click", () => {
+        arcade.character = card.dataset.character as ArcadeCharacter;
+        arcade.active = true;
+        menuButtons.classList.add("hidden");
+        void startArcade();
+      }),
+    );
+  const disclaimerButton = document.getElementById("disclaimer-btn")!;
+  disclaimerButton.addEventListener("click", () => {
+    const note = document.getElementById("disclaimer-text")!;
+    const show = note.classList.contains("hidden");
+    note.classList.toggle("hidden", !show);
+    disclaimerButton.setAttribute("aria-expanded", String(show));
   });
   document.getElementById("quit-btn")!.addEventListener("click", () => {
     const quitButton = document.getElementById("quit-btn") as HTMLButtonElement;
@@ -1722,6 +1775,244 @@ function showMenuButtons() {
   document
     .getElementById("options-btn")!
     .addEventListener("click", () => setPauseMenu("home"));
+}
+
+// --- Arcade mode / Brondon's Museum ---
+const MUSEUM_ID = 99;
+const MUSEUM_STAGE_TITLES = new Map(
+  MUSEUM_EXHIBITS.map((exhibit) => [exhibit.id, exhibit.title] as const),
+);
+type ArcadeCharacter = "brondon" | "brendan";
+interface ArcadeRun {
+  id: number;
+  sceneKey: string | null;
+  elapsed: number;
+  damage: number;
+  lastHealth: number | null;
+  lowestHealth: number;
+  deaths: number;
+  finished: boolean;
+}
+const arcade = {
+  active: false,
+  character: "brondon" as ArcadeCharacter,
+  run: null as ArcadeRun | null,
+  resultsOpen: false,
+};
+let arcadeReturnTo: number | undefined;
+
+function showTitlePanel(panel: "title" | "mode" | "character", focus = true) {
+  const ids = {
+    title: "title-actions",
+    mode: "mode-select",
+    character: "character-select",
+  } as const;
+  for (const [key, id] of Object.entries(ids))
+    document.getElementById(id)!.classList.toggle("hidden", key !== panel);
+  if (focus && isControllerActive()) updateControllerMenuFocus();
+  else if (focus)
+    document
+      .querySelector<HTMLElement>(
+        panel === "title"
+          ? "#play-btn"
+          : panel === "mode"
+            ? "#story-mode-btn"
+            : ".character-card",
+      )
+      ?.focus();
+}
+
+async function startArcade() {
+  if (playLoading) return;
+  playLoading = true;
+  const loading = beginCinematicLoading("game");
+  try {
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+    await prepareEntireGame(loading);
+    await loading.presented;
+    loading.setStatus("Lighting the braziers of Brondon's Museum...");
+    await prepareGlobalCharacter();
+    arcadeReturnTo = undefined;
+    await enterSceneById(MUSEUM_ID);
+    if (activeSceneId !== "museum")
+      throw new Error("The museum could not be opened");
+    if (preparationSteps)
+      loading.setProgress(preparationSteps, preparationSteps, "Ready to play");
+    loading.finish();
+  } catch (error) {
+    console.error("[Arcade] Preparation failed:", error);
+    loading.fail(
+      `The museum could not be prepared: ${error instanceof Error ? error.message : String(error)}`,
+      () => {
+        void startArcade();
+      },
+    );
+  } finally {
+    playLoading = false;
+  }
+}
+
+async function loadMuseum(returnTo?: number) {
+  await prepareChapter(
+    "game",
+    async () => {
+      const module = await prepareScene(99);
+      if (!module) throw new Error("Brondon's Museum could not load");
+      await preloadMusic(MUSIC_URLS["broken-chains"]);
+      return {
+        id: "museum",
+        data: module.createScene({
+          character: arcade.character,
+          returnTo,
+          onEnterStage: startArcadeStage,
+        }),
+      };
+    },
+    () => {
+      void loadMuseum(returnTo);
+    },
+    false,
+  );
+}
+
+async function startArcadeStage(id: number) {
+  arcade.run = {
+    id,
+    sceneKey: null,
+    elapsed: 0,
+    damage: 0,
+    lastHealth: null,
+    lowestHealth: PLAYER_MAX_HEALTH,
+    deaths: 0,
+    finished: false,
+  };
+  await enterSceneById(id);
+  // A stage that failed to load leaves nothing running, so go back to the hall.
+  if (arcade.run?.id === id && arcade.run.sceneKey === null) {
+    arcade.run = null;
+    arcadeReturnTo = id;
+    await enterSceneById(MUSEUM_ID);
+  }
+}
+
+async function returnToMuseum() {
+  const returnTo = arcade.run?.id ?? arcadeReturnTo;
+  arcade.run = null;
+  arcadeReturnTo = returnTo;
+  await enterSceneById(MUSEUM_ID);
+}
+
+function arcadeSceneEntered(id: string) {
+  const run = arcade.run;
+  if (!arcade.active || !run) return;
+  if (id === "museum") {
+    arcade.run = null;
+    return;
+  }
+  if (run.sceneKey === null) {
+    run.sceneKey = id;
+  } else if (id === run.sceneKey) {
+    run.deaths++;
+    run.lastHealth = null;
+  } else if (MUSEUM_EXHIBITS.find((exhibit) => exhibit.id === run.id)?.sceneKeys.includes(id)) {
+    // A later part of the same multi-scene stage.
+  } else if (!run.finished) {
+    // Another scene taking over means the stage has been completed.
+    run.finished = true;
+    window.setTimeout(showArcadeResults, 500);
+  }
+}
+
+function completeArcadeStage() {
+  const run = arcade.run;
+  if (!arcade.active || !run || run.sceneKey === null || run.finished) return;
+  run.finished = true;
+  window.setTimeout(showArcadeResults, 500);
+}
+
+function trackArcadeRun(delta: number) {
+  const run = arcade.run;
+  if (!run || run.sceneKey === null || run.finished || !currentPlayer) return;
+  run.elapsed += Math.min(delta, 0.1);
+  const health = currentPlayer.getHealth();
+  if (run.lastHealth !== null && health < run.lastHealth)
+    run.damage += run.lastHealth - health;
+  run.lastHealth = health;
+  run.lowestHealth = Math.min(run.lowestHealth, health);
+}
+
+function arcadeGrade(run: ArcadeRun) {
+  const ratio = run.damage / PLAYER_MAX_HEALTH;
+  const tier = ratio <= 0.05 ? 0 : ratio <= 0.25 ? 1 : ratio <= 0.5 ? 2 : ratio <= 0.9 ? 3 : 4;
+  return ["S", "A", "B", "C", "D"][Math.min(4, tier + run.deaths)];
+}
+
+function showArcadeResults() {
+  const run = arcade.run;
+  if (!run || !run.finished || arcade.resultsOpen) return;
+  arcade.resultsOpen = true;
+  weaponWheel.close();
+  clearSceneInput();
+  if (document.pointerLockElement) document.exitPointerLock();
+  quickMenuOpen = true;
+  document.body.classList.add("quick-menu-open");
+  setAudioMenuPaused(true);
+  music.setMenuOpen(true);
+  currentSceneData?.setMenuPaused?.(true);
+  const stage = MUSEUM_STAGE_TITLES.get(run.id) ?? "Stage";
+  const grade = arcadeGrade(run);
+  const minutes = Math.floor(run.elapsed / 60);
+  const seconds = Math.floor(run.elapsed % 60);
+  const finalHealth = run.lastHealth ?? PLAYER_MAX_HEALTH;
+  document.getElementById("arcade-results-title")!.textContent = stage;
+  const gradeElement = document.getElementById("arcade-grade")!;
+  gradeElement.textContent = grade;
+  gradeElement.dataset.grade = grade;
+  const rows: Array<[string, string]> = [
+    ["Time", `${minutes}:${String(seconds).padStart(2, "0")}`],
+    ["Damage taken", String(Math.round(run.damage))],
+    ["Health remaining", `${Math.round(finalHealth)} / ${PLAYER_MAX_HEALTH}`],
+    ["Lowest health", `${Math.round(run.lowestHealth)}`],
+    ["Retries", String(run.deaths)],
+  ];
+  document.getElementById("arcade-stats")!.replaceChildren(
+    ...rows.flatMap(([label, value]) => {
+      const dt = document.createElement("dt");
+      dt.textContent = label;
+      const dd = document.createElement("dd");
+      dd.textContent = value;
+      return [dt, dd];
+    }),
+  );
+  document.getElementById("arcade-results")!.classList.remove("hidden");
+  document.getElementById("arcade-play-again")!.focus();
+}
+
+function closeArcadeResults() {
+  arcade.resultsOpen = false;
+  document.getElementById("arcade-results")!.classList.add("hidden");
+  quickMenuOpen = false;
+  document.body.classList.remove("quick-menu-open");
+  setAudioMenuPaused(false);
+  music.setMenuOpen(false);
+}
+
+function setupArcadeResults() {
+  document.getElementById("arcade-play-again")!.addEventListener("click", () => {
+    const id = arcade.run?.id;
+    closeArcadeResults();
+    if (id !== undefined) void startArcadeStage(id);
+  });
+  document.getElementById("arcade-return")!.addEventListener("click", () => {
+    closeArcadeResults();
+    void returnToMuseum();
+  });
+  document.getElementById("pause-return-museum")!.addEventListener("click", () => {
+    setPauseMenu(null, false);
+    void returnToMuseum();
+  });
 }
 
 async function transitionToScene2() {
@@ -1781,6 +2072,7 @@ function enterManagedScene(id: string, sceneData: any) {
   lightsaber.detach();
   globalCharacter?.model.removeFromParent();
   activeSceneId = id;
+  arcadeSceneEntered(id);
   music.enterScene(id, sceneData);
   enterHudScene(id);
   const damage = document.getElementById("player-damage");
@@ -1855,6 +2147,7 @@ async function loadStageTwo(
     onRetryFeed: (id) => cctv.retryFeed(id),
     onCameraTeleport: (id, state) => loadCameraVisit(id, state),
     onVentDrop: prepareSurveillanceHub,
+    onVentKeycard: completeArcadeStage,
     prepareBay13: async () => {
       await (await sceneModule(13)).preloadAssets();
     },
@@ -2002,6 +2295,7 @@ async function loadCameraVisit(
       onRestart: restartSurveillance,
       onKeycardCollected: () => {
         collectStageTwoKeycard(stageTwoProgress, "scene5");
+        completeArcadeStage();
       },
     });
   } else if (id === "scene6") {
@@ -2016,6 +2310,7 @@ async function loadCameraVisit(
       onRestart: restartSurveillance,
       onKeycardCollected: () => {
         collectStageTwoKeycard(stageTwoProgress, "scene6");
+        completeArcadeStage();
       },
     });
   } else if (id === "stage2-rust") {
@@ -2029,6 +2324,7 @@ async function loadCameraVisit(
       onRestart: restartSurveillance,
       onKeycardCollected: () => {
         collectStageTwoKeycard(stageTwoProgress, "stage2-rust");
+        completeArcadeStage();
       },
     });
   } else {
@@ -2042,6 +2338,7 @@ async function loadCameraVisit(
       onRestart: restartSurveillance,
       onKeycardCollected: () => {
         collectStageTwoKeycard(stageTwoProgress, "stage2-armory");
+        completeArcadeStage();
       },
       onLightsaberCollected: () => {
         hasLightsaber = true;
@@ -2101,6 +2398,7 @@ async function loadBay13(
       },
       onDefeated: () => {
         bayBossDefeated = true;
+        completeArcadeStage();
       },
       onRespawn: (phaseFour = false) => {
         void loadBay13(undefined, false, true, phaseFour).catch((error) =>
@@ -2396,7 +2694,11 @@ async function loadScene21(
       entryState,
       checkpoint,
       renderer,
+      onVictoryComplete: () => {
+        if (arcade.active && arcade.run) completeArcadeStage();
+      },
       onFinished: () => {
+        if (arcade.active && arcade.run) return;
         if (!developerRun) {
           campaignCompleted = true;
           try {
@@ -2621,6 +2923,7 @@ let controllerFocusedItem: HTMLElement | null = null;
 function controllerMenuRoot() {
   if (creditsDialog.open) return creditsDialog;
   if (cinematicLoading.active) return cinematicLoading.menuRoot;
+  if (arcade.resultsOpen) return document.getElementById("arcade-results");
   if (quickMenuOpen) return menuScreen === "scenes" ? quickMenu : pauseMenu;
   const title = document.getElementById("menu-buttons")!;
   return !title.classList.contains("hidden") ? title : null;
@@ -2650,17 +2953,13 @@ function updateControllerMenuFocus() {
     if (focused !== controllerFocusedItem) focusControllerMenuItem(focused);
     return;
   }
-  const first =
-    root.id === "menu-buttons"
-      ? document.getElementById("play-btn")
-      : Array.from(
-          root.querySelectorAll<HTMLElement>(
-            'button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex="0"]',
-          ),
-        ).find(
-          (element) =>
-            element.getClientRects().length > 0 && element.tabIndex >= 0,
-        );
+  const first = Array.from(
+    root.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex="0"]',
+    ),
+  ).find(
+    (element) => element.getClientRects().length > 0 && element.tabIndex >= 0,
+  );
   if (first) focusControllerMenuItem(first);
 }
 
@@ -3185,6 +3484,12 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
       .getElementById("pause-restart-checkpoint")!
       .classList.toggle("hidden", prologue || activeSceneId === "prologue1");
     document.getElementById("pause-sound")!.classList.remove("hidden");
+    document
+      .getElementById("pause-return-museum")!
+      .classList.toggle(
+        "hidden",
+        !arcade.active || activeSceneId === "museum" || screen !== "home",
+      );
     document.getElementById("pause-display")!.classList.remove("hidden");
     document
       .getElementById("pause-ship-map")!
@@ -3333,6 +3638,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
       "stage2-infiltration": 1.2,
       "stage2-armory": 1.3,
       "stage2-rust": 1.4,
+      museum: 99,
     };
     const selectedId =
       chapterIds[currentId] ?? Number(currentId.replace("scene", ""));
@@ -3420,6 +3726,9 @@ async function jumpToScene(id: number) {
     }
     if (menuScreen !== "scenes") return;
   }
+  await enterSceneById(id);
+}
+async function enterSceneById(id: number) {
   weaponWheel.close();
   teleportDevice.detachMarker();
   teleportArrivalTime = -1;
@@ -3566,7 +3875,10 @@ async function jumpToScene(id: number) {
         await loadFacility20();
         break;
       case 21:
-        await loadScene21();
+        await loadScene21(
+          undefined,
+          arcade.active && arcade.run ? { stage: "ground" } : undefined,
+        );
         break;
       case 21.5:
         await loadScene21(undefined, { stage: "rupture" });
@@ -3577,10 +3889,13 @@ async function jumpToScene(id: number) {
       case 22:
         await loadScene21(undefined, { stage: "credits" });
         break;
+      case MUSEUM_ID:
+        await loadMuseum(arcadeReturnTo);
+        break;
     }
     if (request !== sceneRequestVersion) return;
     const spawnedPlayer = currentSceneData?.player as Player | undefined;
-    if (spawnedPlayer) {
+    if (spawnedPlayer && id !== MUSEUM_ID) {
       const spawn = spawnedPlayer.captureTransition({ x: 0, y: 0, z: 0 });
       spawnedPlayer.restoreTransition(
         {
@@ -3663,6 +3978,7 @@ function setupSceneQuickMenu() {
     "pause-display",
     "pause-controls",
     "pause-credits",
+    "pause-return-museum",
     "pause-developer",
   ];
   let pauseRotationRafId = 0;
@@ -3738,6 +4054,12 @@ function setupSceneQuickMenu() {
     passive: true,
   });
   updatePauseButtonRotations();
+  // Button visibility (museum, map, restart) and the open panel change after setup, so refit the fan then.
+  new MutationObserver(updatePauseButtonRotations).observe(pauseMenu, {
+    attributes: true,
+    subtree: true,
+    attributeFilter: ["class", "data-screen", "open"],
+  });
 
   const soundSliderGroups = document.querySelectorAll<HTMLElement>(
     "#pause-sound-panel .sound-slider-group",
@@ -3877,10 +4199,17 @@ function setupSceneQuickMenu() {
     event.target instanceof Node &&
     (pauseMenu.contains(event.target) ||
       quickMenu.contains(event.target) ||
-      creditsDialog.contains(event.target));
+      creditsDialog.contains(event.target) ||
+      (arcade.resultsOpen &&
+        !!document.getElementById("arcade-results")?.contains(event.target)));
   window.addEventListener(
     "keydown",
     (event) => {
+      if (arcade.resultsOpen) {
+        // Results own the keyboard; Tab and Enter still reach the buttons natively.
+        event.stopImmediatePropagation();
+        return;
+      }
       if (document.body.classList.contains("facility-browser-open")) return;
       const editing =
         event.target instanceof HTMLElement &&
@@ -4079,6 +4408,7 @@ function animate() {
     return;
   }
   advanceSceneActions(Math.min(delta, 0.1));
+  trackArcadeRun(delta);
   if (checkpointNoticeTime > 0) {
     checkpointNoticeTime = Math.max(
       0,

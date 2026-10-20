@@ -1,3 +1,4 @@
+import { playSfx } from '../helpers/audio/sfx.js';
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { loadToolModel } from '../core/loader.js';
@@ -178,7 +179,7 @@ export class PistolController {
     const direction = sight.point.clone().sub(origin);
     const shot = traceShot(scene, world, new THREE.Ray(origin, direction.clone().normalize()), targets, ignored, direction.length() + 0.05);
     const hit = shot.target?.damage(25, 'pistol') ?? false;
-    weaponAnimation?.shoot();
+    weaponAnimation?.shoot(); playSfx('gunshot', 0.8);
     this.cooldown = 0.2;
     this.recoil = 0.1;
     this.hitTime = hit ? 0.15 : 0;

@@ -1,3 +1,4 @@
+import { playSfx, playSfxAt } from '../helpers/audio/sfx.js';
 /**
  * NPC Enemy Robots - Trilobite enemy AI.
  * Paces scene4 until player enters trigger zone, then chases across scenes.
@@ -265,7 +266,7 @@ export class NPCEnemyManager {
 
   afterPhysicsStep() {
     this.motor.readSupport();
-    this.syncModel();
+    this.syncModel(); this.robotFootsteps();
     if (this.state === 'DYING' && this.deathTime <= 0) {
       this.detach();
       this.model.visible = false;
@@ -294,6 +295,21 @@ export class NPCEnemyManager {
     }
   }
 
+  private stepDistance = 0;
+  private lastStepX = NaN;
+  private lastStepZ = NaN;
+  private robotFootsteps() {
+    const { x, z } = this.body.position;
+    const moved = Number.isNaN(this.lastStepX) ? 0 : Math.hypot(x - this.lastStepX, z - this.lastStepZ);
+    this.lastStepX = x; this.lastStepZ = z;
+    if (moved > 1) { this.stepDistance = 0; return; }
+    if (this.state !== 'PACING' && this.state !== 'CHASING') return;
+    this.stepDistance += moved;
+    if (this.stepDistance < 0.9) return;
+    this.stepDistance = 0;
+    if (this.active) playSfxAt('robotStep', this.body.position, this.active.player.body.position, 18, 0.8);
+  }
+
   private syncModel() {
     this.model.position.set(this.body.position.x, this.body.position.y - PHYSICS.playerRadius, this.body.position.z);
   }
@@ -312,7 +328,7 @@ export class NPCEnemyManager {
     if (!this.active || !Number.isFinite(amount) || amount <= 0 || this.owner !== this.active ||
       (this.state !== 'CHASING' && this.state !== 'PACING')) return false;
     this.health = Math.max(0, this.health - amount);
-    emitComicEffect(this.active.scene, this.health === 0 ? 'clank' : 'hit', { source: this.model, weapon });
+    emitComicEffect(this.active.scene, this.health === 0 ? 'clank' : 'hit', { source: this.model, weapon }); playSfx('clank', this.health === 0 ? 0.9 : 0.3);
     if (this.health === 0) this.disappear();
     else {
       if (this.state === 'PACING') {

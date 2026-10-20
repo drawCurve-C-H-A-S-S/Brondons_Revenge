@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { loadVergilsChair } from '../../core/loader.js';
 import { disposeRoom } from './shipRoom.js';
+import { playSfx } from '../audio/sfx.js';
 
 export type BrendanActivity = 'idle' | 'walk' | 'talk' | 'ambient';
 type Mode = 'pace' | 'hit' | 'fall' | 'lying' | 'getUp' | 'dance' | 'loadChair' | 'toChair' | 'sitEnter' | 'sit' | 'sitExit';
@@ -108,6 +109,7 @@ export function createBrendanBehavior(root: THREE.Group, model: THREE.Object3D, 
   function takeHit(amount: number, knock = false) {
     if (activity !== 'ambient' || mode === 'fall' || mode === 'lying' || mode === 'getUp') return false;
     removeChair();
+    playSfx('brendan', 0.9);
     health = Math.max(0, health - amount);
     if (health <= 0 || knock) { health = MAX_HEALTH; play(hitHead); setMode('fall', 0.4); }
     else { play(hit); setMode('hit', 0.55); }

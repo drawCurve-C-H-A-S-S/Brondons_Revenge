@@ -39,7 +39,7 @@ export function createCameraVisitUI({ title, player, hasReturnMarker, onRestart 
     update() {
       if (disposed || restarting) return;
       const linked = hasReturnMarker();
-      help.textContent = inputHint(linked ? 'T: return to surveillance / Hold Tab: weapons / Q replaces your return marker'
+      help.textContent = inputHint(linked ? 'T: return to the camera room / Hold Tab: weapons'
         : 'Surveillance return marker lost. This room has no walking route back. Restart from the surveillance checkpoint.');
       restart.textContent = inputHint('R / Restart at surveillance checkpoint');
       restart.classList.toggle('hidden', linked);

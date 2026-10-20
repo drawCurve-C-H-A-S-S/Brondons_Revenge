@@ -48,5 +48,5 @@ test('the full loading deck includes every chapter image before repeating', () =
 });
 
 test('developer scene choices include a dedicated epilogue shortcut after the finale', () => {
-  assert.deepEqual(chapters.SCENE_CHOICES.at(-1), [22, 'Epilogue - Rolling credits']);
+  assert.deepEqual(chapters.SCENE_CHOICES.at(-1), [99, "Brondon's Museum"]);
 });

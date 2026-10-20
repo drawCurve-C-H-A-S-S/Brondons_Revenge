@@ -1,3 +1,4 @@
+import { playSfx, stopRunningWaterAudio, updateRunningWaterAudio } from '../../helpers/audio/sfx.js';
 import * as THREE from 'three';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -184,7 +185,7 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
   const pitch = wallInner * 2 / 8;
   const stallX = Array.from({ length: 8 }, (_, i) => -wallInner + pitch / 2 + i * pitch);
   for (let i = 1; i < 8; i++) box(root, 'StallPartition', [0.06, 2.0, 1.8], [-wallInner + i * pitch, 1.15, backZ + 0.9], steel, true);
-  const seats: Array<{ root: THREE.Object3D; yaw: number; surface?: () => THREE.Vector3 }> = [];
+  const seats: Array<{ root: THREE.Object3D; yaw: number; surface?: () => THREE.Vector3; onStand?: () => void }> = [];
   const OPEN_FOLD = 1.45;
   const crewNames = CABINS.map(cabin => cabin.occupant);
   const stallDoors: Array<{ foldA: THREE.Group; foldB: THREE.Group; body: ReturnType<Physics['addBox']>; open: boolean; amount: number }> = [];
@@ -200,7 +201,7 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
     // Invisible seat target from the floor to the seat, used by the sit-down interaction (facing the stall door).
     const seatTarget = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.5, 0.44), new THREE.MeshBasicMaterial({ visible: false }));
     seatTarget.name = `ToiletSeatTarget-${index + 1}`; seatTarget.position.set(0, 0.25, 0.08); toilet.add(seatTarget);
-    seats.push({ root: seatTarget, yaw: Math.PI, surface: () => seatTarget.localToWorld(new THREE.Vector3(0, 0.25, 0)) });
+    seats.push({ root: seatTarget, yaw: Math.PI, surface: () => seatTarget.localToWorld(new THREE.Vector3(0, 0.25, 0)), onStand: () => playSfx('toiletFlush', 0.8) });
     // The roll is stood upright on the cistern lid, clear of the flush handle.
     void Promise.all([loadFitted(toiletUrl, 0.8), loadFitted(toiletPaperUrl, 0.14, Math.PI / 2)]).then(([bowl, roll]) => {
       if (disposed) return;
@@ -233,6 +234,7 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
         const blocking = Math.abs(lastPlayer.x - x) < 0.9 && Math.abs(lastPlayer.z - doorZ) < 0.55;
         if (door.open && blocking) return;
         door.open = !door.open;
+        playSfx('door');
       } });
   }
 
@@ -263,7 +265,7 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
       fixtures.push({ id: `locker-${name.toLowerCase()}`, label: 'locker', root: locker,
         point: new THREE.Vector3(side * 0.5, 1.2, centerLockerZ), isOn: () => state.open,
         prompt: () => `E / ${state.open ? 'Close' : 'Open'} ${name}'s locker`,
-        toggle: () => { state.open = !state.open; leaves.forEach(leaf => { leaf.open = state.open; }); } });
+        toggle: () => { state.open = !state.open; playSfx('door', 0.7); leaves.forEach(leaf => { leaf.open = state.open; }); } });
     }
     box(root, 'BenchSeat', [0.42, 0.07, lockerLength - 0.4], [side * 2.55, 0.46, lockerZ], trim, true);
     for (const legZ of [-1, 1]) box(root, 'BenchLeg', [0.34, 0.43, 0.06], [side * 2.55, 0.215, lockerZ + legZ * (lockerLength / 2 - 0.5)], dark);
@@ -310,6 +312,14 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
       }
       (field.points.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
     }
+    let waterDistance: number | null = null;
+    for (const fixture of fixtures) {
+      if (!fixture.id.startsWith('sink-') && !/^shower-\d+$/.test(fixture.id)) continue;
+      if (!fixture.isOn()) continue;
+      const d = Math.hypot(fixture.point.x - player.x, fixture.point.y - player.y, fixture.point.z - player.z);
+      if (waterDistance === null || d < waterDistance) waterDistance = d;
+    }
+    updateRunningWaterAudio(waterDistance);
     for (const { mesh } of streams) if (mesh.visible) mesh.scale.x = mesh.scale.z = 0.85 + Math.sin(clock * 40 + mesh.id) * 0.15;
     for (const fixture of fixtures) {
       const knob = knobs.get(fixture.id); if (!knob) continue;
@@ -319,6 +329,7 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
   }
   function dispose() {
     disposed = true;
+    stopRunningWaterAudio();
     mirror.dispose();
     for (const field of drops) { field.points.geometry.dispose(); (field.points.material as THREE.Material).dispose(); }
     waterMaterial.dispose();

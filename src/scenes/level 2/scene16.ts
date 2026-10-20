@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { playSfx } from '../../helpers/audio/sfx.js';
 import { addPlanetBackdrop, createEscapePod, createEscapeShip, animatePlanetBackdrop } from '../../scripts/items/createEscapeShip.js';
 import { createPlayer } from '../../scripts/player.js';
 import type { CinematicPose } from '../../scripts/characterManager.js';
@@ -68,6 +69,7 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
   debris.frustumCulled = false; scene.add(debris);
   const trail = pod.getObjectByName('PodTrail');
   const explosionMaterial = new THREE.MeshBasicMaterial({ color: 0xffbb66, transparent: true, opacity: 0, depthWrite: false });
+  let crashBoomed = false;
   const explosion = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), explosionMaterial);
   explosion.position.copy(crashSite).addScaledVector(surfaceNormal, 4); scene.add(explosion);
   const shockwaveMaterial = new THREE.MeshBasicMaterial({ color: 0xffddaa, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
@@ -280,6 +282,7 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
     }
     if (clock >= 17) {
       const impact = clock - 17;
+      if (!crashBoomed) { crashBoomed = true; playSfx('explosion', 1); }
       crater.visible = true;
       explosion.scale.setScalar(1 + Math.min(1, impact / 0.65) * 26); explosionMaterial.opacity = Math.max(0, 1 - impact / 1.4);
       shockwave.scale.setScalar(1 + impact * 35); shockwaveMaterial.opacity = Math.max(0, 0.7 - impact * 0.4);
