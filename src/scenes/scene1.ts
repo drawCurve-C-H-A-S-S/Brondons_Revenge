@@ -10,15 +10,16 @@ import { CutsceneManager } from '../helpers/animation/CutsceneManager.js';
 import { disposeRoom } from '../helpers/scene/shipRoom.js';
 import { createStarfield } from '../helpers/scene/starfield.js';
 
-export function createScene({ audioManager, loadShip = loadModel }: {
+export function createScene({ audioManager, loadShip = loadModel, renderer }: {
   audioManager?: unknown;
   loadShip?: typeof loadModel;
+  renderer?: THREE.WebGLRenderer;
 } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x020510);
   scene.fog = new THREE.Fog(0x020510, 30, 120);
 
-  const starfield = createStarfield({ scene });
+  const starfield = createStarfield({ scene, renderer });
 
   // --- Mothership ---
   const mothership = createMothership(loadShip), ship = mothership.root;

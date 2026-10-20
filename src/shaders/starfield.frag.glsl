@@ -17,6 +17,8 @@ uniform float uThresholdHigh;
 uniform vec3 uTint;
 uniform vec3 uTint2;
 uniform float uTintMix;
+uniform sampler2D uNoiseTexture;
+uniform bool uUsePrecomputed;
 
 varying vec3 vDirection;
 
@@ -92,19 +94,27 @@ void main() {
     return;
   }
 
+  if (uUsePrecomputed) {
+    vec3 dir = normalize(vDirection);
+    float u = 0.5 + atan(dir.z, dir.x) / (2.0 * 3.14159265);
+    float v = 0.5 - asin(dir.y) / 3.14159265;
+    vec4 cached = texture2D(uNoiseTexture, vec2(u, v));
+    gl_FragColor = vec4(cached.rgb, cached.a * uOpacity);
+    return;
+  }
+
   vec3 dir = normalize(vDirection);
   vec3 pos = dir * 10.0 + uNoiseOffset;
-  vec3 drift = vec3(uTime * 0.022, uTime * 0.011, -uTime * 0.017);
 
+  // No time-based drift - animation handled by rotating the mesh
   vec3 p1 = pos * 0.3;
-  p1 += drift;
-  vec3 p2 = pos * 0.15 + 100.0 - drift * 0.35;
+  vec3 p2 = pos * 0.15 + 100.0;
 
-  vec3 warpDrift = vec3(uTime * 0.008, -uTime * 0.006, uTime * 0.007);
-  float warpX = fbm(p1 + vec3(13.1, 5.2, 1.7) + warpDrift);
-  float warpY = fbm(p1 + vec3(2.8, 17.3, 9.2) - warpDrift * 0.8);
+  // Static warp (no time dependency)
+  float warpX = fbm(p1 + vec3(13.1, 5.2, 1.7));
+  float warpY = fbm(p1 + vec3(2.8, 17.3, 9.2));
   vec3 warped1 = p1 + (vec3(warpX - 0.5, warpY - 0.5, (warpX - warpY) * 0.5) * uWarpStrength * 2.0);
-  float warp2 = fbm(p2 + vec3(8.0, 21.0, 3.0) - warpDrift * 0.5);
+  float warp2 = fbm(p2 + vec3(8.0, 21.0, 3.0));
   vec3 warped2 = p2 + vec3(warp2 - 0.5, (warp2 - 0.5) * 0.4, 0.5 - warp2) * uWarpStrength;
 
   float nebula = mix(fbm(warped1), ridgeFbm(warped1), uRidgeStrength);
@@ -117,7 +127,7 @@ void main() {
   }
   float cloudAlpha = density * uOpacity;
 
-  float colorField = fbm(pos * 0.08 + vec3(31.0, 12.0, 54.0) + vec3(0.0, uTime * 0.004, 0.0));
+  float colorField = fbm(pos * 0.08 + vec3(31.0, 12.0, 54.0));
   float hue = smoothstep(0.22, 0.78, colorField);
   vec3 finalColor = uColor;
   if (uHasBlend) {

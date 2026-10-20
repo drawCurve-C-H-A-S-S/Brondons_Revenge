@@ -4,6 +4,7 @@ import starfieldFrag from '../../shaders/starfield.frag.glsl?raw';
 
 export interface StarfieldConfig {
   scene: THREE.Scene;
+  renderer?: THREE.WebGLRenderer;
   nebulaOpacity?: number;
   starCount?: number;
   glowOpacity?: number;
@@ -27,6 +28,7 @@ export interface Starfield {
 export function createStarfield(config: StarfieldConfig): Starfield {
   const {
     scene,
+    renderer,
     nebulaOpacity = 1.0,
     starCount = 650,
     glowOpacity = 0.15,
@@ -60,19 +62,156 @@ export function createStarfield(config: StarfieldConfig): Starfield {
 
   // --- Nebula cubemaps ---
   const nebulaColors = [
-    { color: new THREE.Vector3(0.045, 0.055, 0.20), offset: new THREE.Vector3(0, 0, 0), opacity: 0.15, octaves: 2, blendColor: new THREE.Vector3(0.22, 0.09, 0.42) },
-    { color: new THREE.Vector3(0.035, 0.08, 0.24), offset: new THREE.Vector3(200, 150, 125), opacity: 0.2, octaves: 3, blendColor: new THREE.Vector3(0.30, 0.12, 0.48) },
-    { color: new THREE.Vector3(0.10, 0.07, 0.29), offset: new THREE.Vector3(300, 250, 200), opacity: 0.2, octaves: 3, blendColor: new THREE.Vector3(0.10, 0.22, 0.42) },
-    { color: new THREE.Vector3(0.0, 0.0, 0.0), offset: new THREE.Vector3(400, 350, 300), opacity: 0.3, invertAlpha: true, octaves: 4 },
+    { color: new THREE.Vector3(0.045, 0.055, 0.20), offset: new THREE.Vector3(0, 0, 0), opacity: 0.15, octaves: 2, blendColor: new THREE.Vector3(1.20, 0.60, 0.15) },
+    { color: new THREE.Vector3(0.035, 0.08, 0.24), offset: new THREE.Vector3(200, 150, 125), opacity: 0.2, octaves: 3, blendColor: new THREE.Vector3(0.22, 0.09, 0.42) },
+    { color: new THREE.Vector3(0.10, 0.07, 0.29), offset: new THREE.Vector3(300, 250, 200), opacity: 0.2, octaves: 3, blendColor: new THREE.Vector3(1.40, 0.70, 0.20) },
+    { color: new THREE.Vector3(0.0, 0.0, 0.0), offset: new THREE.Vector3(400, 350, 300), opacity: 0.2, invertAlpha: true, octaves: 3 },
   ];
-  const nebulaCubes: THREE.Mesh[] = [];
-  const cubeSizes = [700, 500, 440, 400].map(s => s * nebulaScale);
+  const bakedTargets: THREE.WebGLRenderTarget[] = [];
+
+  const texWidth = 2048, texHeight = 1024;
+  const bakeRenderer = renderer || new THREE.WebGLRenderer({ alpha: true, antialias: false });
+  if (!renderer) bakeRenderer.setSize(texWidth, texHeight);
+
+  const bakeVertShader = `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = vec4(position.xy, 0.0, 1.0);
+    }
+  `;
+
+  const bakeFragShader = `
+    uniform vec3 uColor;
+    uniform vec3 uBlendColor;
+    uniform vec3 uNoiseOffset;
+    uniform float uOpacity;
+    uniform bool uInvertAlpha;
+    uniform int uOctaves;
+    uniform bool uHasBlend;
+    uniform bool uDither;
+    uniform float uRidgeStrength;
+    uniform float uWarpStrength;
+    uniform float uThresholdLow;
+    uniform float uThresholdHigh;
+    uniform vec3 uTint;
+    uniform vec3 uTint2;
+    uniform float uTintMix;
+    varying vec2 vUv;
+
+    // Copy of hash/noise/fbm/ridgeFbm from starfield.frag.glsl
+    float hash(vec3 p) {
+      p = fract(p * vec3(443.897, 441.423, 437.195));
+      p += dot(p, p.yzx + 19.19);
+      return fract((p.x + p.y) * p.z);
+    }
+
+    float noise(vec3 p) {
+      vec3 i = floor(p);
+      vec3 f = fract(p);
+      f = f * f * (3.0 - 2.0 * f);
+      
+      float a = hash(i);
+      float b = hash(i + vec3(1.0, 0.0, 0.0));
+      float c = hash(i + vec3(0.0, 1.0, 0.0));
+      float d = hash(i + vec3(1.0, 1.0, 0.0));
+      float e = hash(i + vec3(0.0, 0.0, 1.0));
+      float ff = hash(i + vec3(1.0, 0.0, 1.0));
+      float g = hash(i + vec3(0.0, 1.0, 1.0));
+      float h = hash(i + vec3(1.0, 1.0, 1.0));
+      
+      float x1 = mix(a, b, f.x);
+      float x2 = mix(c, d, f.x);
+      float x3 = mix(e, ff, f.x);
+      float x4 = mix(g, h, f.x);
+      float y1 = mix(x1, x2, f.y);
+      float y2 = mix(x3, x4, f.y);
+      return mix(y1, y2, f.z);
+    }
+
+    float fbm(vec3 p) {
+      float value = 0.0;
+      float amplitude = 0.5;
+      float frequency = 1.0;
+      for (int i = 0; i < 8; i++) {
+        if (i >= uOctaves) break;
+        value += amplitude * noise(p * frequency);
+        amplitude *= 0.5;
+        frequency *= 2.0;
+      }
+      return value;
+    }
+
+    float ridgeNoise(vec3 p) {
+      return 1.0 - abs(noise(p) * 2.0 - 1.0);
+    }
+
+    float ridgeFbm(vec3 p) {
+      float value = 0.0;
+      float amplitude = 0.5;
+      float frequency = 1.0;
+      for (int i = 0; i < 8; i++) {
+        if (i >= uOctaves) break;
+        value += amplitude * ridgeNoise(p * frequency);
+        amplitude *= 0.5;
+        frequency *= 2.0;
+      }
+      return value;
+    }
+
+    void main() {
+      // Equirectangular UV to direction
+      float phi = vUv.x * 2.0 * 3.14159265;
+      float theta = (1.0 - vUv.y) * 3.14159265;
+      vec3 dir = vec3(
+        sin(theta) * cos(phi),
+        cos(theta),
+        sin(theta) * sin(phi)
+      );
+
+      vec3 pos = dir * 10.0 + uNoiseOffset;
+      vec3 p1 = pos * 0.3;
+      vec3 p2 = pos * 0.15 + 100.0;
+
+      float warpX = fbm(p1 + vec3(13.1, 5.2, 1.7));
+      float warpY = fbm(p1 + vec3(2.8, 17.3, 9.2));
+      vec3 warped1 = p1 + (vec3(warpX - 0.5, warpY - 0.5, (warpX - warpY) * 0.5) * uWarpStrength * 2.0);
+      float warp2 = fbm(p2 + vec3(8.0, 21.0, 3.0));
+      vec3 warped2 = p2 + vec3(warp2 - 0.5, (warp2 - 0.5) * 0.4, 0.5 - warp2) * uWarpStrength;
+
+      float nebula = mix(fbm(warped1), ridgeFbm(warped1), uRidgeStrength);
+      float nebula2 = fbm(warped2);
+      float cloud = nebula * 0.7 + nebula2 * 0.3;
+
+      float density = smoothstep(uThresholdLow, uThresholdHigh, cloud);
+      if (uInvertAlpha) {
+        density = smoothstep(uThresholdHigh, uThresholdHigh + 0.08, cloud);
+      }
+      float cloudAlpha = density * uOpacity;
+
+      float colorField = fbm(pos * 0.08 + vec3(31.0, 12.0, 54.0));
+      float hue = smoothstep(0.22, 0.78, colorField);
+      vec3 finalColor = uColor;
+      if (uHasBlend) {
+        finalColor = mix(uColor, uBlendColor, hue);
+      }
+      vec3 bluePurple = mix(vec3(0.035, 0.075, 0.24), vec3(0.24, 0.08, 0.43), hue);
+      vec3 cloudColor = mix(finalColor, bluePurple, 0.45);
+      vec3 softHighlight = mix(vec3(0.13, 0.25, 0.46), vec3(0.43, 0.25, 0.61), hue);
+      cloudColor = mix(cloudColor, softHighlight, smoothstep(0.48, 0.92, density) * 0.45);
+      cloudColor = mix(cloudColor, mix(uTint, uTint2, hue), uTintMix);
+      vec3 voidColor = vec3(0.006, 0.012, 0.035);
+      vec3 color = mix(voidColor, cloudColor, density);
+      
+      gl_FragColor = vec4(color, cloudAlpha);
+    }
+  `;
 
   for (let i = 0; i < nebulaColors.length; i++) {
-    const { color, offset, opacity = 0.3, invertAlpha = false, octaves = 5, blendColor } = nebulaColors[i];
+    const { color, offset, opacity = 0.3, invertAlpha = false, octaves = 8, blendColor } = nebulaColors[i];
     const hasBlend = blendColor !== undefined;
-    const uniforms = {
-      uTime: { value: 0.0 },
+
+    const bakeUniforms = {
       uColor: { value: color },
       uBlendColor: { value: blendColor || new THREE.Vector3(0, 0, 0) },
       uNoiseOffset: { value: offset },
@@ -80,31 +219,126 @@ export function createStarfield(config: StarfieldConfig): Starfield {
       uInvertAlpha: { value: invertAlpha },
       uOctaves: { value: octaves },
       uHasBlend: { value: hasBlend },
-      uDither: { value: dither },
-      uTint: { value: tintA },
-      uTint2: { value: tintB },
-      uTintMix: { value: useTint ? 0.85 : 0.0 },
-      uRidgeStrength: { value: i < 2 ? 0.12 : 0.0 },
-      uWarpStrength: { value: 0.8 },
-      uThresholdLow: { value: i === 2 ? 0.35 : 0.45 },
-      uThresholdHigh: { value: i === 2 ? 0.55 : 0.6 },
+      uDither: { value: false },
+      uRidgeStrength: { value: i < 2 ? 0.08 : 0.0 },
+      uWarpStrength: { value: 0.5 },
+      uThresholdLow: { value: i < 2 ? 0.45 : (i === 2 ? 0.35 : 0.7) },
+      uThresholdHigh: { value: i < 2 ? 0.6 : (i === 2 ? 0.55 : 0.78) },
+      uTint: { value: new THREE.Vector3(0, 0, 0) },
+      uTint2: { value: new THREE.Vector3(0, 0, 0) },
+      uTintMix: { value: 0.0 },
     };
-    const mat = new THREE.ShaderMaterial({
-      vertexShader: starfieldVert,
-      fragmentShader: starfieldFrag,
-      uniforms,
-      side: THREE.BackSide,
+
+    const bakeMat = new THREE.ShaderMaterial({
+      vertexShader: bakeVertShader,
+      fragmentShader: bakeFragShader,
+      uniforms: bakeUniforms,
       depthWrite: false,
+      depthTest: false,
       transparent: true,
+      blending: THREE.NoBlending,
     });
-    const size = cubeSizes[i];
-    // Spheres avoid the visible seams a skybox cube produces at its face edges.
-    const cube = new THREE.Mesh(new THREE.SphereGeometry(size * 0.5, 32, 16), mat);
-    cube.frustumCulled = false;
-    cube.renderOrder = 0;
-    scene.add(cube);
-    nebulaCubes.push(cube);
+
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), bakeMat);
+    const bakeScene = new THREE.Scene();
+    bakeScene.add(quad);
+
+    const renderTarget = new THREE.WebGLRenderTarget(texWidth, texHeight, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat,
+      type: THREE.UnsignedByteType,
+    });
+    renderTarget.texture.colorSpace = THREE.LinearSRGBColorSpace;
+
+    const bakeCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+    const prevTarget = bakeRenderer.getRenderTarget();
+    const prevToneMapping = bakeRenderer.toneMapping;
+    bakeRenderer.toneMapping = THREE.NoToneMapping;
+    bakeRenderer.setRenderTarget(renderTarget);
+    bakeRenderer.setClearColor(0x000000, 0);
+    bakeRenderer.clear();
+    bakeRenderer.render(bakeScene, bakeCamera);
+    bakeRenderer.setRenderTarget(prevTarget);
+    bakeRenderer.toneMapping = prevToneMapping;
+
+    bakedTargets.push(renderTarget);
+
+    bakeMat.dispose();
+    quad.geometry.dispose();
   }
+
+  if (!renderer) bakeRenderer.dispose();
+
+  // --- Nebula shell: one BackSide sphere composites all baked layers in-shader ---
+  const shellVertShader = `
+    varying vec3 vDir;
+    void main() {
+      vDir = position;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `;
+  const shellFragShader = `
+    uniform sampler2D tLayer0;
+    uniform sampler2D tLayer1;
+    uniform sampler2D tLayer2;
+    uniform sampler2D tLayer3;
+    uniform mat3 uRot0;
+    uniform mat3 uRot1;
+    uniform mat3 uRot2;
+    uniform mat3 uRot3;
+    varying vec3 vDir;
+
+    vec4 sampleLayer(sampler2D tex, mat3 rot, vec3 dir) {
+      vec3 d = rot * dir;
+      float phi = atan(d.z, d.x);
+      float theta = acos(clamp(d.y, -1.0, 1.0));
+      vec2 uv = vec2(fract(phi * 0.15915494), 1.0 - theta * 0.31830989);
+      return texture2D(tex, uv);
+    }
+
+    void main() {
+      vec3 dir = normalize(vDir);
+      vec3 accum = vec3(0.0);
+      float transmittance = 1.0;
+      vec4 s;
+      s = sampleLayer(tLayer0, uRot0, dir); accum += s.rgb * s.a * transmittance; transmittance *= 1.0 - s.a;
+      s = sampleLayer(tLayer1, uRot1, dir); accum += s.rgb * s.a * transmittance; transmittance *= 1.0 - s.a;
+      s = sampleLayer(tLayer2, uRot2, dir); accum += s.rgb * s.a * transmittance; transmittance *= 1.0 - s.a;
+      s = sampleLayer(tLayer3, uRot3, dir); accum += s.rgb * s.a * transmittance; transmittance *= 1.0 - s.a;
+      float alpha = 1.0 - transmittance;
+      gl_FragColor = vec4(alpha > 0.001 ? accum / alpha : vec3(0.0), alpha);
+    }
+  `;
+
+  const shellUniforms: Record<string, THREE.IUniform> = {
+    tLayer0: { value: bakedTargets[0].texture },
+    tLayer1: { value: bakedTargets[1].texture },
+    tLayer2: { value: bakedTargets[2].texture },
+    tLayer3: { value: bakedTargets[3].texture },
+    uRot0: { value: new THREE.Matrix3() },
+    uRot1: { value: new THREE.Matrix3() },
+    uRot2: { value: new THREE.Matrix3() },
+    uRot3: { value: new THREE.Matrix3() },
+  };
+  const shellMaterial = new THREE.ShaderMaterial({
+    uniforms: shellUniforms,
+    vertexShader: shellVertShader,
+    fragmentShader: shellFragShader,
+    side: THREE.BackSide,
+    depthWrite: false,
+    transparent: true,
+  });
+  const shell = new THREE.Mesh(new THREE.SphereGeometry(350 * nebulaScale, 32, 16), shellMaterial);
+  shell.name = 'NebulaShell';
+  shell.frustumCulled = false;
+  shell.renderOrder = 0;
+  scene.add(shell);
+  // Scene15/16 copy shuttle positions onto these; kept as an array for compatibility.
+  const nebulaCubes: THREE.Mesh[] = [shell];
+  const layerEuler = new THREE.Euler();
+  const layerMatrix = new THREE.Matrix4();
 
   // --- Stars ---
   const starVertShader = `
@@ -269,11 +503,14 @@ export function createStarfield(config: StarfieldConfig): Starfield {
     },
     update(time: number) {
       if (useTint) setTint(nebulaProgress! + 0.2 * Math.min(1, time / 240));
-      for (let i = 0; i < nebulaCubes.length; i++) {
-        const cube = nebulaCubes[i];
-        (cube.material as THREE.ShaderMaterial).uniforms.uTime.value = time;
-        cube.rotation.y = time * 0.004;
-        cube.rotation.x = Math.sin(time * 0.008 + i * 0.7) * 0.012;
+      for (let i = 0; i < 4; i++) {
+        layerEuler.set(
+          Math.sin(time * 0.006 + i * 1.3) * 0.02,
+          time * (0.003 + i * 0.001) * (i % 2 === 0 ? 1 : -1),
+          Math.cos(time * 0.005 + i * 0.9) * 0.015,
+        );
+        layerMatrix.makeRotationFromEuler(layerEuler);
+        (shellUniforms[`uRot${i}`].value as THREE.Matrix3).setFromMatrix4(layerMatrix).transpose();
       }
       for (const layer of starLayers) {
         (layer.material as THREE.ShaderMaterial).uniforms.uTime.value = time;
@@ -284,6 +521,7 @@ export function createStarfield(config: StarfieldConfig): Starfield {
         cube.geometry.dispose();
         (cube.material as THREE.ShaderMaterial).dispose();
       }
+      for (const target of bakedTargets) target.dispose();
       for (const layer of starLayers) {
         layer.geometry.dispose();
         (layer.material as THREE.ShaderMaterial).dispose();
