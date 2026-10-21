@@ -151,8 +151,8 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
   root.dataset.mapLayout = layout?.name ?? 'Ship';
   root.innerHTML = `<div class="ship-map-toolbar">
     <div class="ship-map-decks" role="group" aria-label="Deck visibility"></div>
-    <div class="ship-map-tools"><button type="button" data-map-tool="current" title="Center on your position (F)">Locate</button>
-      <button type="button" data-map-tool="fit" title="Reset the map view (Home)">Reset view</button></div>
+    <div class="ship-map-tools"><button type="button" class="menu-button" data-map-tool="current" title="Center on your position (F)">Locate</button>
+      <button type="button" class="menu-button" data-map-tool="fit" title="Reset the map view (Home)">Reset view</button></div>
   </div>
   <div class="ship-map-canvas" tabindex="0" aria-label="Interactive ship map" aria-describedby="ship-map-help">
     <div class="ship-map-labels"></div><span class="ship-map-compass" aria-hidden="true">N</span>
@@ -175,7 +175,7 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
   const availableDecks: ShipDeck[] = ['upper', 'main', 'lower'].filter((deck): deck is ShipDeck => rooms.some(room => room.deck === deck));
   decks.hidden = availableDecks.length < 2;
   for (const deck of ['all', ...availableDecks] as const) {
-    const button = document.createElement('button'); button.type = 'button'; button.dataset.deck = deck;
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'menu-button'; button.dataset.deck = deck;
     if (deck !== 'all') {
       const swatch = document.createElement('span'); swatch.className = 'ship-map-swatch'; swatch.style.backgroundColor = SHIP_DECKS[deck].color;
       button.append(swatch);
@@ -202,7 +202,7 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
   const raycaster = new THREE.Raycaster(), pointer = new THREE.Vector2(), projected = new THREE.Vector3();
   const viewport = new THREE.Vector4(), scissor = new THREE.Vector4(), clearColor = new THREE.Color(), size = new THREE.Vector2();
   let visible = false, filter: DeckFilter = 'all', current = 0, playerPosition: THREE.Vector3 | null = null;
-  let lastRender = -Infinity, needsFit = true, dragging = false;
+  let needsFit = true, dragging = false;
   const pointerStarts = new Map<number, { position: THREE.Vector2; room?: number }>(), north = new THREE.Vector3();
 
   function materialFor(room: ShipRoom) {
@@ -269,7 +269,7 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
         for (const item of getMapRoomContents(room)) block(group, material, item.size, item.position);
       }
     }
-    const label = document.createElement('button'); label.type = 'button'; label.className = 'ship-map-room-label';
+    const label = document.createElement('button'); label.type = 'button'; label.className = 'ship-map-room-label menu-button';
     const number = roomNumbers.get(room.id)!;
     label.dataset.room = String(room.id); label.textContent = String(number).padStart(2, '0');
     label.dataset.locked = String(!!room.locked);
@@ -322,7 +322,7 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
   const goalMaterial = new THREE.MeshBasicMaterial({ color: 0xffcf40, depthTest: false, toneMapped: false });
   const goals = (layout?.goals ?? []).map(goal => {
     const mesh = new THREE.Mesh(goalGeometry, goalMaterial); mesh.position.copy(goal.position); mesh.renderOrder = 101; scene.add(mesh);
-    const label = document.createElement('button'); label.type = 'button'; label.className = 'ship-map-goal-label';
+    const label = document.createElement('button'); label.type = 'button'; label.className = 'ship-map-goal-label menu-button';
     label.textContent = goal.label; label.dataset.room = String(goal.room); label.setAttribute('aria-label', `Target: ${goal.label}`);
     labelLayer.append(label); return { goal, mesh, label };
   });
@@ -354,7 +354,6 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
     goals.forEach(({ goal, mesh }) => { mesh.visible = deck === 'all' || roomById.get(goal.room)?.deck === deck; });
     decks.querySelectorAll<HTMLButtonElement>('button').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.deck === deck)));
     if (changed) needsFit = true;
-    lastRender = -Infinity;
   }
   function selectRoom(id: number) {
     const room = roomById.get(id); if (!room) return;
@@ -363,7 +362,6 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
     labels.forEach((label, roomId) => { label.setAttribute('aria-pressed', String(roomId === id)); label.dataset.current = String(roomId === current); });
     roomTitle.textContent = room.name;
     roomDetail.textContent = `${SHIP_DECKS[room.deck].name}${id === current ? ' / You are here' : ''}${room.locked ? ' / Locked / Interior unavailable' : ''}`;
-    lastRender = -Infinity;
   }
   function locateCurrent() {
     if (!playerPosition) return;
@@ -371,14 +369,14 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
     if (needsFit) fit();
     const offset = camera.position.clone().sub(controls.target);
     controls.target.copy(playerPosition); camera.position.copy(playerPosition).add(offset);
-    controls.update(); lastRender = -Infinity;
+    controls.update();
   }
   root.addEventListener('click', event => {
     const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('button') : null; if (!button) return;
     const deck = button.dataset.deck;
     if (deck === 'all' || deck === 'upper' || deck === 'main' || deck === 'lower') setFilter(deck);
     if (button.dataset.room && !dragging) selectRoom(Number(button.dataset.room));
-    if (button.dataset.mapTool === 'fit') { needsFit = true; lastRender = -Infinity; }
+    if (button.dataset.mapTool === 'fit') { needsFit = true; }
     if (button.dataset.mapTool === 'current') locateCurrent();
   }, { signal: events.signal });
   view.addEventListener('pointerdown', event => {
@@ -416,7 +414,6 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
     const rect = view.getBoundingClientRect();
     if (!visible || rect.width < 1 || rect.height < 1) return;
     camera.left = -camera.top * rect.width / rect.height; camera.right = -camera.left; camera.updateProjectionMatrix();
-    lastRender = -Infinity;
   }); observer.observe(view);
   setFilter('all'); selectRoom(layout?.initialRoom ?? 3);
   return {
@@ -426,14 +423,14 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
       playerPosition = position && roomById.has(current) ? (layout?.playerPoint ?? shipPlayerPoint)(current, position) : null;
       selectRoom(roomById.has(current) ? current : layout?.initialRoom ?? 3);
       marker.hidden = true;
-      dragging = false; pointerStarts.clear(); lastRender = -Infinity;
+      dragging = false; pointerStarts.clear();
       root.querySelector<HTMLButtonElement>('[data-map-tool="current"]')!.disabled = !playerPosition;
     },
     hide() { visible = false; marker.hidden = true; controls.enabled = false; pointerStarts.clear(); },
     render() {
       if (!visible) return;
       controls.update(); if (needsFit) fit();
-      const now = performance.now(); if (now - lastRender < 1000 / 30) return; lastRender = now;
+      const now = performance.now();
       const rect = view.getBoundingClientRect(), canvas = renderer.domElement.getBoundingClientRect();
       if (rect.width < 1 || rect.height < 1) return;
       camera.updateMatrixWorld(true);
@@ -482,12 +479,15 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
       renderer.getViewport(viewport); renderer.getScissor(scissor); renderer.getClearColor(clearColor); renderer.getSize(size);
       const target = renderer.getRenderTarget(), autoClear = renderer.autoClear, oldScissor = renderer.getScissorTest(), alpha = renderer.getClearAlpha();
       try {
-        renderer.setRenderTarget(null); renderer.setScissorTest(false); renderer.setViewport(0, 0, size.x, size.y);
-        renderer.setClearColor(0x080d12, 1); renderer.clear(); renderer.autoClear = false;
         const scaleX = size.x / canvas.width, scaleY = size.y / canvas.height;
-        renderer.setViewport((rect.left - canvas.left) * scaleX, (canvas.bottom - rect.bottom) * scaleY, rect.width * scaleX, rect.height * scaleY);
-        renderer.setScissor((rect.left - canvas.left) * scaleX, (canvas.bottom - rect.bottom) * scaleY, rect.width * scaleX, rect.height * scaleY);
-        renderer.setScissorTest(true); renderer.render(scene, camera);
+        const left = (rect.left - canvas.left) * scaleX, bottom = (canvas.bottom - rect.bottom) * scaleY;
+        const width = rect.width * scaleX, height = rect.height * scaleY;
+        renderer.setRenderTarget(null);
+        renderer.setViewport(left, bottom, width, height);
+        renderer.setScissor(left, bottom, width, height);
+        renderer.setScissorTest(true); renderer.autoClear = false;
+        renderer.setClearColor(0xffffff, 0.4); renderer.clear(true, true, false);
+        renderer.render(scene, camera);
       } finally {
         renderer.setRenderTarget(target); renderer.setViewport(viewport); renderer.setScissor(scissor); renderer.setScissorTest(oldScissor);
         renderer.setClearColor(clearColor, alpha); renderer.autoClear = autoClear;

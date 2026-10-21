@@ -171,7 +171,7 @@ function createBossMesh(): Boss {
   return { root, bow, launchBays, generators, core, shield, fireCd: 2.8, volley: 0 };
 }
 
-export function createScene({ entryState, onTransition, startAt }: { entryState?: LaunchState; onTransition: (state: FlightExitState) => void; startAt?: FlightStartPhase }) {
+export function createScene({ entryState, onTransition, startAt, renderer }: { entryState?: LaunchState; onTransition: (state: FlightExitState) => void; startAt?: FlightStartPhase; renderer?: THREE.WebGLRenderer }) {
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x01040b);
   const physics = createScenePhysics(), physicsWorld = physics.world; physicsWorld.gravity.set(0, 0, 0);
   const camera = new THREE.PerspectiveCamera(76, window.innerWidth / window.innerHeight, 0.1, 50000);
@@ -182,7 +182,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
   let launch = entryState?.launch;
   if (launch) { ship.root.position.copy(launch.shipPosition); ship.root.quaternion.copy(launch.shipQuaternion); }
   const planetPosition = new THREE.Vector3(0, 120, 14000);
-  const { planet, starfield } = addPlanetBackdrop(scene, planetPosition, FLIGHT_RULES.planetRadius, 30000,   { nebulaOpacity: 0.7, nebulaProgress: 0.4 });   planet.visible = false;
+  const { planet, starfield } = addPlanetBackdrop(scene, planetPosition, FLIGHT_RULES.planetRadius, 30000,   { nebulaOpacity: 0.7, nebulaProgress: 0.4, renderer });   planet.visible = false;
 
   // Near-field streaks supply parallax and a constant sense of forward motion.
   const STREAK_LENGTH = 60;
@@ -643,6 +643,8 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     }
     target.mesh.visible = false; target.ring.visible = false;
     explode(target.mesh.getWorldPosition(new THREE.Vector3()), 14, target.mesh);
+    shake = 5.0;
+    invertFrames = 2;
     if (phase === 'bossArmor' && boss.generators.every(t => t.health <= 0)) {
       beginTopdownScrambler();
     } else if (phase === 'bossCore' && target === boss.core) {
@@ -651,6 +653,8 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       pod = createEscapePod(); pod.position.copy(boss.root.position).add(new THREE.Vector3(0, 16, 0));
       pod.quaternion.setFromUnitVectors(MODEL_FORWARD, planetPosition.clone().sub(pod.position).normalize()); scene.add(pod);
       explode(boss.root.position, 65, boss.root); boss.root.visible = false;
+      shake = 8.0;
+      invertFrames = 2;
       announce('CAPITAL SHIP DESTROYED / ESCAPE POD DETECTED', 3);
     }
   }
@@ -689,6 +693,8 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       if (!topdown.active) {
         redScramblerCleared = true;
         clearBolts(); clearInput(); announce('RED SCRAMBLER DESTROYED / RESTORING REACTOR APPROACH', 3.2);
+        shake = 5.0;
+        invertFrames = 2;
       }
       return;
     }
@@ -696,7 +702,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       for (let node: THREE.Object3D | null = hit.object; node; node = node.parent) {
         if (node === sidescroll.device) {
           sidescroll.damage(SHOT_DAMAGE); hitFlash = 0.12;
-          if (!sidescroll.active) { clearBolts(); clearInput(); announce('SCRAMBLER DESTROYED / RESTORING FLIGHT AXES', 3.2); }
+          if (!sidescroll.active) { clearBolts(); clearInput(); announce('SCRAMBLER DESTROYED / RESTORING FLIGHT AXES', 3.2); shake = 5.0; invertFrames = 2; }
           return;
         }
       }
@@ -981,7 +987,7 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
     (instanceBuffer.array as Float32Array).set(streakPositions);
     instanceBuffer.needsUpdate = true;
   }
-  let shake = 0, bloomPulse = 0;
+  let shake = 0, bloomPulse = 0, invertFrames = 0;
   const shakeOffset = new THREE.Vector3();
   function step(dt: number) {
     camera.position.sub(shakeOffset); shakeOffset.set(0, 0, 0);
@@ -1040,6 +1046,8 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
           sidescroll.dispose(); sidescroll = null; phase = 'bossArmor'; phaseClock = 0;
           clearInput(); clearBolts(); invulnerability = 1.5;
           announce('SCRAMBLER DESTROYED / BREAK THE FOUR SHIELD GENERATORS', 3);
+          shake = 5.0;
+          invertFrames = 2;
         }
       } else if (phase === 'topdownScrambler' && topdown) {
         const wasActive = topdown.active;
@@ -1155,6 +1163,8 @@ export function createScene({ entryState, onTransition, startAt }: { entryState?
       : phase === 'bossArmor' ? boss.generators.filter(t => t.health > 0).flatMap(t => [t.mesh, t.ring])
       : phase === 'bossCore' && boss.core.health > 0 ? [boss.core.mesh, boss.core.ring] : [],
     getBloomPulse: () => bloomPulse,
+    shouldInvertColors: () => invertFrames > 0,
+    consumeInvertFrame: () => { if (invertFrames > 0) invertFrames--; },
     getMusicTrack: (): 'level-2' | 'level-2-boss' => redScramblerCleared ? 'level-2-boss' : 'level-2',
     hasBossVictory: () => phase === 'victory',
     isMusicPaused: () => paused,

@@ -97,6 +97,11 @@ The menu is available during the opening as well as gameplay.
 Scene 1 suppresses automatic controller notices and gameplay control popups;
 controller setup remains available through the pause menu.
 **Sound** is available from the pause menu in every scene, including Scene 1.
+**Display** includes a **Bloom** strength slider, **Hide HUD**, **Show FPS** and
+**Perf timers**. Bloom strength and style are remembered between visits.
+Press **Backslash (\\)** outside a text field to cycle bloom off, bright and soft.
+With **Show FPS** enabled, **Perf timers** adds CPU rendering time and GPU time
+when the browser supports GPU timer queries.
 **View Ship Map** appears only in ship-interior scenes; the opening, flight,
 planet and finale scenes do not expose it. The normal minimap and its comic
 frame are both circular.

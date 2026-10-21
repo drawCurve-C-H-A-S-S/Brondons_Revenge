@@ -52,17 +52,16 @@ import {
 import {
   startCharacterPreview,
   stopCharacterPreview,
+  setCharacterPreviewPostRender,
+  getCharacterPreviewRenderer,
 } from "./helpers/scene/characterPreview.js";
-import {
-  startPauseStarfield,
-  stopPauseStarfield,
-} from "./helpers/scene/pauseStarfield.js";
 import type { Player, PlayerTransitionState } from "./scripts/player.js";
 import { PLAYER_MAX_HEALTH } from "./scripts/player.js";
 import { PistolController } from "./scripts/pistol.js";
 import { CrowbarController } from "./scripts/crowbar.js";
 import { GogglesController } from "./scripts/goggles.js";
 import { GogglesPostProcess } from "./scripts/gogglesPostProcess.js";
+import { GpuTimer } from "./scripts/gpuTimer.js";
 import { LightsaberController } from "./scripts/lightsaber.js";
 import { UnarmedCombatController } from "./scripts/unarmedCombat.js";
 import { AdaptiveHintManager } from "./scripts/adaptiveHints.js";
@@ -187,6 +186,7 @@ renderer.toneMappingExposure = 1.0;
 document.body.appendChild(renderer.domElement);
 renderer.domElement.style.position = "relative";
 renderer.domElement.style.zIndex = "1";
+
 const cctv = createCctvSystem(renderer, [
   ...STAGE_TWO_MINIGAMES.map((room) => ({
     ...room,
@@ -210,6 +210,9 @@ const gogglesPostProcess = new GogglesPostProcess(renderer);
 const screenBloom = createScreenBloom(renderer, window.matchMedia("(pointer: coarse)").matches);
 const pixelArtPass = new PixelArtPass();
 const retroConsolePass = new RetroConsolePass();
+const gpuTimer = new GpuTimer(renderer.getContext());
+let perfTimersEnabled = true;
+let latestCpuFrameMs = 0;
 const minimap = createSceneMinimap(
   renderer,
   document.getElementById("minimap")!,
@@ -308,6 +311,14 @@ function renderGameScene(scene: THREE.Scene, camera: THREE.Camera) {
   currentSceneData?.renderCinematicOverlay?.(renderer);
 }
 function renderSceneEffects(scene: THREE.Scene, camera: THREE.Camera) {
+  const shouldInvert = currentSceneData?.shouldInvertColors?.() ?? false;
+  if (shouldInvert) {
+    renderer.domElement.style.filter = 'invert(1)';
+    currentSceneData?.consumeInvertFrame?.();
+  } else {
+    renderer.domElement.style.filter = '';
+  }
+
   const retroStrength = currentSceneData?.getRetroConsoleStrength?.() ?? 0;
   if (retroStrength > 0) {
     retroConsolePass.render(
@@ -328,7 +339,9 @@ function renderSceneEffects(scene: THREE.Scene, camera: THREE.Camera) {
       camera,
       strength,
     );
-  else renderer.render(scene, camera);
+  else {
+    renderer.render(scene, camera);
+  }
 }
 
 // Scene delays advance with the game loop, so the scene menu freezes them too.
@@ -1166,13 +1179,26 @@ function renderGameplayFrame(
   scene: THREE.Scene,
   camera: THREE.PerspectiveCamera,
 ) {
-  if (currentSceneData?.isMazeActive?.()) {
-    renderMinimap();
-    minimap.renderGameInset(scene, camera);
-  } else {
-    renderGameScene(scene, camera);
-    screenBloom.apply(scene, camera, currentSceneData?.getBloomPulse?.() ?? 0, currentSceneData?.getBloomTargets?.() ?? []);
-    renderMinimap();
+  const timed = perfTimersEnabled;
+  let cpuStart = 0;
+  if (timed) {
+    gpuTimer.begin();
+    cpuStart = performance.now();
+  }
+  try {
+    if (currentSceneData?.isMazeActive?.()) {
+      renderMinimap();
+      minimap.renderGameInset(scene, camera);
+    } else {
+      renderGameScene(scene, camera);
+      screenBloom.apply(scene, camera, currentSceneData?.getBloomPulse?.() ?? 0, currentSceneData?.getBloomTargets?.() ?? []);
+      renderMinimap();
+    }
+  } finally {
+    if (timed) {
+      latestCpuFrameMs = performance.now() - cpuStart;
+      gpuTimer.end();
+    }
   }
 }
 
@@ -1631,7 +1657,7 @@ async function loadScene1() {
   const quitButton = document.getElementById("quit-btn") as HTMLButtonElement;
   quitButton.classList.remove("no-choice", "hidden");
   quitButton.disabled = false;
-  currentSceneData = createScene1({ audioManager });
+  currentSceneData = createScene1({ audioManager, renderer });
   music.enterScene("scene1", currentSceneData);
   scene1Data = currentSceneData;
   activeScene = currentSceneData.scene;
@@ -2565,6 +2591,7 @@ async function loadFlight15(
         data: module.createScene({
           entryState,
           startAt,
+          renderer,
           onTransition: loadCrash16,
         }),
       };
@@ -2586,6 +2613,7 @@ async function loadCrash16(entryState?: FlightExitState) {
         id: "scene16",
         data: module.createScene({
           entryState,
+          renderer,
           onFinished: (arrival) => {
             void loadGround17(arrival);
           },
@@ -3370,7 +3398,10 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
   const wasOpen = quickMenuOpen;
   menuScreen = screen;
   document.body.classList.toggle("ship-map-open", screen === "map");
-  if (screen !== "map") shipMap?.hide();
+  if (screen !== "map") {
+    shipMap?.hide();
+    setCharacterPreviewPostRender(null);
+  }
   quickMenuOpen = screen !== null;
   pauseMenu.dataset.screen = screen ?? "";
   if (!wasOpen && quickMenuOpen) {
@@ -3398,9 +3429,10 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
   }
   if (!dialog) {
     stopCharacterPreview();
-    stopPauseStarfield();
     document.getElementById("pause-overlay")?.classList.remove("active");
+    document.getElementById("pause-orange")?.classList.remove("active");
     document.getElementById("pause-side-bar")?.classList.remove("active");
+    document.getElementById("map-side-bar")?.classList.remove("active");
     document.getElementById("scene-side-bar")?.classList.remove("active");
     if (isControllerActive() && controllerMenuRoot())
       updateControllerMenuFocus();
@@ -3459,6 +3491,14 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
     document
       .getElementById("pause-display-panel")!
       .classList.toggle("hidden", screen !== "display");
+    if (screen === "display") {
+      syncBloomSlider();
+      const fpsToggle = document.getElementById("fps-counter-toggle") as HTMLInputElement;
+      const fpsCounterEl = document.getElementById("fps-counter");
+      if (fpsToggle && fpsCounterEl) fpsToggle.checked = !fpsCounterEl.classList.contains("hidden");
+      const perfToggle = document.getElementById("perf-timers-toggle") as HTMLInputElement | null;
+      if (perfToggle) perfToggle.checked = perfTimersEnabled;
+    }
     document
       .getElementById("pause-controls-panel")!
       .classList.toggle("hidden", screen !== "controls");
@@ -3477,9 +3517,12 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
               : screen === "controls"
                 ? "CONTROLS"
                 : "PAUSE";
+    const onMainMenu = !document
+      .getElementById("menu-buttons")
+      ?.classList.contains("hidden");
     document
       .getElementById("pause-resume")!
-      .classList.toggle("hidden", prologue);
+      .classList.toggle("hidden", prologue && !onMainMenu);
     document
       .getElementById("pause-restart-checkpoint")!
       .classList.toggle("hidden", prologue || activeSceneId === "prologue1");
@@ -3495,7 +3538,6 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
       .getElementById("pause-ship-map")!
       .classList.toggle("hidden", !canViewShipMap());
     if (screen === "controls") renderControlsReference();
-    if (screen === "display") syncBloomSlider();
     if (screen === "sound") {
       const settings = getAudioSettings();
       for (const channel of ["bgm", "sfx"] as const) {
@@ -3519,10 +3561,15 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
           : sliders;
         const count = elements.length;
         if (count >= 2) {
-          elements.forEach((element, i) => {
-            const normalized = i / (count - 1);
-            const rotation = -(normalized - 0.5) * 20;
-            element.style.transform = `rotate(${rotation}deg)`;
+          elements.forEach((element) => {
+            const rect = element.getBoundingClientRect();
+            const offset =
+              (rect.top + rect.height / 2 - window.innerHeight / 2) /
+              (window.innerHeight / 2);
+            const rotation = Math.max(-12, Math.min(12, -offset * 15));
+            const arc =
+              Math.min(1, Math.abs(offset)) ** 2 * window.innerWidth * 0.15;
+            element.style.setProperty("--menu-arc", `${arc}px`); element.style.setProperty("--menu-rotation", `${rotation}deg`);
           });
         }
       }, 0);
@@ -3541,10 +3588,64 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
           : groups;
         const count = elements.length;
         if (count >= 2) {
-          elements.forEach((element, i) => {
-            const normalized = i / (count - 1);
-            const rotation = -(normalized - 0.5) * 20;
-            element.style.transform = `rotate(${rotation}deg)`;
+          elements.forEach((element) => {
+            const rect = element.getBoundingClientRect();
+            const offset =
+              (rect.top + rect.height / 2 - window.innerHeight / 2) /
+              (window.innerHeight / 2);
+            const rotation = Math.max(-12, Math.min(12, -offset * 15));
+            const arc =
+              Math.min(1, Math.abs(offset)) ** 2 * window.innerWidth * 0.15;
+            element.style.setProperty("--menu-arc", `${arc}px`); element.style.setProperty("--menu-rotation", `${rotation}deg`);
+          });
+        }
+      }, 0);
+    }
+    if (screen === "display") {
+      setTimeout(() => {
+        const displayGroups = document.querySelectorAll<HTMLElement>(
+          "#pause-display-panel .sound-slider-group",
+        );
+        const displayBackButton = document.querySelector<HTMLElement>(
+          "#pause-display-panel button[data-pause-back]",
+        );
+        const groups = Array.from(displayGroups);
+        const elements = displayBackButton
+          ? [...groups, displayBackButton]
+          : groups;
+        const count = elements.length;
+        if (count >= 2) {
+          elements.forEach((element) => {
+            const rect = element.getBoundingClientRect();
+            const offset =
+              (rect.top + rect.height / 2 - window.innerHeight / 2) /
+              (window.innerHeight / 2);
+            const rotation = Math.max(-12, Math.min(12, -offset * 15));
+            const arc =
+              Math.min(1, Math.abs(offset)) ** 2 * window.innerWidth * 0.15;
+            element.style.setProperty("--menu-arc", `${arc}px`); element.style.setProperty("--menu-rotation", `${rotation}deg`);
+          });
+        }
+      }, 0);
+    }
+    if (screen === "developer") {
+      setTimeout(() => {
+        const developerElements = Array.from(
+          document.querySelectorAll<HTMLElement>(
+            "#pause-developer-form > h1, #pause-developer-form > button",
+          ),
+        );
+        const count = developerElements.length;
+        if (count >= 2) {
+          developerElements.forEach((element) => {
+            const rect = element.getBoundingClientRect();
+            const offset =
+              (rect.top + rect.height / 2 - window.innerHeight / 2) /
+              (window.innerHeight / 2);
+            const rotation = Math.max(-12, Math.min(12, -offset * 15));
+            const arc =
+              Math.min(1, Math.abs(offset)) ** 2 * window.innerWidth * 0.15;
+            element.style.setProperty("--menu-arc", `${arc}px`); element.style.setProperty("--menu-rotation", `${rotation}deg`);
           });
         }
       }, 0);
@@ -3554,11 +3655,10 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
     const previewContainer = document.getElementById("pause-character-preview");
     if (previewContainer && !previewContainer.querySelector("canvas"))
       startCharacterPreview(previewContainer);
-    const starfieldContainer = document.getElementById("pause-starfield");
-    if (starfieldContainer && !starfieldContainer.querySelector("canvas"))
-      startPauseStarfield(starfieldContainer);
     document.getElementById("pause-overlay")?.classList.add("active");
-    document.getElementById("pause-side-bar")?.classList.add("active");
+    document.getElementById("pause-orange")?.classList.add("active");
+    document.getElementById("pause-side-bar")?.classList.toggle("active", screen !== "map");
+    document.getElementById("map-side-bar")?.classList.toggle("active", screen === "map");
     document.getElementById("scene-side-bar")?.classList.remove("active");
     if (screen === "home") {
       setTimeout(() => {
@@ -3567,13 +3667,9 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
     }
   } else if (screen === "scenes") {
     document.getElementById("pause-overlay")?.classList.add("active");
+    document.getElementById("pause-orange")?.classList.add("active");
     document.getElementById("pause-side-bar")?.classList.remove("active");
-    const sceneStarfieldContainer = document.getElementById("scene-starfield");
-    if (
-      sceneStarfieldContainer &&
-      !sceneStarfieldContainer.querySelector("canvas")
-    )
-      startPauseStarfield(sceneStarfieldContainer);
+    document.getElementById("map-side-bar")?.classList.remove("active");
     const scenePreviewContainer = document.getElementById(
       "scene-character-preview",
     );
@@ -3587,9 +3683,10 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
     }, 0);
   } else {
     stopCharacterPreview();
-    stopPauseStarfield();
     document.getElementById("pause-overlay")?.classList.remove("active");
+    document.getElementById("pause-orange")?.classList.remove("active");
     document.getElementById("pause-side-bar")?.classList.remove("active");
+    document.getElementById("map-side-bar")?.classList.remove("active");
     document.getElementById("scene-side-bar")?.classList.remove("active");
   }
   if (!dialog.open) dialog.showModal();
@@ -3602,7 +3699,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
     }
     shipMapLayout = layout;
     shipMap ??= createShipMap(
-      renderer,
+      getCharacterPreviewRenderer()!,
       document.getElementById("ship-map-view")!,
       layout,
     );
@@ -3612,6 +3709,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
         activeSceneId,
       currentPlayer?.body.position,
     );
+    setCharacterPreviewPostRender(() => shipMap?.render());
     const focus = isControllerActive()
       ? document.querySelector<HTMLElement>(
           '[data-map-tool="current"]:not(:disabled), [data-map-tool="fit"]',
@@ -3682,6 +3780,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
     }
   }
 }
+
 function syncBloomSlider() {
   const percent = String(Math.round(screenBloom.level * 100));
   (document.getElementById("bloom-level") as HTMLInputElement).value = percent;
@@ -3942,7 +4041,7 @@ function setupSceneQuickMenu() {
     button.type = "button";
     button.dataset.scene = String(id);
     button.textContent = label;
-    button.style.cssText = "transform-origin: left center;";
+    button.className = "menu-button menu-tilt";
     list.appendChild(button);
   }
   let rotationRafId = 0;
@@ -3957,7 +4056,12 @@ function setupSceneQuickMenu() {
         const buttonCenter = rect.top + rect.height / 2;
         const offset = (buttonCenter - viewportCenter) / viewportCenter;
         const rotation = Math.max(-12, Math.min(12, -offset * 15));
-        button.style.transform = `rotate(${rotation}deg)`;
+        const arc =
+          Math.min(1, Math.abs(offset)) ** 2 * window.innerWidth * 0.15;
+        const selected =
+          button.getAttribute("aria-current") === "true" ||
+          button.classList.contains("controller-focused");
+        button.style.setProperty("--menu-arc", `${arc - (selected ? window.innerWidth * 0.025 : 0)}px`); button.style.setProperty("--menu-rotation", `${rotation}deg`);
       });
       rotationRafId = 0;
     });
@@ -3971,7 +4075,6 @@ function setupSceneQuickMenu() {
   updateSceneButtonRotations();
 
   const pauseButtonIds = [
-    "pause-resume",
     "pause-restart-checkpoint",
     "pause-ship-map",
     "pause-sound",
@@ -3994,47 +4097,48 @@ function setupSceneQuickMenu() {
       const count = buttons.length;
       if (count < 2) {
         buttons.forEach((button) => {
-          button.style.transform = "";
+          button.style.removeProperty("--menu-arc");
+          button.style.removeProperty("--menu-rotation");
         });
         pauseRotationRafId = 0;
         return;
       }
       const home = document.getElementById("pause-home");
-      const tileWidth = buttons[0]?.offsetWidth ?? 0;
-      const tileHeight = buttons[0]?.offsetHeight ?? 0;
-      const gap = home ? Number.parseFloat(getComputedStyle(home).rowGap) || 0 : 0;
-      const tileMargin = Number.parseFloat(
-        getComputedStyle(buttons[0]).marginTop,
-      ) || 0;
-      const step = tileHeight + gap + tileMargin;
-      const halfSpan = (step * (count - 1)) / 2;
-      const homeRect = home?.getBoundingClientRect();
-      const headSafeEdge = window.innerWidth * 0.5;
-      const curveDepth = Math.max(
-        0,
-        Math.min(
-          (home?.clientWidth ?? 0) - tileWidth,
-          Math.min(halfSpan, 36 + halfSpan * 0.4),
-          headSafeEdge - (homeRect?.left ?? 0) - tileWidth - 8,
-        ),
-      );
-      const radius =
-        curveDepth > 0
-          ? (halfSpan * halfSpan + curveDepth * curveDepth) /
-            (2 * curveDepth)
-          : 0;
-      buttons.forEach((button, index) => {
-        const verticalOffset = (index / (count - 1) - 0.5) * 2 * halfSpan;
-        const curve =
-          radius > 0
-            ? radius -
-              Math.sqrt(
-                Math.max(0, radius * radius - verticalOffset * verticalOffset),
-              )
-            : 0;
-        const normalized = index / (count - 1);
-        const rotation = -(normalized - 0.5) * 12;
-        button.style.transform = `translateX(${curve}px) rotate(${rotation}deg)`;
+      if (home) {
+        const homeStyle = getComputedStyle(home);
+        const available =
+          home.clientHeight -
+          Number.parseFloat(homeStyle.paddingTop) -
+          Number.parseFloat(homeStyle.paddingBottom);
+        const totalHeight = buttons.reduce(
+          (sum, button) => sum + button.offsetHeight,
+          0,
+        );
+        const gap = Math.max(
+          Math.min(
+            window.innerHeight * 0.065,
+            window.innerHeight * 0.015 +
+              Math.max(0, count - 3) * window.innerHeight * 0.012,
+          ),
+          Math.min(
+            window.innerHeight * 0.065,
+            (available - totalHeight) / (count - 1),
+          ),
+        );
+        home.style.gap = `${gap}px`;
+      }
+      const viewportCenter = window.innerHeight / 2;
+      buttons.forEach((button) => {
+        const rect = button.getBoundingClientRect();
+        const offset =
+          (rect.top + rect.height / 2 - viewportCenter) / viewportCenter;
+        const rotation = Math.max(-12, Math.min(12, -offset * 15));
+        const arc =
+          Math.min(1, Math.abs(offset)) ** 2 * window.innerWidth * 0.15;
+        const selected =
+          button.getAttribute("aria-current") === "true" ||
+          button.classList.contains("controller-focused");
+        button.style.setProperty("--menu-arc", `${arc - (selected ? window.innerWidth * 0.025 : 0)}px`); button.style.setProperty("--menu-rotation", `${rotation}deg`);
       });
       pauseRotationRafId = 0;
     });
@@ -4083,10 +4187,15 @@ function setupSceneQuickMenu() {
         soundRotationRafId = 0;
         return;
       }
-      elements.forEach((element, i) => {
-        const normalized = i / (count - 1);
-        const rotation = -(normalized - 0.5) * 20;
-        element.style.transform = `rotate(${rotation}deg)`;
+      elements.forEach((element) => {
+        const rect = element.getBoundingClientRect();
+        const offset =
+          (rect.top + rect.height / 2 - window.innerHeight / 2) /
+          (window.innerHeight / 2);
+        const rotation = Math.max(-12, Math.min(12, -offset * 15));
+        const arc =
+          Math.min(1, Math.abs(offset)) ** 2 * window.innerWidth * 0.15;
+        element.style.setProperty("--menu-arc", `${arc}px`); element.style.setProperty("--menu-rotation", `${rotation}deg`);
       });
       soundRotationRafId = 0;
     });
@@ -4126,14 +4235,34 @@ function setupSceneQuickMenu() {
         `${slider.value}%`;
     });
   }
+  const bloomSlider = document.getElementById("bloom-level") as HTMLInputElement;
+  bloomSlider.addEventListener("input", () => screenBloom.setLevel(bloomSlider.valueAsNumber / 100));
+  screenBloom.onChange(syncBloomSlider);
   const hideHudToggle = document.getElementById("interface-visibility-toggle") as HTMLInputElement;
   const syncHudToggle = () => { hideHudToggle.checked = document.body.classList.contains("hud-hidden"); };
   hideHudToggle.addEventListener("change", () => document.body.classList.toggle("hud-hidden", hideHudToggle.checked));
   new MutationObserver(syncHudToggle).observe(document.body, { attributes: true, attributeFilter: ["class"] });
   syncHudToggle();
-  const bloomSlider = document.getElementById("bloom-level") as HTMLInputElement;
-  bloomSlider.addEventListener("input", () => screenBloom.setLevel(bloomSlider.valueAsNumber / 100));
-  screenBloom.onChange(syncBloomSlider);
+  const fpsToggle = document.getElementById("fps-counter-toggle") as HTMLInputElement;
+  const fpsCounter = document.getElementById("fps-counter")!;
+  const syncFpsToggle = () => { fpsToggle.checked = !fpsCounter.classList.contains("hidden"); };
+  fpsToggle.addEventListener("change", () => {
+    fpsCounter.classList.toggle("hidden", !fpsToggle.checked);
+    localStorage.setItem("fpsCounterVisible", String(fpsToggle.checked));
+  });
+  const storedFps = localStorage.getItem("fpsCounterVisible");
+  if (storedFps === "true") fpsCounter.classList.remove("hidden");
+  syncFpsToggle();
+  const perfToggle = document.getElementById("perf-timers-toggle") as HTMLInputElement | null;
+  if (perfToggle) {
+    const storedPerf = localStorage.getItem("perfTimersEnabled");
+    perfTimersEnabled = storedPerf !== "false";
+    perfToggle.checked = perfTimersEnabled;
+    perfToggle.addEventListener("change", () => {
+      perfTimersEnabled = perfToggle.checked;
+      localStorage.setItem("perfTimersEnabled", String(perfTimersEnabled));
+    });
+  }
   const hintToggle = document.getElementById(
     "stealth-hints-toggle",
   ) as HTMLInputElement;
@@ -4365,6 +4494,30 @@ async function restartAtLastCheckpoint() {
 function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
+  
+  // FPS counter with rolling average
+  const fpsCounterEl = document.getElementById("fps-counter");
+  if (fpsCounterEl && !fpsCounterEl.classList.contains("hidden")) {
+    if (!(animate as any).fpsHistory) (animate as any).fpsHistory = [];
+    const history = (animate as any).fpsHistory as number[];
+    history.push(1 / delta);
+    if (history.length > 10) history.shift();
+    const avg = history.reduce((a, b) => a + b, 0) / history.length;
+    const gpuMs = gpuTimer.sample();
+    if (perfTimersEnabled) {
+      if (!(animate as any).cpuHistory) (animate as any).cpuHistory = [];
+      const cpuHistory = (animate as any).cpuHistory as number[];
+      cpuHistory.push(latestCpuFrameMs);
+      if (cpuHistory.length > 10) cpuHistory.shift();
+      const cpuAvg = cpuHistory.reduce((a, b) => a + b, 0) / cpuHistory.length;
+      fpsCounterEl.textContent =
+        `${Math.round(avg)} FPS · ${cpuAvg.toFixed(1)} CPU` +
+        (gpuMs !== null ? ` · ${gpuMs.toFixed(1)} GPU` : "");
+    } else {
+      fpsCounterEl.textContent = `${Math.round(avg)} FPS`;
+    }
+  }
+  
   if (!openingReady) return;
   controllerInput?.update(delta);
   updateControllerMenuFocus();
@@ -4396,10 +4549,7 @@ function animate() {
   scene1SkipHold?.update(delta);
   if (quickMenuOpen || weaponWheelOpen || teleportLoading || document.hidden) {
     controlCard.classList.add("hidden");
-    if (shipMap?.visible) {
-      shipMap.render();
-      return;
-    }
+    if (shipMap?.visible) return;
     if (activeScene && activeCamera)
       renderGameplayFrame(
         currentSceneData?.getRenderScene?.() ?? activeScene,

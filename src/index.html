@@ -517,6 +517,27 @@
             @types/pathfinding (MIT).
           </p>
         </section>
+        <section class="credit-section">
+          <h2 class="credit-role">Typography</h2>
+          <ul class="credit-list">
+            <li>
+              <a
+                href="https://www.1001fonts.com/sefa-font.html"
+                target="_blank"
+                rel="noreferrer"
+                >Sefa (Graffiti Tech)</a
+              >
+              <p class="credit-detail">
+                ArtiX Labs
+                <span class="credit-license">Free font license</span>
+              </p>
+            </li>
+          </ul>
+          <p class="credit-note">
+            Menu typeface, downloaded from 1001fonts.com. Free for personal and
+            commercial use.
+          </p>
+        </section>
         <footer class="credit-closing">
           <p class="credit-role">SPECIAL THANKS TO</p>
           <p class="credit-name">DADDY SONUS AND YOUR MOM</p>
@@ -585,33 +606,36 @@
     <!-- Fade overlay for transitions -->
     <div id="fade-overlay" class="hidden"></div>
 
+    <!-- FPS counter -->
+    <div id="fps-counter" class="hidden"></div>
+
     <!-- Skip button for scene one -->
     <button id="skip-btn" class="hidden">SKIP</button>
 
+    <div id="pause-orange"></div>
     <div id="pause-overlay"></div>
-    <div id="pause-starfield"></div>
     <div id="pause-character-preview"></div>
     <div id="pause-side-bar"><span>PAUSE</span></div>
-    <div id="scene-starfield"></div>
+    <div id="map-side-bar"><span>SHIP MAP</span></div>
     <div id="scene-character-preview"></div>
     <div id="scene-side-bar"><span>DEVELOPER</span></div>
     <dialog id="pause-menu" aria-labelledby="pause-menu-title">
       <h1 id="pause-menu-title" class="hidden">Pause</h1>
       <section id="pause-home" class="pause-panel">
-        <button id="pause-resume" type="button">Resume</button>
-        <button id="pause-restart-checkpoint" type="button">
+        <button id="pause-resume" type="button" class="menu-button">Resume</button>
+        <button id="pause-restart-checkpoint" type="button" class="menu-button menu-tilt">
           Restart at last checkpoint
         </button>
-        <button id="pause-ship-map" type="button" class="hidden">
+        <button id="pause-ship-map" type="button" class="menu-button menu-tilt hidden">
           View Ship Map
         </button>
-        <button id="pause-return-museum" type="button" class="hidden">
+        <button id="pause-return-museum" type="button" class="menu-button menu-tilt hidden">
           Return to Museum
         </button>
-        <button id="pause-sound" type="button">Sound</button>
-        <button id="pause-display" type="button">Display</button>
-        <button id="pause-controls" type="button">Controls</button>
-        <button id="pause-credits" type="button">View Credits</button>
+        <button id="pause-sound" type="button" class="menu-button menu-tilt">Sound</button>
+        <button id="pause-display" type="button" class="menu-button menu-tilt">Display</button>
+        <button id="pause-controls" type="button" class="menu-button menu-tilt">Controls</button>
+        <button id="pause-credits" type="button" class="menu-button menu-tilt">View Credits</button>
         <label
           id="pause-stealth-settings"
           class="hidden"
@@ -620,7 +644,7 @@
           <span>Prime hints</span
           ><input id="stealth-hints-toggle" type="checkbox" checked />
         </label>
-        <button id="pause-developer" type="button">Developer Mode</button>
+        <button id="pause-developer" type="button" class="menu-button menu-tilt">Developer Mode</button>
       </section>
       <section
         id="pause-map-panel"
@@ -628,17 +652,18 @@
         aria-label="Ship map"
       >
         <div id="ship-map-view"></div>
-        <button type="button" data-pause-back>Back</button>
+        <button type="button" data-pause-back class="menu-button">Back</button>
       </section>
       <section
         id="pause-controls-panel"
         class="pause-panel hidden"
         aria-label="Controls reference"
       >
-        <div class="controls-group">
+        <div class="controls-group menu-tilt">
           <div id="input-mode-tabs" role="tablist" aria-label="Input device">
             <button
               id="input-keyboard"
+              class="menu-button"
               type="button"
               role="tab"
               aria-selected="true"
@@ -648,6 +673,7 @@
             </button>
             <button
               id="input-controller"
+              class="menu-button"
               type="button"
               role="tab"
               aria-selected="false"
@@ -658,7 +684,7 @@
             </button>
           </div>
         </div>
-        <div class="controls-group">
+        <div class="controls-group menu-tilt">
           <div
             id="controller-controls-settings"
             class="hidden"
@@ -677,6 +703,7 @@
                 aria-label="Controller type"
               >
                 <button
+                  class="menu-button"
                   type="button"
                   data-controller-type="switch"
                   aria-pressed="false"
@@ -684,6 +711,7 @@
                   Switch
                 </button>
                 <button
+                  class="menu-button"
                   type="button"
                   data-controller-type="xbox"
                   aria-pressed="false"
@@ -691,6 +719,7 @@
                   Xbox
                 </button>
                 <button
+                  class="menu-button"
                   type="button"
                   data-controller-type="playstation"
                   aria-pressed="false"
@@ -715,10 +744,10 @@
                 and center both sticks before starting.
               </p>
               <p id="controller-setup-step" role="status" aria-live="polite"></p>
-              <button id="controller-setup-start" type="button">
+              <button id="controller-setup-start" class="menu-button" type="button">
                 Calibrate game controls
               </button>
-              <button id="controller-setup-cancel" type="button" class="hidden">
+              <button id="controller-setup-cancel" class="menu-button hidden" type="button">
                 Cancel calibration
               </button>
             </div>
@@ -731,14 +760,14 @@
             tabindex="0"
           ></div>
         </div>
-        <button type="button" data-pause-back>Back</button>
+        <button type="button" data-pause-back class="menu-button">Back</button>
       </section>
       <section
         id="pause-sound-panel"
         class="pause-panel hidden"
         aria-label="Sound settings"
       >
-        <div class="sound-slider-group">
+        <div class="sound-slider-group menu-tilt">
           <label for="bgm-volume"
             >BGM
             <output id="bgm-volume-value" for="bgm-volume">100%</output></label
@@ -752,7 +781,7 @@
             value="100"
           />
         </div>
-        <div class="sound-slider-group">
+        <div class="sound-slider-group menu-tilt">
           <label for="sfx-volume"
             >SFX
             <output id="sfx-volume-value" for="sfx-volume">100%</output></label
@@ -766,14 +795,14 @@
             value="100"
           />
         </div>
-        <button type="button" data-pause-back>Back</button>
+        <button type="button" data-pause-back class="menu-button">Back</button>
       </section>
       <section
         id="pause-display-panel"
         class="pause-panel hidden"
         aria-label="Display settings"
       >
-        <div class="sound-slider-group">
+        <div class="sound-slider-group menu-tilt">
           <label for="bloom-level"
             >Bloom
             <output id="bloom-level-value" for="bloom-level">0%</output></label
@@ -787,26 +816,32 @@
             value="0"
           />
         </div>
-        <div class="sound-slider-group">
+        <div class="sound-slider-group menu-tilt">
           <label for="interface-visibility-toggle"
             >Hide HUD (/)
             <input id="interface-visibility-toggle" type="checkbox" />
           </label>
         </div>
-        <button type="button" data-pause-back>Back</button>
+        <div class="sound-slider-group menu-tilt">
+          <label for="fps-counter-toggle"
+            >Show FPS
+            <input id="fps-counter-toggle" type="checkbox" />
+          </label>
+        </div>
+        <div class="sound-slider-group menu-tilt">
+          <label for="perf-timers-toggle"
+            >Perf timers
+            <input id="perf-timers-toggle" type="checkbox" />
+          </label>
+        </div>
+        <button type="button" data-pause-back class="menu-button">Back</button>
       </section>
       <section id="pause-developer-form" class="pause-panel hidden">
-        <h1
-          style="
-            color: white;
-            transform: rotate(14deg);
-            transform-origin: right center;
-          "
-        >
+        <h1 class="menu-tilt" style="color: white">
           Unlock scene selection and all controls for local playtesting.
         </h1>
-        <button id="developer-unlock" type="button">Unlock</button>
-        <button type="button" data-pause-back>Back</button>
+        <button id="developer-unlock" type="button" class="menu-button menu-tilt">Unlock</button>
+        <button type="button" data-pause-back class="menu-button">Back</button>
       </section>
       <p class="controller-menu-hint">
         Left stick / D-pad: choose · A: select · B: back · +: resume
@@ -816,7 +851,7 @@
       id="scene-quick-menu"
       aria-labelledby="scene-menu-title"
     >
-      <button id="scene-quick-close" type="button" style="position: absolute; top: 20px; right: 120px;">
+      <button id="scene-quick-close" class="menu-button" type="button">
         Back <kbd>Esc</kbd>
       </button>
       <div id="scene-quick-list" style="overflow-y: auto; display: flex; flex-direction: column;"></div>

@@ -287,12 +287,13 @@ export function addPlanetBackdrop(
   position: THREE.Vector3,
   radius: number,
   starRadius: number,
-  options: { nebulaOpacity?: number; nebulaProgress?: number } = {},
+  options: { nebulaOpacity?: number; nebulaProgress?: number; renderer?: THREE.WebGLRenderer } = {},
 ): { planet: THREE.Group; starfield: Starfield } {
   const earthGroup = createEarthGroup(scene, position, radius, createEarthTextures());
   earthGroup.name = 'NearestPlanet';
   const starfield = createStarfield({
     scene,
+    renderer: options.renderer,
     scale: starRadius / 170,
     nebulaScale: Math.min(starRadius / 170, 100),
     sizeScale: starRadius / 100,

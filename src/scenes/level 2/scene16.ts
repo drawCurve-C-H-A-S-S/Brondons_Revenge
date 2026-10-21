@@ -12,7 +12,7 @@ import { createRescueSite, RESCUE_SITE, JUNGLE_ENTRY_YAW, type RescueArrival } f
 import { prepareSceneRendering } from '../../core/renderer.js';
 
 /** An uninterrupted handoff, then pursuit, atmospheric entry, and the crash. */
-export function createScene({ entryState, onFinished }: { entryState?: FlightExitState; onFinished: (arrival: RescueArrival) => void }) {
+export function createScene({ entryState, onFinished, renderer }: { entryState?: FlightExitState; onFinished: (arrival: RescueArrival) => void; renderer?: THREE.WebGLRenderer }) {
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x01040b);
   const physics = createScenePhysics(), physicsWorld = physics.world; physicsWorld.gravity.set(0, 0, 0);
   const camera = new THREE.PerspectiveCamera(entryState?.cameraFov ?? 76, window.innerWidth / window.innerHeight, 0.1, 50000);
@@ -27,7 +27,7 @@ export function createScene({ entryState, onFinished }: { entryState?: FlightExi
 
   const planetRadius = 900;
   const planetPosition = entryState?.planetPosition.clone() ?? new THREE.Vector3(0, 200, 14000);
-  const { planet, starfield } = addPlanetBackdrop(scene, planetPosition, planetRadius, 30000, { nebulaOpacity: 1.0, nebulaProgress: 0.9 });
+  const { planet, starfield } = addPlanetBackdrop(scene, planetPosition, planetRadius, 30000, { nebulaOpacity: 1.0, nebulaProgress: 0.9, renderer });
   scene.add(new THREE.HemisphereLight(0xa3cfff, 0x181321, 2));
   const sun = new THREE.DirectionalLight(0xffecd8, 3.5); sun.position.set(-5000, 7000, -2500); scene.add(sun);
   const pod = createEscapePod(); pod.name = 'CrashPod'; scene.add(pod);

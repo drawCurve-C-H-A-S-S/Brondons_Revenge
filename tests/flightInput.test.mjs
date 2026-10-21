@@ -55,7 +55,15 @@ function fixture(t, startAt, entryState) {
     play() { return Promise.resolve(); }
   };
   t.mock.method(THREE.TextureLoader.prototype, 'load', () => new THREE.Texture());
-  const data = createScene({ startAt, entryState, onTransition() {} });
+  const renderer = {
+    toneMapping: THREE.NoToneMapping,
+    getRenderTarget: () => null,
+    setRenderTarget() {},
+    setClearColor() {},
+    clear() {},
+    render() {},
+  };
+  const data = createScene({ startAt, entryState, renderer, onTransition() {} });
   t.after(() => { data.dispose(); Object.assign(globalThis, old); });
   return data;
 }
@@ -81,7 +89,7 @@ test('only opening interceptors get the eight-unit invisible shot target', t => 
   assert.ok(target);
   assert.equal(hitRadius, 8);
   assert.equal(target.material.visible, false);
-  assert.equal(target.geometry.parameters.radius * target.getWorldScale(new THREE.Vector3()).x, hitRadius);
+  assert.ok(Math.abs(target.geometry.parameters.radius * target.getWorldScale(new THREE.Vector3()).x - hitRadius) < 1e-9);
 });
 
 test('scene 14 handoff flies solo for two seconds, fades in the distant carrier, then plays VS before combat', t => {
@@ -254,6 +262,11 @@ test('destroying the red scrambler switches music immediately and keeps the boss
   for (let frame = 0; frame < 60 * 12 && data.getFlightStatus().scramblerHp > 0; frame++) data.updatePhysics(1 / 60);
   mouse('mouseup');
   assert.equal(data.getFlightStatus().scramblerHp, 0);
+  assert.equal(data.shouldInvertColors(), true);
+  data.consumeInvertFrame();
+  assert.equal(data.shouldInvertColors(), true);
+  data.consumeInvertFrame();
+  assert.equal(data.shouldInvertColors(), false);
   assert.equal(data.getMusicTrack(), 'level-2-boss');
   assert.equal(data.hasBossVictory(), false, 'The scrambler is a phase, not the capital-ship victory');
   window.dispatchEvent(new Event('blur'));

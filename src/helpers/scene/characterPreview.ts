@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { loadBrendanModel, loadPlayerModel, setPlayerCellShadingEnabled } from '../../core/loader.js';
+import { createStarfield, type Starfield } from './starfield.js';
 const starfieldVertShader = `
   varying vec3 vWorldPosition;
   void main() {
@@ -22,7 +23,13 @@ const starfieldFragShader = `
   uniform float uWarpStrength;
   uniform float uThresholdLow;
   uniform float uThresholdHigh;
-  
+  uniform sampler2D uBackdrop;
+  uniform vec2 uResolution;
+  uniform vec3 uEmissive;
+  uniform float uEmissiveScale;
+  uniform float uGradientMix;
+  uniform float uLightnessMix;
+
   varying vec3 vWorldPosition;
   
   float hash(vec3 p) {
@@ -86,51 +93,42 @@ const starfieldFragShader = `
     return value;
   }
   
+  vec3 rgb2hsl(vec3 c) {
+    float maxC = max(c.r, max(c.g, c.b));
+    float minC = min(c.r, min(c.g, c.b));
+    float l = (maxC + minC) * 0.5;
+    float h = 0.0;
+    float s = 0.0;
+    float d = maxC - minC;
+    if (d > 0.0001) {
+      s = l > 0.5 ? d / (2.0 - maxC - minC) : d / (maxC + minC);
+      if (maxC == c.r) h = (c.g - c.b) / d + (c.g < c.b ? 6.0 : 0.0);
+      else if (maxC == c.g) h = (c.b - c.r) / d + 2.0;
+      else h = (c.r - c.g) / d + 4.0;
+      h /= 6.0;
+    }
+    return vec3(h, s, l);
+  }
+
+  vec3 hsl2rgb(vec3 hsl) {
+    float h = fract(hsl.x);
+    vec3 rgb = clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+    return hsl.z + hsl.y * (rgb - 0.5) * (1.0 - abs(2.0 * hsl.z - 1.0));
+  }
+
   void main() {
-    vec3 pos = vWorldPosition * 2.0 + uNoiseOffset;
-    pos += vec3(uTime * 0.15, uTime * 0.08, uTime * 0.12);
-    
-    vec3 p1 = pos * 0.3;
-    vec3 p2 = pos * 0.15 + 100.0;
-    
-    vec3 warped1 = p1 + fbm(p1) * uWarpStrength;
-    vec3 warped2 = p2 + fbm(p2) * uWarpStrength;
-    
-    float nebula = mix(fbm(warped1), ridgeFbm(p1), uRidgeStrength);
-    float nebula2 = mix(fbm(warped2), ridgeFbm(p2), uRidgeStrength);
-    
-    float cloud = nebula * 0.7 + nebula2 * 0.3;
-    
-    vec3 voidColor = vec3(0.02, 0.01, 0.03);
-    float cloudAlpha = smoothstep(uThresholdLow, uThresholdHigh, cloud) * uOpacity;
-    if (uInvertAlpha) {
-      cloudAlpha = smoothstep(uThresholdHigh, uThresholdHigh + 0.08, cloud) * uOpacity;
-    }
-    vec3 finalColor = uColor;
-    if (uHasBlend) {
-      float blendNoise = noise(pos * 0.4 + 300.0);
-      finalColor = mix(uColor, uBlendColor, blendNoise);
-    }
-    vec3 color = mix(voidColor, finalColor, cloudAlpha / uOpacity);
-    
-    float density = cloudAlpha / uOpacity;
-    if (!uInvertAlpha) {
-      color = mix(color, vec3(1.0, 0.6, 0.1), pow(density, 4.0) * 0.2);
-      float whiteCore = smoothstep(0.65, 0.75, cloud);
-      color = mix(color, vec3(1.0), whiteCore * 0.7);
-    }
-    
-    if (uDither) {
-      vec2 gridPos = vWorldPosition.xy * 30.0;
-      float ditherPattern = fract(sin(dot(gridPos, vec2(12.9898, 78.233))) * 43758.5453);
-      float threshold = 0.5 + (ditherPattern - 0.5) * 0.8;
-      if (cloudAlpha < threshold * uOpacity) {
-        color = vec3(0.0);
-        cloudAlpha = 0.0;
-      }
-    }
-    
-    gl_FragColor = vec4(color, cloudAlpha);
+    vec4 backdrop = texture2D(uBackdrop, gl_FragCoord.xy / uResolution);
+    float gradT = clamp(gl_FragCoord.y / uResolution.y, 0.0, 1.0);
+    vec3 gradient = gradT < 0.5 ? mix(vec3(11.0, 14.0, 51.0) / 255.0, vec3(119.0, 75.0, 34.0) / 255.0, gradT * 2.0) : mix(vec3(119.0, 75.0, 34.0) / 255.0, vec3(255.0, 153.0, 26.0) / 255.0, (gradT - 0.5) * 2.0);
+    vec3 emissiveHsl = rgb2hsl(uEmissive);
+    vec3 gradientHsl = rgb2hsl(gradient);
+    float hueDiff = gradientHsl.x - emissiveHsl.x;
+    if (hueDiff > 0.5) emissiveHsl.x += 1.0;
+    else if (hueDiff < -0.5) emissiveHsl.x -= 1.0;
+    float hue = fract(mix(emissiveHsl.x, gradientHsl.x, uGradientMix));
+    float lightness = clamp(mix(emissiveHsl.z * uEmissiveScale, gradientHsl.z, uLightnessMix), 0.0, 1.0);
+    vec3 tint = hsl2rgb(vec3(hue, gradientHsl.y, lightness));
+    gl_FragColor = vec4(backdrop.rgb + tint * (1.0 - backdrop.a), 1.0);
   }
 `;
 
@@ -139,13 +137,19 @@ let previewScene: THREE.Scene | null = null;
 let previewCamera: THREE.OrthographicCamera | null = null;
 let previewModel: THREE.Object3D | null = null;
 let previewRafId = 0;
-let starfieldUniforms: THREE.IUniform<number>[] = [];
+let previewStarfield: Starfield | null = null;
+let starfieldScene: THREE.Scene | null = null;
+let starfieldCamera: THREE.PerspectiveCamera | null = null;
+let previewRenderTarget: THREE.WebGLRenderTarget | null = null;
+let backdropScene: THREE.Scene | null = null;
+let backdropCamera: THREE.OrthographicCamera | null = null;
+let backdropMaterial: THREE.ShaderMaterial | null = null;
+let postRenderHook: (() => void) | null = null;
 
 function applyStarfieldBackdrop(scene: THREE.Object3D) {
   const materialMap = new Map<THREE.Material, THREE.Material>();
   const originalMaterials = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
-  starfieldUniforms = [];
-  
+
   scene.traverse(node => {
     if (!(node instanceof THREE.Mesh)) return;
     
@@ -158,7 +162,7 @@ function applyStarfieldBackdrop(scene: THREE.Object3D) {
         continue;
       }
       
-      if (/linework|outline/i.test(material.name)) {
+      if (/linework|outline/i.test(material.name) || material.name === 'eyewhites') {
         materialMap.set(material, material);
         newMaterials.push(material);
         continue;
@@ -174,7 +178,7 @@ function applyStarfieldBackdrop(scene: THREE.Object3D) {
       const defaultColor = new THREE.Color(0.35, 0.24, 0.42);
       const tintedColor = emissive.clone().lerp(defaultColor, 0.85);
       const blendColor = tintedColor.clone().multiplyScalar(1.3);
-      
+
       const uniforms = {
         uTime: { value: 0 },
         uColor: { value: tintedColor },
@@ -189,16 +193,24 @@ function applyStarfieldBackdrop(scene: THREE.Object3D) {
         uWarpStrength: { value: 0.5 },
         uThresholdLow: { value: 0.2 },
         uThresholdHigh: { value: 0.4 },
+        uBackdrop: { value: previewRenderTarget ? previewRenderTarget.texture : null },
+        uResolution: {
+          value: previewRenderer
+            ? previewRenderer.getDrawingBufferSize(new THREE.Vector2())
+            : new THREE.Vector2(1, 1),
+        },
+        uEmissive: { value: emissive.clone() },
+        uEmissiveScale: { value: 1.0 },
+        uGradientMix: { value: 0.55 },
+        uLightnessMix: { value: 0.75 },
       };
-      
-      starfieldUniforms.push(uniforms.uTime);
-      
+
       const shaderMaterial = new THREE.ShaderMaterial({
         vertexShader: starfieldVertShader,
         fragmentShader: starfieldFragShader,
         uniforms,
       });
-      
+
       materialMap.set(material, shaderMaterial);
       newMaterials.push(shaderMaterial);
     }
@@ -253,6 +265,44 @@ export function startCharacterPreview(container: HTMLElement) {
   camera.lookAt(0, 1.5, 0);
   previewCamera = camera;
 
+  starfieldScene = new THREE.Scene();
+  starfieldCamera = new THREE.PerspectiveCamera(60, aspect, 0.1, 1000);
+  previewStarfield = createStarfield({
+    scene: starfieldScene,
+    renderer: previewRenderer,
+    nebulaOpacity: 1.0,
+    starCount: 650,
+    glowOpacity: 0.15,
+    scale: 1.0,
+    sizeScale: 1.0,
+    dither: false,
+  });
+  previewStarfield.starLayers.forEach((layer, i) => {
+    layer.renderOrder = i + 1;
+  });
+  previewRenderer.autoClear = false;
+
+  const drawSize = previewRenderer.getDrawingBufferSize(new THREE.Vector2());
+  previewRenderTarget = new THREE.WebGLRenderTarget(
+    Math.max(1, drawSize.x),
+    Math.max(1, drawSize.y),
+  );
+  backdropScene = new THREE.Scene();
+  backdropCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  backdropMaterial = new THREE.ShaderMaterial({
+    vertexShader:
+      'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader:
+      'uniform sampler2D tBackdrop; uniform bool uGradient; varying vec2 vUv; void main() { if (vUv.x > 0.65) discard; vec4 c = texture2D(tBackdrop, vUv); float dim = smoothstep(0.2, 0.65, vUv.x) * 0.35; if (uGradient) { vec3 grad = vUv.y < 0.5 ? mix(vec3(11.0, 14.0, 51.0) / 255.0, vec3(119.0, 75.0, 34.0) / 255.0, vUv.y * 2.0) : mix(vec3(119.0, 75.0, 34.0) / 255.0, vec3(255.0, 153.0, 26.0) / 255.0, (vUv.y - 0.5) * 2.0); gl_FragColor = vec4(c.rgb * (1.0 - dim) * c.a + grad * (1.0 - c.a), 1.0); } else { gl_FragColor = vec4(c.rgb * (1.0 - dim), c.a); } }',
+    uniforms: {
+      tBackdrop: { value: previewRenderTarget.texture },
+      uGradient: { value: container.id !== 'scene-character-preview' },
+    },
+    depthTest: false,
+    depthWrite: false,
+  });
+  backdropScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), backdropMaterial));
+
   const horizontalOffset = THREE.MathUtils.clamp(
     0.13 * (width / height) / (16 / 9),
     0.05,
@@ -280,7 +330,7 @@ export function startCharacterPreview(container: HTMLElement) {
       if (token !== loadToken || !previewScene) return;
       if (previewModel) previewScene.remove(previewModel);
       previewModel = model;
-      model.position.set(1.8, 0.04, -horizontalOffset);
+      model.position.set(1.8, 0.045, -horizontalOffset);
       model.rotation.set(0, Math.PI, 0, 'YXZ');
       model.scale.x = -1;
       applyStarfieldBackdrop(model);
@@ -293,17 +343,24 @@ export function startCharacterPreview(container: HTMLElement) {
   swapPreview = () => { variant = variant === 'brondon' ? 'brendan' : 'brondon'; void loadVariant(variant); };
   window.addEventListener('keydown', onPreviewKey, true);
 
-  const clock = new THREE.Clock();
+  const startTime = performance.now() * 0.001;
   const render = () => {
-    if (!previewRenderer || !previewScene || !previewCamera) return;
+    if (!previewRenderer || !previewScene || !previewCamera || !previewStarfield || !starfieldScene || !starfieldCamera || !previewRenderTarget || !backdropScene || !backdropCamera) return;
     previewRafId = requestAnimationFrame(render);
-    
-    const elapsed = clock.getElapsedTime();
-    for (const uniforms of starfieldUniforms) {
-      uniforms.value = elapsed;
-    }
-    
+
+    const elapsed = performance.now() * 0.001 - startTime;
+    previewStarfield.update(elapsed);
+    const nebulaShell = previewStarfield.nebulaCubes[0];
+    if (nebulaShell) nebulaShell.rotation.y = elapsed * 0.05;
+    for (const layer of previewStarfield.starLayers) layer.rotation.y = elapsed * 0.05;
+    previewRenderer.setRenderTarget(previewRenderTarget);
+    previewRenderer.clear(true, true, false);
+    previewRenderer.render(starfieldScene, starfieldCamera);
+    previewRenderer.setRenderTarget(null);
+    previewRenderer.clear(true, true, false);
+    previewRenderer.render(backdropScene, backdropCamera);
     previewRenderer.render(previewScene, previewCamera);
+    postRenderHook?.();
   };
   render();
   console.log('[CharacterPreview] Render loop started');
@@ -318,6 +375,14 @@ function onPreviewKey(event: KeyboardEvent) {
   }
 }
 
+export function setCharacterPreviewPostRender(callback: (() => void) | null) {
+  postRenderHook = callback;
+}
+
+export function getCharacterPreviewRenderer() {
+  return previewRenderer;
+}
+
 export function stopCharacterPreview() {
   window.removeEventListener('keydown', onPreviewKey, true);
   swapPreview = null;
@@ -325,6 +390,27 @@ export function stopCharacterPreview() {
     cancelAnimationFrame(previewRafId);
     previewRafId = 0;
   }
+  if (previewStarfield) {
+    previewStarfield.dispose();
+    previewStarfield = null;
+  }
+  starfieldScene = null;
+  starfieldCamera = null;
+  if (previewRenderTarget) {
+    previewRenderTarget.dispose();
+    previewRenderTarget = null;
+  }
+  if (backdropScene) {
+    backdropScene.traverse((node) => {
+      if (node instanceof THREE.Mesh) {
+        node.geometry.dispose();
+        (node.material as THREE.Material).dispose();
+      }
+    });
+    backdropScene = null;
+  }
+  backdropCamera = null;
+  backdropMaterial = null;
   if (previewRenderer) {
     previewRenderer.dispose();
     previewRenderer.domElement.remove();
