@@ -114,7 +114,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     }
   }
   // Each batch has tight bounds, so the renderer culls it separately for the view and shadow cameras.
-  function addJungleBatch(source: THREE.InstancedMesh, range: number, canopy = false) {
+  function addJungleBatch(source: THREE.InstancedMesh, range: number, canopy = false, farMaterial?: THREE.Material) {
     source.instanceMatrix.needsUpdate = true;
     if (!culling) {
       instanceLocations.set(source, Array.from({ length: source.count }, (_, index) => ({ mesh: source, index })));
@@ -149,7 +149,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
       scene.add(mesh);
       let farMesh: THREE.InstancedMesh | undefined;
       if (farGeometry) {
-        farMesh = new THREE.InstancedMesh(farGeometry, source.material, mesh.count);
+        farMesh = new THREE.InstancedMesh(farGeometry, farMaterial ?? source.material, mesh.count);
         farMesh.name = `${mesh.name}/distant`; farMesh.position.copy(mesh.position); farMesh.frustumCulled = true;
         farMesh.instanceMatrix = mesh.instanceMatrix; farMesh.instanceColor = mesh.instanceColor;
         farMesh.computeBoundingBox(); farMesh.computeBoundingSphere(); farMesh.updateMatrix(); farMesh.matrixAutoUpdate = false;
@@ -159,7 +159,8 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     }
     source.dispose();
   }
-  const dirt = new THREE.MeshStandardMaterial({ color: 0x62543c, roughness: 1, vertexColors: true });
+  const grassMap = surfaceTextures.grass; grassMap.repeat.set(64, 50);
+  const dirt = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, vertexColors: true, map: grassMap });
   let seed = 170916;
   const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
   const obstacles: Array<{ x: number; z: number; radius: number }> = [];
@@ -675,6 +676,22 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   const bark = new THREE.MeshStandardMaterial({ map: surfaceTextures.bark, roughness: 1 });
   const foliage = new THREE.MeshStandardMaterial({ color: 0xb0c69c, map: surfaceTextures.leaves, bumpMap: surfaceTextures.leaves,
     bumpScale: 0.045, roughness: 1 });
+  const canopyWind = { value: 0 };
+  const sprayMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: surfaceTextures.pineBranch, alphaTest: 0.42,
+    side: THREE.DoubleSide, roughness: 1 });
+  sprayMat.onBeforeCompile = shader => {
+    shader.uniforms.uCanopyWind = canopyWind;
+    shader.vertexShader = 'uniform float uCanopyWind;\n' + shader.vertexShader;
+    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+      float sprayPhase = uCanopyWind;
+      #ifdef USE_INSTANCING
+        sprayPhase += instanceMatrix[3].x * 0.07 + instanceMatrix[3].z * 0.11;
+      #endif
+      transformed.x += sin(sprayPhase * 0.9 + position.y * 1.7) * 0.08;
+      transformed.z += cos(sprayPhase * 0.7 + position.x * 1.3) * 0.05;`);
+  };
+  sprayMat.customProgramCacheKey = () => 'textured-conifer-spray-wind-v1';
+  const sprayCard = new THREE.PlaneGeometry(1, 1);
   const sourceWater = createJungleWater(scene, { y: 0, z: 17, halfWidth: 5.76, length: 15 });
   sourceWater.mesh.name = 'WaterfallSummitStream'; waterfallRoot.add(sourceWater.mesh);
   const streamPositions = sourceWater.mesh.geometry.getAttribute('position');
@@ -687,14 +704,35 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   sourceWater.mesh.geometry.computeBoundingBox(); sourceWater.mesh.geometry.computeBoundingSphere();
   sourceWater.mesh.geometry.boundingSphere!.radius += 0.13;
   const sourceDress = new THREE.Group(); sourceDress.name = 'WaterfallSourceGrove'; waterfallRoot.add(sourceDress);
-  const sourceTrunk = new THREE.CylinderGeometry(0.3, 0.55, 1, 7), sourceCrown = new THREE.IcosahedronGeometry(1, 2);
+  const sourceTrunk = new THREE.CylinderGeometry(0.3, 0.55, 1, 7);
+  const sourceBranch = new THREE.CylinderGeometry(0.08, 0.2, 1, 5);
   function sourceTree(x: number, y: number, z: number, height: number) {
     const trunk = new THREE.Mesh(sourceTrunk, bark); trunk.position.set(x, y + height / 2, z); trunk.scale.y = height;
     trunk.castShadow = true; sourceDress.add(trunk);
-    for (const side of [-1, 1]) {
-      const crown = new THREE.Mesh(sourceCrown, foliage);
-      crown.position.set(x + side * 0.9, y + height - 0.8 + side * 0.6, z + side * 0.8);
-      crown.scale.set(3, 2.2, 3.4); crown.castShadow = true; sourceDress.add(crown);
+    const whorls = 5;
+    for (let w = 0; w < whorls; w++) {
+      const t = w / (whorls - 1);
+      const wy = y + height * (0.3 + 0.62 * t), radius = (2.6 - 1.9 * t);
+      for (let a = 0; a < 3; a++) {
+        const angle = a * 2.09 + w * 0.7;
+        const dirX = Math.sin(angle), dirZ = Math.cos(angle);
+        const arm = new THREE.Mesh(sourceBranch, bark);
+        arm.position.set(x + dirX * radius * 0.4, wy - 0.12, z + dirZ * radius * 0.4);
+        arm.scale.y = radius * 0.8;
+        arm.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dirX, -0.2, dirZ).normalize());
+        arm.castShadow = true; sourceDress.add(arm);
+        for (let c = 0; c < 2; c++) {
+          const card = new THREE.Mesh(sprayCard, sprayMat);
+          card.position.set(x + dirX * radius * 0.5, wy + (Math.random() - 0.5) * 0.3, z + dirZ * radius * 0.5);
+          card.rotation.set(0, angle + Math.PI / 2 + c * Math.PI / 2, -0.14); card.scale.set(radius * 1.7, 2.2 + (1 - t) * 1, 1);
+          sourceDress.add(card);
+        }
+      }
+    }
+    for (let c = 0; c < 2; c++) {
+      const spire = new THREE.Mesh(sprayCard, sprayMat);
+      spire.position.set(x, y + height * 0.96, z); spire.scale.set(1.8, 2.6, 1);
+      spire.rotation.y = Math.random() * Math.PI; sourceDress.add(spire);
     }
   }
   const crestX = waterfallSheetX(17, ridgeHeight(17));
@@ -712,7 +750,6 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     rock.scale.set(1.35, 3.2 + Math.sin(index) * 0.4, 2); riverEnd.add(rock);
   }
   for (const z of [7, 27]) sourceTree(RESCUE_SITE.east - 5, 0, z, 11);
-  const canopyWind = { value: 0 };
   foliage.onBeforeCompile = shader => {
     shader.uniforms.uCanopyWind = canopyWind;
     shader.vertexShader = 'uniform float uCanopyWind;\n' + shader.vertexShader;
@@ -725,46 +762,94 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
       transformed.z += cos(canopyPhase * 0.7 + position.x * 1.3) * 0.05;`);
   };
   foliage.customProgramCacheKey = () => 'textured-jungle-canopy-wind-v1';
-  const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.65, 1, 1, 7), bark, 1200);
-  const crowns = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 2), foliage, 4800);
-  const branches = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.15, 0.38, 1, 5), bark, 3600);
-  const vines = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.025, 0.04, 1, 5), new THREE.MeshStandardMaterial({ color: 0x536338, roughness: 1 }), 2400);
-  trunks.name = 'JungleTrunks'; crowns.name = 'JungleCanopy'; branches.name = 'JungleBranches'; vines.name = 'HangingVines';
+  const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.5, 1, 1, 7), bark, 1200);
+  const crowns = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 2), foliage, 8);
+  const branches = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12, 0.3, 1, 5), bark, 34000);
+  const vines = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.025, 0.04, 1, 5), new THREE.MeshStandardMaterial({ color: 0x536338, roughness: 1 }), 8);
+  const foliageCards = new THREE.InstancedMesh(sprayCard, sprayMat, 68000);
+  trunks.name = 'JungleTrunks'; crowns.name = 'JungleCanopy'; branches.name = 'JungleBranches'; vines.name = 'HangingVines'; foliageCards.name = 'ConiferSprays';
   const dummy = new THREE.Object3D(), tint = new THREE.Color(), yAxis = new THREE.Vector3(0, 1, 0);
-  let treeCount = 0, crownCount = 0, branchCount = 0, vineCount = 0;
+  let treeCount = 0, crownCount = 0, branchCount = 0, vineCount = 0, sprayCount = 0;
   function instance(mesh: THREE.InstancedMesh, index: number, position: THREE.Vector3, scale: THREE.Vector3, rotation = new THREE.Euler()) {
     dummy.position.copy(position); dummy.scale.copy(scale); dummy.rotation.copy(rotation); dummy.updateMatrix(); mesh.setMatrixAt(index, dummy.matrix);
+  }
+  // ── Textured conifers: visible bark log + woody arms + feathery spray cards ─
+  const TRUNK_CAP = 1200, BRANCH_CAP = 34000, SPRAY_CAP = 68000;
+  function conifer(x: number, z: number, height: number, radius: number) {
+    if (treeCount >= TRUNK_CAP || branchCount + 48 > BRANCH_CAP || sprayCount + 96 > SPRAY_CAP) return;
+    const parts: TreePart[] = [{ source: trunks, index: treeCount }];
+    instance(trunks, treeCount++, new THREE.Vector3(x, height / 2, z), new THREE.Vector3(radius, height, radius));
+    const body = new CANNON.Body({ mass: 0, material: physics.solidMaterial, shape: new CANNON.Cylinder(radius * 0.6, radius, height, 7) });
+    body.position.set(x, height / 2, z); physics.world.addBody(body); jungleObstacleBodies.add(body); trackStaticBody(body);
+    const entry = { x, z, radius }; obstacles.push(entry);
+    const whorls = 9;
+    for (let w = 0; w < whorls; w++) {
+      const t = w / (whorls - 1);
+      const wy = height * (0.16 + 0.78 * t);
+      const reach = (3.8 - 2.7 * t) * (0.85 + random() * 0.3);
+      const arms = w < 6 ? 5 : 4;
+      for (let a = 0; a < arms; a++) {
+        const angle = a * (Math.PI * 2 / arms) + random() * 0.6 + w * 0.5;
+        const dirX = Math.sin(angle), dirZ = Math.cos(angle);
+        const armLen = reach * 0.75;
+        dummy.position.set(x + dirX * armLen * 0.5, wy - 0.15, z + dirZ * armLen * 0.5);
+        dummy.scale.set(1, armLen, 1);
+        dummy.quaternion.setFromUnitVectors(yAxis, new THREE.Vector3(dirX, -0.18, dirZ).normalize()); dummy.updateMatrix();
+        parts.push({ source: branches, index: branchCount }); branches.setMatrixAt(branchCount++, dummy.matrix);
+        // crossed pair of spray cards: stem runs radially outward so the feathery
+        // fringe stays visible from every viewing angle, never edge-on
+        for (let c = 0; c < 2; c++) {
+          instance(foliageCards, sprayCount, new THREE.Vector3(x + dirX * reach * 0.5, wy + (random() - 0.5) * 0.35, z + dirZ * reach * 0.5),
+            new THREE.Vector3(reach * 1.7, 2.6 + (1 - t) * 1.5, 1), new THREE.Euler(0, angle + Math.PI / 2 + c * Math.PI / 2, -0.14));
+          parts.push({ source: foliageCards, index: sprayCount });
+          foliageCards.setColorAt(sprayCount++, tint.setHSL(0.3 + random() * 0.06, 0.45 + random() * 0.2, 0.3 + random() * 0.16));
+        }
+      }
+    }
+    for (let c = 0; c < 2; c++) {
+      instance(foliageCards, sprayCount, new THREE.Vector3(x, height * 0.95, z), new THREE.Vector3(2.1, 3, 1), new THREE.Euler(0, random() * Math.PI, 0));
+      parts.push({ source: foliageCards, index: sprayCount });
+      foliageCards.setColorAt(sprayCount++, tint.setHSL(0.31, 0.5, 0.32));
+    }
+    obstacleVisuals.set(body, { entry, parts });
   }
   for (let x0 = -184; x0 <= 184; x0 += 9) for (let z0 = -112; z0 <= 112; z0 += 9) {
     const x = x0 + (random() - 0.5) * 5, z = z0 + (random() - 0.5) * 5;
     if (river(z, 4) || clearing(x, z, 3) || facility(x, z, 3) || routeDistance(x, z) < 5 || !isWalkable(x, z, 1.5)) continue;
-    const height = 15 + random() * 11, radius = 0.38 + random() * 0.4;
-    const parts: TreePart[] = [{ source: trunks, index: treeCount }];
-    instance(trunks, treeCount++, new THREE.Vector3(x, height / 2, z), new THREE.Vector3(radius, height, radius));
-    const body = new CANNON.Body({ mass: 0, material: physics.solidMaterial, shape: new CANNON.Cylinder(radius * 0.65, radius, height, 7) });
-    body.position.set(x, height / 2, z); physics.world.addBody(body); jungleObstacleBodies.add(body); trackStaticBody(body);
-    const entry = { x, z, radius }; obstacles.push(entry); obstacleVisuals.set(body, { entry, parts });
-    for (let j = 0; j < 4; j++) {
-      const angle = j * 2.4 + random(), spread = j === 0 ? 0 : 2.8;
-      const p = new THREE.Vector3(x + Math.sin(angle) * spread, height - (j % 2) * 3, z + Math.cos(angle) * spread);
-      instance(crowns, crownCount, p, new THREE.Vector3(4.3 + random() * 1.8, 2.3 + random(), 4.3 + random()), new THREE.Euler(0, angle, 0));
-      parts.push({ source: crowns, index: crownCount });
-      crowns.setColorAt(crownCount++, tint.setHSL(0.23 + random() * 0.08, 0.35 + random() * 0.2, 0.34 + random() * 0.22));
-      if (j === 0) continue;
-      const base = new THREE.Vector3(x, height - 5, z), delta = p.clone().sub(base);
-      dummy.position.copy(base).addScaledVector(delta, 0.5); dummy.scale.set(1, delta.length(), 1);
-      dummy.quaternion.setFromUnitVectors(yAxis, delta.normalize()); dummy.updateMatrix();
-      parts.push({ source: branches, index: branchCount }); branches.setMatrixAt(branchCount++, dummy.matrix);
-      if (j < 3) {
-        parts.push({ source: vines, index: vineCount });
-        instance(vines, vineCount++, p.clone().add(new THREE.Vector3(0, -5, 0)), new THREE.Vector3(1, 9 + random() * 4, 1));
-      }
+    conifer(x, z, 15 + random() * 11, 0.4 + random() * 0.35);
+  }
+  for (const [mesh, count, range, canopy, shadow, farMat] of [
+    [trunks, treeCount, 145, false, true, undefined],
+    [branches, branchCount, 60, false, !culling, undefined],
+    [foliageCards, sprayCount, 145, true, false, foliage],
+    [crowns, crownCount, 145, true, true, undefined],
+    [vines, vineCount, 38, false, true, undefined],
+  ] as const) {
+    mesh.count = count; mesh.castShadow = shadow; mesh.receiveShadow = true;
+    addJungleBatch(mesh, range, canopy, farMat);
+  }
+
+  // ── 3D grass-blade tufts scattered over the walkable ground ────────────────
+  const bladeGeometry = new THREE.PlaneGeometry(0.09, 0.4, 1, 1); bladeGeometry.translate(0, 0.2, 0);
+  const grassMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, side: THREE.DoubleSide });
+  const grass = new THREE.InstancedMesh(bladeGeometry, grassMat, 40000);
+  grass.name = 'GroundGrass'; let grassCount = 0;
+  for (let i = 0; i < 11000; i++) {
+    const x = (random() - 0.5) * 379, z = (random() - 0.5) * 235;
+    if (x < RESCUE_SITE.mountainX + 2 || x > RESCUE_SITE.east - 2 || river(z, 1) || facility(x, z) || !isWalkable(x, z, 0.4)) continue;
+    if (grassCount + 6 > 40000) break;
+    const cluster = 2 + (i % 2);
+    for (let j = 0; j < cluster; j++) {
+      const scale = 0.6 + random() * 0.7;
+      dummy.position.set(x + (random() - 0.5) * 0.5, 0, z + (random() - 0.5) * 0.5);
+      dummy.scale.set(scale, scale * (0.8 + random() * 0.5), scale);
+      dummy.rotation.set((random() - 0.5) * 0.3, j * Math.PI / 2 + random() * 0.9, (random() - 0.5) * 0.5); dummy.updateMatrix();
+      grass.setMatrixAt(grassCount, dummy.matrix);
+      grass.setColorAt(grassCount++, tint.setHSL(0.26 + random() * 0.08, 0.4 + random() * 0.2, 0.16 + random() * 0.12));
     }
   }
-  for (const [mesh, count] of [[trunks, treeCount], [crowns, crownCount], [branches, branchCount], [vines, vineCount]] as const) {
-    mesh.count = count; mesh.castShadow = mesh !== vines && (!culling || mesh !== branches); mesh.receiveShadow = true;
-    addJungleBatch(mesh, mesh === vines ? 38 : mesh === branches ? 60 : 145, mesh === crowns);
-  }
+  grass.count = grassCount; grass.receiveShadow = true; addJungleBatch(grass, 46);
+
   const leaf = new THREE.Shape(); leaf.moveTo(0, 0); leaf.quadraticCurveTo(-0.48, 0.42, 0, 1); leaf.quadraticCurveTo(0.48, 0.42, 0, 0);
   const fronds = new THREE.InstancedMesh(new THREE.ShapeGeometry(leaf, 5), new THREE.MeshStandardMaterial({
     color: 0xa4ba85, map: surfaceTextures.leaves, roughness: 0.9, side: THREE.DoubleSide }), 21000);
