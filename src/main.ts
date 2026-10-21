@@ -513,6 +513,7 @@ const lightsaber = new LightsaberController(() => ({
   character: globalCharacter?.model ?? null,
   thirdPerson: isGameplayThirdPerson(),
   hasLightsaber,
+  hasLightsaberBeam: stageTwoProgress.lightsaberBeamCollected,
   attackClips: globalCharacter?.lightsaberAttackClips,
   targets: currentSceneData?.getDamageTargets?.() ?? [],
   setCharacterEquipped: (equipped) =>
@@ -561,7 +562,7 @@ const goggles = new GogglesController(() => ({
   onToggle: (active) => gogglesPostProcess.setActive(active),
 }));
 
-// --- Teleportation Device ---
+// --- Teleport crystal shard ---
 let teleportDeviceMessageTimeout: number | null = null;
 function showTeleportDeviceMessage(message: string) {
   if (currentSceneData?.showTeleportMessage) {
@@ -713,7 +714,7 @@ function weaponEntries(): WeaponWheelEntry[] {
   const entries: WeaponWheelEntry[] = [{ id: "unarmed", label: "Unarmed" }];
   if (hasPistol) entries.push({ id: "pistol", label: "Pistol" });
   if (hasCrowbar) entries.push({ id: "crowbar", label: "Crowbar" });
-  if (hasLightsaber) entries.push({ id: "lightsaber", label: "Lightsaber" });
+  if (hasLightsaber) entries.push({ id: "lightsaber", label: stageTwoProgress.lightsaberBeamCollected ? "Lightsaber" : "Lightsaber hilt" });
   return entries;
 }
 function equippedWeapon(): WeaponId {
@@ -821,7 +822,9 @@ async function initializeApp() {
       preview.has("stage2-hub"))
   ) {
     hasPistol = true;
+    hasLightsaber = true;
     quartersProgress.pistolCollected = true;
+    quartersProgress.lightsaberCollected = true;
     goggles.collect(false);
     teleportDevice.collect(false);
     if (preview.has("stage2-hub")) {
@@ -950,15 +953,15 @@ const lessons: Record<string, Omit<ControlCard, "key" | "scene">> = {
     touch: ["CROW equip · SWING attack"],
   },
   lightsaber: {
-    title: "Lightsaber acquired",
+    title: "Lightsaber",
     lines: [
-      "Hold Tab → lightsaber · Left click slash",
-      "Rapid clicks → heavy combo · Click on beam → parry / reflect",
+      "Hold Tab → lightsaber · Left click swing",
+      "Rapid clicks → heavy combo · Beam required for damage / parry",
     ],
-    touch: ["SABER equip · SLASH attack", "Direction + SLASH — lunge / combo"],
+    touch: ["SABER equip · SLASH attack", "Beam required for damage / deflection"],
   },
   teleport: {
-    title: "Teleportation device",
+    title: "Teleporting crystal shard",
     lines: ["Q place anchor · T teleport to it"],
     touch: ["Q place anchor · T teleport"],
   },
@@ -1467,7 +1470,6 @@ async function loadLivingQuarters(
       fromPassage,
       entryState,
       deferActivation: true,
-      allowComputerPlay: campaignCompleted || developerRun,
       developerAccess: developerRun,
       warmRoom: async (scene, camera) => {
         await prepareSceneRendering(renderer, scene, camera);
@@ -1475,6 +1477,10 @@ async function loadLivingQuarters(
       onPistolCollected: () => {
         hasPistol = true;
         introduceControls("pistol");
+      },
+      onLightsaberCollected: () => {
+        hasLightsaber = true;
+        introduceControls("lightsaber");
       },
       onCrystalCollected: () => {
         teleportDevice.collect();
@@ -1503,6 +1509,7 @@ async function loadLivingQuarters(
     retireTraversalRoom();
     currentSceneData?.dispose?.();
     hasPistol = quartersProgress.pistolCollected;
+    hasLightsaber = quartersProgress.lightsaberCollected;
     if (quartersProgress.crystalCollected) teleportDevice.collect(false);
     if (quartersProgress.gogglesCollected) goggles.collect(false);
     enterManagedScene("living-quarters", sceneData);
@@ -2192,7 +2199,7 @@ async function loadStageTwo(
   activateExtension(sceneData, "stage2-infiltration");
   sceneData.activate();
   if (stageTwoProgress.crowbarCollected) hasCrowbar = true;
-  if (stageTwoProgress.lightsaberCollected) hasLightsaber = true;
+  if (quartersProgress.lightsaberCollected) hasLightsaber = true;
   shipMapProgress.reveal(sceneData.getMapLayout());
   updatePlayerView(0);
   return true;
@@ -2373,8 +2380,7 @@ async function loadCameraVisit(
         collectStageTwoKeycard(stageTwoProgress, "stage2-armory");
         completeArcadeStage();
       },
-      onLightsaberCollected: () => {
-        hasLightsaber = true;
+      onLightsaberBeamCollected: () => {
         introduceControls("lightsaber");
       },
     });
@@ -3922,13 +3928,15 @@ async function enterSceneById(id: number) {
   hasPistol = true;
   hasCrowbar = true;
   hasLightsaber = true;
+  stageTwoProgress.lightsaberBeamCollected = true;
   goggles.collect(false);
   teleportDevice.collect(false);
   quartersProgress.pistolCollected = true;
+  quartersProgress.lightsaberCollected = true;
   if (id === 1.2) {
     stageTwoProgress = createStageTwoProgress();
     cctv.clearSources();
-    hasCrowbar = hasLightsaber = false;
+    hasCrowbar = false;
     bayBossDefeated = false;
     healthPackCollectedScene13 = false;
   } else if (id === 1.25) {
@@ -3937,12 +3945,15 @@ async function enterSceneById(id: number) {
     stageTwoProgress.guardDown = true;
     stageTwoProgress.ventCleared = true;
     cctv.clearSources();
-    hasCrowbar = hasLightsaber = false;
+    hasCrowbar = false;
     bayBossDefeated = false;
     healthPackCollectedScene13 = false;
   } else if (id === 1.3 || id === 1.4 || id === 5 || id === 6) {
     stageTwoProgress.checkpoint = "surveillance";
     stageTwoProgress.guardDown = true;
+    if (id === 1.3)
+      stageTwoProgress.lightsaberBeamCollected =
+        stageTwoProgress.remoteRooms["stage2-armory"].rewardCollected;
   }
   if (id === 13 || id === 13.5) bayBossDefeated = false;
   developerRun = true;

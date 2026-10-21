@@ -7,7 +7,7 @@ import { createCameraVisitUI } from '../../helpers/scene/cameraVisit.js';
 import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
 import { teleportPlayer } from '../../scripts/teleportationDevice.js';
 import { createRewardChest } from '../../scripts/rewardChest.js';
-import { createLightsaber } from '../../scripts/items/createLightsaber.js';
+import { createLightsaberBeam } from '../../scripts/items/createLightsaber.js';
 import { fitCabinProp } from '../living quarters/furnishings.js';
 import { createChairSeating, type ChairSeat } from '../../scripts/chairSeating.js';
 import { cameraVisitMap, createStageTwoProgress, type StageTwoProgress } from './stageTwoLayout.js';
@@ -19,13 +19,13 @@ interface EquipmentRoomOptions {
   deferActivation?: boolean;
   hasReturnMarker?: () => boolean;
   onRestart?: () => Promise<boolean>;
-  onLightsaberCollected?: () => void;
+  onLightsaberBeamCollected?: () => void;
   onKeycardCollected?: () => void;
   modelLoader?: typeof loadToolModel;
 }
 
 export function createScene({ progress = createStageTwoProgress(), entryState, preview = false, deferActivation = false,
-  hasReturnMarker, onRestart, onLightsaberCollected, onKeycardCollected, modelLoader = loadToolModel }: EquipmentRoomOptions = {}) {
+  hasReturnMarker, onRestart, onLightsaberBeamCollected, onKeycardCollected, modelLoader = loadToolModel }: EquipmentRoomOptions = {}) {
   if (!preview && (!hasReturnMarker || !onRestart || !onKeycardCollected))
     throw new Error('The equipment archive requires a camera return link and persistent keycard reward');
   const scene = new THREE.Scene(); scene.background = new THREE.Color(SHIP_INTERIOR_PALETTE.background);
@@ -70,15 +70,15 @@ export function createScene({ progress = createStageTwoProgress(), entryState, p
     physics.addBox(size, { x: 1.5, y: size.y / 2, z: -1.7 });
     chairs.push({ root: gltf.scene, yaw: 0 });
   });
-  const recoveredSaber = createLightsaber(); recoveredSaber.name = 'ArchiveRecoveredLightsaber';
-  recoveredSaber.position.set(-3.55, 1.15, -1.3); recoveredSaber.scale.setScalar(0.7);
-  recoveredSaber.visible = !progress.lightsaberCollected; scene.add(recoveredSaber);
+  const recoveredBeam = createLightsaberBeam(); recoveredBeam.name = 'ArchiveLightsaberBeam';
+  recoveredBeam.position.set(-3.55, 1.15, -1.3); recoveredBeam.scale.setScalar(0.7);
+  recoveredBeam.visible = !progress.lightsaberBeamCollected; scene.add(recoveredBeam);
   const loot = progress.remoteRooms['stage2-armory'];
   const chest = createRewardChest({ scene, world: physics.world, player, position: new THREE.Vector3(-3.32, 0, -1.3), yaw: -Math.PI / 2,
     reward: 'keycard', style: 'crew', initialCollected: loot.rewardCollected, unlocked: () => true, canInteract: () => active && !paused,
     onCollect: () => {
-      onKeycardCollected?.(); loot.rewardCollected = true; progress.lightsaberCollected = true; onLightsaberCollected?.();
-      recoveredSaber.visible = false; caption.textContent = 'Keycard and lightsaber recovered. T: return.'; captionTime = 3.5;
+      onKeycardCollected?.(); loot.rewardCollected = true; progress.lightsaberBeamCollected = true; onLightsaberBeamCollected?.();
+      recoveredBeam.visible = false; caption.textContent = 'Keycard and lightsaber beam recovered. Your hilt is ready. T: return.'; captionTime = 3.5;
       caption.classList.remove('hidden'); return true;
     } }, modelLoader);
   const visitUI = !preview && hasReturnMarker && onRestart
@@ -104,7 +104,7 @@ export function createScene({ progress = createStageTwoProgress(), entryState, p
       seating.update(frame); physics.step(frame, player, thirdPerson); chest.update(frame); visitUI?.update();
       captionTime = Math.max(0, captionTime - frame); if (!captionTime) caption.classList.add('hidden');
     },
-    syncProgress() { if (loot.rewardCollected) chest.setCollected(); recoveredSaber.visible = !progress.lightsaberCollected; },
+    syncProgress() { if (loot.rewardCollected) chest.setCollected(); recoveredBeam.visible = !progress.lightsaberBeamCollected; },
     minimap: { bounds: { minX: -4, maxX: 4, minZ: -4, maxZ: 4 }, floor: 0 },
     dispose() {
       if (disposed) return; disposed = true; seating.dispose(); visitUI?.dispose(); chest.dispose(); ui.remove();

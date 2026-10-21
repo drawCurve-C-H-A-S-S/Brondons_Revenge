@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { loadPlayerModel, loadToolModel } from '../core/loader.js';
 import { createCrowbar } from './items/createCrowbar.js';
-import { createLightsaber } from './items/createLightsaber.js';
+import { createLightsaber, setLightsaberBeamVisible } from './items/createLightsaber.js';
 import { bakePosedLimb, disposeBakedLimb } from '../helpers/animation/bakePosedLimb.js';
 
 export type FirstPersonWeapon = 'unarmed' | 'crowbar' | 'pistol' | 'lightsaber';
@@ -152,6 +152,7 @@ export async function createFirstPersonHands(loader?: GLTFLoader) {
     update,
     setWeapon,
     setLightsaberPose,
+    setLightsaberBeamVisible: (visible: boolean) => setLightsaberBeamVisible(lightsaber, visible),
     setRecoil(amount: number) { recoil = THREE.MathUtils.clamp(amount, 0, 1); },
     getMuzzle(camera: THREE.PerspectiveCamera, position: THREE.Vector3, orientation: THREE.Quaternion) {
       rightHand.getWorldPosition(position);

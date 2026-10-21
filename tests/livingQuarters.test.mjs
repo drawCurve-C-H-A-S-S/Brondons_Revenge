@@ -67,6 +67,7 @@ function browser(t) {
     closest(selector) { return selector.split(',').some(tag => tag.trim().toUpperCase() === this.tagName) ? this : null; }
     getBoundingClientRect() { return { width: 1280, height: 720, left: 0, top: 0, bottom: 720 }; }
     requestPointerLock() {}
+    focus() {}
   }
   globalThis.HTMLElement = Element; globalThis.ProgressEvent = class extends Event {};
   globalThis.window = Object.assign(new EventTarget(), { innerWidth: 1280, innerHeight: 720 });
@@ -76,7 +77,8 @@ function browser(t) {
     createElementNS: (_namespace, tag) => new Element(tag),
     getElementById: id => { if (!elements.has(id)) { const node = new Element(); node.id = id; } return elements.get(id); },
   });
-  t.after(() => Object.assign(globalThis, previous));
+  const cleanups = []; t.cleanup = fn => cleanups.push(fn);
+  t.after(() => { for (const cleanup of cleanups.reverse()) cleanup(); Object.assign(globalThis, previous); });
   return elements;
 }
 function event(type, code) {
@@ -94,7 +96,7 @@ function prop(name) {
 }
 async function quarters(t, options = {}) {
   const data = createScene({ skipArrival: true, loadCabinModel: async name => prop(name), ...options });
-  t.after(() => data.dispose()); await data.ready; return data;
+  t.cleanup(() => data.dispose()); await data.ready; return data;
 }
 function aim(data, position, point) {
   data.player.setPosition(position.x, data.player.radius, position.z);
@@ -124,10 +126,11 @@ test('Prime blocks cabin gaming during an unfinished campaign without seating or
   const point = computer.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.3, 0));
   aim(data, point.clone().add(new THREE.Vector3(0, 0, 1.25)), point);
   data.updateInteractionFocus();
-  assert.match(elements.get('quarters-interact').textContent, /Sit down and play/);
+  assert.match(elements.get('quarters-interact').textContent, /Inspect computer/);
   key('KeyE');
   assert.equal(elements.get('quarters-speaker').textContent, 'Prime');
-  assert.match(elements.get('quarters-subtitle-text').textContent, /Lock in.*crewmembers.*You can play when/);
+  assert.match(elements.get('quarters-subtitle-text').textContent, /Lock in.*crewmembers/);
+  assert.doesNotMatch(elements.get('quarters-subtitle-text').textContent, /You can play when/);
   assert.equal(elements.get('quarters-subtitle').classList.contains('hidden'), false);
   assert.equal(data.isCinematic(), false);
   assert.equal(data.player.isEnabled(), true);
@@ -135,18 +138,32 @@ test('Prime blocks cabin gaming during an unfinished campaign without seating or
   assert.equal(elements.get('quarters-subtitle').classList.contains('hidden'), true);
 });
 
-test('the unlocked cabin computer embeds the live site with mute enabled', async t => {
+test('the developer computer stays a screenshot until seated and restores it after play', async t => {
   browser(t);
-  const data = await quarters(t, { allowComputerPlay: true });
+  const data = await quarters(t, { developerAccess: true });
   step(data, 3);
   data.renderCinematicOverlay({ domElement: document.createElement('canvas') });
   const frames = [];
   const collect = node => { if (node.tagName === 'IFRAME') frames.push(node); node.children.forEach(collect); };
   collect(document.body);
+  assert.equal(frames.length, 0);
+  const screen = data.scene.getObjectByName('CabinComputerScreen'), material = screen.material;
+  assert.equal(material.map.name, 'CrewGameMenu-brondon');
+  const point = data.scene.getObjectByName('CabinComputer').getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.3, 0));
+  aim(data, point.clone().add(new THREE.Vector3(0, 0, 1.25)), point);
+  key('KeyE'); step(data, 0.1);
+  assert.equal(screen.material, material, 'Sitting down must finish before loading the live game');
+  step(data, 3);
+  data.renderCinematicOverlay({ domElement: document.createElement('canvas') });
+  collect(document.body);
   assert.equal(frames.length, 1);
   assert.equal(frames[0].src, 'https://lamp.ms.wits.ac.za/students/sgroup3928/brondons-revenge/?muted=1');
   assert.equal(frames[0].allow, "autoplay 'none'");
   assert.equal(data.scene.getObjectByName('CabinComputerScreen').material.opacity, 0);
+  key('Escape'); step(data, 3);
+  assert.equal(screen.material, material);
+  frames.length = 0; collect(document.body); assert.equal(frames.length, 0);
+  layout.setStudentCabinAccess(false);
 });
 
 test('eight cabins have four doors per side, three named lecturers, five locked students and distinct posters', () => {
@@ -308,13 +325,8 @@ test('the actual desk and chair glTF assets fit cabin dimensions without floatin
     assert.ok(Math.abs(box.min.y) < 0.001);
     assert.equal(model.scale.x, model.scale.y); assert.equal(model.scale.y, model.scale.z);
   }
-  const device = new THREE.Box3().setFromObject(room.teleporter);
-  const blanket = new THREE.Box3().setFromObject(room.bed.getObjectByName('ExpeditionBlanket'));
-  assert.equal(room.teleporter.parent, room.bed);
-  assert.ok(device.min.y >= blanket.max.y - 1e-6 && device.min.y - blanket.max.y < 0.002);
-  assert.ok(device.min.x >= blanket.min.x && device.max.x <= blanket.max.x);
-  assert.ok(device.min.z >= blanket.min.z && device.max.z <= blanket.max.z);
-  assert.ok(room.teleporterPoint.distanceTo(room.teleporter.getWorldPosition(new THREE.Vector3())) < 0.06);
+  assert.equal(room.root.getObjectByName('PersonalTeleportDevice'), undefined);
+  assert.equal('teleporter' in room, false);
 });
 
 test('arrival has moving room/hallway shots, hold-Enter skip, no premature control and pause-safe timing', async t => {
@@ -326,8 +338,11 @@ test('arrival has moving room/hallway shots, hold-Enter skip, no premature contr
   assert.ok(paused.equals(data.camera.position)); data.setMenuPaused(false);
   step(data, 8);
   assert.ok(Math.abs(data.camera.position.x) < 1, 'Arrival must cut into the actual living quarters passage');
-  assert.match(elements.get('quarters-subtitle-text').textContent, /no surveillance in these living quarters/);
+  assert.match(elements.get('quarters-subtitle-text').textContent, /No patrols.*facility.*planet/);
   assert.doesNotMatch(elements.get('quarters-subtitle-text').textContent, /only area/);
+  step(data, 5); assert.match(elements.get('quarters-subtitle-text').textContent, /prison camera.*Hangar 14/);
+  step(data, 6); assert.match(elements.get('quarters-subtitle-text').textContent, /Look around the crew cabins for useful items/);
+  assert.doesNotMatch(elements.get('quarters-subtitle-text').textContent, /chest|locker|blue LED|Branden|Brendan/);
   event('keydown', 'Enter'); step(data, 1.2); event('keyup', 'Enter');
   assert.equal(data.isCinematic(), false); assert.equal(data.player.isEnabled(), true);
   assert.equal(data.getLocation(), 'brondon'); assert.equal(data.getMapSceneId(), 'scene21');
@@ -335,7 +350,8 @@ test('arrival has moving room/hallway shots, hold-Enter skip, no premature contr
   assert.equal(elements.get('quarters-location').textContent, "Brondon's room");
   assert.equal(data.scene.getObjectByName('CrewPrivacyDisplay'), undefined);
   assert.equal(data.scene.getObjectByName('CabinHullViewport'), undefined);
-  assert.equal(data.scene.getObjectByName('CabinFurnishings-branden'), undefined, 'Other cabins remain lazy until their door is used');
+  assert.ok(data.scene.getObjectByName('CabinFurnishings-branden'), 'Branden is preloaded');
+  assert.ok(data.scene.getObjectByName('CabinFurnishings-brendan'), 'Brendan is preloaded');
 });
 
 test('nameplates identify rooms without E, while locked doors retain E prompts, physical barriers and opaque maps', async t => {
@@ -367,81 +383,76 @@ test('nameplates identify rooms without E, while locked doors retain E prompts, 
   assert.equal(data.scene.getObjectByName(`CabinFurnishings-${cabin.id}`), undefined);
 });
 
-test('door cinematics wait for resource/shader readiness, align with the aperture and preserve free round-trip exploration', async t => {
-  browser(t); let hold = false, release, warmed = 0;
-  const gate = new Promise(resolve => { release = resolve; });
-  const progress = layout.createQuartersProgress();
-  const data = await quarters(t, { progress, loadCabinModel: async name => { if (hold) await gate; return prop(name); },
-    warmRoom: async () => { warmed++; } });
-  leaveBrondon(data); const cabin = layout.CABIN_BY_ID.get('branden');
-  hold = true; aimDoor(data, cabin); const start = data.player.body.position.clone(); key('KeyE'); step(data, 1.3);
-  assert.equal(data.isCinematic(), true); assert.equal(data.player.isEnabled(), false);
-  assert.equal(data.getLocation(), 'hallway'); assert.equal(progress.visited.has('branden'), false);
-  assert.equal(data.player.body.position.distanceTo(start), 0); assert.equal(data.doors.get('branden').open, 0);
-  release(); await data.preloadCabin('branden'); assert.equal(warmed, 2);
-  for (let frame = 0; frame < 190; frame++) {
-    data.updatePhysics(1 / 60);
-    if (Math.abs(data.player.body.position.x - cabin.side * layout.QUARTERS.hallwayWidth / 2) < 0.2) {
-      assert.ok(Math.abs(data.player.body.position.z - cabin.z) < 0.02);
-      assert.ok(data.doors.get('branden').open > 0.95, 'The player must cross a fully open doorway');
+for (const fromPassage of [false, true]) {
+  test(`cabin preloading serializes renderer state before activation (checkpoint entry: ${fromPassage})`, async t => {
+    browser(t);
+    let active = 0, maximum = 0, warmed = 0, target = null;
+    const releases = [];
+    const data = createScene({ fromPassage, skipArrival: true, deferActivation: true,
+      loadCabinModel: async name => prop(name),
+      warmRoom: async () => {
+        const previous = target; target = ++warmed; active++; maximum = Math.max(maximum, active);
+        await new Promise(resolve => releases.push(resolve));
+        target = previous; active--;
+      } });
+    t.cleanup(() => data.dispose());
+    for (let index = 0; index < 3; index++) {
+      for (let turn = 0; !releases.length && turn < 100; turn++) await new Promise(resolve => setImmediate(resolve));
+      assert.equal(releases.length, 1, 'Only one renderer warm-up may own the render target');
+      assert.equal(data.player.isEnabled(), false);
+      releases.shift()();
     }
-  }
-  assert.equal(data.getLocation(), 'branden'); assert.ok(progress.visited.has('branden'));
-  assert.equal(data.doors.get('branden').open, 0); assert.equal(data.player.isEnabled(), true);
-  aimDoor(data, cabin, true); key('KeyE'); step(data, 3.3);
-  assert.equal(data.getLocation(), 'hallway'); assert.equal(data.getMapSceneId(), 'scene20');
-  assert.equal(data.scene.getObjectByName('CabinFurnishings-branden').visible, false);
-  aimDoor(data, cabin); key('KeyE'); step(data, 3.3);
-  assert.equal(data.getLocation(), 'branden'); assert.equal(warmed, 2, 'Returning to a prepared cabin must reuse its resources');
-});
+    await data.ready;
+    assert.equal(maximum, 1); assert.equal(warmed, 3); assert.equal(target, null);
+    for (const id of ['brondon', 'branden', 'brendan']) assert.ok(data.scene.getObjectByName(`CabinFurnishings-${id}`));
+    data.activate(); assert.equal(data.player.isEnabled(), true);
+  });
+}
 
-test('failed cabin loads are reported, can be retried or cancelled, and never admit the player into a missing room', async t => {
+test('failed initial cabin preloads report errors and retry without enabling unfinished quarters', async t => {
   const elements = browser(t), errors = []; t.mock.method(console, 'error', (...args) => errors.push(args));
-  let fail = false;
-  const data = await quarters(t, { loadCabinModel: async name => { if (fail) throw new Error('Fixture resource failure'); return prop(name); } });
-  leaveBrondon(data); const cabin = layout.CABIN_BY_ID.get('brendan');
-  fail = true; aimDoor(data, cabin); key('KeyE');
-  await assert.rejects(data.preloadCabin(cabin.id), /Fixture resource failure/); step(data, 1);
-  assert.match(elements.get('quarters-loading').textContent, /Press R to retry or E to cancel/);
-  assert.ok(errors.length > 0); assert.equal(data.getLocation(), 'hallway'); assert.equal(data.doors.get(cabin.id).open, 0);
-  key('KeyE'); assert.equal(data.isCinematic(), false); assert.equal(data.getLocation(), 'hallway'); assert.equal(data.player.isEnabled(), true);
-  aimDoor(data, cabin); key('KeyE'); await assert.rejects(data.preloadCabin(cabin.id), /resource failure/);
-  fail = false; key('KeyR'); await data.preloadCabin(cabin.id); step(data, 3.3);
-  assert.equal(data.getLocation(), 'brendan'); assert.equal(data.player.isEnabled(), true);
+  let fail = true;
+  const data = createScene({ skipArrival: true,
+    loadCabinModel: async name => { if (fail) throw new Error('Fixture resource failure'); return prop(name); } });
+  t.cleanup(() => data.dispose());
+  await assert.rejects(data.ready, /Fixture resource failure/);
+  assert.equal(data.player.isEnabled(), false); assert.ok(errors.length > 0);
+  assert.match(elements.get('quarters-loading').textContent, /Press R to retry/);
+  fail = false; key('KeyR');
+  await Promise.all(['brondon', 'branden', 'brendan'].map(id => data.preloadCabin(id)));
+  await new Promise(resolve => setImmediate(resolve)); step(data, 0.1);
+  assert.equal(data.player.isEnabled(), true);
 });
 
-test('pistol, LED teleporter, purple crystal and goggles persist across cabin visits', async t => {
-  const elements = browser(t), progress = layout.createQuartersProgress(); let pistols = 0, teleporters = 0, crystals = 0, goggles = 0;
-  const data = await quarters(t, { progress, onPistolCollected: () => pistols++, onTeleporterCollected: () => teleporters++,
+test('pistol, crystal shard and goggles persist without a separate teleport device', async t => {
+  const elements = browser(t), progress = layout.createQuartersProgress(); let pistols = 0, crystals = 0, goggles = 0;
+  const data = await quarters(t, { progress, onPistolCollected: () => pistols++,
     onCrystalCollected: () => crystals++, onGogglesCollected: () => goggles++ });
   const cabin = layout.CABIN_BY_ID.get('brondon');
   aim(data, layout.cabinPoint(cabin, 0.5, 0.3, 0.65), layout.cabinPoint(cabin, 1.7, 0.6, 0.65));
   key('KeyE'); assert.equal(data.isCinematic(), true); step(data, 4.6);
   assert.equal(progress.pistolCollected, true); assert.equal(pistols, 1);
   assert.equal(data.scene.getObjectByName('RecoveredPistol').visible, false);
-  const teleporter = data.scene.getObjectByName('PersonalTeleportDevice');
-  aim(data, layout.cabinPoint(cabin, 0.5, 0.3, -1.45), teleporter.getWorldPosition(new THREE.Vector3()));
-  key('KeyE'); step(data, 5.2); assert.equal(progress.teleporterCollected, true); assert.equal(teleporters, 1);
-  assert.equal(teleporter.visible, false); assert.match(layout.quartersObjective(progress), /purple teleport crystal.*Brendan/);
+  assert.equal(data.scene.getObjectByName('PersonalTeleportDevice'), undefined);
+  assert.match(layout.quartersObjective(progress), /Look around the crew cabins/);
   leaveBrondon(data);
   for (const id of ['branden', 'brendan']) {
     const other = layout.CABIN_BY_ID.get(id); aimDoor(data, other); key('KeyE'); await data.preloadCabin(id); step(data, 1);
     event('keydown', 'KeyW'); step(data, 1.1); event('keyup', 'KeyW');
     aim(data, layout.cabinPoint(other, 0.5, 0.3, 0.65), layout.cabinPoint(other, 1.7, 0.6, 0.65));
-    key('KeyE'); step(data, 4.6); assert.ok(progress.openedChests.has(id)); assert.equal(pistols, 1); assert.equal(teleporters, 1);
+    key('KeyE'); step(data, 4.6); assert.ok(progress.openedChests.has(id)); assert.equal(pistols, 1);
     leaveCabin(data, other);
   }
   assert.equal(progress.crystalCollected, true); assert.equal(progress.gogglesCollected, true);
-  assert.equal(crystals, 1); assert.equal(goggles, 1); assert.equal(layout.quartersEquipmentReady(progress), true);
-  assert.match(layout.quartersObjective(progress), /Read save us.*Branden/);
+  assert.equal(crystals, 1); assert.equal(goggles, 1); assert.equal(layout.quartersEquipmentReady(progress), false);
   const forward = data.scene.getObjectByName('QuartersForwardBulkhead');
   aim(data, new THREE.Vector3(0, 0.3, 14.5), forward.position.clone().setY(1.3)); key('KeyE');
   assert.equal(data.getLocation(), 'hallway'); assert.equal(data.isCinematic(), false);
-  assert.match(elements.get('quarters-notice').textContent, /needs a code.*number panel/);
+  assert.match(elements.get('quarters-notice').textContent, /Andre's locker.*bathroom/);
   data.dispose();
   const revisit = await quarters(t, { progress, skipArrival: false });
   assert.equal(revisit.isCinematic(), false); assert.equal(revisit.player.isEnabled(), true);
-  assert.equal(revisit.scene.getObjectByName('PersonalTeleportDevice').visible, false);
+  assert.equal(revisit.scene.getObjectByName('PersonalTeleportDevice'), undefined);
   assert.equal(revisit.scene.getObjectByName('RecoveredPistol').visible, false);
   assert.ok(revisit.scene.getObjectByName('CrewFootlocker').getObjectByName('ChestLid').parent.rotation.x > 1.3);
   revisit.dispose();

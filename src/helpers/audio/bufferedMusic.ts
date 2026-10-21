@@ -40,6 +40,7 @@ export function createMusicMuffleFilter(audio?: HTMLMediaElement) {
 }
 
 export function prepareMusicLoop(audioContext: BaseAudioContext, original: AudioBuffer, blendSeconds = MUSIC_LOOP_BLEND_SECONDS): PreparedMusic {
+  if (!Number.isFinite(blendSeconds) || blendSeconds <= 0) throw new RangeError('Loop blending requires a positive, finite duration');
   const channels = Array.from({ length: original.numberOfChannels }, (_, channel) => original.getChannelData(channel));
   const audible = (frame: number) => channels.some(channel => Math.abs(channel[frame]) > 0.0005);
   let start = 0, end = original.length;
@@ -65,15 +66,15 @@ export function prepareMusicLoop(audioContext: BaseAudioContext, original: Audio
   return { buffer, loopStart: blend / original.sampleRate };
 }
 
-function loadMusic(source: string, loop: boolean) {
-  const key = `${loop}:${source}`;
+function loadMusic(source: string, loop: boolean, blendSeconds = MUSIC_LOOP_BLEND_SECONDS) {
+  const key = `${loop}:${blendSeconds}:${source}`;
   let pending = prepared.get(key);
   if (pending) { prepared.delete(key); prepared.set(key, pending); return pending; }
   const audioContext = musicContext();
   pending = fetchAsset(source).then(async response => {
     if (!response.ok) throw new Error(`Music request failed (${response.status}): ${source}`);
     const buffer = await audioContext.decodeAudioData(await response.arrayBuffer());
-    const music = loop ? prepareMusicLoop(audioContext, buffer) : { buffer, loopStart: 0 };
+    const music = loop ? prepareMusicLoop(audioContext, buffer, blendSeconds) : { buffer, loopStart: 0 };
     preparedSizes.set(key, music.buffer.length * music.buffer.numberOfChannels * Float32Array.BYTES_PER_ELEMENT);
     const memory = (globalThis.navigator as Navigator & { deviceMemory?: number } | undefined)?.deviceMemory;
     const budget = memory !== undefined && memory <= 4 ? MUSIC_CACHE_BUDGET_BYTES / 2 : MUSIC_CACHE_BUDGET_BYTES;
@@ -125,12 +126,12 @@ export class BufferedMusic extends EventTarget {
   private generation = 0;
   private disposed = false;
 
-  constructor(readonly src: string, loop: boolean) {
+  constructor(readonly src: string, loop: boolean, blendSeconds = MUSIC_LOOP_BLEND_SECONDS) {
     super();
     this.loop = loop;
     this.filter.input.connect(this.gain);
     this.gain.connect(this.context.destination);
-    this.ready = loadMusic(src, loop).then(music => { this.prepared = music; });
+    this.ready = loadMusic(src, loop, blendSeconds).then(music => { this.prepared = music; });
     void this.ready.catch(error => console.warn('[Audio] Music preparation failed:', src, error));
   }
 

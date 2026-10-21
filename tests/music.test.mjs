@@ -60,6 +60,28 @@ test('the soundtrack manifest resolves the exact supplied music files, including
   await access(new URL('../src/assets/sounds/chest.ogg', import.meta.url));
 });
 
+test('all effects share a 30-percent ceiling without changing music or the normalized slider', async t => {
+  const { getSfxGain, getAudioSettings } = await server.ssrLoadModule('/helpers/audio/AudioManager.js');
+  const manager = new AudioManager({ getFile: path => ({ content: path }) }); t.after(() => manager.dispose());
+  const sound = manager.playSfx('effect', { volume: 1 });
+  assert.equal(sound.volume, 0.3);
+  assert.equal(getSfxGain(), 0.3);
+  assert.equal(getAudioSettings().sfx, 1);
+  setAudioVolume('sfx', 0.5);
+  assert.equal(sound.volume, 0.15);
+  assert.equal(getSfxGain(), 0.15);
+  assert.equal(getAudioSettings().bgm, 1);
+});
+
+test('waterfall attenuation continuously decreases to silence at the audible boundary', async () => {
+  const { waterfallAttenuation } = await server.ssrLoadModule('/helpers/audio/sfx.ts');
+  const gains = [0, 27.5, 55, 82.5, 110, 150].map(distance => waterfallAttenuation(distance));
+  assert.deepEqual(gains, [1, 0.5625, 0.25, 0.0625, 0, 0]);
+  assert.equal(waterfallAttenuation(null), 0);
+  assert.throws(() => waterfallAttenuation(NaN), RangeError);
+  assert.throws(() => waterfallAttenuation(1, 0), RangeError);
+});
+
 test('scene entry selects the requested loops and the new planet soundtrack', async t => {
   const music = fixture(t);
   for (const [id, track] of [

@@ -260,6 +260,24 @@ soundtrack changes use a **0.9-second equal-power crossfade**; the final boss
 entrance keeps its **3-second** transition. Outgoing music stays audible while
 the next track loads, and rapid cue changes retain the music already in the mix.
 
+## Sound effects
+
+The sound-effects slider keeps its 0-100% range, but its maximum output is now
+**30% of the previous maximum**. This applies to recorded effects, synthesized
+weapon/ship sounds and ambient water, without reducing music.
+
+Footsteps are original, low-pitched synthesized thuds. Their left/right contacts
+are sampled from the actual walking, sprinting, crouching and crate-handling
+animations, rather than triggered by a movement-distance timer. The same timing
+is used in first and third person; airborne movement, slides and teleports do not
+produce walking sounds.
+
+The waterfall uses a decoded, sample-clock loop with a **two-second blended seam**.
+Its volume decreases continuously with distance, reaching silence at **110 m**.
+Leaving and returning resumes the loop instead of restarting the recording.
+Water ambience pauses with the menu or a hidden tab and follows the effects slider.
+Browsers without Web Audio report that browser-native looping is being used.
+
 ## Loading and caching
 
 The opening requests **Loading.ogg first**, before model loading. The mothership's
@@ -442,27 +460,33 @@ recover the gear, then escape the ship. After "Brace for impact", the shield
 breaks the chains, Brondon gets up, and the shorter title reveal leads to the
 **Press E to start your revenge** prompt.
 
-- The passage has **four cabins on each side**: Brondon, Branden and Brendan are
-  unlocked; the five student cabins are locked.
+- The passage has **four cabins on each side**: Brondon, Branden, Brendan and
+  Andre are unlocked; the other four student cabins are locked.
 - Look at a nearby wall-mounted nameplate to display the room name automatically
   as comic-style subtext at the bottom of the screen. Nameplates show only the
   owner's name, with **no E prompt or key press**. The top-left HUD shows only the
   current room or area in a yellow comic caption with bold lettering and an
   outlined, offset-shadow panel.
-- Doors, chests and devices keep the **comic-styled E interaction prompts**.
+- Doors, lockers and computers keep the **comic-styled E interaction prompts**.
   Inspection information temporarily hides interaction prompts and nameplate
   captions; they return when the information message clears.
   Interacting with a door is separate: unlocked doors play an automatic
   walk-through cinematic in either direction; locked doors report their occupant.
-- Recover the **pistol from Brondon's chest** and the **blue-LED teleportation
-  device from his bed**. The pistol cannot be equipped before recovery.
-  **E** cannot open Brondon's room door from inside until both items are collected;
-  Prime's reminder identifies any missing item.
-  The teleporter's outbound destination link is blocked for now.
+- The arrival dialogue follows the prologue: the homing beacon's one charge is
+  spent, the prison camera is looped, and the escape ship is in Hangar 14.
+  Prime asks Brondon to **look around the crew cabins for useful items** rather
+  than listing their locations or pointing the camera at the loot.
+  Individual cabins can be left freely. Only an attempt to leave the entire
+  wing through the forward bulkhead gives **one hint for an item still missing**.
+- Recover the **pistol from Brondon's chest**, the **teleporting crystal shard
+  from Brendan's chest**, **scanner goggles from Branden's chest**, and the
+  **unpowered lightsaber hilt from Andre's locker** before leaving.
+  There is no separate teleportation device to collect. The hilt can be selected
+  and swung immediately, even before finding the pistol, but has no beam, glow,
+  ignition/hum, blade damage or deflection until upgraded.
 - Every cabin shares a bed, correctly scaled desk/chair assets, a local computer
   with a blue desktop, file window, icons and taskbar,
-  and a unique expedition poster. Recover the **purple teleport crystal from
-  Brendan's chest** and **scanner goggles from Branden's chest** before leaving.
+  and a unique expedition poster. Andre's room also has an accessible locker.
   **N** toggles the goggles; **Q** places a purple marker and **T** returns to it.
   **Hold Tab** selects weapons, not teleport destinations.
 - Look at a nearby chair and press **E** to sit; press **E again** to stand.
@@ -600,9 +624,11 @@ are no longer part of Stage Two.
   return link; **R** can restart a stranded visit at the surveillance checkpoint.
 - Each existing minigame awards an **asset-backed keycard from its chest**:
   clear the cargo stack with the crowbar, solve the range's letter-order puzzle, or recover
-  the archive footlocker. Cargo healing, range shielding and the archive
-  lightsaber are retained as bonus equipment, never prerequisites for collecting
-  a card at full health/shield.
+  the archive footlocker. Cargo healing, range shielding and the archive's
+  **lightsaber beam component** are retained as bonus equipment, never
+  prerequisites for collecting a card at full health/shield. The archive does
+  not award another hilt: its beam activates the one recovered from Andre's
+  locker, including its glow, sound, damage and deflection in both camera views.
 - **Target range:** Prime recalls, "The students would always play in here."
   Read the wall poem and wear the goggles (**N**) to reveal seven shuffled letters
   above the targets. These high-contrast letter plates remain sharp and in their
@@ -788,7 +814,18 @@ The falling sheet follows the mountain's profile with clearance rather than
 intersecting it near the summit. A contoured stream, bank rocks and a tree grove
 hide the source's straight edges. The river fits the terrain's exact west/east
 bounds, with a rocky, wooded eastern end bank instead of water past the map edge.
-Textured canopy clusters, bark, ferns and gentle GPU wind retain distance-based LOD.
+Pines retain their full needle sprays and woody branches nearby. Distant pines
+use fewer needle cards, not solid cone-shaped canopies. Trees, source groves and
+grass are instanced in small spatial batches and culled against the active
+camera's frustum and distance; off-screen foliage does not cast extra shadows.
+Collision streaming remains independent, so unseen trees and obstacles stay solid
+when needed for gameplay.
+
+Grass stays clear of the stone paths, bridge deck and approaches, with clearance
+for the tuft width and wind movement. It retains the lower-density layout and
+fades before its 40 m render cutoff. Foliage textures use mipmaps and limited
+anisotropy. Nearby pines occasionally shed small falling pinecones from a fixed
+pool; off-screen pinecones are hidden rather than submitted for rendering.
 
 The stone trail extends behind the landing site and connects exploration loops
 on both riverbanks to the main route and waterfall branch. Decorative flagstones
@@ -1152,7 +1189,10 @@ scene 20 research facility -> scene 21 finale. Scenes 18 and 19 are no longer
 separate gameplay scenes. The finale builds a compact presentation of the same
 facility summit, shuttle clearing and forest cutaway. It does not reconstruct
 the playable bridge, waterfall, mountain cave, sentinels or traversal colliders.
-The distant canopy uses two instanced batches rather than the full jungle level.
+The landing, playable exterior and finale share the pine and grass builders.
+The finale uses spatially culled foliage batches and reduced distant needle
+sprays rather than rebuilding the full traversal level. Its roof blast still
+removes every visible part of an affected tree.
 The reveal and each student's close-up share one dialogue timeline. After the
 roof shatters, the five students ascend one at a time and merge into the enemy's
 chest through subdued crimson beams and a dark energy aura. The actual shuttle lifts off from its jungle

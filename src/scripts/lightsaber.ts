@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { createLightsaber, disposeLightsaber, LIGHTSABER_ATTACK_SPEED, LIGHTSABER_SWING_DURATION } from './items/createLightsaber.js';
+import { createLightsaber, disposeLightsaber, setLightsaberBeamVisible, LIGHTSABER_ATTACK_SPEED, LIGHTSABER_SWING_DURATION } from './items/createLightsaber.js';
 import type { DamageTarget } from './pistol.js';
 import { MeleeSwing, getWeaponSegment, type MeleeSegment } from './melee.js';
 import type { Player } from './player.js';
@@ -35,6 +35,7 @@ interface LightsaberContext {
   character: THREE.Object3D | null;
   thirdPerson: boolean;
   hasLightsaber: boolean;
+  hasLightsaberBeam?: boolean;
   attackClips?: readonly THREE.AnimationClip[];
   targets: DamageTarget[];
   setCharacterEquipped: (equipped: boolean) => void;
@@ -70,6 +71,7 @@ export class LightsaberController {
   private yawInverse = new THREE.Quaternion();
   private yAxis = new THREE.Vector3(0, 1, 0);
   private ignitionTime = 0;
+  private beamActive = false;
   private parryWindow = 0;
   private parryPerfect = false;
   private parryFlash = 0;
@@ -100,14 +102,13 @@ export class LightsaberController {
     if (this.disposed || this.equipped || !hasLightsaber || !player?.isEnabled()) return;
     this.context().holsterOther?.();
     this.equipped = true;
-    this.audio.playIgnite();
-    this.ignitionTime = 0.6;
     refreshTouchAttackButton();
   }
 
   /** Detach persistent presentation before an outgoing room disposes its meshes. */
   detach() {
     this.audio.stopHum();
+    this.beamActive = false;
     this.swingTime = this.cooldown = this.comboTime = this.parryWindow = 0;
     this.parryPerfect = false;
     this.swingPlayer = null;
@@ -129,7 +130,7 @@ export class LightsaberController {
   };
 
   private swing(queuedMove?: PlayerSwordStrike, keyboard = false) {
-    const { scene, camera, player, character, attackClips } = this.context();
+    const { scene, camera, player, character, attackClips, hasLightsaberBeam = true } = this.context();
     if (this.inputBlocked() || !this.equipped || !player?.isEnabled() || player.getHealth() <= 0
       || player.getState().sliding || player.getState().climbing || player.getState().ventMode || player.getState().boxHandling || !scene || !camera) return false;
     const input = player.getAttackDirection();
@@ -165,12 +166,12 @@ export class LightsaberController {
     this.swingIndex = combo; this.attackMove = move;
     this.swingDuration = clip.duration / LIGHTSABER_ATTACK_SPEED;
     this.comboTime = this.swingDuration + 0.65;
-    this.audio.playSwing();
+    if (hasLightsaberBeam) this.audio.playSwing();
     this.melee.reset();
     this.activeWindow = -1;
     this.cooldown = this.swingTime = this.swingDuration;
     this.swingPlayer = player;
-    this.parryWindow = PARRY_TOTAL_SECONDS; this.parryPerfect = true;
+    this.parryWindow = hasLightsaberBeam ? PARRY_TOTAL_SECONDS : 0; this.parryPerfect = hasLightsaberBeam;
     this.queuedMove = null;
     this.update(0);
     return true;
@@ -189,19 +190,24 @@ export class LightsaberController {
       this.parryPerfect = this.parryWindow > PARRY_TOTAL_SECONDS - PARRY_PERFECT_SECONDS;
     }
     const context = this.context();
-    const { scene, camera, player, character, thirdPerson, hasLightsaber, setCharacterEquipped, firstPersonHands: handsSource } = context;
+    const { scene, camera, player, character, thirdPerson, hasLightsaber, hasLightsaberBeam = true, setCharacterEquipped, firstPersonHands: handsSource } = context;
     const firstPersonHands = typeof handsSource === 'function' ? handsSource() : handsSource;
     if (!hasLightsaber && this.equipped) this.holster();
     const usable = !!player?.isEnabled() && player.getHealth() > 0 && !player.getState().climbing
       && !player.getState().sliding && !player.getState().ventMode && !player.getState().boxHandling;
     const active = this.equipped && usable;
     setCharacterEquipped(active);
-    if (active) {
+    if (active && hasLightsaberBeam) {
+      if (!this.beamActive) { this.audio.playIgnite(); this.ignitionTime = 0.6; }
       this.ignitionTime = Math.max(0, this.ignitionTime - frame);
       if (this.ignitionTime === 0) this.audio.startHum();
     } else this.audio.stopHum();
+    this.beamActive = active && hasLightsaberBeam;
     this.root.visible = active && !thirdPerson && !firstPersonHands;
     const sourceWeapon = character?.getObjectByName('lightsaber');
+    setLightsaberBeamVisible(this.root, hasLightsaberBeam);
+    if (sourceWeapon) setLightsaberBeamVisible(sourceWeapon, hasLightsaberBeam);
+    firstPersonHands?.setLightsaberBeamVisible(hasLightsaberBeam);
     if (firstPersonHands && active && !thirdPerson && player) {
       firstPersonHands.setWeapon('lightsaber');
       if (this.swingTime > 0 && camera && character && sourceWeapon) {
@@ -240,27 +246,31 @@ export class LightsaberController {
     }
     const weapon = thirdPerson || firstPersonHands ? sourceWeapon : this.root.getObjectByName('lightsaber');
     if (!weapon) return;
-    const segment = getWeaponSegment(weapon);
-    if (previousSwing > 0) {
-      const scale = this.swingDuration / MELEE_STRIKES[this.attackMove].duration;
-      const before = (this.swingDuration - previousSwing) / scale, after = (this.swingDuration - this.swingTime) / scale;
-      let damaging = false;
-      for (const [index, window] of swordHitWindows(this.attackMove).entries()) {
-        if (after < window.start || before > window.end) continue;
-        if (this.activeWindow !== index) {
-          this.activeWindow = index;
-          this.melee.reset(); this.melee.prime(this.previousSegment ?? segment);
-          this.parryWindow = PARRY_TOTAL_SECONDS; this.parryPerfect = true;
-          if (index > 0) this.audio.playSwing();
-          context.openDoor();
+    if (hasLightsaberBeam) {
+      const segment = getWeaponSegment(weapon);
+      if (previousSwing > 0) {
+        const scale = this.swingDuration / MELEE_STRIKES[this.attackMove].duration;
+        const before = (this.swingDuration - previousSwing) / scale, after = (this.swingDuration - this.swingTime) / scale;
+        let damaging = false;
+        for (const [index, window] of swordHitWindows(this.attackMove).entries()) {
+          if (after < window.start || before > window.end) continue;
+          if (this.activeWindow !== index) {
+            this.activeWindow = index;
+            this.melee.reset(); this.melee.prime(this.previousSegment ?? segment);
+            this.parryWindow = PARRY_TOTAL_SECONDS; this.parryPerfect = true;
+            if (index > 0) this.audio.playSwing();
+            context.openDoor();
+          }
+          damaging = true;
+          if (frame > 0 && this.melee.update(context, segment, [this.root])) this.audio.playClash();
         }
-        damaging = true;
-        if (frame > 0 && this.melee.update(context, segment, [this.root])) this.audio.playClash();
+        if (!damaging) this.melee.prime(segment);
       }
-      if (!damaging) this.melee.prime(segment);
+      this.previousSegment = segment;
+      this.checkParry();
+    } else {
+      this.previousSegment = null; this.parryWindow = 0; this.melee.reset();
     }
-    this.previousSegment = segment;
-    this.checkParry();
     if (previousSwing > 0 && this.swingTime === 0 && this.queuedMove) {
       const move = this.queuedMove; this.queuedMove = null;
       this.swing(move);
@@ -287,8 +297,8 @@ export class LightsaberController {
   }
 
   private checkParry() {
-    const { player, getParryableBolts } = this.context();
-    if (!player || !getParryableBolts || this.parryWindow <= 0) return;
+    const { player, getParryableBolts, hasLightsaberBeam = true } = this.context();
+    if (!hasLightsaberBeam || !player || !getParryableBolts || this.parryWindow <= 0) return;
     const bolts = getParryableBolts();
     if (!bolts.length) return;
     const origin = new THREE.Vector3(player.body.position.x, player.body.position.y + 0.8, player.body.position.z);

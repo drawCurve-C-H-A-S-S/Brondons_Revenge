@@ -13,7 +13,7 @@ export function createJungleTextures() {
       paint(context);
       const result = new THREE.CanvasTexture(canvas);
       result.colorSpace = THREE.SRGBColorSpace; result.wrapS = result.wrapT = THREE.RepeatWrapping;
-      result.anisotropy = 4; return result;
+      result.anisotropy = 2; return result;
     };
     const bark = texture(context => {
       context.fillStyle = '#695641'; context.fillRect(0, 0, 256, 256);
@@ -126,6 +126,11 @@ export function createJungleTextures() {
         context.stroke();
       }
     });
+    for (const foliage of [leaves, needles, pineBranch, grassTuft]) {
+      foliage.anisotropy = 1;
+      foliage.minFilter = THREE.LinearMipmapLinearFilter;
+      foliage.magFilter = THREE.LinearFilter;
+    }
     prepared = { bark, leaves, stone, needles, grass, pineBranch, grassTuft };
   }
   return { bark: prepared.bark.clone(), leaves: prepared.leaves.clone(), stone: prepared.stone.clone(), needles: prepared.needles.clone(), grass: prepared.grass.clone(), pineBranch: prepared.pineBranch.clone(), grassTuft: prepared.grassTuft.clone() };

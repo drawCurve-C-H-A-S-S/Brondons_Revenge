@@ -16,6 +16,7 @@ import { createLightsaber, disposeLightsaber, fitLightsaberToHand, fitWeaponToHa
 import { LADDER } from '../utils/constants.js';
 import { createGoggles } from './rewardChest.js';
 import { SLIDE_TACKLE } from '../helpers/animation/slideTackle.js';
+import { playFootstep, type Foot } from '../helpers/audio/sfx.js';
 
 import type { PlayerState } from './player.js';
 
@@ -98,6 +99,57 @@ const ONE_SHOT_CLIPS = ['Jump_Start', 'Jump_Land', 'Slide_Tackle', ...ACTION_CLI
 // looks toward -Z at yaw 0.  Adding PI keeps the model facing the same
 // direction the camera is looking.
 const MODEL_ROT_OFFSET = Math.PI;
+
+const FOOTSTEP_CLIPS = ['Walk_Loop', 'Sprint_Loop', 'Crouch_Fwd_Loop', 'Box_Push_Loop', 'Box_Pull_Loop'];
+type FootPlant = { foot: Foot; time: number };
+
+async function sampleFootPlants(model: THREE.Object3D, clips: readonly THREE.AnimationClip[]) {
+  const feet = (['left', 'right'] as const).map((foot, index) => {
+    const bone = model.getObjectByName(index === 0 ? 'foot_l' : 'foot_r');
+    if (!bone) throw new Error(`Footstep synchronization requires the ${foot} foot bone`);
+    return { foot, bone };
+  });
+  const plants = new Map<string, FootPlant[]>(), sampler = new THREE.AnimationMixer(model);
+  const position = new THREE.Vector3();
+  try {
+    for (const name of FOOTSTEP_CLIPS) {
+      const clip = clips.find(candidate => candidate.name === name);
+      if (!clip) throw new Error(`Footstep synchronization requires ${name}`);
+      const frames = Math.max(32, Math.ceil(clip.duration * 120));
+      const heights = feet.map(() => new Float32Array(frames));
+      sampler.clipAction(clip).play();
+      for (let frame = 0; frame < frames; frame++) {
+        sampler.setTime(frame / frames * clip.duration);
+        model.updateMatrixWorld(true);
+        feet.forEach(({ bone }, index) => { heights[index][frame] = bone.getWorldPosition(position).y; });
+        if (frame % 32 === 31) await yieldToMainThread();
+      }
+      const contacts: FootPlant[] = [];
+      feet.forEach(({ foot }, index) => {
+        const samples = heights[index], low = Math.min(...samples), high = Math.max(...samples);
+        if (high - low < 0.005) throw new Error(`${name} has no measurable ${foot} foot lift`);
+        const lifted = low + (high - low) * 0.6, planted = low + (high - low) * 0.08;
+        let armed = false;
+        // Warm up a complete cycle so contacts at the loop seam are included exactly once.
+        for (let frame = 0; frame < frames * 2; frame++) {
+          const sample = samples[frame % frames];
+          if (sample >= lifted) armed = true;
+          else if (armed && sample <= planted) {
+            armed = false;
+            if (frame < frames) continue;
+            const previous = samples[(frame - 1) % frames];
+            const fraction = (previous - planted) / Math.max(1e-8, previous - sample);
+            const time = ((frame % frames - 1 + fraction + frames) % frames) / frames * clip.duration;
+            contacts.push({ foot, time });
+          }
+        }
+      });
+      plants.set(name, contacts.sort((a, b) => a.time - b.time));
+      sampler.stopAllAction();
+    }
+  } finally { sampler.stopAllAction(); sampler.uncacheRoot(model); }
+  return plants;
+}
 
 /**
  * Pose the UAL1 rig in a motionless "lay flat" configuration: hips neutral,
@@ -452,6 +504,8 @@ export async function loadCharacter(loader?: GLTFLoader) {
       orientHand(suffix, false, weight > 0.2);
     }
   }));
+  const footPlants = await sampleFootPlants(model, clips);
+  resetRig();
   // This is the in-place UAL export. Preserve its original bone tracks.
   const actions = new Map<ClipName, THREE.AnimationAction>();
   for (const name of CLIP_NAMES) {
@@ -615,6 +669,30 @@ export async function loadCharacter(loader?: GLTFLoader) {
 
   let previousActionRequest: PlayerState['actionRequest'] = null;
   let wasVentMode = false;
+  let footstepAction: THREE.AnimationAction | null = null, footstepTime = 0, footstepPositionReady = false;
+  const footstepPosition = new THREE.Vector3();
+  function updateFootsteps(dt: number, position: Vec3Like, state: PlayerState, cinematic?: CinematicPose | null) {
+    const moved = footstepPositionReady ? Math.hypot(position.x - footstepPosition.x, position.z - footstepPosition.z) : 0;
+    footstepPosition.copy(position); footstepPositionReady = true;
+    const action = cinematicAction ?? currentAction, contacts = footPlants.get(action.getClip().name);
+    if (!contacts || dt <= 0 || moved < 0.0005 || moved > 1.5 || !state.isOnGround || state.climbing
+      || state.sliding || state.floating || state.zeroGMode || state.ventMode || hologramActive || cinematic?.swimming) {
+      footstepAction = null;
+      return;
+    }
+    if (footstepAction === action) {
+      const duration = action.getClip().duration, now = action.time;
+      const advanced = now >= footstepTime ? now - footstepTime : duration - footstepTime + now;
+      const speed = cinematic?.duration ? duration / cinematic.duration : Math.abs(action.getEffectiveTimeScale());
+      if (advanced <= dt * speed + 0.025) {
+        for (const contact of contacts) {
+          const offset = contact.time > footstepTime ? contact.time - footstepTime : duration - footstepTime + contact.time;
+          if (offset > 0 && offset <= advanced) playFootstep(contact.foot, state.crouching ? 0.25 : state.sprinting ? 0.8 : 0.55);
+        }
+      }
+    }
+    footstepAction = action; footstepTime = action.time;
+  }
   function fadeTo(name: ClipName, restart = false, immediate = false) {
     const next = actions.get(name);
     if (!next || (next === currentAction && !restart && !immediate)) return;
@@ -1014,11 +1092,13 @@ export async function loadCharacter(loader?: GLTFLoader) {
     } else if (swayBlend !== 0) {
       swayBlend = 0; swayLat = swayLatVel = swayVert = swayVertVel = 0;
     }
+    updateFootsteps(dt, playerBodyPos, playerState, cinematic);
   }
 
   function setFacing(yaw: number) {
     // Doorway coordinate changes are instantaneous, not an in-world turn.
     model.rotation.set(0, yaw + MODEL_ROT_OFFSET, 0, 'YXZ');
+    footstepAction = null; footstepPositionReady = false;
   }
 
   function silhouetteMaterial(original: THREE.Material): THREE.Material {

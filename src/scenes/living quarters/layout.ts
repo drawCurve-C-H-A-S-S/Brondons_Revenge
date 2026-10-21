@@ -72,7 +72,7 @@ export function cabinDoorPoint(cabin: CabinDefinition) {
 export interface QuartersProgress {
   arrivalSeen: boolean;
   pistolCollected: boolean;
-  teleporterCollected: boolean;
+  lightsaberCollected: boolean;
   crystalCollected: boolean;
   gogglesCollected: boolean;
   rescueMessageRead: boolean;
@@ -81,22 +81,27 @@ export interface QuartersProgress {
   openedChests: Set<CabinId>;
 }
 export function createQuartersProgress(): QuartersProgress {
-  return { arrivalSeen: false, pistolCollected: false, teleporterCollected: false,
+  return { arrivalSeen: false, pistolCollected: false, lightsaberCollected: false,
     crystalCollected: false, gogglesCollected: false,
     rescueMessageRead: false, bulkheadUnlocked: false,
     visited: new Set(), openedChests: new Set() };
 }
 export function quartersEquipmentReady(progress: QuartersProgress) {
-  return progress.pistolCollected && progress.teleporterCollected && progress.crystalCollected && progress.gogglesCollected;
+  return progress.pistolCollected && progress.crystalCollected && progress.gogglesCollected && progress.lightsaberCollected;
 }
 export function quartersObjective(progress: QuartersProgress) {
-  if (!progress.pistolCollected || !progress.teleporterCollected) return 'Recover your pistol and teleportation device';
-  if (!progress.crystalCollected) return "Recover the purple teleport crystal from Brendan's chest";
-  if (!progress.gogglesCollected) return "Recover scanner goggles from Branden's chest";
-  const checked = (['branden', 'brendan'] as const).filter(id => progress.visited.has(id)).length;
-  if (checked < 2) return `Check the other lecturers' rooms (${checked}/2)`;
-  if (!progress.rescueMessageRead) return "Read save us on Branden's computer";
-  return progress.bulkheadUnlocked ? 'Enter the Deck One patrol passage' : 'Use the password at the forward bulkhead keypad';
+  if (!quartersEquipmentReady(progress)) return 'Look around the crew cabins for useful items before leaving';
+  return progress.bulkheadUnlocked ? 'Enter the Deck One patrol passage' : 'Look around the crew cabins for a way through the forward bulkhead';
+}
+export function quartersExitHint(progress: QuartersProgress) {
+  if (!progress.pistolCollected) return 'You may have left something useful in your own chest.';
+  if (!progress.crystalCollected) return "Brendan kept an unusual purple shard in his chest.";
+  if (!progress.gogglesCollected) return "Try Branden's chest. His survey gear could come in handy.";
+  if (!progress.lightsaberCollected) return "Check Andre's locker in the communal bathroom.";
+  if (!progress.bulkheadUnlocked) return progress.rescueMessageRead
+    ? 'Try the password you found at the number panel beside the bulkhead.'
+    : "Branden's computer may hold a way through this bulkhead.";
+  return null;
 }
 
 export function cabinMapContents(cabin: CabinDefinition): ShipMapBlock[] {
