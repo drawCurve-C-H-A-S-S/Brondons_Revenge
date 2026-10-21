@@ -721,17 +721,17 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
         arm.scale.y = radius * 0.8;
         arm.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dirX, -0.2, dirZ).normalize());
         arm.castShadow = true; sourceDress.add(arm);
-        for (let c = 0; c < 2; c++) {
+        for (let c = 0; c < 3; c++) {
           const card = new THREE.Mesh(sprayCard, sprayMat);
           card.position.set(x + dirX * radius * 0.5, wy + (Math.random() - 0.5) * 0.3, z + dirZ * radius * 0.5);
-          card.rotation.set(0, angle + Math.PI / 2 + c * Math.PI / 2, -0.14); card.scale.set(radius * 1.7, 2.2 + (1 - t) * 1, 1);
+          card.rotation.set(0, angle + Math.PI / 2 + c * Math.PI / 3, -0.14); card.scale.set(radius * 1.8, 2.4 + (1 - t) * 1.1, 1);
           sourceDress.add(card);
         }
       }
     }
-    for (let c = 0; c < 2; c++) {
+    for (let c = 0; c < 3; c++) {
       const spire = new THREE.Mesh(sprayCard, sprayMat);
-      spire.position.set(x, y + height * 0.96, z); spire.scale.set(1.8, 2.6, 1);
+      spire.position.set(x, y + height * 0.96, z); spire.scale.set(2, 2.8, 1);
       spire.rotation.y = Math.random() * Math.PI; sourceDress.add(spire);
     }
   }
@@ -766,7 +766,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   const crowns = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 2), foliage, 8);
   const branches = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12, 0.3, 1, 5), bark, 34000);
   const vines = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.025, 0.04, 1, 5), new THREE.MeshStandardMaterial({ color: 0x536338, roughness: 1 }), 8);
-  const foliageCards = new THREE.InstancedMesh(sprayCard, sprayMat, 68000);
+  const foliageCards = new THREE.InstancedMesh(sprayCard, sprayMat, 100000);
   trunks.name = 'JungleTrunks'; crowns.name = 'JungleCanopy'; branches.name = 'JungleBranches'; vines.name = 'HangingVines'; foliageCards.name = 'ConiferSprays';
   const dummy = new THREE.Object3D(), tint = new THREE.Color(), yAxis = new THREE.Vector3(0, 1, 0);
   let treeCount = 0, crownCount = 0, branchCount = 0, vineCount = 0, sprayCount = 0;
@@ -774,9 +774,9 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     dummy.position.copy(position); dummy.scale.copy(scale); dummy.rotation.copy(rotation); dummy.updateMatrix(); mesh.setMatrixAt(index, dummy.matrix);
   }
   // ── Textured conifers: visible bark log + woody arms + feathery spray cards ─
-  const TRUNK_CAP = 1200, BRANCH_CAP = 34000, SPRAY_CAP = 68000;
+  const TRUNK_CAP = 1200, BRANCH_CAP = 34000, SPRAY_CAP = 100000;
   function conifer(x: number, z: number, height: number, radius: number) {
-    if (treeCount >= TRUNK_CAP || branchCount + 48 > BRANCH_CAP || sprayCount + 96 > SPRAY_CAP) return;
+    if (treeCount >= TRUNK_CAP || branchCount + 48 > BRANCH_CAP || sprayCount + 140 > SPRAY_CAP) return;
     const parts: TreePart[] = [{ source: trunks, index: treeCount }];
     instance(trunks, treeCount++, new THREE.Vector3(x, height / 2, z), new THREE.Vector3(radius, height, radius));
     const body = new CANNON.Body({ mass: 0, material: physics.solidMaterial, shape: new CANNON.Cylinder(radius * 0.6, radius, height, 7) });
@@ -796,18 +796,18 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
         dummy.scale.set(1, armLen, 1);
         dummy.quaternion.setFromUnitVectors(yAxis, new THREE.Vector3(dirX, -0.18, dirZ).normalize()); dummy.updateMatrix();
         parts.push({ source: branches, index: branchCount }); branches.setMatrixAt(branchCount++, dummy.matrix);
-        // crossed pair of spray cards: stem runs radially outward so the feathery
+        // triple fan of spray cards: stem runs radially outward so the feathery
         // fringe stays visible from every viewing angle, never edge-on
-        for (let c = 0; c < 2; c++) {
+        for (let c = 0; c < 3; c++) {
           instance(foliageCards, sprayCount, new THREE.Vector3(x + dirX * reach * 0.5, wy + (random() - 0.5) * 0.35, z + dirZ * reach * 0.5),
-            new THREE.Vector3(reach * 1.7, 2.6 + (1 - t) * 1.5, 1), new THREE.Euler(0, angle + Math.PI / 2 + c * Math.PI / 2, -0.14));
+            new THREE.Vector3(reach * 1.8, 2.9 + (1 - t) * 1.6, 1), new THREE.Euler(0, angle + Math.PI / 2 + c * Math.PI / 3, -0.14));
           parts.push({ source: foliageCards, index: sprayCount });
           foliageCards.setColorAt(sprayCount++, tint.setHSL(0.3 + random() * 0.06, 0.45 + random() * 0.2, 0.3 + random() * 0.16));
         }
       }
     }
-    for (let c = 0; c < 2; c++) {
-      instance(foliageCards, sprayCount, new THREE.Vector3(x, height * 0.95, z), new THREE.Vector3(2.1, 3, 1), new THREE.Euler(0, random() * Math.PI, 0));
+    for (let c = 0; c < 3; c++) {
+      instance(foliageCards, sprayCount, new THREE.Vector3(x, height * 0.95, z), new THREE.Vector3(2.3, 3.2, 1), new THREE.Euler(0, random() * Math.PI, 0));
       parts.push({ source: foliageCards, index: sprayCount });
       foliageCards.setColorAt(sprayCount++, tint.setHSL(0.31, 0.5, 0.32));
     }
@@ -829,26 +829,42 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     addJungleBatch(mesh, range, canopy, farMat);
   }
 
-  // ── 3D grass-blade tufts scattered over the walkable ground ────────────────
-  const bladeGeometry = new THREE.PlaneGeometry(0.09, 0.4, 1, 1); bladeGeometry.translate(0, 0.2, 0);
-  const grassMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, side: THREE.DoubleSide });
-  const grass = new THREE.InstancedMesh(bladeGeometry, grassMat, 40000);
+  // ── Dense grass carpet: crossed alpha-tested tuft cards, knee-high ─────────
+  const tuftMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: surfaceTextures.grassTuft, alphaTest: 0.4,
+    side: THREE.DoubleSide, roughness: 1 });
+  tuftMat.onBeforeCompile = shader => {
+    shader.uniforms.uCanopyWind = canopyWind;
+    shader.vertexShader = 'uniform float uCanopyWind;\n' + shader.vertexShader;
+    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+      float grassPhase = uCanopyWind;
+      #ifdef USE_INSTANCING
+        grassPhase += instanceMatrix[3].x * 0.11 + instanceMatrix[3].z * 0.07;
+      #endif
+      float grassSway = position.y * position.y;
+      transformed.x += sin(grassPhase * 1.3 + position.x * 2.1) * 0.18 * grassSway;
+      transformed.z += cos(grassPhase * 1.1 + position.y * 1.7) * 0.13 * grassSway;`);
+  };
+  tuftMat.customProgramCacheKey = () => 'grass-tuft-wind-v1';
+  const tuftCard = new THREE.PlaneGeometry(1, 1); tuftCard.translate(0, 0.5, 0);
+  const GRASS_CAP = 150000;
+  const grass = new THREE.InstancedMesh(tuftCard, tuftMat, GRASS_CAP);
   grass.name = 'GroundGrass'; let grassCount = 0;
-  for (let i = 0; i < 11000; i++) {
-    const x = (random() - 0.5) * 379, z = (random() - 0.5) * 235;
-    if (x < RESCUE_SITE.mountainX + 2 || x > RESCUE_SITE.east - 2 || river(z, 1) || facility(x, z) || !isWalkable(x, z, 0.4)) continue;
-    if (grassCount + 6 > 40000) break;
-    const cluster = 2 + (i % 2);
-    for (let j = 0; j < cluster; j++) {
-      const scale = 0.6 + random() * 0.7;
-      dummy.position.set(x + (random() - 0.5) * 0.5, 0, z + (random() - 0.5) * 0.5);
-      dummy.scale.set(scale, scale * (0.8 + random() * 0.5), scale);
-      dummy.rotation.set((random() - 0.5) * 0.3, j * Math.PI / 2 + random() * 0.9, (random() - 0.5) * 0.5); dummy.updateMatrix();
-      grass.setMatrixAt(grassCount, dummy.matrix);
-      grass.setColorAt(grassCount++, tint.setHSL(0.26 + random() * 0.08, 0.4 + random() * 0.2, 0.16 + random() * 0.12));
+  carpet:
+  for (let x0 = RESCUE_SITE.mountainX + 2; x0 <= RESCUE_SITE.east - 2; x0 += 1.15) {
+    for (let z0 = -118; z0 <= 118; z0 += 1.15) {
+      const x = x0 + (random() - 0.5) * 0.9, z = z0 + (random() - 0.5) * 0.9;
+      if (river(z, 1) || facility(x, z) || !isWalkable(x, z, 0.4)) continue;
+      if (grassCount + 2 > GRASS_CAP) break carpet;
+      for (let c = 0; c < 2; c++) {
+        dummy.position.set(x, 0, z);
+        dummy.scale.set(0.85 + random() * 0.7, 0.55 + random() * 0.5, 1);
+        dummy.rotation.set(0, c * Math.PI / 2 + random() * 0.7, 0); dummy.updateMatrix();
+        grass.setMatrixAt(grassCount, dummy.matrix);
+        grass.setColorAt(grassCount++, tint.setHSL(0.24 + random() * 0.09, 0.3 + random() * 0.3, 0.5 + random() * 0.28));
+      }
     }
   }
-  grass.count = grassCount; grass.receiveShadow = true; addJungleBatch(grass, 46);
+  grass.count = grassCount; grass.receiveShadow = true; addJungleBatch(grass, 70);
 
   const leaf = new THREE.Shape(); leaf.moveTo(0, 0); leaf.quadraticCurveTo(-0.48, 0.42, 0, 1); leaf.quadraticCurveTo(0.48, 0.42, 0, 0);
   const fronds = new THREE.InstancedMesh(new THREE.ShapeGeometry(leaf, 5), new THREE.MeshStandardMaterial({

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-let prepared: { bark: THREE.CanvasTexture; leaves: THREE.CanvasTexture; stone: THREE.CanvasTexture; needles: THREE.CanvasTexture; grass: THREE.CanvasTexture; pineBranch: THREE.CanvasTexture } | undefined;
+let prepared: { bark: THREE.CanvasTexture; leaves: THREE.CanvasTexture; stone: THREE.CanvasTexture; needles: THREE.CanvasTexture; grass: THREE.CanvasTexture; pineBranch: THREE.CanvasTexture; grassTuft: THREE.CanvasTexture } | undefined;
 
 export function createJungleTextures() {
   if (!prepared) {
@@ -99,9 +99,36 @@ export function createJungleTextures() {
         context.stroke();
       }
     });
-    prepared = { bark, leaves, stone, needles, grass, pineBranch };
+    const grassTuft = texture(context => {
+      context.clearRect(0, 0, 256, 256);
+      context.lineCap = 'round';
+      const blades = ['#5b8436', '#6a9440', '#7fa653', '#93b45f', '#4c7030', '#86a852'];
+      // dense fan of thin curved blades rising from the bottom edge
+      for (let index = 0; index < 34; index++) {
+        const baseX = 10 + random() * 236;
+        const height = 80 + random() * 165;
+        const lean = (random() - 0.5) * 110;
+        context.strokeStyle = blades[index % 6];
+        context.lineWidth = 2 + random() * 2.6;
+        context.beginPath(); context.moveTo(baseX, 258);
+        context.quadraticCurveTo(baseX + lean * 0.22, 256 - height * 0.55, baseX + lean, 256 - height);
+        context.stroke();
+      }
+      // sunlit pale tips catching the light
+      for (let index = 0; index < 12; index++) {
+        const baseX = 18 + random() * 220;
+        const height = 110 + random() * 130;
+        const lean = (random() - 0.5) * 80;
+        context.strokeStyle = index % 3 ? '#b9cc6d' : '#c9d87e';
+        context.lineWidth = 1.5 + random();
+        context.beginPath(); context.moveTo(baseX, 258);
+        context.quadraticCurveTo(baseX + lean * 0.3, 256 - height * 0.6, baseX + lean, 256 - height);
+        context.stroke();
+      }
+    });
+    prepared = { bark, leaves, stone, needles, grass, pineBranch, grassTuft };
   }
-  return { bark: prepared.bark.clone(), leaves: prepared.leaves.clone(), stone: prepared.stone.clone(), needles: prepared.needles.clone(), grass: prepared.grass.clone(), pineBranch: prepared.pineBranch.clone() };
+  return { bark: prepared.bark.clone(), leaves: prepared.leaves.clone(), stone: prepared.stone.clone(), needles: prepared.needles.clone(), grass: prepared.grass.clone(), pineBranch: prepared.pineBranch.clone(), grassTuft: prepared.grassTuft.clone() };
 }
 
 export function preloadJungleTextures() {
