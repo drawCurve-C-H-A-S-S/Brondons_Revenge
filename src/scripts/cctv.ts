@@ -20,13 +20,9 @@ export interface CctvTarget {
   status: 'idle' | 'loading' | 'ready' | 'error';
 }
 
-export function createCctvSystem(renderer: THREE.WebGLRenderer, definitions: readonly CctvFeedDefinition[]) {
-  if (!definitions.length || new Set(definitions.map(feed => feed.id)).size !== definitions.length)
-    throw new Error('The camera wall requires at least one feed and unique feed IDs');
-  const records = definitions.map(definition => ({
-    definition, status: 'idle' as CctvTarget['status'], source: null as CctvFeedSource | null, generation: 0,
-    pending: null as Promise<boolean> | null, cleared: undefined as boolean | undefined,
-  }));
+export function createCctvWall(definitions: readonly Pick<CctvFeedDefinition, 'id' | 'label'>[], screenTextures: readonly THREE.Texture[]) {
+  if (!definitions.length || screenTextures.length !== definitions.length || new Set(definitions.map(feed => feed.id)).size !== definitions.length)
+    throw new Error('The camera wall requires unique feed IDs and one texture per feed');
   const columns = 4, rows = Math.max(3, Math.ceil((definitions.length + columns) / columns));
   const panel = new THREE.Group(); panel.name = 'SurveillanceCameraWall';
   panel.position.set(STAGE_TWO.cameraWall.x, STAGE_TWO.cameraWall.y, STAGE_TWO.cameraWall.z);
@@ -48,22 +44,8 @@ export function createCctvSystem(renderer: THREE.WebGLRenderer, definitions: rea
       screen.name = `cctv-standby-${slot}`; screen.position.copy(cellPosition(slot, 0.16)); panel.add(screen);
     }
   }
-  const targets = definitions.map(definition => {
-    const target = new THREE.WebGLRenderTarget(512, 288); target.texture.name = `surveillance-${definition.id}`; return target;
-  });
-  const placeholders = definitions.map(() => {
-    const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 288;
-    const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
-    return { canvas, texture };
-  });
-  const cameras = definitions.map(definition => {
-    const camera = new THREE.PerspectiveCamera(74, 16 / 9, 0.1, 60);
-    if (definition.id === 'stage2-armory') { camera.position.set(3.35, 2.7, 3.1); camera.lookAt(-0.8, 0.9, -1.8); }
-    else { camera.position.set(3.3, 2.8, -3.6); camera.lookAt(0, 0.8, 1.8); }
-    return camera;
-  });
   const screens = definitions.map((definition, index) => {
-    const material = new THREE.MeshBasicMaterial({ map: placeholders[index].texture, toneMapped: false });
+    const material = new THREE.MeshBasicMaterial({ map: screenTextures[index], toneMapped: false });
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 1.9 * 9 / 16), material);
     mesh.name = `cctv-screen-${definition.id}`; mesh.position.copy(cellPosition(columns + index, 0.165)); panel.add(mesh);
     const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 56;
@@ -73,17 +55,47 @@ export function createCctvSystem(renderer: THREE.WebGLRenderer, definitions: rea
     overlay.position.copy(mesh.position); overlay.position.y -= 0.43; overlay.position.z += 0.004; panel.add(overlay);
     return { mesh, material, position: mesh.position.clone(), canvas, texture, overlay };
   });
+  screens.forEach((screen, index) => drawCctvCaption(screen, definitions[index].label));
+  return { panel, screens };
+}
+
+function drawCctvCaption({ canvas, texture }: { canvas: HTMLCanvasElement; texture: THREE.Texture }, label: string, cleared = false) {
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Unable to draw camera feed captions');
+  context.clearRect(0, 0, canvas.width, canvas.height); context.fillStyle = '#08131ddd'; context.fillRect(0, 0, 512, 56);
+  context.textAlign = 'left'; context.font = '24px monospace'; context.fillStyle = '#d6e6ed';
+  context.fillText(label, 12, 37);
+  if (cleared) { context.textAlign = 'right'; context.font = '20px monospace'; context.fillStyle = '#72eeaa'; context.fillText('CLEARED', 500, 37); }
+  texture.needsUpdate = true;
+}
+
+export function createCctvSystem(renderer: THREE.WebGLRenderer, definitions: readonly CctvFeedDefinition[]) {
+  if (!definitions.length || new Set(definitions.map(feed => feed.id)).size !== definitions.length)
+    throw new Error('The camera wall requires at least one feed and unique feed IDs');
+  const records = definitions.map(definition => ({
+    definition, status: 'idle' as CctvTarget['status'], source: null as CctvFeedSource | null, generation: 0,
+    pending: null as Promise<boolean> | null, cleared: undefined as boolean | undefined,
+  }));
+  const targets = definitions.map(definition => {
+    const target = new THREE.WebGLRenderTarget(512, 288); target.texture.name = `surveillance-${definition.id}`; return target;
+  });
+  const placeholders = definitions.map(() => {
+    const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 288;
+    const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
+    return { canvas, texture };
+  });
+  const { panel, screens } = createCctvWall(definitions, placeholders.map(placeholder => placeholder.texture));
+  const cameras = definitions.map(definition => {
+    const camera = new THREE.PerspectiveCamera(74, 16 / 9, 0.1, 60);
+    if (definition.id === 'stage2-armory') { camera.position.set(3.35, 2.7, 3.1); camera.lookAt(-0.8, 0.9, -1.8); }
+    else { camera.position.set(3.3, 2.8, -3.6); camera.lookAt(0, 0.8, 1.8); }
+    return camera;
+  });
   let mountedScene: THREE.Scene | null = null, elapsed = 0, highlighted = -1, disposed = false;
   const raycaster = new THREE.Raycaster(), center = new THREE.Vector2();
   function drawOverlay(index: number) {
-    const { canvas, texture } = screens[index], context = canvas.getContext('2d');
-    if (!context) throw new Error('Unable to draw camera feed captions');
     const record = records[index], cleared = record.definition.cleared?.() ?? false; record.cleared = cleared;
-    context.clearRect(0, 0, canvas.width, canvas.height); context.fillStyle = '#08131ddd'; context.fillRect(0, 0, 512, 56);
-    context.textAlign = 'left'; context.font = '24px monospace'; context.fillStyle = '#d6e6ed';
-    context.fillText(record.definition.label, 12, 37);
-    if (cleared) { context.textAlign = 'right'; context.font = '20px monospace'; context.fillStyle = '#72eeaa'; context.fillText('CLEARED', 500, 37); }
-    texture.needsUpdate = true;
+    drawCctvCaption(screens[index], record.definition.label, cleared);
   }
   function drawPlaceholder(index: number) {
     const { canvas, texture } = placeholders[index], context = canvas.getContext('2d');

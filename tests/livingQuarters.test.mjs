@@ -260,6 +260,29 @@ test('every cabin template has a bed, scaled desk and chair, computer and readab
     assert.ok(chairSize.x <= 0.75 && chairSize.z <= 0.85);
     assert.ok(Math.abs(desk.min.y) < 0.001 && Math.abs(chair.min.y) < 0.001);
     assert.equal(!!room.root.getObjectByName('CrewFootlocker'), cabin.role === 'lecturer');
+    if (cabin.role === 'lecturer') {
+      for (const name of ['ChestBase', 'ChestLid'])
+        assert.equal(room.chest.getObjectByName(name).material.color.getHex(), 0xc4c4c4);
+    }
+    const server = room.root.getObjectByName('ShipServerRack');
+    assert.equal(!!server, cabin.id === 'student-05', 'Only Sohrab has a camera-room server');
+    if (server) {
+      room.root.updateMatrixWorld(true);
+      const bounds = new THREE.Box3().setFromObject(server), center = layout.cabinCenter(cabin);
+      assert.ok(Math.abs(bounds.min.y) < 0.001 && Math.abs(bounds.max.y - 2.65) < 0.001);
+      assert.ok(bounds.min.x > center.x - layout.QUARTERS.cabinWidth / 2);
+      assert.ok(bounds.max.x < center.x + layout.QUARTERS.cabinWidth / 2);
+      assert.ok(bounds.min.z > center.z - layout.QUARTERS.cabinDepth / 2);
+      assert.ok(bounds.max.z < center.z + layout.QUARTERS.cabinDepth / 2);
+      for (const furnishing of [room.bed, room.desk, room.chair, room.poster])
+        assert.equal(bounds.intersectsBox(new THREE.Box3().setFromObject(furnishing)), false);
+      const point = bounds.getCenter(new THREE.Vector3()), size = bounds.getSize(new THREE.Vector3());
+      const body = physics.world.bodies.find(body => body.position.distanceTo(new CANNON.Vec3(point.x, point.y, point.z)) < 0.001);
+      assert.ok(body, 'The server must have a matching collider');
+      assert.ok(Math.abs(body.shapes[0].halfExtents.x * 2 - size.x) < 0.001);
+      assert.ok(Math.abs(body.shapes[0].halfExtents.y * 2 - size.y) < 0.001);
+      assert.ok(Math.abs(body.shapes[0].halfExtents.z * 2 - size.z) < 0.001);
+    }
     room.dispose(); assert.equal(physics.world.bodies.length, 0);
   }
 });
@@ -442,10 +465,14 @@ test('pistol input and programmatic equipping respect recovery, while legacy con
 
 test('the prologue stealth feed uses the real hangar geometry, animated patrols and moving cover shots', async t => {
   browser(t); t.mock.method(console, 'warn', () => {});
-  const preview = createPrologueFlashbacks(); t.after(() => preview.dispose()); await preview.ready;
+  const model = async name => ({ ...prop(name), animations: [] });
+  const preview = createPrologueFlashbacks({ characterLoader: () => model('Crew'), playerLoader: () => model('Brondon'),
+    modelLoader: model, shipLoader: async () => prop('Mothership').scene, bossLoader: () => model('Warden'),
+    monitorFactory: () => ({ texture: new THREE.Texture(), ready: Promise.resolve(), update() {}, dispose() {}, getFrameIndex: () => 0 }) });
+  t.after(() => preview.dispose()); await preview.ready;
   const scene = preview.sceneFor('stealth');
   assert.ok(scene.getObjectByName('DeckOneHangarFloor')); assert.ok(scene.getObjectByName('HangarCargo-11-0'));
-  assert.ok(scene.getObjectByName('HangarDockedShuttle'));
+  assert.ok(scene.getObjectByName('DeckOnePatrolPassageFloor'));
   const scans = scene.children.filter(node => node.name === 'StealthPreviewScanField');
   assert.equal(scans.length, 3); const start = scans[0].position.clone(), camera = new THREE.PerspectiveCamera();
   preview.update('stealth', 1, 9, 0.1, camera); const wide = camera.position.clone();

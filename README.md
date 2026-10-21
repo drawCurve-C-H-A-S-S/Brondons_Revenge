@@ -205,12 +205,15 @@ including the pause menu.
 | Area or event | Track |
 | --- | --- |
 | Scene 1 opening | Loading |
-| Prison prologue | Emotional, decoded before the scene begins and started at full gain |
+| Prison prologue | Prologue less mashing, decoded before the scene begins and started at full gain |
 | Prime breaks the prison chains | BrokenChainsBGm, switches at the chain-break frame |
 | Living quarters | Living quarters |
 | Stage One, first half | Stealth1 |
 | Stage One, second half | Stealth1 2 |
 | Stage One, caught or hangar alarm | Stealth1 3 |
+| Stage Two vent maze | Tension |
+| Stage Two minigames: cargo hold, target range, equipment archive and rust chamber | Puzzle |
+| Bay Warden boss fight | Some boss |
 | Level 2 flight and scrambler phases | DonRevLevel2 |
 | After destroying the red scrambler, including the crash handoff | DonRevLevel2Boss |
 | Planet jungle, bridge and secret waterfall | Planetbfm |
@@ -218,6 +221,7 @@ including the pause menu.
 | Boss defeated | Existing area music continues without a victory-song override |
 | Final boss introduction and transformations | Loading |
 | Playable final boss duel | Three-second crossfade into DonRevBGM1 |
+| Final boss, from the Planet Breaker blast until the credits | Final battle |
 | Final credits | Level 2 |
 
 The Stage One music trigger spans the hangar at the center of the **second cargo
@@ -239,9 +243,17 @@ effects still pause; browsers without Web Audio retain the reduced-volume effect
 
 Existing ship/hangar music remains in its original areas. Planetbfm replaces
 DonRevJungleLoop on the planet. Skipping the prison release selects Broken Chains
-when the prologue hands back control. The final
-battle track continues through the ground duel, planet rupture, space duel and
-finisher without restarting between phases.
+when the prologue hands back control. Some boss plays for the whole Bay Warden
+arena, including its entrance and the victory dialogue, then the hangar escape
+brings DonRevBGM1 back. Tension plays only while Brondon is inside the vent maze;
+dropping into the camera hub returns to Stealth1 2.
+DonRevBGM1 carries the ground duel and the Planet Breaker's build-up. The moment
+the bomb strikes the planet (the world-crack impact), Final battle crossfades in
+and continues through the planet's destruction, the space duel, the finisher and
+the victory scene without restarting between phases; a defeat in the space duel
+keeps it playing. The credits cue takes over when the credits begin.
+Opening any chest, whether a cabin footlocker or a minigame reward chest, plays the
+Chest sound effect through the sound-effects volume.
 Music uses decoded Web Audio buffers rather than streaming-element loop restarts.
 Loop padding is trimmed and the seam is blended over **0.65 seconds**. Ordinary
 soundtrack changes use a **0.9-second equal-power crossfade**; the final boss
@@ -250,7 +262,7 @@ the next track loads, and rapid cue changes retain the music already in the mix.
 
 ## Loading and caching
 
-The opening requests **Loading.m4a first**, before model loading. The mothership's
+The opening requests **Loading.ogg first**, before model loading. The mothership's
 compatible static surfaces and edge lines are batched, and its first GPU render
 is prepared before the opening camera starts. Character animation preparation
 and later-chapter downloads no longer compete with that visible opening.
@@ -264,14 +276,19 @@ green/red scramblers, exposed reactor, jungle, facility and both finale views wa
 refreshed from the 14 October screenshots. The exposed reactor has its own image,
 separate from the capital ship's shield phase.
 The progress bar counts completed download/preparation jobs, not
-an estimated timer; the prison's cutscenes and first-render shaders are prepared
+an estimated timer; its status names the job currently running rather than the
+last finished job. The prison's cutscenes and first-render shaders are prepared
 before the game starts. Failed preparation stays on the loading screen with
 **TRY AGAIN**, retaining successfully cached files.
 
 All runtime models, their external texture/buffer dependencies, music, surveillance
 footage, screenshots and chapter code are loaded up front. Unused authoring assets
-and obsolete scenes are excluded. Planet texture generation is incremental so
-the slideshow can continue during that CPU-heavy work.
+and obsolete scenes are excluded. Full-resolution planet maps are generated
+offline and loaded as losslessly compressed RGBA pixels, avoiding repeated
+procedural-noise calculations during startup without changing texture quality.
+The maps use a binary asset extension to prevent automatic HTTP gzip decoding,
+and use the normal session/production asset cache. After changing the planet
+generator, regenerate them with **`npm run textures:earth`**.
 
 Compressed assets stay cached for the play session. Production builds also reuse
 a versioned browser cache across visits when storage is available; development
@@ -303,12 +320,12 @@ drone hit, alarm or hangar entry. Weapon traces skip hidden actors and the playe
 own rig before raycasting, and firing-squad searches reject occupied/blocked
 positions before allocating a navigation search.
 
-Portable **OGG copies of the supplied soundtrack** are included for browsers
-without usable AAC decoding. Music chooses OGG when the browser supports it,
-including hashed production asset URLs; the original M4A files remain available.
-Regenerate the copies after changing music with **`npm run audio:fallbacks`**.
-FFmpeg is a development-only dependency, not part of the browser bundle. If neither
-format can be decoded, the game reports an audio-support warning instead of hanging.
+The soundtrack and the chest sound effect ship **only as OGG Vorbis** to keep the
+bundle small; no M4A copies are included. A browser that cannot decode OGG
+reports an audio-support warning instead of hanging. To add a track exported as
+M4A, drop it into `src/assets/bgm`, run **`npm run audio:fallbacks`** (it converts
+every M4A in that folder to OGG), then delete the M4A. FFmpeg is a development-only
+dependency, not part of the browser bundle.
 
 The developer menu uses descriptive level/stage names in story order, including
 the capital-ship shield and exposed-reactor phases; internal scene numbers are
@@ -397,6 +414,33 @@ cel-shaded model, preserving his magenta eyes, blond hair and angular brows.
 Animated eyelid masks retain the flutter, blink and gradual opening.
 The camera opens on the three-quarter view of his floating body instead of the
 foot end, and returns to that angle after the eye-opening close-up.
+
+Prime's compact comic textbox stays in the **top-left**, including during
+flashbacks; memory and live-feed labels sit in the **bottom-left**. Click or
+press **Space** to reveal a line immediately, then again to advance without
+waiting for its camera shot. Timed narration can still advance automatically.
+Hold **Enter** to skip the whole prologue.
+
+The lab memory first establishes the captive crew, then closes in on Brondon's
+own pod. Prime's shield burst shatters its casing before experimentation can
+begin; Donus subsequently imprisons Brondon in shield-suppressing chains.
+The planet shot trails the actual mothership in third person, with the rescue
+planet far ahead. A **ten-second security montage** establishes the escape
+shuttle in **Hangar 14**, pans across the actual surveillance hub and its live
+computer feeds, pulls back over the Deck One hangar patrols, flashes a
+**0.75-second sinister Bay Warden close-up**, then closes on the hub's actual
+camera-screen wall with animated footage. Hangar 14 appears only once, and each
+main location gets over two seconds to read. The hangar, hub and camera wall
+share their visual builders with gameplay.
+The montage remains immediately skippable and does not repeat the boss reveal.
+
+The chains sap Brondon's energy and prevent Prime from easily releasing his
+shield. Prime has stored enough energy to break the chains with another shield burst
+and will loop the prison camera feed to conceal the escape. Brondon's homing
+beacon provides **one transfer to his cabin**. The crew cabins have no patrols:
+recover the gear, then escape the ship. After "Brace for impact", the shield
+breaks the chains, Brondon gets up, and the shorter title reveal leads to the
+**Press E to start your revenge** prompt.
 
 - The passage has **four cabins on each side**: Brondon, Branden and Brendan are
   unlocked; the five student cabins are locked.
@@ -496,6 +540,8 @@ persist across area visits in the current play session. Failed cabin loads show
 retry/cancel controls instead of allowing the player into an unfinished room.
 
 The student cabins belong to **Caleb, Husain, Andre', Sibusiso and Sohrab**.
+Sohrab's cabin includes a server rack matching those in the camera room, with
+solid collision and space to move around the bed and workstation.
 Their roster is maintained in [layout.ts](./src/scenes/living%20quarters/layout.ts). In development,
 `?living-quarters` opens the area directly; the scene selector also has a
 **Level 1 - Living quarters** entry.
@@ -645,6 +691,8 @@ are no longer part of Stage Two.
 - Scenes **2, 3, 4, 7, 8, 9, 10, 11 and 12** remain as source files, but are no
   longer imported, preloaded, routed or offered in the active developer menu.
   The camera rooms use lightweight crew chests rather than the old model chest.
+  All chests use a light-grey exterior to stand out against dark decks; model
+  chests retain their normal and metallic/roughness maps without the dark colour atlas.
 
 Developer Mode includes the surveillance route, archive and camera-room previews.
 In development, `?stage2-infiltration` starts at the vent entrance;
@@ -668,6 +716,10 @@ recovered during Stage Two.
   checkpoint retry, and remain collectable if their pillar is destroyed.
   Pillars keep their original collision, laser-cover and shattering behavior.
   The separate health pack awarded after victory is unchanged.
+- In phase four, teleporting behind the Warden confuses him for **3.5 seconds**:
+  **???** appears above his head, he holds his facing and stops launching attacks,
+  and the blue back target remains vulnerable. Afterwards he repeats his opening
+  scan before resuming attacks. Existing drones and lasers remain dangerous.
 
 ## Level 2 matchup, targeting and firing
 
@@ -1126,11 +1178,6 @@ Prime Frame retains its existing mech model.
 The epilogue also flies in the shared opening mothership and plays Prime Frame's
 native `Dance_Loop`; the credit timeline and scrolling share one duration.
 
-## Tech Stack
-
-- **Three.js** -- 3D rendering
-- **TypeScript** -- Type safety
-- **Vite** -- Dev server and bundler
 ## Five Chairs trailer and loading artwork
 
 **Developer Mode > Scenes > Trailer - Five Chairs** appears immediately below
@@ -1147,3 +1194,8 @@ Pausing stops the trailer clock; resuming continues the same shot.
 `src/assets/loading/finale-chairs.png` is the 1920 x 1080 still of this composition
 used by both the final-fight and trailer loading screens.
 
+## Tech Stack
+
+- **Three.js** -- 3D rendering
+- **TypeScript** -- Type safety
+- **Vite** -- Dev server and bundler

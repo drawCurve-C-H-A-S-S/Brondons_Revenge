@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { gunzipSync } from 'three/addons/libs/fflate.module.js';
+import { fetchAsset } from '../core/assetCache.js';
 
 function hash(n: number): number {
   const x = Math.sin(n) * 43758.5453123;
@@ -76,32 +78,37 @@ export interface EarthTextures {
 
 let cachedTextures: EarthTextures | undefined;
 let preparation: Promise<void> | undefined;
+const EARTH_WIDTH = 2048, EARTH_HEIGHT = 1024;
 
-export function createEarthTextures(width = 2048, height = 1024): EarthTextures {
+export function createEarthTextures(width = EARTH_WIDTH, height = EARTH_HEIGHT): EarthTextures {
   const generator = generateEarthTextures(width, height);
   let result = generator.next();
   while (!result.done) result = generator.next();
   return result.value;
 }
 
-export function preloadEarthTextures(): Promise<void> {
+export function preloadEarthTextures(source: string): Promise<void> {
   if (cachedTextures) return Promise.resolve();
   if (!preparation) {
     preparation = (async () => {
-      const generator = generateEarthTextures(2048, 1024);
-      let result = generator.next();
-      while (!result.done) {
-        await new Promise<void>(resolve => setTimeout(resolve, 0));
-        result = generator.next();
-      }
-      Object.values(result.value).forEach(texture => texture.dispose());
+      const response = await fetchAsset(source);
+      const decoded = gunzipSync(new Uint8Array(await response.arrayBuffer()));
+      if (!(decoded.buffer instanceof ArrayBuffer)) throw new Error('Earth texture pixels must use an ArrayBuffer');
+      const pixels = new Uint8Array(decoded.buffer, decoded.byteOffset, decoded.byteLength);
+      const size = EARTH_WIDTH * EARTH_HEIGHT * 4;
+      if (pixels.byteLength !== size * 3)
+        throw new Error(`Earth texture data must contain ${size * 3} bytes (received ${pixels.byteLength})`);
+      cachedTextures = createTextureMaps(
+        pixels.subarray(0, size), pixels.subarray(size, size * 2), pixels.subarray(size * 2),
+        EARTH_WIDTH, EARTH_HEIGHT,
+      );
     })().catch(error => { preparation = undefined; throw error; });
   }
   return preparation;
 }
 
 function* generateEarthTextures(width: number, height: number): Generator<void, EarthTextures> {
-  const cacheable = width === 2048 && height === 1024;
+  const cacheable = width === EARTH_WIDTH && height === EARTH_HEIGHT;
   if (cacheable && cachedTextures) return {
     colorTexture: cachedTextures.colorTexture.clone(),
     roughnessTexture: cachedTextures.roughnessTexture.clone(),
@@ -202,6 +209,18 @@ function* generateEarthTextures(width: number, height: number): Generator<void, 
     if (py % 8 === 7) yield;
   }
 
+  const textures = createTextureMaps(colorData, roughData, cloudData, width, height);
+  // Reuse generated pixels, but keep texture ownership separate across scene disposal.
+  if (cacheable) cachedTextures = {
+    colorTexture: textures.colorTexture.clone(),
+    roughnessTexture: textures.roughnessTexture.clone(),
+    cloudTexture: textures.cloudTexture.clone(),
+  };
+  return textures;
+}
+
+function createTextureMaps(colorData: Uint8Array<ArrayBuffer>, roughData: Uint8Array<ArrayBuffer>, cloudData: Uint8Array<ArrayBuffer>,
+  width: number, height: number): EarthTextures {
   const colorTexture = new THREE.DataTexture(colorData, width, height);
   colorTexture.colorSpace = THREE.SRGBColorSpace;
   colorTexture.needsUpdate = true;
@@ -210,12 +229,6 @@ function* generateEarthTextures(width: number, height: number): Generator<void, 
   const cloudTexture = new THREE.DataTexture(cloudData, width, height);
   cloudTexture.colorSpace = THREE.SRGBColorSpace;
   cloudTexture.needsUpdate = true;
-  // Reuse generated pixels, but keep texture ownership separate across scene disposal.
-  if (cacheable) cachedTextures = {
-    colorTexture: colorTexture.clone(),
-    roughnessTexture: roughnessTexture.clone(),
-    cloudTexture: cloudTexture.clone(),
-  };
   return { colorTexture, roughnessTexture, cloudTexture };
 }
 

@@ -88,7 +88,7 @@ export function createScene({ progress = createStageTwoProgress(), entryState, p
     roomId: 'equipment-archive', scene, camera, player, physicsWorld: physics.world,
     ready: Promise.all([chest.ready, chairReady]).then(() => undefined), cutsceneManager: null,
     getSceneId: () => 'scene1.3', getMapLayout: () => cameraVisitMap(37), getMapSceneId: () => 'scene37',
-    getMusicTrack: () => 'stealth-2' as const,
+    getMusicTrack: () => 'puzzle' as const,
     activate() { active = true; ui.classList.remove('hidden'); visitUI?.setVisible(true); player.clearInput(); player.enable(); },
     controlsReady: () => active && !paused && !seating.active,
     isCinematic: () => seating.active,

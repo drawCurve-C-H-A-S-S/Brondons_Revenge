@@ -15,6 +15,7 @@ import { createInspectionView, type InspectionTarget } from './inspectionView.js
 import { inputHint } from '../../scripts/gamepadInput.js';
 import { createChairSeating } from '../../scripts/chairSeating.js';
 import { createFacilityBrowser } from '../../helpers/scene/facilityBrowser.js';
+import { playSfx } from '../../helpers/audio/sfx.js';
 
 interface QuartersOptions {
   progress?: QuartersProgress;
@@ -404,6 +405,7 @@ export function createScene({ progress = createQuartersProgress(), skipArrival =
           : candidate.cabin === 'brendan' ? progress.crystalCollected : candidate.cabin === 'branden' ? progress.gogglesCollected : true)) {
           showNotice(`${cabin!.occupant}'s chest is empty.`); break;
         }
+        if (!progress.openedChests.has(candidate.cabin!)) playSfx('chest');
         progress.openedChests.add(candidate.cabin!);
         startCinematic(candidate.cabin === 'brondon' ? 'pistol' : candidate.cabin === 'brendan' ? 'crystal'
           : candidate.cabin === 'branden' ? 'goggles' : 'empty-chest', candidate.cabin!, 4.4);

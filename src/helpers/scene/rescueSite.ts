@@ -853,7 +853,8 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   for (let x0 = RESCUE_SITE.mountainX + 2; x0 <= RESCUE_SITE.east - 2; x0 += 1.15) {
     for (let z0 = -118; z0 <= 118; z0 += 1.15) {
       const x = x0 + (random() - 0.5) * 0.9, z = z0 + (random() - 0.5) * 0.9;
-      if (river(z, 1) || facility(x, z) || !isWalkable(x, z, 0.4)) continue;
+      const onBridge = Math.abs(x - RESCUE_SITE.bridge.x) < 3.4 && Math.abs(z - RESCUE_SITE.bridge.z) < 12.2;
+      if (onBridge || routeDistance(x, z) < 3.2 || river(z, 1) || facility(x, z) || !isWalkable(x, z, 0.4)) continue;
       if (grassCount + 2 > GRASS_CAP) break carpet;
       for (let c = 0; c < 2; c++) {
         dummy.position.set(x, 0, z);

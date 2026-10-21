@@ -7,11 +7,12 @@ import * as THREE from 'three';
  * cables snaking out across the deck.
  *
  * Purely visual — it adds no physics, so it never blocks traversal. Returns the
- * group plus an `interior` anchor (at the tube floor) for the trapped occupant,
+ * group, a removable `shell`, an `interior` anchor for the trapped occupant,
  * and an `update(t)` that pulses the interior glow.
  */
 export interface ContainmentPod {
   group: THREE.Group;
+  shell: THREE.Group;
   interior: THREE.Group;
   light: THREE.PointLight;
   update(t: number): void;
@@ -27,6 +28,9 @@ export function createContainmentPod(options: {
   const glowHex = options.glow ?? 0x54ff3c;
 
   const group = new THREE.Group();
+  const shell = new THREE.Group();
+  shell.name = 'ContainmentPodShell';
+  group.add(shell);
 
   const darkMetal = new THREE.MeshStandardMaterial({ color: 0x141d24, metalness: 0.65, roughness: 0.5 });
   const cableMat = new THREE.MeshStandardMaterial({ color: 0x0c1216, metalness: 0.3, roughness: 0.8 });
@@ -47,27 +51,27 @@ export function createContainmentPod(options: {
 
   // Glass tube + faint fluid column
   const tube = new THREE.Mesh(new THREE.CylinderGeometry(R, R, tubeH, 28, 1, true), glassMat);
-  tube.position.y = baseTop + tubeH / 2; group.add(tube);
+  tube.position.y = baseTop + tubeH / 2; shell.add(tube);
   const fluid = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.86, R * 0.86, tubeH * 0.94, 20, 1, true), fluidMat);
-  fluid.position.y = baseTop + tubeH / 2; group.add(fluid);
+  fluid.position.y = baseTop + tubeH / 2; shell.add(fluid);
 
   // Struts + vertical neon strips on the diagonals so the front stays clear
   for (let i = 0; i < 4; i++) {
     const a = Math.PI / 4 + i * Math.PI / 2;
     const strut = new THREE.Mesh(new THREE.BoxGeometry(0.1, tubeH, 0.1), darkMetal);
     strut.position.set(Math.cos(a) * (R + 0.06), baseTop + tubeH / 2, Math.sin(a) * (R + 0.06));
-    strut.castShadow = true; group.add(strut);
+    strut.castShadow = true; shell.add(strut);
     const strip = new THREE.Mesh(new THREE.BoxGeometry(0.035, tubeH * 0.82, 0.035), neon);
     strip.position.set(Math.cos(a) * (R + 0.14), baseTop + tubeH / 2, Math.sin(a) * (R + 0.14));
-    group.add(strip);
+    shell.add(strip);
   }
 
   // Top cap + glowing rim
   const capY = baseTop + tubeH;
   const cap = new THREE.Mesh(new THREE.CylinderGeometry(R + 0.24, R + 0.18, 0.3, 24), darkMetal);
-  cap.position.y = capY + 0.15; cap.castShadow = true; group.add(cap);
+  cap.position.y = capY + 0.15; cap.castShadow = true; shell.add(cap);
   const capRim = new THREE.Mesh(new THREE.CylinderGeometry(R + 0.25, R + 0.25, 0.06, 24, 1, true), neon);
-  capRim.position.y = capY + 0.06; group.add(capRim);
+  capRim.position.y = capY + 0.06; shell.add(capRim);
 
   // Floor starburst: ring around the base + radiating neon spokes
   const floorRing = new THREE.Mesh(new THREE.RingGeometry(R + 0.3, R + 0.38, 32), neon);
@@ -100,7 +104,7 @@ export function createContainmentPod(options: {
   group.add(interior);
 
   return {
-    group, interior, light,
+    group, shell, interior, light,
     update(t: number) {
       light.intensity = 4.5 + Math.sin(t * 2.2) * 0.8;
     },

@@ -106,6 +106,7 @@ export async function runPreloadTasks(tasks: readonly PreloadTask[],
     while (!failed && cursor < tasks.length) {
       const task = tasks[cursor++];
       try {
+        report({ completed, total: tasks.length, label: task.label });
         await task.run();
         report({ completed: ++completed, total: tasks.length, label: task.label });
         await new Promise<void>(resolve => setTimeout(resolve, 0));

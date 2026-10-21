@@ -1,9 +1,11 @@
 import * as THREE from 'three';
-import { BufferedMusic, supportsBufferedMusic, resumeMusicContext, playableMusicSource, createMusicMuffleFilter } from './bufferedMusic.js';
+import { BufferedMusic, supportsBufferedMusic, resumeMusicContext, createMusicMuffleFilter } from './bufferedMusic.js';
 import { cachedAssetUrl } from '../../core/assetCache.js';
 
 const clamp = (value, minimum, maximum) => Math.min(Math.max(value, minimum), maximum);
 const volumes = { bgm: 1, sfx: 1 };
+/** The Sound slider still spans 0-100%, but a fully raised effects slider plays at 30% of full scale. */
+export const SFX_MAX_GAIN = 0.3;
 const MUFFLED_BGM_GAIN = 0.55;
 let menuPaused = false;
 /** @type {Set<AudioManager>} */
@@ -35,6 +37,8 @@ const mutedEmbed = typeof window !== 'undefined' && window.parent !== window
 if (mutedEmbed) { volumes.bgm = 0; volumes.sfx = 0; }
 
 export function getAudioSettings() { return { ...volumes, paused: menuPaused }; }
+/** Effective gain for every sound effect: the player's slider scaled by the global effects ceiling. */
+export function getSfxGain() { return volumes.sfx * SFX_MAX_GAIN; }
 function notifyAudioSettings() {
   for (const manager of managers) manager.update();
   for (const listener of settingsListeners) listener(getAudioSettings());
@@ -112,7 +116,7 @@ export class AudioManager {
     const source = this.resolveSource(path);
     if (!source) throw new Error(`Audio file not found: ${path}`);
     if (!supportsBufferedMusic(source)) {
-      const audio = new Audio(cachedAssetUrl(playableMusicSource(source)));
+      const audio = new Audio(cachedAssetUrl(source));
       audio.loop = loop; audio.preload = 'auto'; audio.load();
       if (typeof window.AudioContext === 'function') {
         const filter = createMusicMuffleFilter(audio);
@@ -322,13 +326,13 @@ export class AudioManager {
 
   applySpatialVolume({ audio, position, volume, radius }) {
     if (!position || !this.camera) {
-      audio.volume = clamp(volume, 0, 1) * volumes.sfx;
+      audio.volume = clamp(volume, 0, 1) * getSfxGain();
       return;
     }
     const listenerPosition = new THREE.Vector3();
     this.camera.getWorldPosition(listenerPosition);
     const distance = listenerPosition.distanceTo(new THREE.Vector3(...position));
-    audio.volume = clamp(volume * (1 - distance / Math.max(radius, 0.01)), 0, 1) * volumes.sfx;
+    audio.volume = clamp(volume * (1 - distance / Math.max(radius, 0.01)), 0, 1) * getSfxGain();
   }
 
   playAudio(audio) {

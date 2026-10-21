@@ -1,4 +1,4 @@
-import { getAudioSettings, subscribeAudioSettings } from '../audio/AudioManager.js';
+import { getAudioSettings, getSfxGain, subscribeAudioSettings } from '../audio/AudioManager.js';
 import { playSfx } from '../audio/sfx.js';
 import { DUEL, type MechMove } from '../../scripts/mechDuel.js';
 import { SWORD_ATTACK_LABELS } from '../../scripts/finaleChoreography.js';
@@ -264,7 +264,7 @@ export function createFinalePresentation(onInput: (code: string, pressed: boolea
       oscillator.type = kind === 'parry' || kind === 'qte' ? 'sine' : 'sawtooth';
       oscillator.frequency.setValueAtTime(frequency, now);
       oscillator.frequency.exponentialRampToValueAtTime(Math.max(20, frequency * 0.25), now + 0.3);
-      gain.gain.setValueAtTime(0.07 * getAudioSettings().sfx, now);
+      gain.gain.setValueAtTime(0.07 * getSfxGain(), now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
       oscillator.connect(gain);
       gain.connect(audioContext.destination);

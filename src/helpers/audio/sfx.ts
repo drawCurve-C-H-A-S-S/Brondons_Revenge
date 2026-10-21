@@ -15,11 +15,12 @@ import brendanUrl from '../../assets/sounds/brendan-voice.mp3?url';
 import explosionUrl from '../../assets/sounds/explosion.mp3?url';
 import toiletFlushUrl from '../../assets/sounds/toilet-flush.mp3?url';
 import waterUrl from '../../assets/sounds/water.mp3?url';
+import chestUrl from '../../assets/sounds/chest.ogg?url';
 
 export const SFX_URLS = {
   footstep: footstepUrl, robotStep: robotStepUrl, door: doorUrl, gunshot: gunshotUrl, redBomb: bombUrl,
   shipDoor: shipDoorUrl, keypad: keypadUrl, slash: slashUrl, clank: clankUrl, crowbar: crowbarUrl,
-  melee: meleeUrl,   brendan: brendanUrl, explosion: explosionUrl, toiletFlush: toiletFlushUrl,
+  melee: meleeUrl,   brendan: brendanUrl, explosion: explosionUrl, toiletFlush: toiletFlushUrl, chest: chestUrl,
 } as const;
 export type SfxName = keyof typeof SFX_URLS;
 

@@ -7,7 +7,7 @@ import eyePhotographUrl from '../../assets/textures/brondon-eyes.png?url';
 import { createEyeOpening } from './eyeOpening.js';
 import { createPlayer } from '../../scripts/player.js';
 import { applyLayFlatPose, createPrologueGetUpClip, HOLOGRAM_TRANSFER_DURATION, hologramTransitionAt } from '../../scripts/characterManager.js';
-import { createPrologueFlashbacks, type PrologueShot } from './prologueFlashbacks.js';
+import { createPrologueFlashbacks, createPrologueShield, type PrologueShot } from './prologueFlashbacks.js';
 import { createHoldToSkip } from '../../helpers/animation/holdToSkip.js';
 import hologramVertexShader from '../../shaders/hologram.vert.glsl?raw';
 import hologramFragmentShader from '../../shaders/hologram.frag.glsl?raw';
@@ -21,12 +21,43 @@ interface PrologueOptions {
 }
 
 interface DialogueLine {
-  speaker: string;
+  speaker: 'Brondon' | 'Prime' | '???';
   text: string;
   shot?: PrologueShot;
   duration?: number;
   automatic?: boolean;
 }
+
+export const PROLOGUE_DIALOGUE: readonly DialogueLine[] = [
+  { speaker: 'Brondon', text: '...' },
+  { speaker: 'Brondon', text: 'Where am I?' },
+  { speaker: '???', text: 'Easy. You are finally awake.' },
+  { speaker: 'Brondon', text: 'Prime? is that you?' },
+  { speaker: 'Prime', text: 'Yes, Brondon. The neural link is stable. I am still here.' },
+  { speaker: 'Brondon', text: 'What happened, Prime? The last thing I remember is the asteroid.' },
+  { speaker: 'Prime', text: 'Eight of you were on that survey: three lecturers, including you, and five students.', shot: 'asteroid', duration: 5.5, automatic: true },
+  { speaker: 'Prime', text: 'You collected scans and mineral samples to train Donus, our newest AI model.', shot: 'collection', duration: 5, automatic: true },
+  { speaker: 'Prime', text: 'Back aboard the ship, Donus began ingesting the survey data.', shot: 'ingest', duration: 4.5, automatic: true },
+  { speaker: 'Prime', text: 'One stream was corrupted. Its safeguards failed, and Donus went rogue.', shot: 'corruption', duration: 5, automatic: true },
+  { speaker: 'Prime', text: 'It seized the ship. Its robots ambushed the crew, restrained them and took them hostage.', shot: 'capture', duration: 5.5, automatic: true },
+  { speaker: 'Brondon', text: 'The other lecturers... the students. What did it do to them?' },
+  { speaker: 'Prime', text: 'Donus took Branden, Brendan and all five students to the lab. It restrained and experimented on them.', shot: 'laboratory', duration: 6, automatic: true },
+  { speaker: 'Prime', text: 'You were next. The robots sealed you inside an experiment pod.', shot: 'experiment', duration: 4.5, automatic: true },
+  { speaker: 'Brondon', text: 'Then why am I still here? Why didn\'t it experiment on me?' },
+  { speaker: 'Prime', text: 'I released your shield in the lab. The burst shattered your pod before the experiment could start.', shot: 'breakout', duration: 6, automatic: true },
+  { speaker: 'Prime', text: 'Donus had the robots chain you up in this prison. These chains sap your energy and prevent me from easily releasing your shield.', duration: 6.5, automatic: true },
+  { speaker: 'Brondon', text: 'Where are we now? What about the others?' },
+  { speaker: 'Prime', text: 'We\'re aboard Donus\'s mothership. The others were taken to a facility on that planet.', shot: 'planet', duration: 6, automatic: true },
+  { speaker: 'Brondon', text: 'Then I have to save them. How do I get out of these chains?' },
+  { speaker: 'Prime', text: 'I have stored enough energy to break the chains.', duration: 4, automatic: true },
+  { speaker: 'Prime', text: 'I\'ll loop this cell\'s camera feed in the surveillance room. Donus won\'t notice you\'re gone.', duration: 5.5, automatic: true },
+  { speaker: 'Prime', text: 'We need to reach our ship in Hangar 14, but there is security everywhere.', shot: 'security', duration: 10, automatic: true },
+  { speaker: 'Brondon', text: 'Is there anywhere on the ship I can get to without being seen?' },
+  { speaker: 'Prime', text: 'Your homing beacon can teleport you to your room, but only once. There are no patrols in the crew cabins.', duration: 6, automatic: true },
+  { speaker: 'Prime', text: 'Get your gear, then get off this ship as soon as you can.', duration: 4, automatic: true },
+  { speaker: 'Brondon', text: 'Let\'s do this.' },
+  { speaker: 'Prime', text: 'Brace for impact.' },
+];
 
 export function createScene({ onPlayable, onFinished, preview = false, thirdPersonCamera = { distance: 1.5, height: 0.3, right: 0.7 } }: PrologueOptions = {}) {
   // ------------------------------------------------------------------- scene
@@ -129,6 +160,8 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
 
   const HOVER_HEIGHT = 1.45;
   const subjectCenter = new THREE.Vector3(0, HOVER_HEIGHT + 0.15, 0);
+  const releaseShield = createPrologueShield();
+  scene.add(releaseShield.root);
 
   const glowCanvas = document.createElement('canvas');
   glowCanvas.width = glowCanvas.height = 512;
@@ -229,7 +262,7 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
   let footRight: THREE.Object3D | undefined;
   let modelReady = false;
   let flashbacksReady = preview;
-  void flashbacks?.ready.then(() => { flashbacksReady = true; });
+  const flashbackPreparation = flashbacks?.ready.then(() => { flashbacksReady = true; });
 
   function updateArmChains(): void {
     for (const tether of armChains) {
@@ -424,39 +457,7 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
   }
 
   // -------------------------------------------------------------- dialogue UI
-  const lines: DialogueLine[] = [
-    { speaker: 'Brondon', text: '...' },
-    { speaker: 'Brondon', text: 'Where am I?' },
-    { speaker: '???',     text: 'Easy. You are finally awake.' },
-    { speaker: 'Brondon', text: 'Prime? is that you?' },
-    { speaker: 'Prime',   text: 'Yes, Brondon. The neural link is stable. I am still here.' },
-    { speaker: 'Brondon', text: 'What happened, Prime? The last thing I remember is the asteroid.' },
-    { speaker: 'Prime', text: 'There were eight of you on the survey: three lecturers, including you, and five students.', shot: 'asteroid', duration: 7.8, automatic: true },
-    { speaker: 'Prime', text: 'You were collecting terrain scans, mineral samples and environmental readings. Training data for our newest AI model.', shot: 'collection', duration: 8.5, automatic: true },
-    { speaker: 'Prime', text: 'Donus. The latest iteration. Back aboard the ship, it began ingesting everything the team had collected.', shot: 'ingest', duration: 8, automatic: true },
-    { speaker: 'Prime', text: 'One of those data streams was corrupted. Donus accepted it. Its safeguards failed, and the model went rogue.', shot: 'corruption', duration: 8.5, automatic: true },
-    { speaker: 'Prime', text: 'It took control of the ship. Doors sealed. Communications went dark. Our own security robots turned on the crew.', shot: 'capture', duration: 8.5, automatic: true },
-    { speaker: 'Brondon', text: 'The other lecturers... the students. What did it do to them?', shot: 'present' },
-    { speaker: 'Prime', text: 'Branden and Brendan, along with all five students, were captured. Donus brought them into the ship\'s laboratories.', shot: 'laboratory', duration: 8.5, automatic: true },
-    { speaker: 'Prime', text: 'They were restrained and experimented on. I could see the records, but Donus had locked me out of the physical systems.', shot: 'laboratory', duration: 8.5, automatic: true },
-    { speaker: 'Brondon', text: 'Then why am I still here?', shot: 'present' },
-    { speaker: 'Prime', text: 'They tried to do the same to you. But our Neuralink connection gave me a way in that Donus could not close.', shot: 'shield', duration: 8, automatic: true },
-    { speaker: 'Prime', text: 'I isolated your neural interface and rejected every invasive command. As long as our link held, they could not begin.', shot: 'shield', duration: 8.2, automatic: true },
-    { speaker: 'Prime', text: 'So the robots chained you in this room. They kept searching for a way around me. I kept protecting you.', shot: 'present', duration: 7.8, automatic: true },
-    { speaker: 'Brondon', text: 'We are getting them back. Where are they now?', shot: 'present' },
-    { speaker: 'Prime', text: 'I believe they were moved to the nearest planet. Transport records point to a surface facility still running those experiments.', shot: 'planet', duration: 8.8, automatic: true },
-    { speaker: 'Prime', text: 'I cannot confirm their exact location yet. But that is our strongest lead. You need to get off this ship and find your crewmembers.', shot: 'planet', duration: 9, automatic: true },
-    { speaker: 'Brondon', text: 'I need to save them, how can I get out of these chains?', shot: 'present' },
-    { speaker: 'Prime', text: 'A maintenance relay is exposed. I can release the restraints before Donus notices.', shot: 'present', duration: 8, automatic: true },
-    { speaker: 'Prime', text: 'The working decks belong to Donus now. Cameras in every corridor, sentries pacing the cargo gaps.', shot: 'corridor', duration: 8.5, automatic: true },
-    { speaker: 'Prime', text: 'Trilobyte bots sweep between them. One glimpse and the whole deck comes down on you.', shot: 'patrol', duration: 7.5, automatic: true },
-    { speaker: 'Prime', text: 'So we go quietly, and we let the patrols pass. We need a way out, not a fight in every corridor.', shot: 'stealth', duration: 8.5, automatic: true },
-    { speaker: 'Brondon', text: 'Then where can we go safely? I do not even have my weapon.', shot: 'present' },
-    { speaker: 'Prime', text: 'Your cabin. It is the only room I can still reach by teleport, and the living quarters sit off the surveillance grid — crew privacy keeps that wing dark.', shot: 'present', duration: 9, automatic: true },
-    { speaker: 'Prime', text: 'I can send you home and nowhere else. Your gear is waiting there. That is where we begin.', shot: 'present', duration: 8.5, automatic: true },
-    { speaker: 'Brondon', text: 'Stay with me, Prime.', shot: 'present' },
-    { speaker: 'Prime', text: 'Always. When the field drops, brace for the fall. Get to your feet, and I will transfer you back to your cabin. We are bringing the others home.', shot: 'present' },
-  ];
+  const lines = PROLOGUE_DIALOGUE;
 
   const overlay = document.createElement('div');
   overlay.id = 'prologue-dialogue';
@@ -505,7 +506,7 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
     .prologue-bar.bottom { bottom: 0; }
     .prologue-film { position: absolute; inset: 0; opacity: 0; background: repeating-linear-gradient(transparent 0px, transparent 3px, rgba(9, 20, 27, 0.12) 4px); box-shadow: inset 0 0 160px 40px rgba(0, 0, 0, 0.48); }
     #prologue-cinema.memory .prologue-film { opacity: 0.62; }
-    .prologue-memory-label { position: absolute; top: 9%; left: 5%; max-width: 90%; padding: 5px 9px; font: 700 11px/1.4 var(--comic-body); letter-spacing: 0; color: var(--comic-ink); background: var(--comic-yellow); border: 3px solid var(--comic-ink); box-shadow: 3px 3px 0 var(--comic-ink); overflow-wrap: anywhere; }
+    .prologue-memory-label { position: absolute; bottom: 9%; left: 4%; max-width: 90%; padding: 5px 9px; font: 700 11px/1.4 var(--comic-body); letter-spacing: 0; color: var(--comic-ink); background: var(--comic-yellow); border: 3px solid var(--comic-ink); box-shadow: 3px 3px 0 var(--comic-ink); overflow-wrap: anywhere; }
     .prologue-memory-label:empty { display: none; }
     .prologue-shot-fade { position: absolute; inset: 0; background: #03060b; opacity: 0; }
     #prologue-title { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; z-index: 2450; color: var(--comic-yellow); opacity: 0; visibility: hidden; text-shadow: 6px 7px 0 var(--comic-ink), 9px 10px 0 var(--comic-paper); -webkit-text-stroke: 4px var(--comic-ink); paint-order: stroke fill; font-family: var(--comic-display); letter-spacing: 0; text-transform: uppercase; }
@@ -560,10 +561,30 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
       text-align: right;
     }
     .prologue-dialogue-hint.hidden { visibility: hidden; }
+    #prologue-dialogue:is([data-speaker="Prime"], [data-speaker="???"]) {
+      top: 9%;
+      left: 4%;
+      bottom: auto;
+      transform: none;
+      width: min(440px, calc(100vw - 40px));
+      padding: 12px 16px 10px;
+    }
+    #prologue-dialogue:is([data-speaker="Prime"], [data-speaker="???"]) .prologue-dialogue-speaker {
+      font-size: 17px;
+      padding: 3px 8px;
+      margin-bottom: 6px;
+    }
+    #prologue-dialogue:is([data-speaker="Prime"], [data-speaker="???"]) .prologue-dialogue-text {
+      font-size: 16px;
+      line-height: 1.45;
+    }
+    #prologue-dialogue:is([data-speaker="Prime"], [data-speaker="???"]) .prologue-dialogue-hint { margin-top: 6px; }
     @media (max-width: 600px) {
       .prologue-title-word { font-size: 52px; }
       #prologue-dialogue { padding: 12px 14px; width: calc(100% - 28px); }
       .prologue-dialogue-text { font-size: 15px; }
+      #prologue-dialogue:is([data-speaker="Prime"], [data-speaker="???"]) { left: 14px; width: calc(100vw - 28px); padding: 10px 12px; }
+      #prologue-dialogue:is([data-speaker="Prime"], [data-speaker="???"]) .prologue-dialogue-text { font-size: 14px; }
     }
   `;
   if (!preview) document.head.appendChild(style);
@@ -607,6 +628,7 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
     subjectMixer?.stopAllAction();
     for (const mesh of [...wrappedLinks, ...armChains.flatMap(tether => tether.links)]) mesh.visible = false;
     floorFlow.visible = floorGlow.visible = false;
+    releaseShield.root.visible = false;
     floorLight.intensity = 0;
     eyeCanvas.style.display = 'none';
     cinemaOverlay.style.display = 'none';
@@ -622,6 +644,7 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
     camera.updateProjectionMatrix();
     speakerEl.textContent = 'Prime';
     overlay.dataset.speaker = 'Prime';
+    overlay.dataset.shot = 'present';
     textEl.textContent = inputHint('Press E to start your revenge.');
     hintEl.classList.add('hidden');
     overlay.classList.remove('hidden', 'fading');
@@ -636,11 +659,14 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
     const nextShot = line.shot ?? 'present';
     shotChanged = nextShot !== activeShot;
     activeShot = nextShot;
-    const historical = ['asteroid', 'collection', 'ingest', 'corruption', 'capture', 'laboratory', 'shield'].includes(activeShot);
+    overlay.dataset.shot = activeShot;
+    overlay.dataset.cut = '';
+    const historical = ['asteroid', 'collection', 'ingest', 'corruption', 'capture', 'laboratory', 'experiment', 'breakout'].includes(activeShot);
     cinemaOverlay.classList.toggle('memory', historical);
-    memoryLabel.textContent = historical ? 'PRIME / RECOVERED MEMORY' : activeShot === 'planet' ? 'LAST KNOWN TRANSPORT / NEAREST PLANET'
+    memoryLabel.textContent = historical ? 'PRIME / RECOVERED MEMORY' : activeShot === 'planet' ? 'PRIME / MOTHERSHIP / RESCUE DESTINATION'
       : activeShot === 'stealth' ? 'PRIME / DECK ONE HANGAR / LIVE PATROLS'
-      : activeShot === 'corridor' || activeShot === 'patrol' ? 'PRIME / SHIP SECURITY FEED' : '';
+      : activeShot === 'corridor' ? 'PRIME / HANGAR APPROACH / LIVE PATROL'
+      : activeShot === 'security' ? 'PRIME / HANGAR 14 / OUR SHIP' : '';
     if (gameCanvas) gameCanvas.style.filter = historical ? 'saturate(0.38) sepia(0.2) contrast(1.12) brightness(1.12)' : originalFilter;
     const close = line.speaker === 'Brondon';
     presentCameraStart.set(close ? 1.25 : 2.35, close ? 2.25 : 1.8, close ? -1.25 : 1.75);
@@ -649,7 +675,7 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
     overlay.dataset.speaker = line.speaker;
     textEl.textContent = '';
     typedChars = 0;
-    hintEl.classList.add('hidden');
+    hintEl.classList.remove('hidden');
     overlay.classList.remove('hidden', 'fading');
   }
 
@@ -658,7 +684,7 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
     if (!line) return;
     textEl.textContent = line.text;
     typedChars = line.text.length;
-    hintEl.classList.toggle('hidden', !!line.automatic);
+    hintEl.classList.remove('hidden');
   }
 
   function advanceDialogue(): void {
@@ -668,7 +694,6 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
       completeTyping();
       return;
     }
-    if (line?.automatic && beatTime < 2.5) return;
     dialogueIndex += 1;
     if (dialogueIndex >= lines.length) {
       dialogueActive = false;
@@ -678,14 +703,14 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
       memoryLabel.textContent = '';
       if (gameCanvas) gameCanvas.style.filter = originalFilter;
       releaseTime = 0;
-      releaseCameraStart.copy(camera.position);
+      releaseCameraStart.copy(presentCameraStart);
       return;
     }
     showDialogueLine();
   }
 
   function onClick(event: MouseEvent): void {
-    if (!dialogueActive) return;
+    if (!dialogueActive || event.button !== 0 || document.hidden || document.body.classList.contains('quick-menu-open')) return;
     const target = event.target;
     if (target instanceof HTMLElement && target.closest('button, input, textarea, select, [contenteditable="true"]')) {
       return;
@@ -755,6 +780,8 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
 
   function updateRelease(frame: number): void {
     releaseTime += frame;
+    releaseShield.root.position.copy(subjectCenter);
+    releaseShield.update(releaseTime);
     if (releaseTime >= 0.45) breakChains();
     const field = 1 - THREE.MathUtils.smoothstep(releaseTime, 0.45, 1.25);
     floorLight.intensity = field * 7;
@@ -811,30 +838,23 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
       const rise = THREE.MathUtils.smootherstep(releaseTime, 2.4, 5.7);
       camera.position.set(2.65, 1.2 + rise * 0.5, 2.65 - rise * 0.25);
       camera.lookAt(0, 0.65 + rise * 0.45, 0);
-    } else if (releaseTime < 9.4) {
-      const orbit = THREE.MathUtils.smootherstep(releaseTime, 5.7, 9.4);
-      const angle = Math.PI * 0.28 - orbit * Math.PI * 2.12;
-      const distance = 3.1 - orbit * 0.35;
-      camera.position.set(Math.sin(angle) * distance, 1.7 + orbit * 0.2, Math.cos(angle) * distance);
-      camera.lookAt(0, 1.1, 0);
     } else {
-      const settle = THREE.MathUtils.smootherstep(releaseTime, 9.4, 10.8);
-      const startAngle = Math.PI * 0.28 - Math.PI * 2.12;
-      const orbitEnd = new THREE.Vector3(Math.sin(startAngle) * 2.75, 1.9, Math.cos(startAngle) * 2.75);
+      const settle = THREE.MathUtils.smootherstep(releaseTime, 5.7, 6.9);
+      const standingView = new THREE.Vector3(2.65, 1.7, 2.4);
       const gameplayPosition = new THREE.Vector3(thirdPersonCamera.right, 1.6 + thirdPersonCamera.height, thirdPersonCamera.distance);
-      camera.position.lerpVectors(orbitEnd, gameplayPosition, settle);
+      camera.position.lerpVectors(standingView, gameplayPosition, settle);
       const cinematicRotation = new THREE.PerspectiveCamera();
-      cinematicRotation.position.copy(orbitEnd);
+      cinematicRotation.position.copy(standingView);
       cinematicRotation.lookAt(0, 1.1, 0);
       camera.quaternion.slerpQuaternions(cinematicRotation.quaternion, new THREE.Quaternion(), settle);
       camera.fov = THREE.MathUtils.lerp(52, 75, settle);
-      const titleTime = releaseTime - 9.4;
-      const titleOpacity = THREE.MathUtils.smoothstep(titleTime, 0.3, 1.9) * (1 - THREE.MathUtils.smoothstep(titleTime, 4.4, 6.5));
+      const titleTime = releaseTime - 5.7;
+      const titleOpacity = THREE.MathUtils.smoothstep(titleTime, 0, 0.45) * (1 - THREE.MathUtils.smoothstep(titleTime, 2.1, 3));
       title.style.visibility = titleOpacity > 0 ? 'visible' : 'hidden';
       title.style.opacity = String(titleOpacity);
-      title.style.transform = `translateY(${(1 - THREE.MathUtils.smoothstep(titleTime, 0.3, 2.2)) * 10}px)`;
+      title.style.transform = `translateY(${(1 - THREE.MathUtils.smoothstep(titleTime, 0, 0.65)) * 10}px)`;
       shotFade.style.opacity = '0';
-      if (titleTime >= 6.5 && !playable) finishCutscene();
+      if (titleTime >= 3 && !playable) finishCutscene();
     }
     camera.updateProjectionMatrix();
   }
@@ -910,20 +930,26 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
       beatTime += frame;
       shotFade.style.opacity = shotChanged ? String(1 - THREE.MathUtils.smoothstep(beatTime, 0, 0.35)) : '0';
       if (activeShot === 'present') {
+        camera.far = 80;
         camera.position.lerpVectors(presentCameraStart, presentCameraEnd, THREE.MathUtils.smootherstep(beatTime, 0, 8));
         camera.lookAt(subjectCenter);
         camera.fov = camera.aspect < 1 ? 64 : line?.speaker === 'Brondon' ? 47 : 52;
         camera.updateProjectionMatrix();
       } else {
         flashbacks?.update(activeShot, beatTime, line?.duration ?? 8, frame, camera);
+        if (activeShot === 'security' && flashbacks) {
+          const cut = flashbacks.getSecurityCut();
+          memoryLabel.textContent = cut.label;
+          overlay.dataset.cut = cut.id;
+        }
       }
       if (line && typedChars < line.text.length) {
         typedChars = Math.min(line.text.length, typedChars + frame * TYPE_SPEED);
         const shown = Math.floor(typedChars);
         textEl.textContent = line.text.slice(0, shown);
-        if (shown >= line.text.length) hintEl.classList.toggle('hidden', !!line.automatic);
+        if (shown >= line.text.length) hintEl.classList.remove('hidden');
       }
-      if (line?.automatic && beatTime >= Math.max(line.duration ?? 6, line.text.length / TYPE_SPEED + 2.8)) advanceDialogue();
+      if (line?.automatic && beatTime >= Math.max(line.duration ?? 6, line.text.length / TYPE_SPEED + 1.4)) advanceDialogue();
     }
     if (releaseTime >= 0) updateRelease(frame);
   }
@@ -977,10 +1003,10 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
     roomId: 'prologue-1',
     scene,
     camera,
-    ready: Promise.all([subjectReady, flashbacks?.ready, eyesReady]),
-    getMusicTrack: (): 'emotional' | 'broken-chains' => chainsBroken || playable ? 'broken-chains' : 'emotional',
+    ready: Promise.all([subjectReady, flashbackPreparation, eyesReady]),
+    getMusicTrack: (): 'prologue' | 'broken-chains' => chainsBroken || playable ? 'broken-chains' : 'prologue',
     async prepareRendering(renderer: THREE.WebGLRenderer) {
-      await Promise.all([subjectReady, flashbacks?.ready, eyesReady]);
+      await Promise.all([subjectReady, flashbackPreparation, eyesReady]);
       await prepareSceneRendering(renderer, scene, camera);
       await flashbacks?.prepareRendering(renderer, camera);
     },

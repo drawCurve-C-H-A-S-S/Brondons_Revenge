@@ -6,7 +6,7 @@ import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.
 import { createSlidingPortal, disposeRoom, roomBox } from '../../helpers/scene/shipRoom.js';
 import { createShipInteriorMaterials, createShipServerRack,
   createShipTerminal, SHIP_INTERIOR_PALETTE } from '../../helpers/scene/shipInterior.js';
-import { getAudioSettings, subscribeAudioSettings } from '../../helpers/audio/AudioManager.js';
+import { getAudioSettings, subscribeAudioSettings, SFX_MAX_GAIN } from '../../helpers/audio/AudioManager.js';
 import { createPlayer, PLAYER_MAX_HEALTH, type PlayerState, type PlayerTransitionState } from '../../scripts/player.js';
 import { createRewardChest } from '../../scripts/rewardChest.js';
 import { createCorridorMonitor } from '../../helpers/scene/corridorMonitor.js';
@@ -66,6 +66,79 @@ function hatchSurface(scene: THREE.Scene, group: THREE.Group, physics: Physics |
       : new THREE.Mesh(new THREE.BoxGeometry(...size), material);
     mesh.position.set(...at); group.add(mesh); mesh.userData.minimap = false;
   }
+}
+
+export function createSurveillanceHubSet(scene: THREE.Scene, physics: Physics, materials: Materials) {
+  const root = new THREE.Group(); root.name = 'SurveillanceHub'; scene.add(root);
+  const room = STAGE_TWO.camera, height = STAGE_TWO.height;
+  const box = (size: [number, number, number], at: [number, number, number],
+    material: THREE.Material = materials.steel, solid = true) => {
+    const mesh = roomBox(scene, physics, size, at, material, solid); root.add(mesh); return mesh;
+  };
+  box([18, 0.2, 22], [28, -0.1, -53], materials.deck).name = 'SurveillanceFloor';
+  box([0.18, height, 22], [room.maxX, height / 2, -53]);
+  box([0.18, height, 16], [room.minX, height / 2, -56]);
+  box([0.18, height, 2], [room.minX, height / 2, -43]);
+  const returnAirlock = createSlidingPortal(scene, physics, { x: room.minX, y: 0, z: -46, yaw: Math.PI / 2 },
+    4, height, 'HANGAR AIRLOCK', { doorHeight: 2.65, sign: false, landingFloor: false });
+  root.add(returnAirlock.group);
+  box([2, 0.2, 3], [18, -0.1, -46], materials.deck);
+  box([18, height, 0.18], [28, height / 2, room.maxZ]);
+  for (const x of [22.5, 33.5]) box([7, height, 0.18], [x, height / 2, room.minZ]);
+  hatchSurface(scene, root, physics, [room.minX, room.maxX, room.minZ, room.maxZ], height,
+    [STAGE_TWO.drop.x, STAGE_TWO.drop.z, 1.25, 1.25], materials.dark);
+  for (const x of [21, 35]) {
+    const lamp = new THREE.PointLight(0xb6dfec, 24, 22); lamp.position.set(x, 3.25, -52); root.add(lamp);
+    box([0.03, 0.055, 18], [x < 28 ? 19.13 : 36.87, 2.65, -53], materials.cyan, false);
+    box([0.07, 0.07, 21.5], [x < 28 ? 19.15 : 36.85, 0.17, -53], materials.trim, false);
+  }
+  for (const z of [-46, -52, -58, -62]) {
+    box([17.7, 0.1, 0.18], [28, height - 0.2, z], materials.trim, false).userData.minimap = false;
+    box([2.8, 0.04, 0.12], [28, height - 0.12, z], materials.cyan, false);
+  }
+  for (const [index, x] of [20, 36].entries()) for (const z of [-42.9, -61.5]) {
+    const rack = createShipServerRack(materials); rack.name = `SurveillanceServerRack-${index}-${z}`;
+    rack.position.set(x, 0, z); rack.rotation.y = x < 28 ? Math.PI / 2 : -Math.PI / 2; root.add(rack);
+    physics.addBox({ x: 0.8, y: 2.65, z: 0.86 }, { x, y: 1.325, z });
+  }
+  const frontDoor = createSlidingPortal(scene, physics, { x: STAGE_TWO.elevator.x, y: 0, z: room.minZ, yaw: 0 }, 4, height,
+    'SERVICE ELEVATOR', { doorHeight: 2.65, sign: false, landingFloor: false }); root.add(frontDoor.group);
+  return { root, returnAirlock, frontDoor };
+}
+
+export const SURVEILLANCE_WORKSTATIONS = [
+  ...[-49.5, -54.5, -59.5].flatMap(z => [25, 31].map(x => ({ x, z, yaw: 0 }))),
+  ...[-51, -54.5, -58].map(z => ({ x: 20.2, z, yaw: -Math.PI / 2 })),
+  ...[-47.5, -51, -54.5, -58].map(z => ({ x: 35.8, z, yaw: Math.PI / 2 })),
+  ...[22.5, 33.5].map(x => ({ x, z: -62.9, yaw: Math.PI })),
+];
+
+export function createSurveillanceWorkstation(scene: THREE.Scene, physics: Physics, materials: Materials,
+  parent: THREE.Group, index: number, desk: THREE.Group, chair: THREE.Group, texture: THREE.Texture) {
+  const { x, z, yaw } = SURVEILLANCE_WORKSTATIONS[index];
+  const station = new THREE.Group(); station.name = `SurveillanceWorkstation-${index}`;
+  station.position.set(x, 0, z); station.rotation.y = yaw; parent.add(station);
+  function collider(size: { x: number; y: number; z: number }, point: THREE.Vector3) {
+    const position = station.localToWorld(point), body = physics.addBox(size, position);
+    body.quaternion.setFromEuler(0, yaw, 0);
+  }
+  function box(size: [number, number, number], at: [number, number, number]) {
+    const mesh = roomBox(scene, physics, size, at, materials.dark, false); station.add(mesh);
+  }
+  const size = fitCabinProp(desk, 0.86, 2.55, 1.25, Math.PI);
+  desk.name = `SurveillanceDesk-${x}-${z}`; station.add(desk);
+  collider(size, new THREE.Vector3(0, size.y / 2, 0));
+  const chairSize = fitCabinProp(chair, 1.05, 0.68, 0.8, Math.PI);
+  chair.name = `SurveillanceChair-${x}-${z}`; chair.position.z -= 1.3; station.add(chair);
+  collider(chairSize, new THREE.Vector3(0, chairSize.y / 2, -1.3));
+  const terminal = createShipTerminal(texture);
+  terminal.root.name = `SurveillanceComputer-${x}-${z}`; terminal.root.position.set(0, 0.9, 0); station.add(terminal.root);
+  box([0.55, 0.025, 0.21], [0, 0.92, -0.32]);
+  if (index % 3 === 0) {
+    box([0.28, 0.52, 0.5], [0.8, 0.26, 0]);
+    collider({ x: 0.28, y: 0.52, z: 0.5 }, new THREE.Vector3(0.8, 0.26, 0));
+  }
+  return { root: chair, yaw: yaw + Math.PI };
 }
 
 function buildVentMaze(scene: THREE.Scene, materials: Materials, physics?: Physics) {
@@ -151,43 +224,15 @@ export function createScene(options: StageTwoOptions) {
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / Math.max(1, window.innerHeight), 0.05, 120);
   const materials = createShipInteriorMaterials(17, 25); materials.deck.color.setHex(0x3b4c5d);
   const pale = new THREE.MeshStandardMaterial({ color: 0xbfcad0, roughness: 0.8, metalness: 0.15 });
-  const surveillance = new THREE.Group(), lift = new THREE.Group(); scene.add(surveillance, lift);
-  surveillance.name = 'SurveillanceHub'; lift.name = 'ServiceElevator';
+  const { root: surveillance, returnAirlock, frontDoor } = createSurveillanceHubSet(scene, physics, materials);
+  returnAirlock.setLocked(!progress.airlockUnlocked);
+  const lift = new THREE.Group(); lift.name = 'ServiceElevator'; scene.add(lift);
   const maze = buildVentMaze(scene, materials, physics), groups = [maze.root, surveillance, lift];
   const box = (group: THREE.Group, size: [number, number, number], at: [number, number, number],
     material: THREE.Material = materials.steel, solid = true) => {
     const mesh = roomBox(scene, physics, size, at, material, solid); group.add(mesh); return mesh;
   };
   const room = STAGE_TWO.camera, height = STAGE_TWO.height, { x: liftX, z: liftZ } = STAGE_TWO.elevator;
-  box(surveillance, [18, 0.2, 22], [28, -0.1, -53], materials.deck).name = 'SurveillanceFloor';
-  box(surveillance, [0.18, height, 22], [room.maxX, height / 2, -53]);
-  box(surveillance, [0.18, height, 16], [room.minX, height / 2, -56]);
-  box(surveillance, [0.18, height, 2], [room.minX, height / 2, -43]);
-  const returnAirlock = createSlidingPortal(scene, physics, { x: room.minX, y: 0, z: -46, yaw: Math.PI / 2 },
-    4, height, 'HANGAR AIRLOCK', { doorHeight: 2.65, sign: false, landingFloor: false });
-  surveillance.add(returnAirlock.group);
-  returnAirlock.setLocked(!progress.airlockUnlocked);
-  box(surveillance, [2, 0.2, 3], [18, -0.1, -46], materials.deck);
-  box(surveillance, [18, height, 0.18], [28, height / 2, room.maxZ]);
-  for (const x of [22.5, 33.5]) box(surveillance, [7, height, 0.18], [x, height / 2, room.minZ]);
-  hatchSurface(scene, surveillance, physics, [room.minX, room.maxX, room.minZ, room.maxZ], height,
-    [STAGE_TWO.drop.x, STAGE_TWO.drop.z, 1.25, 1.25], materials.dark);
-  for (const x of [21, 35]) {
-    const lamp = new THREE.PointLight(0xb6dfec, 24, 22); lamp.position.set(x, 3.25, -52); surveillance.add(lamp);
-    box(surveillance, [0.03, 0.055, 18], [x < 28 ? 19.13 : 36.87, 2.65, -53], materials.cyan, false);
-    box(surveillance, [0.07, 0.07, 21.5], [x < 28 ? 19.15 : 36.85, 0.17, -53], materials.trim, false);
-  }
-  for (const z of [-46, -52, -58, -62]) {
-    box(surveillance, [17.7, 0.1, 0.18], [28, height - 0.2, z], materials.trim, false).userData.minimap = false;
-    box(surveillance, [2.8, 0.04, 0.12], [28, height - 0.12, z], materials.cyan, false);
-  }
-  for (const [index, x] of [20, 36].entries()) for (const z of [-42.9, -61.5]) {
-    const rack = createShipServerRack(materials); rack.name = `SurveillanceServerRack-${index}-${z}`;
-    rack.position.set(x, 0, z); rack.rotation.y = x < 28 ? Math.PI / 2 : -Math.PI / 2; surveillance.add(rack);
-    physics.addBox({ x: 0.8, y: 2.65, z: 0.86 }, { x, y: 1.325, z });
-  }
-  const frontDoor = createSlidingPortal(scene, physics, { x: liftX, y: 0, z: room.minZ, yaw: 0 }, 4, height,
-    'SERVICE ELEVATOR', { doorHeight: 2.65, sign: false, landingFloor: false }); surveillance.add(frontDoor.group);
   box(lift, [4, 0.2, 6.8], [liftX, -0.1, liftZ - 1], materials.deck);
   for (const x of [liftX - 2, liftX + 2]) box(lift, [0.18, height, 6.8], [x, height / 2, liftZ - 1]);
   box(lift, [4, 0.16, 6.8], [liftX, height, liftZ - 1], materials.dark).userData.minimap = false;
@@ -259,38 +304,13 @@ export function createScene(options: StageTwoOptions) {
   }
 
   const monitors: ReturnType<typeof createCorridorMonitor>[] = [];
-  const workstations = [
-    ...[-49.5, -54.5, -59.5].flatMap(z => [25, 31].map(x => ({ x, z, yaw: 0 }))),
-    ...[-51, -54.5, -58].map(z => ({ x: 20.2, z, yaw: -Math.PI / 2 })),
-    ...[-47.5, -51, -54.5, -58].map(z => ({ x: 35.8, z, yaw: Math.PI / 2 })),
-    ...[22.5, 33.5].map(x => ({ x, z: -62.9, yaw: Math.PI })),
-  ];
-  const desksReady = Promise.all(workstations.map(async ({ x, z, yaw }, index) => {
+  const desksReady = Promise.all(SURVEILLANCE_WORKSTATIONS.map(async (_, index) => {
     const [desk, chair] = await Promise.all([modelLoader('Prop_Desk_Small'), modelLoader('Prop_Chair')]);
     if (disposed) { disposeRoom(desk.scene); disposeRoom(chair.scene); return; }
-    const station = new THREE.Group(); station.name = `SurveillanceWorkstation-${index}`;
-    station.position.set(x, 0, z); station.rotation.y = yaw; surveillance.add(station);
-    function collider(size: { x: number; y: number; z: number }, point: THREE.Vector3) {
-      const position = station.localToWorld(point), body = physics.addBox(size, position);
-      body.quaternion.setFromEuler(0, yaw, 0);
-    }
-    const size = fitCabinProp(desk.scene, 0.86, 2.55, 1.25, Math.PI);
-    desk.scene.name = `SurveillanceDesk-${x}-${z}`; station.add(desk.scene);
-    collider(size, new THREE.Vector3(0, size.y / 2, 0));
-    const chairSize = fitCabinProp(chair.scene, 1.05, 0.68, 0.8, Math.PI);
-    chair.scene.name = `SurveillanceChair-${x}-${z}`;
-    chair.scene.position.z -= 1.3; station.add(chair.scene);
-    collider(chairSize, new THREE.Vector3(0, chairSize.y / 2, -1.3));
-    chairs.push({ root: chair.scene, yaw: yaw + Math.PI });
-    const monitor = monitorFactory(index); monitors.push(monitor); await monitor.ready;
+    const monitor = monitorFactory(index); monitors.push(monitor);
+    chairs.push(createSurveillanceWorkstation(scene, physics, materials, surveillance, index, desk.scene, chair.scene, monitor.texture));
+    await monitor.ready;
     if (disposed) { monitor.dispose(); return; }
-    const terminal = createShipTerminal(monitor.texture);
-    terminal.root.name = `SurveillanceComputer-${x}-${z}`; terminal.root.position.set(0, 0.9, 0); station.add(terminal.root);
-    box(station, [0.55, 0.025, 0.21], [0, 0.92, -0.32], materials.dark, false);
-    if (index % 3 === 0) {
-      box(station, [0.28, 0.52, 0.5], [0.8, 0.26, 0], materials.dark, false);
-      collider({ x: 0.28, y: 0.52, z: 0.5 }, new THREE.Vector3(0.8, 0.26, 0));
-    }
   }));
   const heldCard = new THREE.Group(); heldCard.name = 'SwipedKeycard'; heldCard.visible = false; surveillance.add(heldCard);
   const cardReady = modelLoader('Prop_KeyCard').then(gltf => {
@@ -361,7 +381,7 @@ export function createScene(options: StageTwoOptions) {
   let rumble: OscillatorNode | null = null, rumbleGain: GainNode | null = null;
   function syncAudio() {
     if (!audioContext || !audioMaster || audioContext.state === 'closed') return;
-    const settings = getAudioSettings(); audioMaster.gain.setTargetAtTime(settings.sfx, audioContext.currentTime, 0.03);
+    const settings = getAudioSettings(); audioMaster.gain.setTargetAtTime(settings.sfx * SFX_MAX_GAIN, audioContext.currentTime, 0.03);
     const paused = settings.paused || menuPaused || document.hidden;
     if (paused && audioContext.state === 'running') void audioContext.suspend().catch(error => console.warn('[StageTwo] Sound could not be paused:', error));
     else if (!paused && audioContext.state === 'suspended') void audioContext.resume().catch(error => {
@@ -704,6 +724,7 @@ export function createScene(options: StageTwoOptions) {
     getMapSceneId: () => `scene${progress.checkpoint === 'vent' ? 34 : player.body.position.z < room.minZ ? 36 : 35}`,
     getMapLayout: () => STAGE_TWO_MAP, getMinimapState,
     getMusicTrack: () => guardAlert >= 0 ? 'stealth-alert' as const
+      : phase === 'maze' ? 'tension' as const
       : phase === 'lift' || phase === 'handoff' ? 'ship' as const : 'stealth-2' as const,
     getCctvEnabled: () => progress.checkpoint === 'surveillance',
     getCctvPaused: () => phase === 'takedown',

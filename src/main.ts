@@ -871,7 +871,7 @@ function prepareEntireGame(loading: ReturnType<typeof beginCinematicLoading>) {
       { label: "Preparing first-person hands", run: prepareFirstPersonHands },
       {
         label: "Preparing the opening chapter music",
-        run: () => preloadMusic(MUSIC_URLS.emotional),
+        run: () => preloadMusic(MUSIC_URLS.prologue),
       },
       {
         label: "Preparing the chain-break music cue",
@@ -1333,7 +1333,7 @@ async function loadPrologue1(alreadyCovered = false) {
   try {
     await prepareGlobalCharacter();
     await Promise.all([
-      preloadMusic(MUSIC_URLS.emotional),
+      preloadMusic(MUSIC_URLS.prologue),
       preloadMusic(MUSIC_URLS["broken-chains"]),
     ]);
     data = module.createScene({
@@ -2152,6 +2152,7 @@ async function loadStageTwo(
   const [module] = await Promise.all([
     prepareScene(1.2),
     preloadMusic(MUSIC_URLS["stealth-alert"]),
+    preloadMusic(MUSIC_URLS.tension),
   ]);
   if (!module || expectedRequest !== sceneRequestVersion) return false;
   const source = currentSceneData,
@@ -2310,6 +2311,9 @@ async function loadCameraVisit(
     showTeleportDeviceMessage("Prime: Set a marker with Q first.");
     return false;
   }
+  void preloadMusic(MUSIC_URLS.puzzle).catch((error) =>
+    console.warn("[Audio] Puzzle music preparation failed:", error),
+  );
   const source = currentSceneData;
   let sceneData;
   if (id === "scene5") {
@@ -2751,8 +2755,12 @@ async function loadScene21(
       await Promise.all([
         sceneData.ready.then(() => prepared("Characters and combat ready")),
         loading.presented.then(() => prepared("Loading artwork ready")),
-        Promise.all([preloadMusic(MUSIC_URLS.loading), preloadMusic(MUSIC_URLS.ship)])
-          .then(() => prepared("Soundtrack ready")),
+        // Later cues are requested first so the opening cue survives a tight decoded-music budget.
+        Promise.all([
+          preloadMusic(MUSIC_URLS["final-battle"]),
+          preloadMusic(MUSIC_URLS.ship),
+          preloadMusic(MUSIC_URLS.loading),
+        ]).then(() => prepared("Soundtrack ready")),
         prepareGlobalCharacter().then(() => prepared("Player ready")),
       ]);
       if (request !== sceneRequestVersion) {

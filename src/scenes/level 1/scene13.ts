@@ -17,7 +17,7 @@ import fireFragmentShader from '../../shaders/fireExplosion.frag.glsl?raw';
 import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
 import { BOSS_RULES, PHASE4_RULES, createLoadingBayBoss, type BossPillar } from '../../scripts/mechBaymaxBoss.js';
 import { preloadMusic } from '../../helpers/audio/bufferedMusic.js';
-import bgmUrl from '../../assets/bgm/DonRevBGM1.m4a?url';
+import { MUSIC_URLS } from '../../helpers/audio/gameMusic.js';
 
 export const BOSS_ENTRY_SECONDS = 7;
 export const BOSS_VERSUS_SECONDS = 2.6;
@@ -29,7 +29,8 @@ export const ARENA_PILLAR_SUPPLIES = [
 ] as const;
 
 export function preloadAssets() {
-  return Promise.all([preloadMusic(bgmUrl), preloadBossModels()]);
+  // The fight's own track is requested last so it is the one kept when the decoded-music budget is tight.
+  return Promise.all([preloadMusic(MUSIC_URLS.ship), preloadMusic(MUSIC_URLS.boss), preloadBossModels()]);
 }
 
 /** Bay 13 arena, reached through the surveillance service elevator. */
@@ -396,6 +397,7 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
         player.setPosition(dest.x, dest.y, dest.z);
         player.setRotation(Math.atan2(dest.x - bossPosition.x, dest.z - bossPosition.z), -0.05);
         player.clearZeroGTaps();
+        if (boss.onPlayerTeleport()) showPhaseNotice("Prime: He's confused! Shoot the blue target on his back!");
       }
     }
     if (teleportFx >= TELEPORT_OUT + TELEPORT_IN) { teleportFx = -1; teleportPending = null; }
@@ -1279,6 +1281,7 @@ export function createScene({ entryState, fromServiceLift = false, defeated = fa
       id: supply.id, kind: supply.kind, collected: supply.collected, position: supply.pickup.root.position.clone(),
     })),
     hasBossVictory: () => bossVictory,
+    getMusicTrack: () => defeated ? 'ship' as const : 'boss' as const,
     isCinematic: () => cinematic !== null || droneCutscene !== null,
     getCinematicDelta: () => cinematicDelta,
     getHologramTransition: () => teleportFx < 0 ? null

@@ -80,7 +80,7 @@ export const ZERO_G_BOSS = Object.freeze({
   scanSweepSpeed: 1.15, scanStartOffset: 1.45, scanMinSeconds: 1.6, scanFoundTolerance: 0.14, scanFoundPause: 0.9,
   droneInterval: 2.2, droneMaxAlive: 3, droneSpeed: 4.4, droneTurnResponse: 1.9, droneTriggerRadius: 1.5,
   droneBlastRadius: 3.2, droneLife: 11, droneDamage: 30, blastSeconds: 0.9, droneFirstDelay: 0.8, laserInterval: 1.1, laserFirstDelay: 0.8, backHitsRequired: 3, backHitGrace: 0.35,
-  turnRate: 0.75, needBehindAfter: 16, backTargetRadius: 0.6,
+  turnRate: 0.75, needBehindAfter: 16, backTargetRadius: 0.6, confusionSeconds: 3.5,
 });
 export type BossPhase = 'dormant' | 'flying' | 'windup' | 'rushing' | 'recovering' | 'falling' | 'exposed' | 'rising'
   | 'phaseThreeAwakening' | 'gravityWindup' | 'gravity' | 'droneExplosion' | 'phaseThreeTargets'
@@ -196,8 +196,9 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
   const puffGeometry = new THREE.SphereGeometry(0.16, 8, 6);
   const puffMaterial = new THREE.MeshBasicMaterial({ color: 0xd6f4ff, transparent: true, opacity: 0.7, depthWrite: false });
   // Phase 4 scan beam, back target, and drone bookkeeping.
-  let zgStage: 'scan' | 'drones' = 'scan', scanBearing = 0, scanDirection = 1, scanClock = 0, scanFoundClock = -1;
+  let zgStage: 'scan' | 'drones' | 'confused' = 'scan', scanBearing = 0, scanDirection = 1, scanClock = 0, scanFoundClock = -1;
   let zgDroneClock = 0, zgLaserClock = 0, zgStageClock = 0, needBehindSent = false, zgBlastClock = -1, bossYaw = 0;
+  let confusionEffect: (() => void) | undefined;
   let backHits = 0, backHitGraceUntil = 0;
   const scanBeamMaterial = new THREE.MeshBasicMaterial({ color: 0xb45cff, transparent: true, opacity: 0.38,
     blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
@@ -1071,12 +1072,21 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     player.setZeroGImpulseScale(1);
     player.setZeroGMode(true, buildZeroGConfig());
     zeroGActive = true; phase = 'zeroG'; phaseTime = 0;
-    zgStage = 'scan'; scanClock = 0; scanFoundClock = -1; zgDroneClock = ZERO_G_BOSS.droneFirstDelay; zgLaserClock = ZERO_G_BOSS.laserFirstDelay; zgStageClock = 0; backHits = 0; backHitGraceUntil = 0;
-    scanDirection = Math.random() < 0.5 ? -1 : 1; scanBearing = NaN;
+    startZeroGScan(); backHits = 0; backHitGraceUntil = 0;
     zgBlastClock = -1; blast.visible = false; blastLight.intensity = 0;
+  }
+  function clearConfusionEffect() {
+    confusionEffect?.(); confusionEffect = undefined;
+  }
+  function startZeroGScan() {
+    clearConfusionEffect();
+    zgStage = 'scan'; zgStageClock = 0; scanClock = 0; scanFoundClock = -1;
+    scanDirection = Math.random() < 0.5 ? -1 : 1; scanBearing = NaN;
+    zgDroneClock = ZERO_G_BOSS.droneFirstDelay; zgLaserClock = ZERO_G_BOSS.laserFirstDelay;
   }
   function overloadZeroG() {
     // Back target hit: drop the mech into the existing fall -> exposed window.
+    clearConfusionEffect();
     zeroGActive = false;
     scanBeam.visible = false;
     for (const drone of drones) if (drone.active) explodeZeroGDrone(drone, false);
@@ -1226,7 +1236,10 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     }
     stepPuffs(dt);
     zgStageClock += dt;
-    if (zgStage === 'scan') updateScanBeam(dt);
+    if (zgStage === 'confused') {
+      bossYaw = root.rotation.y;
+      if (zgStageClock >= ZERO_G_BOSS.confusionSeconds) startZeroGScan();
+    } else if (zgStage === 'scan') updateScanBeam(dt);
     else {
       bossYaw = Math.atan2(player.body.position.x - root.position.x, player.body.position.z - root.position.z);
       zgDroneClock -= dt;
@@ -1447,6 +1460,17 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
     getRootPosition: (out = new THREE.Vector3()) => out.copy(root.position),
     getYaw: () => root.rotation.y,
     isTeleportWindow: () => phase === 'zeroG',
+    onPlayerTeleport() {
+      if (disposed || phase !== 'zeroG' || zgStage === 'confused' || !player.isEnabled() || player.getHealth() <= 0) return false;
+      const dx = player.body.position.x - root.position.x, dz = player.body.position.z - root.position.z;
+      if (dx * Math.sin(root.rotation.y) + dz * Math.cos(root.rotation.y) >= 0) return false;
+      zgStage = 'confused'; zgStageClock = 0; bossYaw = root.rotation.y; scanBeam.visible = false;
+      confusionEffect = emitComicEffect(scene, 'confused', {
+        source: root, anchor: root, position: getHeadWorldPosition().add(new THREE.Vector3(0, 1, 0)),
+        size: 2, duration: ZERO_G_BOSS.confusionSeconds,
+      });
+      return true;
+    },
     setGogglesActive(active: boolean) {
       scanning = active;
       targetMaterials.forEach(material => material.setHighlighted(active));
@@ -1455,11 +1479,12 @@ export function createLoadingBayBoss(scene: THREE.Scene, world: CANNON.World, pl
       round, remaining, targets: targets.map(t => t.hits()), charging, drones: drones.filter(drone => drone.active).length,
       droneLoadError, projectiles: bolts.length, pillarsRemaining: pillars.filter(p => p.intact()).length,
       transformProgress, phaseThreeTargetsActive: targetsPhaseThreeMode,
-      phaseFour, zeroGActive, entanglement, maxEntanglement: PHASE4_RULES.maxEntanglement,
+      phaseFour, zeroGActive, zeroGStage: phase === 'zeroG' ? zgStage : null, entanglement, maxEntanglement: PHASE4_RULES.maxEntanglement,
       thrusterHeat: player.getZeroGHeat(), overheated: player.isZeroGOverheated(),
       volleysSurvived, volleysToOverload: PHASE4_RULES.volleysToOverload }),
     dispose() {
       if (disposed) return; disposed = true; if (phase === 'droneExplosion') options.onDroneExplosionEnd?.();
+      clearConfusionEffect();
       unregister(); clearBolts(); disposeDronePool(); fragments.forEach(f => f.mesh.removeFromParent());
       // Phase 4 cleanup (additive): release the zero-G mode and dispose the net/puff pools.
       zeroGActive = false;

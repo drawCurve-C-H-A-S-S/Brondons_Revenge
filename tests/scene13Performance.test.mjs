@@ -3,10 +3,12 @@ import { before, after, test } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'vite';
 
-let server, createScene, THREE, CANNON, GLTFLoader, bossBytes, boyBytes, droneJSON, droneBytes;
+let server, createScene, THREE, CANNON, GLTFLoader, bossBytes, boyBytes, droneJSON, droneBytes, zeroGBossRules, updateComicEffects, clearComicEffects, disposeComicEffects;
 before(async () => {
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
   ({ createScene } = await server.ssrLoadModule('/scenes/level 1/scene13.ts'));
+  ({ ZERO_G_BOSS: zeroGBossRules } = await server.ssrLoadModule('/scripts/mechBaymaxBoss.ts'));
+  ({ updateComicEffects, clearComicEffects, disposeComicEffects } = await server.ssrLoadModule('/helpers/scene/comicEffects.ts'));
   // Use the scene's module graph: Windows drive-letter casing can otherwise load
   // two copies of Three.js, breaking instanceof checks for the imported real rig.
   THREE = await server.ssrLoadModule('three');
@@ -33,23 +35,25 @@ function parse(bytes, buffer) {
   }));
   return loader.parseAsync(typeof bytes === 'string' ? bytes : bytes.slice(0), '');
 }
-async function fixture(t) {
+async function fixture(t, options = {}) {
   const old = { window: globalThis.window, document: globalThis.document, HTMLElement: globalThis.HTMLElement, self: globalThis.self, Audio: globalThis.Audio };
   let data;
-  t.after(() => { data?.dispose(); Object.assign(globalThis, old); });
+  t.after(() => { if (data) { disposeComicEffects(data.scene); data.dispose(); } Object.assign(globalThis, old); });
   globalThis.Audio = class extends EventTarget { load() {} pause() {} play() { return Promise.resolve(); } };
   globalThis.self = globalThis;
   class Element extends EventTarget {
     classes = new Set();
     style = { setProperty(name, value) { this[name] = value; } };
     classList = { add: (...names) => names.forEach(name => this.classes.add(name)),
+      remove: (...names) => names.forEach(name => this.classes.delete(name)),
       contains: name => this.classes.has(name), toggle: (name, active) => active ? this.classes.add(name) : this.classes.delete(name) };
     set className(value) { this.classes = new Set(value.split(/\s+/)); }
     setAttribute() {}
     appendChild() {}
+    append() {}
     remove() {}
     requestPointerLock() {}
-    getContext() { return new Proxy({}, { get: () => () => {} }); }
+    getContext() { return new Proxy({ measureText: text => ({ width: text.length * 60 }) }, { get: (target, key) => target[key] ?? (() => {}) }); }
   }
   globalThis.HTMLElement = Element;
   globalThis.window = Object.assign(new EventTarget(), { innerWidth: 1280, innerHeight: 720 });
@@ -59,6 +63,7 @@ async function fixture(t) {
   });
   data = createScene({ checkpoint: true,
     loadBoss: () => parse(bossBytes), loadBoy: () => parse(boyBytes), loadDrone: () => parse(droneJSON, droneBytes),
+    ...options,
   });
   await data.ready;
   assert.ok(data.boss.bodyTarget.root.getObjectsByProperty('isSkinnedMesh', true).length, 'actual boss rig must load');
@@ -84,6 +89,103 @@ function pairs(world) {
   const a = [], b = []; world.broadphase.collisionPairs(world, a, b);
   return a.map((body, i) => [body, b[i]]);
 }
+
+function key(code, type = 'keydown') {
+  const event = new Event(type);
+  Object.defineProperties(event, { code: { value: code }, repeat: { value: false } });
+  window.dispatchEvent(event);
+}
+function renderEffects(data, dt = 0) {
+  const head = data.boss.head.getWorldPosition(new THREE.Vector3());
+  const camera = new THREE.PerspectiveCamera(70, 16 / 9, 0.1, 100);
+  camera.position.copy(head).add(new THREE.Vector3(0, 2, 15));
+  camera.lookAt(head); camera.updateMatrixWorld(true);
+  updateComicEffects(data.scene, camera, dt, { getSize: size => size.set(1280, 720) });
+  return data.scene.getObjectByName('ComicCombatEffects').children.filter(sprite => sprite.visible);
+}
+async function phaseFourFixture(t) {
+  const data = await fixture(t, { startAtPhaseFour: true });
+  until(data, () => !data.isCinematic() && data.boss.getStatus().phase === 'zeroG');
+  until(data, () => data.boss.getStatus().zeroGStage === 'drones');
+  clearComicEffects(data.scene);
+  return data;
+}
+
+for (const fps of [30, 60, 144]) {
+  test(`phase-four rear teleport holds facing for 3.5 seconds, then rescans and resumes attacks at ${fps} FPS`, async t => {
+    const data = await phaseFourFixture(t), boss = data.boss;
+    const position = boss.getRootPosition(), yaw = boss.getYaw();
+    data.player.setPosition(position.x + Math.sin(yaw) * 4.6, 5, position.z + Math.cos(yaw) * 4.6);
+    assert.equal(boss.onPlayerTeleport(), false, 'front-side arrivals must not confuse the boss');
+    assert.equal(boss.getStatus().zeroGStage, 'drones');
+    data.player.setPosition(position.x - Math.sin(yaw) * 4.6, 5, position.z - Math.cos(yaw) * 4.6);
+    assert.equal(boss.onPlayerTeleport(), true);
+    assert.equal(boss.getStatus().zeroGStage, 'confused');
+    assert.equal(boss.onPlayerTeleport(), false, 'notifications cannot restart an active confusion window');
+    assert.equal(data.scene.getObjectByName('BossScanBeam').visible, false);
+    const labels = renderEffects(data);
+    assert.equal(labels.length, 1);
+    assert.ok(labels[0].position.y > boss.head.getWorldPosition(new THREE.Vector3()).y);
+    const back = boss.getDamageTargets().find(target => target.root.name === 'BossBackTarget');
+    assert.equal(back.damage(25, 'pistol'), true, 'blue target stays vulnerable during confusion');
+    for (let frame = 0; frame < Math.floor((zeroGBossRules.confusionSeconds - 0.1) * fps); frame++) {
+      tick(data, 1 / fps);
+      assert.equal(boss.getStatus().zeroGStage, 'confused');
+      assert.ok(Math.abs(boss.getYaw() - yaw) < 1e-8, 'boss must not turn during confusion');
+      assert.equal(data.scene.getObjectByName('BossScanBeam').visible, false);
+      assert.equal(boss.getStatus().drones, 0, 'no new drones while confused');
+      assert.equal(boss.getStatus().projectiles, 0, 'no new lasers while confused');
+    }
+    assert.equal(labels[0].visible, true);
+    until(data, () => boss.getStatus().zeroGStage === 'scan', 1, fps);
+    assert.equal(labels[0].visible, false, 'question marks stop when scanning starts');
+    tick(data, 1 / fps);
+    assert.equal(data.scene.getObjectByName('BossScanBeam').visible, true);
+    assert.ok(Math.abs(boss.getYaw() - yaw) < 1e-8, 'rescanning must not snap the boss around');
+    until(data, () => boss.getStatus().zeroGStage === 'drones', 12, fps);
+    until(data, () => boss.getStatus().drones > 0 && boss.getStatus().projectiles > 0, 2, fps);
+    assert.ok(Math.abs(boss.getYaw() - yaw) > 0.1, 'turning resumes after the scan');
+    assert.equal(back.damage(25, 'pistol'), true, 'rescanning preserves previous back-target damage');
+    until(data, () => boss.getStatus().zeroGStage === 'drones', 1, fps);
+    for (let frame = 0; frame < Math.ceil(zeroGBossRules.backHitGrace * fps) + 1; frame++) tick(data, 1 / fps);
+    assert.equal(back.damage(25, 'pistol'), true);
+    assert.equal(boss.getStatus().phase, 'zeroGOverload', 'the original three-hit overload still works');
+    assert.equal(boss.onPlayerTeleport(), false, 'teleports outside the barrage do not confuse him');
+  });
+}
+
+test('phase-four thrown crystal confuses the boss only on actual rear arrival, and overload cancels the label', async t => {
+  const data = await phaseFourFixture(t), boss = data.boss;
+  const position = boss.getRootPosition(), yaw = boss.getYaw();
+  data.player.setPosition(position.x + Math.sin(yaw) * 6, 5, position.z + Math.cos(yaw) * 6);
+  data.player.setRotation(yaw, 0);
+  data.camera.position.copy(data.player.body.position);
+  data.camera.lookAt(position.x, 5, position.z); data.camera.updateMatrixWorld(true);
+  key('KeyQ');
+  for (let frame = 0; frame < 30; frame++) tick(data);
+  const click = new Event('mousedown'); Object.defineProperty(click, 'button', { value: 0 }); window.dispatchEvent(click);
+  key('KeyQ', 'keyup');
+  for (let frame = 0; frame < 18; frame++) tick(data);
+  assert.ok(data.scene.getObjectByName('PurpleTeleportCrystal'), 'throw leaves a destination crystal');
+  assert.equal(boss.getStatus().zeroGStage, 'drones', 'throwing alone does not confuse him');
+  key('KeyT'); key('KeyT', 'keyup');
+  for (let frame = 0; frame < 12; frame++) tick(data);
+  assert.equal(boss.getStatus().zeroGStage, 'drones', 'confusion waits for the dissolve-out to finish');
+  clearComicEffects(data.scene);
+  until(data, () => boss.getStatus().zeroGStage === 'confused', 1);
+  const dx = data.player.body.position.x - position.x, dz = data.player.body.position.z - position.z;
+  assert.ok(dx * Math.sin(boss.getYaw()) + dz * Math.cos(boss.getYaw()) < 0, 'real teleport arrives behind the boss');
+  const labels = renderEffects(data);
+  assert.equal(labels.length, 1);
+  const back = boss.getDamageTargets().find(target => target.root.name === 'BossBackTarget');
+  for (let hit = 0; hit < zeroGBossRules.backHitsRequired; hit++) {
+    assert.equal(back.damage(25, 'pistol'), true);
+    if (hit < zeroGBossRules.backHitsRequired - 1) for (let frame = 0; frame < 23; frame++) tick(data);
+  }
+  assert.equal(boss.getStatus().phase, 'zeroGOverload');
+  assert.equal(boss.getStatus().zeroGStage, null);
+  assert.equal(labels[0].visible, false, 'overload immediately removes the confusion label');
+});
 
 test('real phase-three rig excludes overlap-only narrowphase without removing colliders', async t => {
   const data = await fixture(t), world = data.physicsWorld;

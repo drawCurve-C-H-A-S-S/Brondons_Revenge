@@ -7,7 +7,7 @@ import { createRescueDesktop, createSdpBrowserDesktop, drawDesktopBackground } f
 import { createCrewChest } from '../../helpers/scene/crewChest.js';
 import { createGoggles } from '../../scripts/rewardChest.js';
 import { createTeleportCrystal } from '../../scripts/teleportationDevice.js';
-import { createShipTerminal } from '../../helpers/scene/shipInterior.js';
+import { createShipInteriorMaterials, createShipServerRack, createShipTerminal } from '../../helpers/scene/shipInterior.js';
 import { fitRoomProp } from '../../helpers/scene/shipRoom.js';
 export { fitRoomProp as fitCabinProp } from '../../helpers/scene/shipRoom.js';
 
@@ -197,6 +197,16 @@ export async function createCabinFurnishings(cabin: CabinDefinition, physics: Ph
     const chairSize = fitRoomProp(chair, vergilChair ? 0.96 : 1.12, 0.75, 0.85, vergilChair ? 0 : Math.PI);
     chair.position.add(new THREE.Vector3(cabin.side * -0.55, 0, 1.65)); root.add(chair);
     collider(chairSize, cabinPoint(cabin, -0.55, chairSize.y / 2, 1.65));
+
+    if (cabin.id === 'student-05') {
+      const materials = createShipInteriorMaterials(1, 1);
+      materials.deck.dispose(); materials.deckTexture.dispose();
+      const server = createShipServerRack(materials);
+      server.position.set(cabin.side * -2.15, 0, -2.75); root.add(server);
+      server.updateWorldMatrix(true, true);
+      const bounds = new THREE.Box3().setFromObject(server);
+      collider(bounds.getSize(new THREE.Vector3()), bounds.getCenter(new THREE.Vector3()));
+    }
 
     const desktop = cabin.id === 'branden' ? createRescueDesktop(progress) : cabin.id === 'brendan' ? createSdpBrowserDesktop() : null;
     const playScreen = cabin.id === 'brondon' ? await loadTexture(playScreenUrl) : null;

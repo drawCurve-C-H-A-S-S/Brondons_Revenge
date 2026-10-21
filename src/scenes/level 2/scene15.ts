@@ -13,7 +13,7 @@ import { createSidescrollPhase, SCRAMBLER_HEALTH } from './scene15-5.js';
 import { createTopdownPhase, TOPDOWN_SCRAMBLER_HEALTH } from './scene15-75.js';
 import { predictsCollision } from '../../helpers/scene/flightCollision.js';
 import { createFlightVersus, FLIGHT_VERSUS_DURATION } from '../../helpers/scene/flightVersus.js';
-import { getAudioSettings, subscribeAudioSettings } from '../../helpers/audio/AudioManager.js';
+import { getAudioSettings, subscribeAudioSettings, SFX_MAX_GAIN } from '../../helpers/audio/AudioManager.js';
 import shieldPowerupUrl from '../../assets/power ups/Shield_powerup.png?url';
 import { createFlightShield } from '../../scripts/flightShield.js';
 import fireVertexShader from '../../shaders/fireExplosion.vert.glsl?raw';
@@ -305,14 +305,14 @@ export function createScene({ entryState, onTransition, startAt, renderer }: { e
   let audio: AudioContext | null = null;
   let sfxOutput: GainNode | null = null;
   const stopAudioSettings = subscribeAudioSettings(settings => {
-    if (sfxOutput) sfxOutput.gain.value = settings.paused ? 0 : settings.sfx;
+    if (sfxOutput) sfxOutput.gain.value = settings.paused ? 0 : settings.sfx * SFX_MAX_GAIN;
   });
   function unlockAudio() {
     try {
       audio ??= new AudioContext();
       if (!sfxOutput) {
         sfxOutput = audio.createGain(); sfxOutput.connect(audio.destination);
-        const settings = getAudioSettings(); sfxOutput.gain.value = settings.paused ? 0 : settings.sfx;
+        const settings = getAudioSettings(); sfxOutput.gain.value = settings.paused ? 0 : settings.sfx * SFX_MAX_GAIN;
       }
       if (audio.state === 'suspended') void audio.resume().catch(() => {});
     } catch { /* Flight remains playable without audio support. */ }

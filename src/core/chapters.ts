@@ -13,7 +13,7 @@ export const LOADING_CHAPTERS = {
   },
   prologue: {
     chapter: 'PROLOGUE / AWAKENING', title: 'THE PRISON', images: [image('prologue-prison')],
-    tips: ['Listen to Prime to discover what happened aboard the ship.', 'After awakening, press E to teleport to your cabin.'],
+    tips: ['Click or press Space to advance Prime\'s flashbacks. Hold Enter to skip the prologue.', 'After awakening, press E to teleport to your cabin.'],
   },
   quarters: {
     chapter: 'LEVEL 1 / LIVING QUARTERS', title: 'THE CREW CABINS', images: [image('living-quarters')],
