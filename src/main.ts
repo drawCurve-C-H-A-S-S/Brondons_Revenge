@@ -138,6 +138,7 @@ const sceneImports = {
   20: () => import("./scenes/level 3/scene20.js"),
   21: () => import("./scenes/level 3/scene21.js"),
   99: () => import("./scenes/museum/museum.js"),
+  100: () => import("./scenes/trailer/scene.js"),
 };
 type SceneModuleId = keyof typeof sceneImports;
 const sceneModules = new Map<SceneModuleId, Promise<unknown>>();
@@ -264,11 +265,12 @@ function beginCinematicLoading(
 
 // The main loop neither updates nor renders behind the loading screen, so run the first frames of
 // the new scene here; texture uploads, shadow programs and setup states stay hidden.
-async function warmBehindLoading(request: number, frames = 3) {
+async function warmBehindLoading(request: number, frames = 3,
+  { renderingReady = false, freezeStory = false }: { renderingReady?: boolean; freezeStory?: boolean } = {}) {
   if (request !== sceneRequestVersion || !activeScene || !activeCamera)
     return false;
   updatePlayerView(0);
-  await prepareSceneRendering(
+  if (!renderingReady) await prepareSceneRendering(
     renderer,
     currentSceneData?.getRenderScene?.() ?? activeScene,
     activeCamera,
@@ -276,10 +278,11 @@ async function warmBehindLoading(request: number, frames = 3) {
   for (let frame = 0; frame < frames; frame++) {
     if (request !== sceneRequestVersion || !activeScene || !activeCamera)
       return false;
-    updatePhysics?.(1 / 60, isThirdPerson);
-    updatePlayerView(1 / 60);
+    const delta = freezeStory ? 0 : 1 / 60;
+    updatePhysics?.(delta, isThirdPerson);
+    updatePlayerView(delta);
     const scene = currentSceneData?.getRenderScene?.() ?? activeScene;
-    updateComicEffects(scene, activeCamera, 1 / 60, renderer);
+    updateComicEffects(scene, activeCamera, delta, renderer);
     renderGameplayFrame(scene, activeCamera);
     renderMinimap(true);
     if (currentSceneData?.hideMinimap?.()) minimap.hide();
@@ -1047,13 +1050,13 @@ const lessons: Record<string, Omit<ControlCard, "key" | "scene">> = {
       "A / D move · J sword chain · F rifle salvo",
       "Hold R shield / parry · Space dodge",
       "E Last Light (18s recharge) · W / S rise or dive",
-      "Enter skip intro · QTE: tap, mash or hold the letter",
+      "Enter skip intro · The final execution plays automatically",
     ],
     touch: [
       "LEFT / RIGHT move · UP / DOWN fly",
       "SWORD chain · SHIELD block · BOOST dodge",
       "RIFLE fire · ULTIMATE Last Light",
-      "QTE: tap, mash or hold the letter",
+      "The final execution plays automatically",
     ],
   },
 };
@@ -1073,8 +1076,8 @@ function dismissControls() {
 }
 function enterHudScene(id: string) {
   document.body.dataset.scene = id;
-  hintManager?.setEnabled(id !== "scene1" && id !== "scene21");
-  if (id === "scene1" || id === "scene21") hintManager?.recordActivity();
+  hintManager?.setEnabled(id !== "scene1" && id !== "scene21" && id !== "trailer");
+  if (id === "scene1" || id === "scene21" || id === "trailer") hintManager?.recordActivity();
   if (id === "scene1") {
     controllerNoticeTime = 0;
     document.getElementById("controller-notice")!.classList.add("hidden");
@@ -2694,14 +2697,11 @@ async function loadScene21(
   entryState?: RescueArrival,
   checkpoint?: FinaleCheckpoint,
 ) {
-  const loading = beginCinematicLoading("finale", checkpoint ? 0.5 : 3);
-  // Decode the finale tracks behind the loading screen so the reveal starts on its music, not seconds later.
-  const musicReady = loading
-    ? Promise.all([
-        preloadMusic(MUSIC_URLS.loading),
-        preloadMusic(MUSIC_URLS.ship),
-      ])
-    : undefined;
+  const loading = beginCinematicLoading("finale", 0);
+  let completed = 0;
+  const prepared = (label: string) => loading.setProgress(++completed, 8, label);
+  loading.setProgress(0, 8, "Preparing the final chapter");
+  loading.setNote("Preparing the rooftop and cinematic. Reusing cached assets where available.");
   const expectedRequest = sceneRequestVersion + 1;
   const module = await prepareScene(21);
   if (!module) {
@@ -2718,6 +2718,7 @@ async function loadScene21(
   const request = sceneRequestVersion;
   let sceneData: ReturnType<typeof module.createScene> | undefined;
   try {
+    prepared("Chapter code ready");
     sceneData = module.createScene({
       entryState,
       checkpoint,
@@ -2744,16 +2745,16 @@ async function loadScene21(
         void loadScene21(entryState, next);
       },
     });
+    prepared("Rooftop constructed");
     if (loading) {
       sceneData.setMenuPaused(true);
       await Promise.all([
-        sceneData.ready,
-        loading.presented,
-        musicReady,
-        prepareGlobalCharacter(),
+        sceneData.ready.then(() => prepared("Characters and combat ready")),
+        loading.presented.then(() => prepared("Loading artwork ready")),
+        Promise.all([preloadMusic(MUSIC_URLS.loading), preloadMusic(MUSIC_URLS.ship)])
+          .then(() => prepared("Soundtrack ready")),
+        prepareGlobalCharacter().then(() => prepared("Player ready")),
       ]);
-      await sceneData.prepareRendering(renderer);
-      await prepareSceneRendering(renderer, sceneData.scene, sceneData.camera);
       if (request !== sceneRequestVersion) {
         sceneData.dispose();
         loading.finish();
@@ -2765,13 +2766,15 @@ async function loadScene21(
     setTouchFlightMode(false);
     activateExtension(sceneData, "scene21");
     if (loading) {
-      // Lift the loading screen on Brondon's walk to the five, after the setup frames have rendered.
       sceneData.setMenuPaused(false);
       sceneData.updatePhysics(0);
-      if (!(await warmBehindLoading(request, checkpoint ? 0 : 4))) {
+      await sceneData.prepareRendering(renderer);
+      prepared("Rendering ready");
+      if (!(await warmBehindLoading(request, 1, { renderingReady: true, freezeStory: true }))) {
         loading.finish();
         return;
       }
+      prepared("Ready");
     }
     sceneData.setMenuPaused(quickMenuOpen);
     loading?.finish();
@@ -2788,6 +2791,43 @@ async function loadScene21(
     else
       document.getElementById("scene-menu-error")!.textContent =
         "The final chapter could not be prepared. Please try again.";
+  }
+}
+
+async function loadChairTrailer() {
+  const loading = beginCinematicLoading("trailer", 0);
+  loading.setProgress(0, 4, "Preparing the trailer");
+  const module = await prepareScene(100);
+  if (!module) {
+    loading.fail("The trailer could not be loaded.", () => { void loadChairTrailer(); });
+    return;
+  }
+  const request = sceneRequestVersion;
+  let data: ReturnType<typeof module.createScene> | undefined;
+  try {
+    data = module.createScene({ onFinished: () => {
+      setPauseMenu("home", false);
+      setPauseMenu("scenes", false);
+    } });
+    loading.setProgress(1, 4, "Trailer code ready");
+    data.setMenuPaused(true);
+    await Promise.all([data.ready, loading.presented, preloadMusic(MUSIC_URLS.loading)]);
+    loading.setProgress(2, 4, "Five chairs ready");
+    if (request !== sceneRequestVersion) { data.dispose(); loading.finish(); return; }
+    hideScene1Skip(); retireTraversalRoom(); setTouchFlightMode(false);
+    activateExtension(data, "trailer");
+    globalCharacter?.model.removeFromParent();
+    data.setMenuPaused(false); data.updatePhysics(0);
+    await prepareSceneRendering(renderer, data.scene, data.camera, { fogVariants: false });
+    loading.setProgress(3, 4, "Rendering ready");
+    if (!(await warmBehindLoading(request, 1, { renderingReady: true, freezeStory: true }))) {
+      loading.finish(); return;
+    }
+    loading.setProgress(4, 4, "Ready"); loading.finish();
+  } catch (error) {
+    data?.dispose();
+    console.error("[Trailer] Preparation failed:", error);
+    loading.fail("The trailer could not be prepared. Please try again.", () => { void loadChairTrailer(); });
   }
 }
 
@@ -3277,9 +3317,7 @@ function setupControllerInput() {
       const phase = currentSceneData?.getControllerPhase?.() ?? "";
       let kind: ControllerContext =
         scene === "scene21"
-          ? phase === "finisher"
-            ? "finale-qte"
-            : ["ground", "space"].includes(phase)
+          ? ["ground", "space"].includes(phase)
               ? "finale"
               : "cinematic"
           : scene === "scene14"
@@ -3298,7 +3336,7 @@ function setupControllerInput() {
         .getElementById("menu-buttons")!
         .classList.contains("hidden");
       return {
-        id: `${scene}:${phase}:${kind === "finale-qte" ? currentSceneData.getControllerQteIndex() : ""}`,
+        id: `${scene}:${phase}`,
         kind,
         menuOpen: quickMenuOpen || titleMenu,
         wheelOpen: weaponWheelOpen,
@@ -3813,7 +3851,7 @@ async function jumpToScene(id: number) {
     !SCENE_CHOICES.some(([scene]) => scene === id)
   )
     return;
-  if (id !== 1) {
+  if (id !== 1 && id !== 100) {
     document.getElementById("scene-menu-error")!.textContent =
       "Preparing character...";
     try {
@@ -3991,10 +4029,13 @@ async function enterSceneById(id: number) {
       case MUSEUM_ID:
         await loadMuseum(arcadeReturnTo);
         break;
+      case 100:
+        await loadChairTrailer();
+        break;
     }
     if (request !== sceneRequestVersion) return;
     const spawnedPlayer = currentSceneData?.player as Player | undefined;
-    if (spawnedPlayer && id !== MUSEUM_ID) {
+    if (spawnedPlayer && id !== MUSEUM_ID && id !== 100) {
       const spawn = spawnedPlayer.captureTransition({ x: 0, y: 0, z: 0 });
       spawnedPlayer.restoreTransition(
         {

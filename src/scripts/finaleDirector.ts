@@ -1,10 +1,13 @@
-import { createFinaleQte, createMechDuel, type DuelEvent, type QteEvent } from './mechDuel.js';
-import { HERO_TRANSFORM, PLANET_RUPTURE } from './finaleChoreography.js';
+import { createMechDuel, type DuelEvent } from './mechDuel.js';
+import { FINISHER_DURATION, HERO_TRANSFORM, PLANET_RUPTURE } from './finaleChoreography.js';
 
 export type FinaleStart = 'reveal' | 'ground' | 'rupture' | 'space' | 'finisher' | 'credits';
 export type FinalePhase = 'loading' | 'error' | FinaleStart | 'enemyTransform' | 'heroTransform' | 'versus' | 'rupture' | 'defeat' | 'victory' | 'credits' | 'done';
 export interface FinaleCheckpoint { stage: FinaleStart; bossImmunityUsed?: boolean; weaponsEquipped?: boolean; }
 export interface FinaleCue { phase: FinalePhase; id: string; at: number; }
+export function shouldPauseFinale(phase: FinalePhase, state: { menuPaused: boolean; hidden: boolean; blurred: boolean }) {
+  return state.menuPaused || state.hidden || state.blurred && (phase === 'ground' || phase === 'space');
+}
 export const FINALE_DURATION = Object.freeze({
   reveal: 27, enemyTransform: 19.2, heroTransform: 17, versus: 4.6, rupture: PLANET_RUPTURE.orbit + 0.4, defeat: 6, victory: 18, credits: 90,
 });
@@ -37,11 +40,10 @@ export function createFinaleDirector(start: FinaleStart = 'reveal', immunity: {
   bossImmunityAvailable?: boolean; bossImmunityUsed?: boolean; weaponsEquipped?: boolean;
 } = {}) {
   const duel = createMechDuel(start === 'reveal' ? 'ground' : start === 'credits' ? 'finisher' : start, immunity);
-  const qte = createFinaleQte();
   let phase: FinalePhase = 'loading', phaseTime = 0, time = 0, paused = false, assetsReady = false, error = '';
   let checkpoint: FinaleStart = start, failure = '', skipHold = 0, skipDown = false, ended = false;
-  const cues: FinaleCue[] = [], changes: FinalePhase[] = [], duelEvents: DuelEvent[] = [], qteEvents: QteEvent[] = [];
-  function clearInput() { duel.clearInput(); qte.clearInput(); skipHold = 0; skipDown = false; }
+  const cues: FinaleCue[] = [], changes: FinalePhase[] = [], duelEvents: DuelEvent[] = [];
+  function clearInput() { duel.clearInput(); skipHold = 0; skipDown = false; }
   function change(next: FinalePhase) {
     phase = next; phaseTime = 0; clearInput(); changes.push(next);
     if (next === 'ground' || next === 'space' || next === 'finisher') checkpoint = next;
@@ -65,7 +67,7 @@ export function createFinaleDirector(start: FinaleStart = 'reveal', immunity: {
     else if (phase === 'credits' && phaseTime >= FINALE_DURATION.credits) { ended = true; change('done'); }
   }
   return {
-    duel, qte, clearInput,
+    duel, clearInput,
     assetsLoaded() {
       if (phase !== 'loading') return;
       assetsReady = true; change(start === 'ground' ? 'versus' : start);
@@ -96,18 +98,11 @@ export function createFinaleDirector(start: FinaleStart = 'reveal', immunity: {
         else if (state.phase === 'finisher') change('finisher');
         else if (state.phase === 'lost') fail('Sudoers 5 breached the cockpit. Brondon was killed.');
       } else if (phase === 'finisher') {
-        qte.update(dt); qteEvents.push(...qte.drainEvents());
-        const result = qte.getState();
-        if (result.result === 'won') { duel.finish(true); change('victory'); }
-        else if (result.result === 'lost') {
-          duel.finish(false);
-          fail(result.failure === 'wrong-input' ? 'Three missed commands exposed the cockpit. Sudoers 5 killed Brondon.'
-            : 'Three missed timings broke the final link. Sudoers 5 killed Brondon.');
-        }
+        if (phaseTime + 1e-8 >= FINISHER_DURATION) { duel.finish(true); change('victory'); }
       } else tickCinematic(dt);
     },
     drainCues() { return cues.splice(0); }, drainChanges() { return changes.splice(0); },
-    drainDuelEvents() { return duelEvents.splice(0); }, drainQteEvents() { return qteEvents.splice(0); },
+    drainDuelEvents() { return duelEvents.splice(0); },
     getCheckpoint: (): FinaleCheckpoint => ({ stage: checkpoint, weaponsEquipped: duel.getState().weaponsEquipped,
       ...(duel.getState().bossImmunityUsed ? { bossImmunityUsed: true } : {}) }),
     getState: () => ({ phase, phaseTime, time, paused, assetsReady, error, failure, skipHold, ended }),

@@ -9,7 +9,8 @@ import fireFragmentShader from '../../shaders/fireExplosion.frag.glsl?raw';
 
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 
-export function createFinaleAftermath(scene: THREE.Scene, boy: THREE.Group, forestReady: Promise<void>, reducedMotion: boolean) {
+export function createFinaleAftermath(scene: THREE.Scene, boy: THREE.Group, forestReady: Promise<void>, reducedMotion: boolean,
+  boyAnimations: () => readonly THREE.AnimationClip[]) {
   const root = new THREE.Group(); root.name = 'PlanetCollapseAftermath'; scene.add(root);
   const forest = new THREE.Group(); forest.name = 'BurningRescueClearing'; root.add(forest);
   const cockpit = new THREE.Group(); cockpit.name = 'PrimeFrameCockpitInterior'; root.add(cockpit);
@@ -113,16 +114,40 @@ export function createFinaleAftermath(scene: THREE.Scene, boy: THREE.Group, fore
   const headWorld = new THREE.Quaternion(), headParent = new THREE.Quaternion(), headTilt = new THREE.Quaternion();
   const pilot = new THREE.Group(); pilot.name = 'BrondonCockpitPilot'; cockpit.add(pilot);
   const cockpitMaterials = new Map<THREE.Material, { opacity: number; depthWrite: boolean }>();
-  const boyBones: Array<{ bone: THREE.Object3D; rest: THREE.Quaternion }> = [];
+  let boyMixer: THREE.AnimationMixer | null = null;
+  let boyIdle: THREE.AnimationAction | null = null, boyKneel: THREE.AnimationAction | null = null, boyDeath: THREE.AnimationAction | null = null;
+  let deathEntry = 0;
   let boyHead: THREE.Object3D | null = null;
   const ready = Promise.all([forestReady, loadPlayerModel()]).then(([, asset]) => {
     pilotResources = captureFinaleResources(asset.scene);
     if (disposed) { pilotResources.dispose(); return; }
     boyHead = boy.getObjectByName('Head') ?? null;
     if (!boyHead) throw new Error('The final surface transmission requires Brendan and his DonfromStreets.glb head bone');
+    const clips = boyAnimations();
+    const idle = clips.find(clip => clip.name === 'Idle_Loop');
+    const kneel = clips.find(clip => clip.name === 'Fixing_Kneeling');
+    const death = clips.find(clip => clip.name === 'Death01');
+    const hips = boy.getObjectByName('pelvis');
+    if (!idle || !kneel || !death || !hips) throw new Error('Brendan needs his authored idle, kneeling and death clips and pelvis bone');
+    boyMixer = new THREE.AnimationMixer(boy);
+    boyIdle = boyMixer.clipAction(idle).play(); boyKneel = boyMixer.clipAction(kneel).play(); boyDeath = boyMixer.clipAction(death).play();
+    for (const action of [boyIdle, boyKneel, boyDeath]) {
+      action.setLoop(THREE.LoopOnce, 1); action.clampWhenFinished = true; action.paused = true;
+    }
+    boyIdle.setEffectiveWeight(0); boyKneel.setEffectiveWeight(1); boyDeath.setEffectiveWeight(0);
+    boyKneel.time = kneel.duration * 0.42; boyMixer.update(0); boy.updateMatrixWorld(true);
+    const kneelingHeight = hips.getWorldPosition(new THREE.Vector3()).y;
+    boyKneel.setEffectiveWeight(0); boyDeath.setEffectiveWeight(1);
+    // Omit the standing anticipation when blending from the authored kneel into the authored fall.
+    for (let frame = 0; frame <= 90; frame++) {
+      deathEntry = frame / 90 * death.duration;
+      boyDeath.time = deathEntry; boyMixer.update(0); boy.updateMatrixWorld(true);
+      if (hips.getWorldPosition(new THREE.Vector3()).y <= kneelingHeight) break;
+    }
+    boyDeath.setEffectiveWeight(0); boyKneel.setEffectiveWeight(0); boyIdle.setEffectiveWeight(1);
+    boyIdle.time = 0; boyMixer.update(0); boy.updateMatrixWorld(true);
     const scorchedMaterials = new Set<THREE.Material>();
     boy.traverse(node => {
-      if (node instanceof THREE.Bone) boyBones.push({ bone: node, rest: node.quaternion.clone() });
       if (!(node instanceof THREE.Mesh)) return;
       if (node.name === 'Plane' && !(node instanceof THREE.SkinnedMesh)) { node.visible = false; return; }
       for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
@@ -175,18 +200,16 @@ export function createFinaleAftermath(scene: THREE.Scene, boy: THREE.Group, fore
       headFire.visible = state.forest && phaseTime >= PLANET_RUPTURE.scorch - 0.25;
       if (state.forest) {
         burnUniforms.uBurn.value = state.burn; burnUniforms.uScorchTime.value = time;
-        const collapse = cinematicProgress(phaseTime, PLANET_RUPTURE.scorch + 0.7, PLANET_RUPTURE.forestEnd - 1);
-        boy.rotation.z = -collapse * 1.48; boy.position.y = collapse * 0.16;
-        for (const { bone, rest } of boyBones) {
-          bone.quaternion.copy(rest);
-          if (bone.name === 'Head') bone.rotateX(0.12 + collapse * 0.2);
-          if (bone.name === 'spine_01') bone.rotateZ(collapse * 0.22);
-          if (bone.name === 'upperarm_l') bone.rotateZ(-collapse * 0.32);
-          if (bone.name === 'upperarm_r') bone.rotateZ(collapse * 0.24);
-          if (bone.name === 'thigh_l') bone.rotateX(-collapse * 0.35);
-          if (bone.name === 'calf_l') bone.rotateX(collapse * 0.65);
-          if (bone.name === 'thigh_r') bone.rotateX(collapse * 0.2);
-          if (bone.name === 'calf_r') bone.rotateX(collapse * 0.32);
+        if (boyMixer && boyIdle && boyKneel && boyDeath) {
+          const deathStart = PLANET_RUPTURE.scorch + 0.25;
+          const falling = cinematicProgress(phaseTime, deathStart, deathStart + 0.3);
+          boyIdle.setEffectiveWeight(1 - state.kneel);
+          boyKneel.setEffectiveWeight(state.kneel * (1 - falling)); boyDeath.setEffectiveWeight(falling);
+          boyIdle.time = Math.max(0, phaseTime - PLANET_RUPTURE.forest) % boyIdle.getClip().duration;
+          boyKneel.time = state.kneel * boyKneel.getClip().duration * 0.42;
+          const fall = THREE.MathUtils.clamp((phaseTime - deathStart) / (PLANET_RUPTURE.forestEnd - 0.55 - deathStart), 0, 1);
+          boyDeath.time = THREE.MathUtils.lerp(deathEntry, boyDeath.getClip().duration, fall);
+          boyMixer.update(0); boy.updateMatrixWorld(true);
         }
         fireUniforms.uTime.value = reducedMotion ? 0 : time;
         fireUniforms.uPower.value = 0.3 + state.burn * 0.7;
@@ -254,6 +277,7 @@ export function createFinaleAftermath(scene: THREE.Scene, boy: THREE.Group, fore
       headFire.removeFromParent(); headFire.geometry.dispose(); headFire.material.dispose();
       pilotMixer?.stopAllAction();
       if (pilotMixer && pilotModel) pilotMixer.uncacheRoot(pilotModel);
+      boyMixer?.stopAllAction(); boyMixer?.uncacheRoot(boy);
       pilotResources?.dispose(); root.removeFromParent(); disposeRoom(root);
     },
   };

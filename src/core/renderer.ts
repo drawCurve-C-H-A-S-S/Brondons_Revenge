@@ -4,7 +4,8 @@ import { prepareComicEffects } from '../helpers/scene/comicEffects.js';
 import { yieldToMainThread } from './loader.js';
 
 /** Upload textures and run the first shadow/render programs without advancing the story. */
-export async function prepareSceneRendering(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) {
+export async function prepareSceneRendering(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera,
+  { fogVariants = true }: { fogVariants?: boolean } = {}) {
   await prepareComicEffects(scene, renderer);
   const textures = new Set<THREE.Texture>();
   const visibility = new Map<THREE.Object3D, boolean>(), culling = new Map<THREE.Object3D, boolean>();
@@ -60,7 +61,7 @@ export async function prepareSceneRendering(renderer: THREE.WebGLRenderer, scene
     await renderer.compileAsync(scene, camera);
     renderer.setRenderTarget(target); renderer.setScissorTest(false);
     renderer.render(scene, camera);
-    if (fog) {
+    if (fog && fogVariants) {
       scene.fog = null;
       await renderer.compileAsync(scene, camera);
       renderer.render(scene, camera);

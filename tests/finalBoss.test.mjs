@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'vite';
 import * as THREE from 'three';
 
-let server, createMechDuel, createFinaleQte, FINISHER_BEATS, createFinaleDirector, DUEL, choreography, createMechAnimator, FINALE_DURATION;
+let server, createMechDuel, FINISHER_BEATS, createFinaleDirector, DUEL, choreography, createMechAnimator, FINALE_DURATION;
 let createIndustrialSkin, createBeamMaterial, SLASH_MARK_LIFETIME, FRAME_COLORS;
 let createBladeTrail;
 
@@ -14,9 +14,10 @@ before(async () => {
     appType: 'custom',
     optimizeDeps: { noDiscovery: true, include: [] },
   });
-  ({ createMechDuel, createFinaleQte, FINISHER_BEATS, DUEL } = await server.ssrLoadModule('/scripts/mechDuel.ts'));
+  ({ createMechDuel, DUEL } = await server.ssrLoadModule('/scripts/mechDuel.ts'));
   ({ createFinaleDirector, FINALE_DURATION } = await server.ssrLoadModule('/scripts/finaleDirector.ts'));
   choreography = await server.ssrLoadModule('/scripts/finaleChoreography.ts');
+  FINISHER_BEATS = choreography.FINISHER_BEATS;
   ({ createMechAnimator } = await server.ssrLoadModule('/scripts/mechAnimation.ts'));
   ({ createIndustrialSkin, createBeamMaterial, SLASH_MARK_LIFETIME, FRAME_COLORS } = await server.ssrLoadModule('/helpers/scene/finaleMaterials.ts'));
   ({ createBladeTrail } = await server.ssrLoadModule('/helpers/scene/finaleEffects.ts'));
@@ -39,18 +40,6 @@ function waitForEnemyAttack(duel, attack) {
     if (duel.enemy.move === attack) return;
   }
   assert.fail(`Sudoers 5 did not start ${attack}`);
-}
-
-function enterFinisherInput(qte, update, beat, miss = false) {
-  const at = beat.mode === 'tap' ? choreography.finisherActionTime(beat) : beat.lead + 0.04;
-  advance(update, at - qte.getState().clock);
-  const key = miss ? beat.key === 'KeyF' ? 'KeyJ' : 'KeyF' : beat.key;
-  qte.press(key);
-  if (!miss && beat.mode === 'hold') advance(update, beat.hold + 0.001);
-  qte.release(key);
-  if (!miss && beat.mode === 'mash') for (let i = 1; i < beat.presses; i++) {
-    advance(update, 0.14); qte.press(key); qte.release(key);
-  }
 }
 
 test('sword combat resolves the same hits at 30 and 60 updates per second', () => {
@@ -93,54 +82,43 @@ test('the held shield drains, breaks, and recharges after release', () => {
   assert.equal(DUEL.shieldMax, 100);
 });
 
-test('a wrong QTE input records one miss without stopping the cinematic', () => {
-  const qte = createFinaleQte();
-  advance(dt => qte.update(dt), FINISHER_BEATS[0].lead + 0.05);
-  assert.equal(qte.getState().armed, true);
-  assert.equal(qte.press('KeyF'), false);
-  assert.equal(qte.getState().result, 'active');
-  assert.equal(qte.getState().misses, 1);
-  assert.equal(qte.getState().judgement, 'miss');
-  const clock = qte.getState().clock;
-  qte.update(0.1);
-  assert.ok(qte.getState().clock > clock);
-  assert.equal(qte.press('KeyF'), false);
-  assert.equal(qte.getState().misses, 1);
+test('combat inputs cannot stop, redirect or fail the continuous finisher', () => {
+  const director = createFinaleDirector('finisher'); director.assetsLoaded();
+  advance(dt => director.update(dt), 0.7);
+  for (const action of ['slash', 'missiles', 'dash', 'overdrive', 'toggleWeapons']) {
+    assert.equal(director.duel.act(action), false);
+  }
+  director.update(0.1);
+  assert.ok(Math.abs(director.getState().phaseTime - 0.8) < 1e-8);
+  assert.equal(director.getState().phase, 'finisher');
+  assert.equal(director.getState().failure, '');
+  assert.equal('qte' in director, false);
 });
 
-test('the complete finisher QTE reaches the victory branch', () => {
+test('the complete finisher reaches victory without a single input', () => {
   const director = createFinaleDirector('finisher');
   director.assetsLoaded();
 
   for (const beat of FINISHER_BEATS) {
     assert.equal(director.getState().phase, 'finisher');
-    enterFinisherInput(director.qte, dt => director.update(dt), beat);
-    assert.equal(director.qte.getState().armed, true, `${beat.id} should arm before input`);
-    assert.equal(director.qte.getState().stars, 3);
-    advance(dt => director.update(dt), choreography.finisherBeatDuration(beat) - director.qte.getState().clock + 0.001);
+    advance(dt => director.update(dt), choreography.finisherBeatDuration(beat));
   }
 
   assert.equal(director.getState().phase, 'victory');
   assert.equal(director.duel.getState().phase, 'won');
-  assert.equal(director.qte.getState().totalStars, FINISHER_BEATS.length * 3);
+  assert.equal(director.getState().failure, '');
 });
 
-test('the third missed QTE transitions to the game-over branch, not the first', () => {
+test('only an intentional pause freezes the finisher clock', () => {
   const director = createFinaleDirector('finisher');
   director.assetsLoaded();
-  for (const beat of FINISHER_BEATS.slice(0, 3)) {
-    advance(dt => director.update(dt), beat.lead + 0.05 - director.qte.getState().clock);
-    director.qte.press(beat.key === 'KeyF' ? 'KeyJ' : 'KeyF');
-    if (director.qte.getState().misses < 3) {
-      assert.equal(director.getState().phase, 'finisher');
-      advance(dt => director.update(dt), choreography.finisherBeatDuration(beat) - director.qte.getState().clock + 0.001);
-    }
-  }
-  director.update(1 / 60);
-
-  assert.equal(director.getState().phase, 'defeat');
-  assert.match(director.getState().failure, /Three missed commands.*Sudoers 5/);
-  assert.equal(director.qte.getState().misses, 3);
+  advance(dt => director.update(dt), 1.2);
+  director.pause(true);
+  advance(dt => director.update(dt), 10);
+  assert.ok(Math.abs(director.getState().phaseTime - 1.2) < 1e-8);
+  director.pause(false);
+  advance(dt => director.update(dt), choreography.FINISHER_DURATION - 1.2);
+  assert.equal(director.getState().phase, 'victory');
 });
 
 test('scene 16 enters the merged approach, then the facility interior and finale', async () => {
@@ -166,7 +144,7 @@ test('scene 16 enters the merged approach, then the facility interior and finale
 test('the finale reuses the facility roof and assigns guarding to R', async () => {
   const boss = await readFile(new URL('../src/scenes/level 3/scene21.ts', import.meta.url), 'utf8');
 
-  assert.match(boss, /createRescueSite\(physics, \{ culling: true,[\s\S]*facilityFootprint: \{ width: FINALE_ROOFTOP\.width, depth: FINALE_ROOFTOP\.depth - 1 \}/);
+  assert.match(boss, /const site = createFinaleSite\(\)/);
   assert.match(boss, /site\.disintegrateTrees/);
   assert.match(boss, /guard: keys\.has\('KeyR'\)/);
   assert.doesNotMatch(boss, /getCockpitPoint/);
@@ -226,7 +204,7 @@ test('rifle rounds wait for the shoulder draw and allow the return animation', (
   assert.equal(sampleRifleSequence(RIFLE_SEQUENCE.swordReady).swordReturn, 1);
 });
 
-test('the finisher animates sword-beam dodges and a mash D blade lock on a fixed clock', () => {
+test('the finisher stages evasion, parry and a blade lock without input windows', () => {
   const { sampleFinisher } = choreography;
   const dodge = FINISHER_BEATS.find(beat => beat.shot === 'evade');
   const prompt = sampleFinisher(dodge, 0);
@@ -236,12 +214,12 @@ test('the finisher animates sword-beam dodges and a mash D blade lock on a fixed
   assert.ok(dodging.hero[2] > prompt.hero[2] + 5);
   assert.ok(dodging.heroRoll < 0 && Math.abs(dodging.heroRoll) <= 0.16, 'Evasion has controlled banking, not a whole-body tumble');
   const clash = FINISHER_BEATS.find(beat => beat.shot === 'clash');
-  assert.equal(clash.key, 'KeyD');
-  assert.equal(clash.mode, 'mash');
-  assert.equal(FINISHER_BEATS.find(beat => beat.shot === 'reactor').mode, 'hold');
-  assert.equal(sampleFinisher(clash, 0).heroPose, 'clash');
+  assert.equal(sampleFinisher(clash, clash.action).bladeLock, 1);
+  const parry = FINISHER_BEATS.find(beat => beat.shot === 'parry');
+  assert.equal(sampleFinisher(parry, parry.action).bladeLock, 1);
+  assert.ok(FINISHER_BEATS.every(beat => !('key' in beat) && !('window' in beat)));
   assert.equal(sampleFinisher(clash, choreography.finisherBeatDuration(clash)).enemyPose, 'stagger');
-  assert.ok(FINISHER_BEATS.some(beat => beat.key === 'KeyF' && beat.shot === 'countershot'));
+  assert.ok(FINISHER_BEATS.some(beat => beat.shot === 'countershot'));
 });
 
 test('custom mech clips do not rotate hips, legs, knees, or feet', () => {
@@ -262,10 +240,10 @@ test('custom mech clips do not rotate hips, legs, knees, or feet', () => {
   } finally { animator.dispose(); }
 });
 
-test('QTE rifle damage advances through one recoil rather than rapidly reversing the sampled hit pose', () => {
+test('cinematic rifle damage advances through one recoil rather than reversing the hit pose', () => {
   const beat = FINISHER_BEATS.find(beat => beat.shot === 'countershot');
   let previous = 0;
-  for (let time = choreography.RIFLE_SEQUENCE.fire + 0.4; time <= choreography.RIFLE_SEQUENCE.lastShot + 0.65; time += 1 / 60) {
+  for (let time = choreography.FINISHER_RIFLE.fire + 0.22; time <= beat.duration; time += 1 / 60) {
     const pose = choreography.sampleFinisher(beat, time);
     assert.ok(pose.enemyPoseProgress >= previous, 'Recoil time cannot scrub back to the start of the damage clip');
     assert.ok(Math.abs(pose.enemyRoll) <= 0.06);
@@ -283,7 +261,7 @@ test('the world has no generated mech pads and the ship flight is wired into Sce
   assert.doesNotMatch(world, /MechPoweredRooftopStage|OrbitalFacilityWreckage/);
   assert.match(world, /EarthRockDebris/);
   assert.match(world, /CeilingSpotlight/);
-  assert.match(scene, /releasePropCulling\(site\.ship\.root\)/);
+  assert.match(scene, /createFinaleSite\(\)/);
   assert.match(scene, /shipTransform\.update\(state\.phase, state\.phaseTime\)/);
   assert.match(scene, /terrestrial\.visible = !inSpace/);
   assert.match(mechs, /fitWeaponToHand\(swordGripSocket, swordBone, 0\)/);
@@ -538,55 +516,41 @@ test('damage engravings stay in mech-local armor coordinates and fade in 1.65 se
   } finally { skin.dispose(); }
 });
 
-test('closing-ring timing awards one, two and three stars without advancing the shot', () => {
-  for (const [offset, expected] of [[-0.45, 1], [-0.2, 2], [0, 3]]) {
-    const qte = createFinaleQte(), beat = FINISHER_BEATS[0];
-    advance(dt => qte.update(dt), choreography.finisherActionTime(beat) + offset);
-    const before = qte.getState();
-    assert.equal(qte.press(beat.key), true);
-    assert.equal(qte.getState().stars, expected);
-    assert.equal(qte.getState().clock, before.clock);
-    assert.equal(qte.getState().index, before.index);
-    assert.equal(qte.getState().result, 'active');
-    assert.ok(Math.abs(qte.getState().ringScale - (1 - offset / beat.window * 1.6)) < 1e-8);
+test('every finisher action belongs to an explicit, bounded shot duration', () => {
+  for (const beat of FINISHER_BEATS) {
+    assert.ok(beat.action > 0 && beat.action < beat.duration, beat.id);
+    assert.equal(choreography.finisherActionTime(beat), beat.action);
+    assert.equal(choreography.finisherBeatDuration(beat), beat.duration);
   }
+  assert.ok(choreography.FINISHER_DURATION > 28 && choreography.FINISHER_DURATION < 30);
 });
 
-test('two misses and perfect inputs produce identical continuous cinematics and can both win', () => {
-  const perfect = createFinaleQte(), recoverable = createFinaleQte();
-  for (let frame = 0; frame < 4000 && perfect.getState().result === 'active'; frame++) {
-    const state = perfect.getState();
-    const inputDue = state.beat.mode === 'tap' ? state.clock >= choreography.finisherActionTime(state.beat)
-      : state.armed && (state.beat.mode === 'hold' || frame % 8 === 0);
-    if (!state.judged && inputDue) {
-      perfect.press(state.beat.key);
-      const key = state.index < 2 ? state.beat.key === 'KeyF' ? 'KeyJ' : 'KeyF' : state.beat.key;
-      recoverable.press(key);
-      if (state.beat.mode !== 'hold') { perfect.release(state.beat.key); recoverable.release(key); }
+test('mashing combat buttons and doing nothing produce the same film and victory', () => {
+  const watching = createFinaleDirector('finisher'), mashing = createFinaleDirector('finisher');
+  watching.assetsLoaded(); mashing.assetsLoaded();
+  for (let frame = 0; frame < 2000 && watching.getState().phase === 'finisher'; frame++) {
+    mashing.duel.act(frame % 2 ? 'slash' : 'dash');
+    watching.update(1 / 60); mashing.update(1 / 60);
+    const a = watching.getState(), b = mashing.getState();
+    assert.equal(a.phase, b.phase); assert.equal(a.phaseTime, b.phaseTime);
+    if (a.phase === 'finisher') {
+      assert.deepEqual(choreography.sampleFinisherSequence(a.phaseTime), choreography.sampleFinisherSequence(b.phaseTime));
     }
-    perfect.update(1 / 60); recoverable.update(1 / 60);
-    const a = perfect.getState(), b = recoverable.getState();
-    assert.equal(a.index, b.index); assert.equal(a.clock, b.clock);
-    assert.deepEqual(choreography.sampleFinisher(a.beat, a.clock), choreography.sampleFinisher(b.beat, b.clock));
   }
-  assert.equal(perfect.getState().result, 'won');
-  assert.equal(recoverable.getState().result, 'won');
-  assert.equal(recoverable.getState().misses, 2);
+  assert.equal(watching.getState().phase, 'victory');
+  assert.equal(mashing.getState().phase, 'victory');
 });
 
-test('a third wrong command can kill at every later finisher beat', () => {
-  for (let failureAt = 2; failureAt < FINISHER_BEATS.length; failureAt++) {
+test('all finisher shots remain protected from gameplay attacks', () => {
+  for (const shot of choreography.FINISHER_TIMELINE) {
     const director = createFinaleDirector('finisher'); director.assetsLoaded();
-    for (let index = 0; index <= failureAt; index++) {
-      const beat = FINISHER_BEATS[index];
-      const miss = index < 2 || index === failureAt;
-      enterFinisherInput(director.qte, dt => director.update(dt), beat, miss);
-      if (index === failureAt) director.update(1 / 60);
-      else advance(dt => director.update(dt), choreography.finisherBeatDuration(beat) - director.qte.getState().clock + 0.001);
+    advance(dt => director.update(dt), shot.start + 0.1);
+    for (let press = 0; press < 20; press++) {
+      assert.equal(director.duel.act('missiles'), false);
+      director.clearInput();
     }
-    assert.equal(director.getState().phase, 'defeat', FINISHER_BEATS[failureAt].id);
-    assert.equal(director.qte.getState().misses, 3);
-    assert.equal(director.qte.getState().index, failureAt);
+    assert.equal(director.getState().phase, 'finisher', shot.beat.id);
+    assert.equal(director.getState().failure, '');
     assert.equal(director.getCheckpoint().stage, 'finisher');
   }
 });
@@ -715,7 +679,7 @@ test('epilogue uses the opening mothership, native mech dance, shared comic BOOM
   ]);
   assert.match(opening, /createMothership\(loadShip\)/); assert.match(finale, /createMothership\(\)/);
   assert.match(mechs, /move === 'dance'.*find\('Dance_Loop'\)/);
-  assert.match(finale, /phaseTime >= DONUS_RETURN\.appear \? 'dance'/);
+  assert.match(finale, /phaseTime >= DONUS_RETURN\.dance && phaseTime < DONUS_RETURN\.appear/);
   assert.equal(FINALE_DURATION.credits, 90);
   assert.match(presentation, /\/ FINALE_DURATION\.credits/);
   assert.match(finale, /phase === 'done' \? FINALE_DURATION\.credits/);
@@ -742,58 +706,35 @@ test('developer credits entry starts at the real roll, pauses, and completes wit
   advance(dt => director.update(dt), 0.2);
   assert.equal(director.getState().phase, 'done');
   assert.equal(director.getState().ended, true);
-  assert.deepEqual(director.drainQteEvents(), []);
   assert.deepEqual(director.drainDuelEvents(), []);
 });
 
-test('D needs distinct mash presses and E needs an uninterrupted hold without freezing the scene', () => {
+test('the blade lock and charge animate without waiting for mash or hold inputs', () => {
   for (const shot of ['clash', 'reactor']) {
-    const qte = createFinaleQte();
-    for (const beat of FINISHER_BEATS) {
-      if (beat.shot === shot) break;
-      enterFinisherInput(qte, dt => qte.update(dt), beat);
-      advance(dt => qte.update(dt), choreography.finisherBeatDuration(beat) - qte.getState().clock + 0.001);
-    }
-    const beat = qte.getState().beat;
-    advance(dt => qte.update(dt), beat.lead + 0.01 - qte.getState().clock);
-    const before = qte.getState().clock;
-    qte.press(beat.key);
-    if (shot === 'clash') {
-      for (let i = 0; i < 20; i++) qte.press(beat.key, true);
-      assert.equal(qte.getState().presses, 1);
-      assert.equal(qte.getState().judged, false);
-      qte.release(beat.key);
-      for (let i = 1; i < beat.presses; i++) {
-        advance(dt => qte.update(dt), 0.14); qte.press(beat.key); qte.release(beat.key);
-      }
-    } else {
-      advance(dt => qte.update(dt), 0.15);
-      assert.ok(qte.getState().inputProgress > 0);
-      qte.release(beat.key); qte.update(0.02);
-      assert.equal(qte.getState().inputProgress, 0);
-      qte.press(beat.key); advance(dt => qte.update(dt), beat.hold + 0.01);
-    }
-    assert.equal(qte.getState().judgement, 'success');
-    assert.ok(qte.getState().stars >= 2);
-    assert.ok(qte.getState().clock > before);
-    assert.ok(qte.getState().clock < choreography.finisherBeatDuration(beat));
-    assert.equal(qte.getState().inputProgress, 1);
+    const timing = choreography.FINISHER_TIMELINE.find(entry => entry.beat.shot === shot);
+    const director = createFinaleDirector('finisher'); director.assetsLoaded();
+    advance(dt => director.update(dt), timing.start + timing.beat.action - 0.25);
+    const before = director.getState().phaseTime;
+    advance(dt => director.update(dt), 0.5);
+    assert.ok(director.getState().phaseTime > before);
+    const sample = choreography.sampleFinisherSequence(director.getState().phaseTime);
+    assert.equal(sample.beat.shot, shot);
+    assert.ok(sample.progress > 0);
+    if (shot === 'reactor') assert.ok(sample.heroCharge > 0);
+    else assert.ok(sample.bladeLock > 0.9);
   }
 });
 
-test('three timeouts kill, while pause and key repeat cannot add misses', () => {
+test('leaving the controls untouched never creates a timeout or death', () => {
   const director = createFinaleDirector('finisher'); director.assetsLoaded();
-  const first = FINISHER_BEATS[0];
-  advance(dt => director.update(dt), first.lead + 0.1);
-  assert.equal(director.qte.press('KeyF', true), false);
-  assert.equal(director.qte.getState().misses, 0);
-  const before = director.qte.getState().clock;
+  advance(dt => director.update(dt), 0.8);
+  const before = director.getState().phaseTime;
   director.pause(true); advance(dt => director.update(dt), 5);
-  assert.equal(director.qte.getState().clock, before);
+  assert.equal(director.getState().phaseTime, before);
   director.pause(false);
-  advance(dt => director.update(dt), FINISHER_BEATS.slice(0, 3).reduce((sum, beat) => sum + choreography.finisherBeatDuration(beat), 0));
-  assert.equal(director.getState().phase, 'defeat');
-  assert.match(director.getState().failure, /Three missed timings/);
+  advance(dt => director.update(dt), choreography.FINISHER_DURATION - before);
+  assert.equal(director.getState().phase, 'victory');
+  assert.equal(director.getState().failure, '');
 });
 
 test('cinematic beat positions meet without snapping and the finisher teleports behind the enemy', () => {
@@ -837,20 +778,21 @@ test('developer Unlock no longer requires a password', async () => {
   assert.match(markup, /id="developer-unlock" type="submit">Unlock/);
 });
 
-test('original sword timings and authored special animations are retained instead of procedural replacements', async () => {
+test('authored UAL sword timings and cinematic clips are retained instead of procedural replacements', async () => {
   const { MELEE_STRIKES, RIFLE_SEQUENCE, HERO_ULTIMATE, ENEMY_VERDICT } = choreography;
-  assert.deepEqual(MELEE_STRIKES.slash, { duration: 1.04, start: 0.34, end: 0.62 });
-  assert.deepEqual(MELEE_STRIKES.sideSlash, { duration: 1.12, start: 0.25, end: 0.88 });
-  assert.deepEqual(MELEE_STRIKES.cleave, { duration: 1.4, start: 0.6, end: 0.94 });
+  assert.deepEqual(MELEE_STRIKES.slash, { duration: 1.533333, start: 0.34, end: 0.6 });
+  assert.deepEqual(MELEE_STRIKES.sideSlash, { duration: 1.4, start: 0.17, end: 0.35 });
+  assert.deepEqual(MELEE_STRIKES.cleave, { duration: 2, start: 0.54, end: 0.82 });
   assert.equal(RIFLE_SEQUENCE.swordReady, 4.25);
   assert.equal(HERO_ULTIMATE.duration, 2.95);
   assert.equal(ENEMY_VERDICT.duration, 3.15);
   const source = await readFile(new URL('../src/helpers/scene/finaleMechs.ts', import.meta.url), 'utf8');
-  assert.match(source, /const clip = nativeClip\(poseMove, airborne, time, !!jump\)/);
+  assert.match(source, /const clip = nativeClip\(poseMove, airborne, time, !!jump, custom\)/);
   assert.doesNotMatch(source, /custom \? undefined : nativeClip/);
-  assert.match(source, /move === 'overdrive'.*move === 'orbitalCut'.*find\('Sword_Attack'\)/);
-  assert.match(source, /move === 'skyCharge'.*move === 'verdict'.*find\('Spell_Simple_Idle_Loop'\)/);
-  assert.match(source, /isMeleeStrike\(move\) && move !== 'sideSlash'/);
+  assert.match(source, /isMeleeStrike\(move\)\) return find\(SWORD_ATTACK_CLIPS\[move\]\)/);
+  assert.match(source, /cinematic && \(move === 'skyCharge' \|\| move === 'reactor'\)\) return find\('Spell_Simple_Idle_Loop'\)/);
+  assert.match(source, /cinematic && \(move === 'evade' \|\| move === 'boost'\)\) return find\('Jump_Loop'\)/);
+  assert.match(source, /swordClipTime\(time, clip\.duration, MELEE_STRIKES\.cleave/);
 });
 
 test('boosts have no energy gate and can interrupt or chain without recharging', () => {
@@ -893,14 +835,15 @@ test('ground and orbital horizontal acceleration match, with smooth stops and re
   }
 });
 
-test('the cinematic clock retains fractional time and root velocity across prompt boundaries', () => {
-  const qte = createFinaleQte();
+test('the cinematic clock retains fractional time and root velocity across shot boundaries', () => {
+  const director = createFinaleDirector('finisher'); director.assetsLoaded();
   const firstEnd = choreography.finisherBeatDuration(FINISHER_BEATS[0]);
-  advance(dt => qte.update(dt), firstEnd + 0.027);
-  assert.equal(qte.getState().index, 1);
-  assert.ok(Math.abs(qte.getState().clock - 0.027) < 1e-8);
-  assert.ok(Math.abs(qte.getState().elapsed - firstEnd - 0.027) < 1e-8);
-  const epsilon = 0.0001;
+  advance(dt => director.update(dt), firstEnd + 0.027);
+  const sample = choreography.sampleFinisherSequence(director.getState().phaseTime);
+  assert.equal(sample.index, 1);
+  assert.ok(Math.abs(sample.clock - 0.027) < 1e-8);
+  assert.ok(Math.abs(director.getState().phaseTime - firstEnd - 0.027) < 1e-8);
+  const epsilon = 0.00001;
   for (const shot of choreography.FINISHER_TIMELINE.slice(1)) {
     const before = choreography.sampleFinisherSequence(shot.start - epsilon);
     const earlier = choreography.sampleFinisherSequence(shot.start - epsilon * 2);
@@ -1008,8 +951,8 @@ test('the burning boy and cockpit grief finish before the seamless orbital hando
     readFile(new URL('../src/scenes/level 3/scene21.ts', import.meta.url), 'utf8'),
     readFile(new URL('../src/helpers/scene/finaleAftermath.ts', import.meta.url), 'utf8'),
   ]);
-  assert.match(scene, /Noooooo! You killed Brendannnnn!/);
-  assert.match(scene, /There is no forgiving you now\. You will die\./);
+  assert.match(scene, /Nooooo, Brendan!!/);
+  assert.match(scene, /I will never forgive you\. You must die\./);
   assert.match(scene, /createFinaleAftermath\(scene, site\.boy, site\.ready/);
   assert.match(aftermath, /Sitting_Talking_Loop/);
   assert.match(aftermath, /uBurn/);

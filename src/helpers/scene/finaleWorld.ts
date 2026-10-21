@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { disposeRoom } from './shipRoom.js';
 import { createArmorTextures, createEnergyMaterial } from './finaleMaterials.js';
 import { SUDOERS_5 } from './finaleActors.js';
-import { PLANET_RUPTURE, activeStudent, samplePlanetBreaker } from '../../scripts/finaleChoreography.js';
+import { PLANET_RUPTURE, activeStudent, samplePlanetBreaker, samplePlanetSurface } from '../../scripts/finaleChoreography.js';
 import { createEarthTextures, createEarthGroup } from '../../scripts/earthTexture.js';
 import { createFacilityCoreCutaway, createPlanetBreakerCore } from './facilityCore.js';
 
@@ -135,18 +135,31 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
   const planetRoot = createEarthGroup(root, PLANET_CENTER, PLANET_RADIUS, createEarthTextures());
   planetRoot.name = 'Earth';
   const planet = planetRoot.surface, planetMaterial = planet.material;
-  const planetUniforms = { uRupture: { value: 0 }, uTime: { value: 0 } };
+  const planetUniforms = { uRupture: { value: 0 }, uTime: { value: 0 }, uCrustDissolve: { value: 0 } };
   planetMaterial.onBeforeCompile = shader => {
     Object.assign(shader.uniforms, planetUniforms);
-    shader.vertexShader = 'varying vec2 vPlanetUv;\n' + shader.vertexShader
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPlanetUv = uv;');
-    shader.fragmentShader = 'varying vec2 vPlanetUv; uniform float uRupture; uniform float uTime;\n' + shader.fragmentShader;
+    shader.vertexShader = 'varying vec2 vPlanetUv; varying vec3 vPlanetP;\n' + shader.vertexShader
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPlanetUv = uv; vPlanetP = normalize(position);');
+    shader.fragmentShader = `varying vec2 vPlanetUv; varying vec3 vPlanetP;
+      uniform float uRupture; uniform float uTime; uniform float uCrustDissolve;
+      float crustHash(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.yzx + 33.33); return fract((p.x + p.y) * p.z); }
+      float crustNoise(vec3 p) {
+        vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(mix(crustHash(i), crustHash(i + vec3(1,0,0)), f.x),
+          mix(crustHash(i + vec3(0,1,0)), crustHash(i + vec3(1,1,0)), f.x), f.y),
+          mix(mix(crustHash(i + vec3(0,0,1)), crustHash(i + vec3(1,0,1)), f.x),
+          mix(crustHash(i + vec3(0,1,1)), crustHash(i + vec3(1,1,1)), f.x), f.y), f.z);
+      }\n` + shader.fragmentShader;
+    shader.fragmentShader = shader.fragmentShader.replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+      float crust = crustNoise(vPlanetP * 22.0) * 0.7 + crustNoise(vPlanetP * 57.0) * 0.3;
+      if (uCrustDissolve > 0.0 && crust < uCrustDissolve) discard;`);
     shader.fragmentShader = shader.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
       vec2 grid = abs(fract(vPlanetUv * vec2(35.0, 19.0) + sin(vPlanetUv.yx * 29.0) * 0.32) - 0.5);
       float crack = smoothstep(0.455, 0.49, max(grid.x, grid.y));
-      totalEmissiveRadiance += vec3(1.0, 0.17, 0.025) * crack * uRupture * (2.0 + sin(uTime * 8.0) * 0.25);`);
+      float meltingEdge = (1.0 - smoothstep(0.0, 0.07, crust - uCrustDissolve)) * step(0.001, uCrustDissolve);
+      totalEmissiveRadiance += vec3(1.0, 0.17, 0.025) * (crack * uRupture + meltingEdge) * (2.0 + sin(uTime * 8.0) * 0.25);`);
   };
-  planetMaterial.customProgramCacheKey = () => 'finale-earth-fracture-v3';
+  planetMaterial.customProgramCacheKey = () => 'finale-earth-melting-crust-v4';
   const fireMaterial = new THREE.ShaderMaterial({
     uniforms: { uTime: { value: 0 }, uRupture: { value: 0 } },
     vertexShader: `varying vec2 vUv; varying vec3 vNormal; varying vec3 vView;
@@ -164,10 +177,11 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
         float rim = pow(1.0 - abs(dot(normalize(vNormal), normalize(vView))), 2.0);
         vec3 color = mix(vec3(0.48, 0.025, 0.008), vec3(1.65, 0.3, 0.025), filaments);
         color = mix(color, vec3(2.4, 1.05, 0.24), smoothstep(0.7, 1.0, filaments + rim * 0.25));
-        gl_FragColor = vec4(color, uRupture * (0.25 + filaments * 0.58 + rim * 0.22)); }`,
-    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
+        gl_FragColor = vec4(color * (0.8 + uRupture * 0.4), 1.0); }`,
+    depthWrite: true, side: THREE.FrontSide, toneMapped: false,
   });
-  const fire = new THREE.Mesh(new THREE.SphereGeometry(PLANET_RADIUS * 0.94, 56, 36), fireMaterial);
+  const fire = new THREE.Mesh(new THREE.SphereGeometry(PLANET_RADIUS * 0.996, 56, 36), fireMaterial);
+  fire.name = 'EarthBurningSurface';
   fire.visible = false;
   planetRoot.add(fire);
   const shockwaves = Array.from({ length: 3 }, (_, index) => {
@@ -352,18 +366,20 @@ export function createFinaleWorld(scene: THREE.Scene, { facilityRoof }: { facili
       starsMaterial.opacity = forestView ? 0 : space ? 0.95 : Math.max(night * 0.48, smooth(ruptureTime, PLANET_RUPTURE.escape, PLANET_RUPTURE.wide + 1));
       planetUniforms.uRupture.value = rupture;
       planetUniforms.uTime.value = time;
-      planet.visible = rupture < 0.36;
+      const surface = samplePlanetSurface(space ? PLANET_RUPTURE.forest : ruptureTime);
+      planetUniforms.uCrustDissolve.value = surface.dissolve;
+      planet.visible = surface.crustVisible && !space;
       planetRoot.clouds.visible = planetRoot.haze.visible = planetRoot.atmosphere.visible = planet.visible;
       planetRoot.clouds.rotation.y = time * 0.004;
-      planetRoot.clouds.material.opacity = 0.95 * (1 - rupture);
-      planetRoot.haze.material.opacity = 0.09 * (1 - rupture);
-      planetRoot.atmosphere.material.uniforms.uOpacity.value = 1 - rupture;
-      fire.visible = !space && rupture >= 0.04;
-      fireMaterial.uniforms.uRupture.value = smooth(rupture, 0.04, 0.18);
+      planetRoot.clouds.material.opacity = 0.95 * (1 - surface.dissolve);
+      planetRoot.haze.material.opacity = 0.09 * (1 - surface.dissolve);
+      planetRoot.atmosphere.material.uniforms.uOpacity.value = 1 - surface.dissolve;
+      fire.visible = !space && surface.fireVisible;
+      fireMaterial.uniforms.uRupture.value = surface.dissolve;
       fireMaterial.uniforms.uTime.value = time;
       fire.scale.setScalar(1 + smooth(rupture, 0.4, 0.8) * 0.16);
       fragments.forEach((fragment, i) => {
-        fragment.mesh.visible = rupture >= 0.08 && !space;
+        fragment.mesh.visible = rupture >= 0.08 && surface.crustVisible && !space;
         fragment.mesh.position.copy(fragment.direction).multiplyScalar(smooth(rupture, 0.08, 1) * (280 + random(i) * 240));
         fragment.mesh.rotation.set(rupture * Math.sin(i) * 0.35, rupture * Math.cos(i) * 0.35, rupture * Math.sin(i * 3) * 0.35);
       });

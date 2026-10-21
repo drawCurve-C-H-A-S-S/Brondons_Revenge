@@ -26,7 +26,7 @@ export function createFinaleRenderer(renderer: THREE.WebGLRenderer, scene: THREE
       composer.render(0);
     },
     async prepare() {
-      await prepareSceneRendering(renderer, scene, camera);
+      await prepareSceneRendering(renderer, scene, camera, { fogVariants: false });
       composer.render(0);
     },
     dispose() {

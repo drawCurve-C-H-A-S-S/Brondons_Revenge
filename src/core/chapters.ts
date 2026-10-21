@@ -1,6 +1,6 @@
-const artwork = import.meta.glob<string>('../assets/loading/*.jpg', { eager: true, query: '?url', import: 'default' });
+const artwork = import.meta.glob<string>('../assets/loading/*.{jpg,png}', { eager: true, query: '?url', import: 'default' });
 function image(name: string) {
-  const url = artwork[`../assets/loading/${name}.jpg`];
+  const url = artwork[`../assets/loading/${name}.jpg`] ?? artwork[`../assets/loading/${name}.png`];
   if (!url) throw new Error(`Missing chapter screenshot: ${name}`);
   return url;
 }
@@ -106,11 +106,15 @@ export const LOADING_CHAPTERS = {
       'After powering the stairs, approach the glass office door and press E to peek.'],
   },
   finale: {
-    chapter: 'LEVEL 3 / FINAL BOSS', title: 'SUDOERS 5 / THE LAST LIGHT', images: [image('finale-rooftop'), image('finale-orbit')],
+    chapter: 'LEVEL 3 / FINAL BOSS', title: 'SUDOERS 5 / THE LAST LIGHT', images: [image('finale-chairs')],
     tips: ['Hold R to block. Raise your shield just before impact to reflect an attack.',
       'Move toward your opponent and press Space to step over and switch sides.',
       'E unleashes a flying sword slash. Give the ultimate time to recharge.',
-      'Watch the closing QTE ring. Mash D or hold E when the prompt calls for it.'],
+      'The final execution is a continuous cinematic. No timed button inputs are required.'],
+  },
+  trailer: {
+    chapter: 'TRAILER / FIVE CHAIRS', title: 'FIVE MINDS. ONE HORIZON.', images: [image('finale-chairs')],
+    tips: ['The trailer plays automatically and returns to the developer scene menu.'],
   },
 } as const;
 export type LoadingChapterId = keyof typeof LOADING_CHAPTERS;
@@ -133,9 +137,10 @@ export const SCENE_CHOICES = [
   [17, 'Level 3 Jungle Stage - Bridge and secret waterfall'],
   [20, 'Level 3 Facility Stage - AI research facility'], [21, 'Level 3 Final Boss - Sudoers 5'],
   [21.5, 'Level 3 Final Boss - Bomb release / 50% health'],
-  [21.9, 'Level 3 Final Boss - Final QTE start'],
+  [21.9, 'Level 3 Final Boss - Final cinematic start'],
   [22, 'Epilogue - Rolling credits'],
   [99, "Brondon's Museum"],
+  [100, 'Trailer - Five Chairs'],
 ] as const;
 
 export function createLoadingSlideDeck(destination: LoadingDestination, random = Math.random) {

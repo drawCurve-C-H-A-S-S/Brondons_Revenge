@@ -28,8 +28,11 @@ export const DEFAULT_MECH_FACTORIES: Record<MechSide, MechFactory> = {
 };
 
 const clamp = THREE.MathUtils.clamp;
+const bladePathCache = new Map<MechSide, DuelBladePaths>();
+let physicalPathCache: DuelPhysicalPaths | undefined;
 
 export function createFinaleMech(side: MechSide, factory: MechFactory = DEFAULT_MECH_FACTORIES[side]) {
+  const reusableRig = factory === DEFAULT_MECH_FACTORIES[side];
   const root = new THREE.Group();
   root.name = side === 'hero' ? 'PrimeFrame' : 'FinalVerdict';
   const skin = createIndustrialSkin(side);
@@ -277,7 +280,7 @@ export function createFinaleMech(side: MechSide, factory: MechFactory = DEFAULT_
     animator.reach(side, target, root.localToWorld(new THREE.Vector3(side === 'left' ? 4.5 : -4.5, 8.5, 3)));
     root.updateMatrixWorld(true);
   }
-  function nativeClip(move: MechPoseName, airborne: boolean, poseTime: number, jumping: boolean) {
+  function nativeClip(move: MechPoseName, airborne: boolean, poseTime: number, jumping: boolean, cinematic: boolean) {
     const find = (...names: string[]) => names.map(name => clips.get(name.toLowerCase())).find((clip): clip is THREE.AnimationClip => !!clip);
     if (isMeleeStrike(move)) return find(SWORD_ATTACK_CLIPS[move]);
     if (move === 'guard' || move === 'clash') return find('Sword_Block');
@@ -285,6 +288,8 @@ export function createFinaleMech(side: MechSide, factory: MechFactory = DEFAULT_
     if (move === 'jab') return find('Punch_Jab');
     if (move === 'cross') return find('Punch_Cross');
     if (move === 'hook') return find('Melee_Hook_WithRecovery');
+    if (cinematic && (move === 'evade' || move === 'boost')) return find('Jump_Loop');
+    if (cinematic && (move === 'skyCharge' || move === 'reactor')) return find('Spell_Simple_Idle_Loop');
     if (move === 'hover' || move === 'flight' || move === 'evade' || move === 'boost'
       || move === 'dash' || move === 'bomb' || move === 'skyCharge' || move === 'reactor') return undefined;
     if (jumping) return find('Jump_Loop');
@@ -317,12 +322,25 @@ export function createFinaleMech(side: MechSide, factory: MechFactory = DEFAULT_
     },
     lockBlade(contact: THREE.Vector3, side: 1 | -1, strain = 0, weight = 1) {
       if (!animator || !swordBone) return;
-      const grip = sword.position.clone().lerp(new THREE.Vector3(-2.2, 8.6 + strain * 0.22, 1.5), weight);
-      const direction = up.clone().applyQuaternion(sword.quaternion)
-        .lerp(root.worldToLocal(contact.clone()).sub(grip).normalize(), weight).normalize();
+      const forward = new THREE.Vector3(0, 0, side).applyQuaternion(root.quaternion).setY(0).normalize();
+      const normal = new THREE.Vector3().crossVectors(forward, up).normalize();
+      const bladeDirection = forward.clone().multiplyScalar(side * 0.74).addScaledVector(up, 0.672 + strain).normalize();
+      // Offset the blade planes by their bevelled thickness; their edges meet without occupying the same volume.
+      const edge = contact.clone().addScaledVector(normal, side * 0.18);
+      const desiredGrip = root.worldToLocal(edge.clone().addScaledVector(bladeDirection, -7.2));
+      const grip = sword.position.clone().lerp(desiredGrip, weight);
+      const localDirection = bladeDirection.clone().applyQuaternion(root.getWorldQuaternion(rootRotation).invert());
+      const direction = up.clone().applyQuaternion(sword.quaternion).lerp(localDirection, weight).normalize();
       driveBlade(grip, direction, false, false);
       if (weight < 0.99) return;
-      for (let i = 0; i < 4; i++) pointSwordAt(contact);
+      for (let pass = 0; pass < 6; pass++) {
+        const worldDirection = edge.clone().sub(sword.getWorldPosition(new THREE.Vector3())).normalize();
+        const width = new THREE.Vector3().crossVectors(worldDirection, normal).normalize();
+        const depth = new THREE.Vector3().crossVectors(width, worldDirection).normalize();
+        const orientation = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(width, worldDirection, depth));
+        orientation.premultiply(root.getWorldQuaternion(rootRotation).invert());
+        orientWeapon(sword, swordBone, orientation, swordOffset, swordGrip);
+      }
       const support = sword.localToWorld(new THREE.Vector3(0, -0.5, 0));
       animator.reach('left', support, root.localToWorld(new THREE.Vector3(5, 9, side * 0.4)));
       root.updateMatrixWorld(true);
@@ -333,7 +351,7 @@ export function createFinaleMech(side: MechSide, factory: MechFactory = DEFAULT_
       const poseMove = airborne && !custom && (move === 'idle' || move === 'walk') ? motion > 0.05 ? 'flight' : 'hover' : move;
       const jump = side === 'enemy' && !custom && move === 'verdict' && time < ENEMY_ATTACK_LEAPS[move].land
         ? sampleEnemyAttackLeap(move, time) : null;
-      const clip = nativeClip(poseMove, airborne, time, !!jump);
+      const clip = nativeClip(poseMove, airborne, time, !!jump, custom);
       const looping = !jump && (move === 'idle' || move === 'walk' || move === 'victory' || move === 'dance' || move === 'afterCut'
         || move === 'guard' || move === 'clash' || move === 'skyCharge' || move === 'reactor'
         || move === 'verdict' || move === 'bomb' || (move === 'missiles' && !sampleRifleSequence(time).firing));
@@ -388,7 +406,7 @@ export function createFinaleMech(side: MechSide, factory: MechFactory = DEFAULT_
       for (const sample of sampledPose) {
         sample.rotation.copy(sample.bone.quaternion); sample.position.copy(sample.bone.position); sample.scale.copy(sample.bone.scale);
       }
-      const blend = sampling || !previousPose.size ? 1 : THREE.MathUtils.smootherstep(effectTime - blendStart, 0, custom ? 0.2 : 0.13);
+      const blend = sampling || !previousPose.size ? 1 : THREE.MathUtils.smootherstep(effectTime - blendStart, 0, custom ? 0.14 : 0.13);
       poseBlend = blend;
       if (blend < 1) for (const [bone, previous] of previousPose) {
         bone.quaternion.slerpQuaternions(previous.rotation, bone.quaternion.clone(), blend);
@@ -548,6 +566,13 @@ export function createFinaleMech(side: MechSide, factory: MechFactory = DEFAULT_
       const bone = animator?.slots[side === 'left' ? 'leftHand' : 'rightHand'];
       return bone ? bone.getWorldPosition(out) : root.localToWorld(out.set(side === 'left' ? 2 : -2, 10, 0));
     },
+    getFace(out = new THREE.Vector3()) {
+      return animator?.slots.head?.getWorldPosition(out) ?? root.localToWorld(out.set(0, 15, 0));
+    },
+    getShoulder(side: 'left' | 'right', out = new THREE.Vector3()) {
+      const bone = animator?.slots[side === 'left' ? 'leftShoulder' : 'rightShoulder'];
+      return bone ? bone.getWorldPosition(out) : root.localToWorld(out.set(side === 'left' ? 2.5 : -2.5, 12.5, 0));
+    },
     getShieldCenter(out = new THREE.Vector3()) {
       const head = animator?.slots.head, left = animator?.slots.leftFoot, right = animator?.slots.rightFoot;
       if (!head || !left || !right) return root.localToWorld(out.set(0, MECH_HEIGHT / 2, 0));
@@ -566,6 +591,8 @@ export function createFinaleMech(side: MechSide, factory: MechFactory = DEFAULT_
     },
     sampleAttackPaths(): DuelBladePaths {
       if (!animator || !model) throw new Error('Load the mech rig before sampling its blade paths');
+      const cached = reusableRig ? bladePathCache.get(side) : undefined;
+      if (cached) return cached;
       const paths: Record<MeleeStrike, BladeSegment[]> = {
         slash: [], sideSlash: [], cleave: [], thrust: [], reap: [], orbitalCut: [], regularCombo: [], heavyCombo: [],
       };
@@ -585,10 +612,12 @@ export function createFinaleMech(side: MechSide, factory: MechFactory = DEFAULT_
       sampling = false; previousMove = ''; previousPose.clear();
       root.position.copy(position); root.quaternion.copy(rotation); root.scale.copy(scale);
       mech.pose('idle', 0, 1, false, 0, 0);
+      if (reusableRig) bladePathCache.set(side, paths);
       return paths;
     },
     samplePhysicalPaths(): DuelPhysicalPaths {
       if (!animator || !model) throw new Error('Load the rig before sampling unarmed contacts');
+      if (reusableRig && side === 'hero' && physicalPathCache) return physicalPathCache;
       const paths: Record<PhysicalStrike, BladeSegment[]> = { jab: [], cross: [], hook: [], slide: [] };
       const position = root.position.clone(), rotation = root.quaternion.clone(), scale = root.scale.clone(), equipment = weaponsEquipped;
       root.position.set(0, 0, 0); root.quaternion.identity(); root.scale.setScalar(1);
@@ -616,6 +645,7 @@ export function createFinaleMech(side: MechSide, factory: MechFactory = DEFAULT_
         root.position.copy(position); root.quaternion.copy(rotation); root.scale.copy(scale);
         mech.pose('idle', 0, 1, false, 0, 0);
       }
+      if (reusableRig && side === 'hero') physicalPathCache = paths;
       return paths;
     },
     dispose() {

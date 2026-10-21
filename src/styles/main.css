@@ -111,7 +111,7 @@ canvas {
   opacity: 1;
 }
 
-body.hud-hidden :is(
+body:is(.hud-hidden, [data-scene="trailer"]) :is(
   #hud, [id*="hud"], [class*="hud"],
   #crosshair, #look-reticle, #space-crosshair, #interact-prompt, #adaptive-hint,
   #controller-notice, #scene-checkpoint, #boss-subtitles, #escape-qte, #space-alert,

@@ -25,8 +25,6 @@ test('the refreshed screenshots resolve to the requested loading scenes', async 
     ['reactor', 'level2-reactor'],
     ['jungle', 'level3-jungle'],
     ['facility', 'facility'],
-    ['finale', 'finale-orbit'],
-    ['finale', 'finale-rooftop'],
   ];
   for (const [chapter, filename] of expected) {
     assert.ok(chapters.LOADING_CHAPTERS[chapter].images.some(url => url.endsWith(`/${filename}.jpg`)));
@@ -36,7 +34,13 @@ test('the refreshed screenshots resolve to the requested loading scenes', async 
   assert.ok(chapters.LOADING_CHAPTERS.armor.images[0].endsWith('/level2-capital-ship.jpg'));
   assert.notEqual(chapters.LOADING_CHAPTERS.armor.images[0], chapters.LOADING_CHAPTERS.reactor.images[0]);
   assert.equal(chapters.LOADING_CHAPTERS.stage1.images.length, 2);
-  assert.equal(chapters.LOADING_CHAPTERS.finale.images.length, 2);
+  assert.deepEqual(chapters.LOADING_CHAPTERS.finale.images, chapters.LOADING_CHAPTERS.trailer.images);
+  assert.equal(chapters.LOADING_CHAPTERS.finale.images.length, 1);
+  assert.ok(chapters.LOADING_CHAPTERS.finale.images[0].endsWith('/finale-chairs.png'));
+  const finaleArt = await readFile(new URL('../src/assets/loading/finale-chairs.png', import.meta.url));
+  assert.deepEqual([...finaleArt.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  assert.equal(finaleArt.readUInt32BE(16), 1920);
+  assert.equal(finaleArt.readUInt32BE(20), 1080);
 });
 
 test('the full loading deck includes every chapter image before repeating', () => {
@@ -48,5 +52,6 @@ test('the full loading deck includes every chapter image before repeating', () =
 });
 
 test('developer scene choices include a dedicated epilogue shortcut after the finale', () => {
-  assert.deepEqual(chapters.SCENE_CHOICES.at(-1), [99, "Brondon's Museum"]);
+  const museum = chapters.SCENE_CHOICES.findIndex(([id]) => id === 99);
+  assert.deepEqual(chapters.SCENE_CHOICES[museum + 1], [100, 'Trailer - Five Chairs']);
 });

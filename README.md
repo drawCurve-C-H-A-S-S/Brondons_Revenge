@@ -193,10 +193,8 @@ for sword attacks, X for the rifle salvo, hold ZL for shield/parry, B for dodge 
 and R for Last Light (the existing 18-second recharge). L stows/recalls the fixed
 weapons; A chains jab, cross and hook while unarmed. Y performs a grounded slide.
 There is no inventory wheel. Hold - to skip the intro;
-D-pad Left retries after defeat. Final QTEs display controller labels: D-pad Left to evade
-the execution shot, A for sword cuts, X for return fire, B for boost,
-**mash Y** for the blade lock, D-pad Up to ascend, and **hold R** to charge.
-Real button taps are required for mash prompts; holding a button does not auto-mash.
+D-pad Left retries after defeat. The final execution is an uninterrupted cinematic:
+no controller taps, mash prompts or held inputs are required. Pause still works.
 
 ## Background music
 
@@ -290,7 +288,13 @@ visible first-render stalls. Caching removes download waits, not every possible
 rendering or device-related frame drop. Warm-up includes the persistent character,
 combat billboards, shadows, minimap/post-processing and fog/non-fog variants before
 the loading cover is removed. The landing film prepares its ground-world lighting;
-the finale prepares its transformation, surface, cockpit and orbital render states.
+the finale uses one memoized render warm-up with its persistent character attached,
+instead of replaying seventeen future story states. Its stable fog does not need a
+second fogless pass. The loading screen reports completed preparation stages as a
+percentage, and the opening frame is rendered without advancing the story.
+There is no additional minimum slideshow delay. Visible cinematics start without
+clicking the canvas; explicit menus and hidden tabs still pause, and combat still
+pauses on focus loss. Default-rig attack/contact samples are reused on retries.
 
 The shuttle's cockpit CSG geometry is generated once and reused. Comic artwork is
 prepared before combat. Stealth searchlights remain in the lighting layout when
@@ -862,8 +866,8 @@ backward before charging its sword-tip beam, whose deep red matches its armor gl
 In orbit it also uses **Eclipse Rend**, a sword rush with its own cinematic tell
 and a dodge/parry window. The jumps move the actual combat
 body in both rooftop and orbital fights. Recovery reminders, adaptive exploration
-hints and introductory control cards are disabled during the finale; QTE prompts,
-attack tells and resource warnings remain. Special-move close-ups return to the
+hints and introductory control cards are disabled during the finale; attack tells
+and resource warnings remain during combat. Special-move close-ups return to the
 normal camera **at least 0.55 seconds before firing**. Both fighters are protected
 from unrelated attacks during the introductory close-up; dodge or guard when
 gameplay resumes. Release R to recharge the shield.
@@ -885,8 +889,8 @@ volumetric fire shader attached to the head bone and progressive surface scorchi
 Brendan cries, "Ahhhhh, it burns!" Inside Prime Frame's cockpit, Brondon answers,
 "Nooooo, Brendan!!" and vows to the Sudoers, "I will never forgive you. You must
 die. I will have my revenge!!!"
-The space sky, planet destruction, burning-head shot and cockpit exit are prepared
-before playback, including their actual lighting states. Orbital fog is disabled
+The space sky, planet destruction, burning-head shot and cockpit resources share
+the finale's single preparation pass. Orbital fog is disabled
 through its distance uniforms rather than switching shader variants, and rooftop
 shadows stop updating without changing the light's shader configuration.
 The sequence cuts between locations instead of flying the camera through terrain.
@@ -895,17 +899,29 @@ out as Prime Frame is revealed, with both mechs in airborne fighting stances bef
 the orbital duel resumes. Music continues without restarting. The bomb begins
 its descent at the apex rather than pausing there.
 
-The final QTE runs on a continuous cinematic timeline, regardless of successful
-or missed inputs. Root motion carries momentum across shots; prompts and brief
-grades remain an overlay, with the blades brought into actual contact during
-the lock. Time the tap prompts as the closing ring meets the target,
-**mash D six times** to win the blade lock, and **hold E continuously** to charge
-the sword. Each prompt earns **one, two or three stars**. Up to two misses are recoverable;
-**the third wrong or late command** blends from the current shot into Brondon's
-death and checkpoint retry. A successful run ends with a skyward sword charge,
-forward rush, disappearance, reappearance behind the enemy, a quiet pause and a
-delayed storm of slashes. Donus's return brings back the actual Scene 1 mothership
-and Prime Frame's authored dance. Centered credits run in **90 seconds**, with
+The final execution is a **28.55-second, input-independent cinematic**. There are
+no prompts, grades, input pauses or missed-command deaths; future QTE overlays can
+follow the film clock without controlling it. Brondon evades Final Verdict,
+parries a second attack, returns rifle fire, locks blades, cuts through, ascends
+and charges Last Light. The extended clash cuts from sparking steel to Prime's
+face and Final Verdict's face. The following slash is framed just behind Prime's
+sword shoulder. The vanishing rush reappears behind the enemy before forty
+staggered slash accents, with a physical recoil for every hit and an authored
+death pose. Root trajectories preserve momentum across cuts. Blade-contact IK
+keeps the bevelled sword surfaces separated instead of passing through each other;
+combat shields are not carried into the execution.
+
+Planet impact dissolves the textured crust and clouds, revealing an opaque,
+animated solar-fire surface. In the clearing, Brendan uses his authored
+`Fixing_Kneeling` entry, then `Death01`, with the standing anticipation trimmed to
+match the kneeling hip height. Head fire follows the actual head bone throughout
+the fall. The cockpit cut waits until that surface shot finishes.
+
+Prime's native dance has a full-body shot **before** the return of the actual
+Scene 1 mothership. The ship enters along a banked curve, brakes into its final
+heading and continues smoothly into the epilogue. No automatic bloom/temporal
+trail is added to Prime; the normal display bloom controls are unchanged.
+Centered credits run in **90 seconds**, with
 rolling text but no background dancing copies or sprite generation.
 A visible **hold Enter to skip** control
 skips the boss introduction; the same control skips the ending dialogue in
@@ -929,7 +945,7 @@ along a banked, decelerating flight path rather than sliding between two points.
 Signature moves display **Starfall Salvo**, **Last Light**, **Final Verdict**,
 **Eclipse Rend** and **Planet Breaker** during their cinematic wind-ups.
 Mech clips are retained between frames instead of being stopped and restarted.
-QTE poses blend across attacks with controlled guard, weight transfer and ascent;
+Cinematic poses blend across attacks with controlled guard, weight transfer and ascent;
 damage reactions retain their sampled motion and momentum.
 
 Combat animation assets are taken from the downloaded, free **Quaternius Universal
@@ -980,9 +996,9 @@ can hit a target once each, and holstering cancels pending swings and parries.
 In the finale, **G** stows/recalls the sword and rifle on the frame's back; unarmed
 **J** chains the imported jab, cross and hook. **C** uses the imported grounded
 slide start, carry and exit, with sampled foot contact rather than sword reach.
-The final QTE recalls the weapons automatically. Sword Block supplies the guarded
+The final cinematic recalls the weapons automatically. Sword Block supplies the guarded
 stance without making the head inherit the torso's shield rotation. Evasions and
-boosts retain restrained body silhouettes. QTE root motion is not overlaid with a
+boosts use the authored airborne pose where appropriate. Cinematic root motion is not overlaid with a
 second velocity-driven body lean.
 
 To regenerate the compact animation library from the extracted Standard GLBs:
@@ -1006,8 +1022,8 @@ hip or head oscillations.
 For local playtesting, open the pause menu, select **Developer Mode**, and click
 **Unlock**. No password is required.
 The final-boss shortcuts include **Bomb release / 50% health**, which starts at
-the exact bomb-release frame with **900 / 1800** enemy health, and **Final QTE
-start**, which starts the first QTE at time zero. Loading warm-up does not advance
+the exact bomb-release frame with **900 / 1800** enemy health, and **Final cinematic
+start**, which starts the execution at time zero. Loading warm-up does not advance
 either checkpoint's timeline. **Epilogue - Rolling credits** jumps straight to
 the actual end credits, with the same music and 90-second text roll
 as a completed game; it does not replay the boss fight.
@@ -1081,8 +1097,10 @@ Important:
 
 The route is scene 16 crash landing -> scene 17 continuous facility approach ->
 scene 20 research facility -> scene 21 finale. Scenes 18 and 19 are no longer
-separate gameplay scenes. The finale reuses the rescue-site world above the
-facility roof, with its intact bridge, western mountain and waterfall.
+separate gameplay scenes. The finale builds a compact presentation of the same
+facility summit, shuttle clearing and forest cutaway. It does not reconstruct
+the playable bridge, waterfall, mountain cave, sentinels or traversal colliders.
+The distant canopy uses two instanced batches rather than the full jungle level.
 The reveal and each student's close-up share one dialogue timeline. After the
 roof shatters, the five students ascend one at a time and merge into the enemy's
 chest through subdued crimson beams and a dark energy aura. The actual shuttle lifts off from its jungle
@@ -1097,9 +1115,8 @@ The rifle uses the right hand on the trigger and the left hand on the foregrip.
 Sudoers 5 has separate thrust, reverse-cut and sword-beam animations. The planet
 breaker's upward launch and accelerating descent share the camera's timeline.
 The detonation removes Earth and the terrestrial environment, leaving rocky
-debris in orbit. QTE input grades timing without starting, stopping or speeding
-up a shot; only the third miss interrupts the cinematic with death. The delayed
-teleport execution is required to defeat Sudoers 5. HUD panels, recharge
+debris in orbit. The final execution plays to completion without input gates or
+timing failures; normal gameplay input cannot redirect the film. HUD panels, recharge
 indicators and controls use the game's shared comic-paper panels, ink outlines,
 hard shadows and resource colors; the VS and game-over layouts are preserved. Hold **Enter** during the
 reveal and transformations to skip ahead to the VS introduction.
@@ -1114,3 +1131,19 @@ native `Dance_Loop`; the credit timeline and scrolling share one duration.
 - **Three.js** -- 3D rendering
 - **TypeScript** -- Type safety
 - **Vite** -- Dev server and bundler
+## Five Chairs trailer and loading artwork
+
+**Developer Mode > Scenes > Trailer - Five Chairs** appears immediately below
+**Brondon's Museum**. The standalone scene lives in `src/scenes/trailer/`.
+It plays for 18 seconds, pulling back from the middle chair to reveal five
+evenly spaced Vergil chairs from a 35-degree downward angle. Independent
+skeleton clones keep the chairs in their own positions. The chairs stand on
+dark, textured ground with warm sunset backlighting, cool fill, contact shadows,
+and drifting wind dust. The wide composition places the ground's far edge at
+three-quarter frame height.
+
+On completion it opens the developer scene-selection menu again, exactly once.
+Pausing stops the trailer clock; resuming continues the same shot.
+`src/assets/loading/finale-chairs.png` is the 1920 x 1080 still of this composition
+used by both the final-fight and trailer loading screens.
+

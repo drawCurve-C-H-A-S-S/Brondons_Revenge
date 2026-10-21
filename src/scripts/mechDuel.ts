@@ -1,7 +1,7 @@
 import {
   FINALE_START_X, RIFLE_SEQUENCE, HERO_ULTIMATE, ENEMY_VERDICT, ENEMY_ORBITAL_CUT, ENEMY_ATTACK_LEAPS, MELEE_STRIKES,
-  FINISHER_BEATS, cinematicProgress,
-  isMeleeStrike, sampleMeleeBlade, finisherBeatDuration, finisherActionTime, MECH_DODGE, sampleDodgeArc,
+  cinematicProgress,
+  isMeleeStrike, sampleMeleeBlade, MECH_DODGE, sampleDodgeArc,
   sampleEnemyAttackLeap,
   PHYSICAL_STRIKES, isPhysicalStrike, directionalSwordAttack, swordHitWindows,
   type PhysicalStrike, type CinematicPoint, type MeleeStrike,
@@ -632,90 +632,3 @@ export function createMechDuel(start: 'ground' | 'rupture' | 'space' | 'finisher
       enemyTell: enemy.move, enemyWindup: enemy.duration ? enemy.time / enemy.duration : 0 }),
   };
 }
-
-export interface FinisherBeat {
-  id: string; key: string; label: string; mode: 'tap' | 'hold' | 'mash';
-  lead: number; window: number; hold: number; presses: number; resolve: number;
-  shot: 'evade' | 'missileCut' | 'countershot' | 'boost' | 'clash' | 'armCut' | 'ascend' | 'reactor' | 'finalCut';
-}
-export { FINISHER_BEATS } from './finaleChoreography.js';
-export interface QteEvent { kind: 'armed' | 'success' | 'miss' | 'beat' | 'lost' | 'won'; index: number; stars: number; }
-const QTE_KEYS = new Set(['KeyA', 'KeyD', 'KeyW', 'KeyS', 'KeyC', 'KeyJ', 'KeyF', 'KeyE', 'Space', 'ShiftLeft', 'ShiftRight']);
-
-export function createFinaleQte() {
-  let index = 0, clock = 0, hold = 0, presses = 0, armed = false, judged = false;
-  let misses = 0, stars = 0, totalStars = 0, elapsed = 0, judgedAt = 0;
-  let result: 'active' | 'won' | 'lost' = 'active', failure: 'timeout' | 'wrong-input' | null = null;
-  const held = new Set<string>(), events: QteEvent[] = [];
-  function lose(reason: NonNullable<typeof failure>) {
-    result = 'lost'; failure = reason; held.clear(); events.push({ kind: 'lost', index, stars: 0 });
-  }
-  function miss(reason: NonNullable<typeof failure>) {
-    judged = true; judgedAt = clock; stars = 0; misses++;
-    events.push({ kind: 'miss', index, stars: 0 });
-    if (misses >= 3) lose(reason);
-  }
-  function success() {
-    judged = true; judgedAt = clock;
-    const beat = FINISHER_BEATS[index];
-    if (beat.mode === 'tap') {
-      const error = Math.abs(clock - finisherActionTime(beat));
-      stars = error <= 0.12 ? 3 : error <= 0.3 ? 2 : 1;
-    } else if (beat.mode === 'hold') {
-      const delay = Math.max(0, clock - beat.lead - beat.hold);
-      stars = delay <= 0.16 ? 3 : delay <= 0.3 ? 2 : 1;
-    } else {
-      const completion = (clock - beat.lead) / beat.window;
-      stars = completion <= 0.65 ? 3 : completion <= 0.85 ? 2 : 1;
-    }
-    totalStars += stars; events.push({ kind: 'success', index, stars });
-  }
-  function step(dt: number) {
-    if (result !== 'active') return;
-    const beat = FINISHER_BEATS[index];
-    clock += dt; elapsed += dt;
-    if (!armed && clock + 1e-8 >= beat.lead) { armed = true; events.push({ kind: 'armed', index, stars: 0 }); }
-    if (armed && !judged && beat.mode === 'hold') {
-      hold = held.has(beat.key) ? hold + dt : 0;
-      if (hold + 1e-8 >= beat.hold) success();
-    }
-    if (!judged && clock + 1e-8 >= beat.lead + beat.window) miss('timeout');
-    if (result !== 'active') return;
-    if (clock + 1e-8 >= finisherBeatDuration(beat)) {
-      clock = Math.max(0, clock - finisherBeatDuration(beat));
-      index++; hold = presses = stars = judgedAt = 0; judged = armed = false; held.clear();
-      if (index === FINISHER_BEATS.length) { result = 'won'; events.push({ kind: 'won', index: index - 1, stars: totalStars }); }
-      else events.push({ kind: 'beat', index, stars: 0 });
-    }
-  }
-  return {
-    press(code: string, repeat = false) {
-      if (!QTE_KEYS.has(code) || result !== 'active' || judged || repeat || held.has(code)) return false;
-      held.add(code);
-      if (!armed) return false;
-      const beat = FINISHER_BEATS[index];
-      if (code !== beat.key) { miss('wrong-input'); return false; }
-      if (beat.mode === 'tap') success();
-      else if (beat.mode === 'mash') { presses++; if (presses >= beat.presses) success(); }
-      return true;
-    },
-    release(code: string) { held.delete(code); },
-    clearInput() { held.clear(); hold = 0; },
-    update(dt: number) {
-      let remaining = frameTime(dt);
-      while (remaining > 1e-9) { const stepTime = Math.min(DUEL.step, remaining); step(stepTime); remaining -= stepTime; }
-    },
-    drainEvents() { return events.splice(0); },
-    getState() {
-      const beat = FINISHER_BEATS[Math.min(index, FINISHER_BEATS.length - 1)];
-      return { index, clock, elapsed, hold, presses, armed, judged, judgedAt, result, failure, beat, misses, stars, totalStars,
-        judgement: !judged ? 'pending' as const : stars > 0 ? 'success' as const : 'miss' as const,
-        ringScale: clamp(1 + (finisherActionTime(beat) - clock) / beat.window * 1.6, 0.65, 2.6),
-        inputProgress: judged && stars > 0 ? 1 : beat.mode === 'hold' ? clamp(hold / beat.hold, 0, 1)
-          : beat.mode === 'mash' ? clamp(presses / beat.presses, 0, 1) : judged && stars > 0 ? 1 : 0,
-        remaining: clamp(1 - Math.max(0, clock - beat.lead) / beat.window, 0, 1),
-        progress: clamp(clock / finisherBeatDuration(beat), 0, 1) };
-    },
-  };
-}
-export type FinaleQteState = ReturnType<ReturnType<typeof createFinaleQte>['getState']>;

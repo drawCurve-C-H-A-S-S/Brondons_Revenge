@@ -1,7 +1,7 @@
 import { getAudioSettings, subscribeAudioSettings } from '../audio/AudioManager.js';
 import { playSfx } from '../audio/sfx.js';
-import { DUEL, type FinaleQteState, type MechMove } from '../../scripts/mechDuel.js';
-import { finisherActionTime, SWORD_ATTACK_LABELS } from '../../scripts/finaleChoreography.js';
+import { DUEL, type MechMove } from '../../scripts/mechDuel.js';
+import { SWORD_ATTACK_LABELS } from '../../scripts/finaleChoreography.js';
 import { FINALE_DURATION } from '../../scripts/finaleDirector.js';
 import { createComicEffectArtwork } from './comicEffects.js';
 import { isControllerActive, controllerLabel, inputHint } from '../../scripts/gamepadInput.js';
@@ -41,16 +41,6 @@ export function createFinalePresentation(onInput: (code: string, pressed: boolea
     </nav>
     <div class="finale-tell" role="status" aria-live="polite"></div><div class="finale-title" aria-live="polite"></div>
     <section class="finale-dialogue" aria-live="polite"><b></b><p></p></section>
-    <section class="finale-qte" role="group" aria-label="Final quick-time event" hidden>
-      <span class="finale-qte-label"></span>
-      <div class="finale-qte-cue"><svg class="finale-qte-target" viewBox="0 0 128 128" aria-hidden="true"><circle cx="64" cy="64" r="38"></circle></svg>
-        <svg class="finale-qte-ring" viewBox="0 0 128 128" aria-hidden="true"><circle cx="64" cy="64" r="38"></circle></svg>
-        <button type="button" aria-label="Perform the displayed finale action"></button></div>
-      <output class="finale-qte-stars" aria-label="Timing grade"></output><small></small>
-      <output class="finale-qte-misses" aria-live="polite" aria-label="No missed inputs">
-        <i aria-hidden="true"></i><i aria-hidden="true"></i><i aria-hidden="true"></i></output>
-      <meter min="0" max="1" value="1" aria-label="Input time remaining"></meter>
-    </section>
     <div class="finale-flash" aria-hidden="true"></div>
     <section class="finale-result" aria-live="assertive" hidden>
       <span></span><h1></h1><p></p><button type="button">RETRY LAST CHECKPOINT</button>
@@ -117,22 +107,13 @@ export function createFinalePresentation(onInput: (code: string, pressed: boolea
   const dialogue = get('.finale-dialogue');
   const speaker = get('.finale-dialogue b');
   const line = get('.finale-dialogue p');
-  const qte = get('.finale-qte');
-  const qteLabel = get('.finale-qte-label');
-  const qteButton = get<HTMLButtonElement>('.finale-qte button');
-  const qteRing = get<SVGSVGElement>('.finale-qte-ring');
-  const qteStars = get('.finale-qte-stars');
-  const qteMisses = get('.finale-qte-misses');
-  const qteMissMarks = [...qteMisses.querySelectorAll('i')];
-  const qteTimer = get<HTMLMeterElement>('.finale-qte meter');
-  const qteInstruction = get('.finale-qte small');
   const tell = get('.finale-tell');
   const result = get('.finale-result');
   const retry = get<HTMLButtonElement>('.finale-result button');
   const credits = get('.finale-credits');
   const roll = get('.finale-credits-roll');
   const events = new AbortController();
-  let qteKey = '', muted = false, audioContext: AudioContext | null = null;
+  let muted = false, audioContext: AudioContext | null = null;
   const activeOscillators = new Set<OscillatorNode>();
   const heldPointers = new Map<number, string>();
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -161,10 +142,6 @@ export function createFinalePresentation(onInput: (code: string, pressed: boolea
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
       button.addEventListener(type, event => release(event as PointerEvent), { signal: events.signal });
     }
-  }
-  qteButton.addEventListener('pointerdown', event => press(event, qteKey, qteButton), { signal: events.signal });
-  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
-    qteButton.addEventListener(type, event => release(event as PointerEvent), { signal: events.signal });
   }
   function clearPointers() {
     for (const code of heldPointers.values()) onInput(code, false);
@@ -246,37 +223,6 @@ export function createFinalePresentation(onInput: (code: string, pressed: boolea
       ultimate.classList.toggle('ready', weaponsEquipped && cooldown <= 0);
       tell.textContent = warning;
       tell.hidden = !warning;
-    },
-    qte(state: FinaleQteState | null) {
-      qte.hidden = !state;
-      if (!state) { qteKey = ''; return; }
-      const { beat, remaining, armed, judged, judgement, stars, misses, ringScale, clock } = state;
-      qteKey = beat.key;
-      qte.dataset.mode = beat.mode;
-      qte.dataset.retired = String(judged && clock - state.judgedAt > 0.45);
-      qte.dataset.judgement = judgement; qte.dataset.armed = String(armed);
-      qteLabel.textContent = beat.mode === 'mash' ? 'MASH' : beat.mode === 'hold' ? 'HOLD' : 'TIME IT';
-      qte.setAttribute('aria-label', `${beat.label}. ${beat.mode === 'mash' ? 'Press repeatedly' : beat.mode === 'hold'
-        ? 'Hold to charge' : 'Press as the rings meet'}. Three missed commands break the link.`);
-      qteButton.textContent = isControllerActive() ? controllerLabel(beat.key, 'finale-qte')
-        : KEY_LABELS[beat.key] ?? beat.key.replace('Key', '').toUpperCase();
-      qteButton.setAttribute('aria-label', `${qteLabel.textContent}: ${qteButton.textContent}`);
-      qteButton.classList.toggle('success', judgement === 'success');
-      qteButton.disabled = judged;
-      qteTimer.value = Math.max(0, Math.min(1, remaining));
-      qteRing.style.transform = `scale(${beat.mode === 'tap' ? Math.min(2, ringScale) : 1.2}) rotate(-90deg)`;
-      qteRing.style.strokeDasharray = beat.mode === 'tap' ? '' : '239';
-      qteRing.style.strokeDashoffset = beat.mode === 'tap' ? '' : String(239 * (1 - state.inputProgress));
-      qteStars.textContent = '\u2605'.repeat(stars) + '\u2606'.repeat(3 - stars);
-      qteStars.hidden = judgement !== 'success';
-      qteStars.setAttribute('aria-label', `${stars} of 3 timing stars`);
-      qteMissMarks.forEach((mark, index) => mark.classList.toggle('missed', index < misses));
-      qteMisses.setAttribute('aria-label', `${misses} of 3 missed commands`);
-      if (judgement === 'success') qteInstruction.textContent = stars === 3 ? 'PERFECT' : stars === 2 ? 'PRECISE' : 'GOOD';
-      else if (judgement === 'miss') qteInstruction.textContent = 'MISSED';
-      else if (!armed) qteInstruction.textContent = 'READY';
-      else qteInstruction.textContent = reducedMotion && beat.mode === 'tap'
-        && Math.abs(clock - finisherActionTime(beat)) <= 0.14 ? 'NOW' : '';
     },
     flash(amount: number) {
       flashPower = reducedMotion ? 0 : Math.max(flashPower, Math.max(0, Math.min(0.65, amount)));
