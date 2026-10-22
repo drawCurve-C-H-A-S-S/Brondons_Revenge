@@ -7,13 +7,13 @@ import { CORRIDOR_FOOTAGE, preloadCorridorFootage } from '../helpers/scene/corri
 import { preloadEarthTextures } from '../scripts/earthTexture.js';
 import { preloadComicEffectArtwork } from '../helpers/scene/comicEffects.js';
 import { preloadEscapeShipGeometry } from '../scripts/items/createEscapeShip.js';
-import { preloadJungleTextures } from '../helpers/scene/jungleTextures.js';
+import { preloadJungleTextures, preloadPhotoBark, PHOTO_BARK_URLS } from '../helpers/scene/jungleTextures.js';
 import shieldPowerupUrl from '../assets/power ups/Shield_powerup.png?url';
 import { COMBAT_ANIMATION_URLS, preloadCombatAnimations } from './combatAnimations.js';
 
 export const GAME_ASSET_URLS = [...new Set([
   ...MODEL_ASSET_URLS, ...LOADING_IMAGE_URLS, ...Object.values(MUSIC_URLS), ...MUSIC_FALLBACK_URLS,
-  ...CORRIDOR_FOOTAGE, ...COMBAT_ANIMATION_URLS, shieldPowerupUrl,
+  ...CORRIDOR_FOOTAGE, ...COMBAT_ANIMATION_URLS, ...PHOTO_BARK_URLS, shieldPowerupUrl,
 ])];
 
 export async function preloadGameAssets(moduleTasks: readonly PreloadTask[], setupTasks: readonly PreloadTask[],
@@ -31,6 +31,7 @@ export async function preloadGameAssets(moduleTasks: readonly PreloadTask[], set
     { label: 'Preparing combat feedback', run: preloadComicEffectArtwork },
     { label: 'Preparing reusable shuttle geometry', run: async () => preloadEscapeShipGeometry() },
     { label: 'Preparing jungle surface textures', run: async () => preloadJungleTextures() },
+    { label: 'Preparing photographed tree bark', run: preloadPhotoBark },
     ...musicTasks, ...setupTasks,
   ];
   const total = downloads.length + preparations.length;

@@ -10,7 +10,7 @@ import { createEscapePod, createEscapeShip } from '../../scripts/items/createEsc
 import type { PlayerTransitionState } from '../../scripts/player.js';
 import { createBreakableDebris } from '../../scripts/breakables.js';
 import { createJungleWater, JUNGLE_WATER_COLORS } from './jungleWater.js';
-import { createJungleTextures } from './jungleTextures.js';
+import { createJungleTextures, getPhotoBark } from './jungleTextures.js';
 import waterfallVertex from '../../shaders/waterfall.vert.glsl?raw';
 import waterfallFragment from '../../shaders/waterfall.frag.glsl?raw';
 import waterNoise from '../../shaders/waterNoise.glsl?raw';
@@ -673,7 +673,18 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     const entry = { x, z, radius: bounds.getSize(new THREE.Vector3()).length() * 0.5 };
     obstacles.push(entry); obstacleVisuals.set(rockBody, { entry, rock, farMesh, size: bounds.getSize(new THREE.Vector3()) });
   }
-  const bark = new THREE.MeshStandardMaterial({ map: surfaceTextures.bark, roughness: 1 });
+  const photoBark = getPhotoBark();
+  const barkMaps = (tilesX: number, tilesY: number) => {
+    if (!photoBark) return { map: surfaceTextures.bark, roughness: 1 };
+    const map = photoBark.diffuse.clone(), normalMap = photoBark.normal.clone();
+    map.repeat.set(tilesX, tilesY); normalMap.repeat.set(tilesX, tilesY);
+    map.needsUpdate = normalMap.needsUpdate = true;
+    return { map, normalMap, normalScale: new THREE.Vector2(0.9, 0.9), roughness: 0.92 };
+  };
+  surfaceTextures.bark.repeat.set(2, 4);
+  const bark = new THREE.MeshStandardMaterial(barkMaps(3, 22));
+  const branchBark = new THREE.MeshStandardMaterial(barkMaps(1.5, 3));
+  const groveBark = new THREE.MeshStandardMaterial(barkMaps(2, 8));
   const foliage = new THREE.MeshStandardMaterial({ color: 0xb0c69c, map: surfaceTextures.leaves, bumpMap: surfaceTextures.leaves,
     bumpScale: 0.045, roughness: 1 });
   const canopyWind = { value: 0 };
@@ -707,7 +718,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   const sourceTrunk = new THREE.CylinderGeometry(0.3, 0.55, 1, 7);
   const sourceBranch = new THREE.CylinderGeometry(0.08, 0.2, 1, 5);
   function sourceTree(x: number, y: number, z: number, height: number) {
-    const trunk = new THREE.Mesh(sourceTrunk, bark); trunk.position.set(x, y + height / 2, z); trunk.scale.y = height;
+    const trunk = new THREE.Mesh(sourceTrunk, groveBark); trunk.position.set(x, y + height / 2, z); trunk.scale.y = height;
     trunk.castShadow = true; sourceDress.add(trunk);
     const whorls = 5;
     for (let w = 0; w < whorls; w++) {
@@ -716,7 +727,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
       for (let a = 0; a < 3; a++) {
         const angle = a * 2.09 + w * 0.7;
         const dirX = Math.sin(angle), dirZ = Math.cos(angle);
-        const arm = new THREE.Mesh(sourceBranch, bark);
+        const arm = new THREE.Mesh(sourceBranch, branchBark);
         arm.position.set(x + dirX * radius * 0.4, wy - 0.12, z + dirZ * radius * 0.4);
         arm.scale.y = radius * 0.8;
         arm.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dirX, -0.2, dirZ).normalize());
@@ -764,7 +775,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   foliage.customProgramCacheKey = () => 'textured-jungle-canopy-wind-v1';
   const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.5, 1, 1, 7), bark, 1200);
   const crowns = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 2), foliage, 8);
-  const branches = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12, 0.3, 1, 5), bark, 34000);
+  const branches = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.07, 0.18, 1, 5), branchBark, 34000);
   const vines = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.025, 0.04, 1, 5), new THREE.MeshStandardMaterial({ color: 0x536338, roughness: 1 }), 8);
   const foliageCards = new THREE.InstancedMesh(sprayCard, sprayMat, 100000);
   trunks.name = 'JungleTrunks'; crowns.name = 'JungleCanopy'; branches.name = 'JungleBranches'; vines.name = 'HangingVines'; foliageCards.name = 'ConiferSprays';
@@ -786,12 +797,12 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
     for (let w = 0; w < whorls; w++) {
       const t = w / (whorls - 1);
       const wy = height * (0.16 + 0.78 * t);
-      const reach = (3.8 - 2.7 * t) * (0.85 + random() * 0.3);
+      const reach = height * (0.19 - 0.135 * t) * (0.85 + random() * 0.3);
       const arms = w < 6 ? 5 : 4;
       for (let a = 0; a < arms; a++) {
         const angle = a * (Math.PI * 2 / arms) + random() * 0.6 + w * 0.5;
         const dirX = Math.sin(angle), dirZ = Math.cos(angle);
-        const armLen = reach * 0.75;
+        const armLen = reach * 0.6;
         dummy.position.set(x + dirX * armLen * 0.5, wy - 0.15, z + dirZ * armLen * 0.5);
         dummy.scale.set(1, armLen, 1);
         dummy.quaternion.setFromUnitVectors(yAxis, new THREE.Vector3(dirX, -0.18, dirZ).normalize()); dummy.updateMatrix();
@@ -800,14 +811,14 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
         // fringe stays visible from every viewing angle, never edge-on
         for (let c = 0; c < 3; c++) {
           instance(foliageCards, sprayCount, new THREE.Vector3(x + dirX * reach * 0.5, wy + (random() - 0.5) * 0.35, z + dirZ * reach * 0.5),
-            new THREE.Vector3(reach * 1.8, 2.9 + (1 - t) * 1.6, 1), new THREE.Euler(0, angle + Math.PI / 2 + c * Math.PI / 3, -0.14));
+            new THREE.Vector3(reach * 1.6, height * 0.1 + (1 - t) * 1.2, 1), new THREE.Euler(0, angle + Math.PI / 2 + c * Math.PI / 3, -0.14));
           parts.push({ source: foliageCards, index: sprayCount });
-          foliageCards.setColorAt(sprayCount++, tint.setHSL(0.3 + random() * 0.06, 0.45 + random() * 0.2, 0.3 + random() * 0.16));
+          foliageCards.setColorAt(sprayCount++, tint.setHSL(0.29 + random() * 0.07, 0.4 + random() * 0.25, 0.2 + random() * 0.26));
         }
       }
     }
     for (let c = 0; c < 3; c++) {
-      instance(foliageCards, sprayCount, new THREE.Vector3(x, height * 0.95, z), new THREE.Vector3(2.3, 3.2, 1), new THREE.Euler(0, random() * Math.PI, 0));
+      instance(foliageCards, sprayCount, new THREE.Vector3(x, height * 0.95, z), new THREE.Vector3(height * 0.09, height * 0.13, 1), new THREE.Euler(0, random() * Math.PI, 0));
       parts.push({ source: foliageCards, index: sprayCount });
       foliageCards.setColorAt(sprayCount++, tint.setHSL(0.31, 0.5, 0.32));
     }
@@ -816,7 +827,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
   for (let x0 = -184; x0 <= 184; x0 += 9) for (let z0 = -112; z0 <= 112; z0 += 9) {
     const x = x0 + (random() - 0.5) * 5, z = z0 + (random() - 0.5) * 5;
     if (river(z, 4) || clearing(x, z, 3) || facility(x, z, 3) || routeDistance(x, z) < 5 || !isWalkable(x, z, 1.5)) continue;
-    conifer(x, z, 15 + random() * 11, 0.4 + random() * 0.35);
+    conifer(x, z, 22 + random() * 14, 0.5 + random() * 0.4);
   }
   for (const [mesh, count, range, canopy, shadow, farMat] of [
     [trunks, treeCount, 145, false, true, undefined],
@@ -860,7 +871,7 @@ export function createRescueSite(physics: ReturnType<typeof createScenePhysics>,
         dummy.scale.set(0.85 + random() * 0.7, 0.55 + random() * 0.5, 1);
         dummy.rotation.set(0, c * Math.PI / 2 + random() * 0.7, 0); dummy.updateMatrix();
         grass.setMatrixAt(grassCount, dummy.matrix);
-        grass.setColorAt(grassCount++, tint.setHSL(0.24 + random() * 0.09, 0.3 + random() * 0.3, 0.5 + random() * 0.28));
+        grass.setColorAt(grassCount++, tint.setHSL(0.24 + random() * 0.09, 0.3 + random() * 0.3, 0.62 + random() * 0.3));
       }
     }
   }

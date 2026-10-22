@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import barkDiffuseUrl from '../../assets/textures/pine-bark-diff-2k.jpg?url';
+import barkNormalUrl from '../../assets/textures/pine-bark-nor-1k.jpg?url';
 
 let prepared: { bark: THREE.CanvasTexture; leaves: THREE.CanvasTexture; stone: THREE.CanvasTexture; needles: THREE.CanvasTexture; grass: THREE.CanvasTexture; pineBranch: THREE.CanvasTexture; grassTuft: THREE.CanvasTexture } | undefined;
 
@@ -16,9 +18,9 @@ export function createJungleTextures() {
       result.anisotropy = 4; return result;
     };
     const bark = texture(context => {
-      context.fillStyle = '#695641'; context.fillRect(0, 0, 256, 256);
-      for (let index = 0; index < 450; index++) {
-        context.fillStyle = index % 3 ? '#89735a' : '#3b392c';
+      context.fillStyle = '#4a3b2c'; context.fillRect(0, 0, 256, 256);
+      for (let index = 0; index < 520; index++) {
+        context.fillStyle = ['#5f4c39', '#33291e', '#54432f', '#2a2118'][index % 4];
         context.fillRect(random() * 256, random() * 256, 1 + random() * 3, 8 + random() * 90);
       }
     });
@@ -68,34 +70,52 @@ export function createJungleTextures() {
     });
     const pineBranch = texture(context => {
       context.clearRect(0, 0, 256, 256);
-      const greens = ['#2c6a31', '#3a7d3a', '#245628', '#4a8f43', '#57a04c', '#1d4a22'];
-      // dense needle mass first so the spray reads solid, not see-through
-      for (let index = 0; index < 420; index++) {
+      const greens = ['#1d4a22', '#256028', '#2f6b33', '#173a1c', '#3a7d3c', '#245628'];
+      context.lineCap = 'round';
+      // dark shadow needles underneath give the spray depth up close
+      for (let index = 0; index < 500; index++) {
+        const x = 8 + random() * 240, dir = index % 2 ? 1 : -1;
+        const length = 14 + random() * 26, sweep = (random() - 0.5) * 2.4;
+        context.strokeStyle = index % 3 ? '#14301a' : '#1d4423';
+        context.lineWidth = 2.4 + random() * 2;
+        context.beginPath(); context.moveTo(x, 128 + (random() - 0.5) * 8);
+        context.lineTo(x + Math.sin(sweep) * length, 128 + dir * Math.cos(sweep) * length);
+        context.stroke();
+      }
+      // mid-green needle mass so the spray reads solid, not see-through
+      for (let index = 0; index < 380; index++) {
         const t = random(), x = 10 + t * 236;
-        const spread = (1 - t * 0.5) * 26;
+        const spread = (1 - t * 0.5) * 24;
         context.fillStyle = greens[index % 6];
-        context.globalAlpha = 0.85;
+        context.globalAlpha = 0.8;
         context.beginPath();
-        context.ellipse(x + (random() - 0.5) * 14, 128 + (random() - 0.5) * spread * 1.7, 3 + random() * 5, 2 + random() * 3, random() * Math.PI, 0, Math.PI * 2);
+        context.ellipse(x + (random() - 0.5) * 14, 128 + (random() - 0.5) * spread * 1.7, 2.5 + random() * 4, 1.8 + random() * 2.6, random() * Math.PI, 0, Math.PI * 2);
         context.fill();
       }
       context.globalAlpha = 1;
-      // woody stem over the mass
-      context.lineCap = 'round';
-      context.strokeStyle = '#5a4630'; context.lineWidth = 4;
+      // woody stem
+      context.strokeStyle = '#4a3b2c'; context.lineWidth = 3.5;
       context.beginPath(); context.moveTo(4, 128); context.lineTo(252, 128); context.stroke();
-      context.strokeStyle = '#6d5638'; context.lineWidth = 2;
-      context.beginPath(); context.moveTo(4, 127); context.lineTo(252, 127); context.stroke();
-      // feathery needles fanning up and down, sweeping toward the tip
-      for (let index = 0; index < 950; index++) {
-        const t = index / 950, x = 8 + t * 240 + (random() - 0.5) * 8;
+      // feathery needles at chaotic angles, sweeping mostly toward the tip
+      for (let index = 0; index < 900; index++) {
+        const t = index / 900, x = 8 + t * 240 + (random() - 0.5) * 10;
         const dir = index % 2 ? 1 : -1;
-        const length = (30 - 16 * t) * (0.6 + random() * 0.7);
-        const sweep = 0.35 + random() * 0.75;
+        const length = (28 - 14 * t) * (0.5 + random() * 0.9);
+        const sweep = (random() - 0.35) * 1.9;
         context.strokeStyle = greens[index % 6];
-        context.lineWidth = 1.6 + random() * 1.5;
-        context.beginPath(); context.moveTo(x, 128 + (random() - 0.5) * 5);
-        context.lineTo(x + Math.sin(sweep) * length * 0.8, 128 + dir * Math.cos(sweep) * length);
+        context.lineWidth = 1.4 + random() * 1.4;
+        context.beginPath(); context.moveTo(x, 128 + (random() - 0.5) * 6);
+        context.lineTo(x + Math.sin(sweep) * length, 128 + dir * Math.cos(sweep) * length);
+        context.stroke();
+      }
+      // sparse sunlit tips
+      for (let index = 0; index < 120; index++) {
+        const x = 10 + random() * 236, dir = index % 2 ? 1 : -1;
+        const length = 10 + random() * 16, sweep = (random() - 0.3) * 1.4;
+        context.strokeStyle = index % 2 ? '#4c8f45' : '#5aa04e';
+        context.lineWidth = 1.2 + random();
+        context.beginPath(); context.moveTo(x, 128 + (random() - 0.5) * 4);
+        context.lineTo(x + Math.sin(sweep) * length, 128 + dir * Math.cos(sweep) * length);
         context.stroke();
       }
     });
@@ -133,4 +153,24 @@ export function createJungleTextures() {
 
 export function preloadJungleTextures() {
   Object.values(createJungleTextures()).forEach(texture => texture.dispose());
+}
+
+export const PHOTO_BARK_URLS = [barkDiffuseUrl, barkNormalUrl];
+
+let photoBark: { diffuse: THREE.Texture; normal: THREE.Texture } | undefined;
+
+export async function preloadPhotoBark() {
+  if (!photoBark) {
+    const loader = new THREE.TextureLoader();
+    const load = (url: string) => new Promise<THREE.Texture>((resolve, reject) => { loader.load(url, resolve, undefined, reject); });
+    const [diffuse, normal] = await Promise.all([load(barkDiffuseUrl), load(barkNormalUrl)]);
+    diffuse.colorSpace = THREE.SRGBColorSpace;
+    for (const map of [diffuse, normal]) { map.wrapS = map.wrapT = THREE.RepeatWrapping; map.anisotropy = 8; }
+    photoBark = { diffuse, normal };
+  }
+  return photoBark;
+}
+
+export function getPhotoBark() {
+  return photoBark;
 }
