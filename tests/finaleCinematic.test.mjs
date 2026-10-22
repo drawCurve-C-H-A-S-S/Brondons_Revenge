@@ -216,8 +216,16 @@ test('the finale site preserves the roof and rescue positions without constructi
   const size = new THREE.Box3().setFromObject(site.facilityRoof).getSize(new THREE.Vector3());
   assert.equal(size.x, world.FINALE_ROOFTOP.width);
   assert.equal(size.z, world.FINALE_ROOFTOP.depth);
-  assert.equal(site.scene.getObjectByName('FinaleBackdropTrunks').count, 320);
-  assert.equal(site.scene.getObjectByName('FinaleBackdropCanopy').count, 640);
+  function instances(prefix) {
+    let count = 0;
+    site.scene.traverse(node => { if (node.isInstancedMesh && node.name.startsWith(prefix)) count += node.count; });
+    return count;
+  }
+  assert.equal(instances('FinaleBackdropTrunks/'), 320);
+  assert.equal(instances('FinaleBackdropCanopy/'), 320 * 129);
+  assert.equal(instances('FinaleDistantCanopy/'), 320 * 43);
+  assert.ok(instances('FinaleGroundGrass/') > 0);
+  assert.ok(site.scene.getObjectByName('FallingPinecones'));
   assert.equal(site.scene.getObjectByName('ImpassableWesternMountain'), undefined);
   assert.equal(site.scene.getObjectByName('FacilityShipSentinelLeft'), undefined);
   assert.ok(site.ship.root.position.distanceTo(new THREE.Vector3(-74, 0.65, 87)) < 1e-8);

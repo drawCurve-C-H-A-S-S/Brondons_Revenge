@@ -42,7 +42,12 @@ export function fitLightsaberToHand(lightsaber: THREE.Object3D, hand: THREE.Obje
   fitWeaponToHand(lightsaber, hand, 0.14);
 }
 
-export function createLightsaber(): THREE.Group {
+export function setLightsaberBeamVisible(lightsaber: THREE.Object3D, visible: boolean) {
+  const beam = lightsaber.getObjectByName('LightsaberBeam');
+  if (beam) beam.visible = visible;
+}
+
+export function createLightsaber(beamVisible = true): THREE.Group {
   const lightsaber = new THREE.Group();
   lightsaber.name = 'lightsaber';
 
@@ -66,33 +71,8 @@ export function createLightsaber(): THREE.Group {
   emitter.position.y = 0.3;
   lightsaber.add(emitter);
 
-  // Blade (glowing)
-  const bladeColor = 0x00ff88;
-  const bladeMaterial = new THREE.MeshBasicMaterial({ color: bladeColor, transparent: true, opacity: 0.8,
-    depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending });
-  const blade = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.9, 8), bladeMaterial);
-  blade.position.y = 0.77;
-  blade.name = 'blade';
-  lightsaber.add(blade);
-  const core = new THREE.Mesh(new THREE.CapsuleGeometry(0.011, 0.878, 4, 8),
-    new THREE.MeshBasicMaterial({ color: 0xd8ffeb, toneMapped: false }));
-  core.position.y = 0.77; core.name = 'bladeCore'; lightsaber.add(core);
-
-  // Blade glow (outer)
-  const glowMaterial = new THREE.ShaderMaterial({ vertexShader: saberGlowVertex, fragmentShader: saberGlowFragment,
-    uniforms: { uTint: { value: new THREE.Color(bladeColor) }, uOpacity: { value: 0.32 } },
-    transparent: true, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending });
-  const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.9, 16, 1, true), glowMaterial);
-  glow.position.y = 0.77;
-  glow.name = 'bladeGlow';
-  lightsaber.add(glow);
-
-  // Blade tip light
-  const bladeLight = new THREE.PointLight(bladeColor, 1.4, 2.8);
-  bladeLight.position.y = 0.77;
-  bladeLight.name = 'bladeLight';
-  lightsaber.add(bladeLight);
-
+  const beam = createLightsaberBeam();
+  beam.position.y = 0.32; beam.visible = beamVisible; lightsaber.add(beam);
   lightsaber.traverse(child => {
     if (child instanceof THREE.Mesh && child.name !== 'blade' && child.name !== 'bladeGlow' && child.name !== 'bladeCore') {
       child.castShadow = true;
@@ -100,6 +80,37 @@ export function createLightsaber(): THREE.Group {
     }
   });
   return lightsaber;
+}
+
+export function createLightsaberBeam(): THREE.Group {
+  const beam = new THREE.Group(); beam.name = 'LightsaberBeam';
+  // Blade (glowing)
+  const bladeColor = 0x00ff88;
+  const bladeMaterial = new THREE.MeshBasicMaterial({ color: bladeColor, transparent: true, opacity: 0.8,
+    depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending });
+  const blade = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.9, 8), bladeMaterial);
+  blade.position.y = 0.45;
+  blade.name = 'blade';
+  beam.add(blade);
+  const core = new THREE.Mesh(new THREE.CapsuleGeometry(0.011, 0.878, 4, 8),
+    new THREE.MeshBasicMaterial({ color: 0xd8ffeb, toneMapped: false }));
+  core.position.y = 0.45; core.name = 'bladeCore'; beam.add(core);
+
+  // Blade glow (outer)
+  const glowMaterial = new THREE.ShaderMaterial({ vertexShader: saberGlowVertex, fragmentShader: saberGlowFragment,
+    uniforms: { uTint: { value: new THREE.Color(bladeColor) }, uOpacity: { value: 0.32 } },
+    transparent: true, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending });
+  const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.9, 16, 1, true), glowMaterial);
+  glow.position.y = 0.45;
+  glow.name = 'bladeGlow';
+  beam.add(glow);
+
+  // Blade tip light
+  const bladeLight = new THREE.PointLight(bladeColor, 1.4, 2.8);
+  bladeLight.position.y = 0.45;
+  bladeLight.name = 'bladeLight';
+  beam.add(bladeLight);
+  return beam;
 }
 
 export function disposeLightsaber(root: THREE.Object3D) {

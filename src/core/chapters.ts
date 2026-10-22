@@ -13,12 +13,12 @@ export const LOADING_CHAPTERS = {
   },
   prologue: {
     chapter: 'PROLOGUE / AWAKENING', title: 'THE PRISON', images: [image('prologue-prison')],
-    tips: ['Listen to Prime to discover what happened aboard the ship.', 'After awakening, press E to teleport to your cabin.'],
+    tips: ['Click or press Space to advance Prime\'s flashbacks. Hold Enter to skip the prologue.', 'After awakening, press E to teleport to your cabin.'],
   },
   quarters: {
     chapter: 'LEVEL 1 / LIVING QUARTERS', title: 'THE CREW CABINS', images: [image('living-quarters')],
-    tips: ['Recover your pistol from Brondon\'s chest before leaving the cabins.',
-      'Brendan has the teleport crystal. Branden has the scanner goggles.', 'Branden\'s computer holds the forward bulkhead password.'],
+    tips: ['Look around the crew cabins for useful items before leaving.',
+      'Nearby nameplates identify each room.', 'Explore at your own pace; Prime will help if you overlook something when leaving.'],
   },
   stage1: {
     chapter: 'LEVEL 1 / STEALTH STAGE', title: 'DECK ONE HANGAR', images: [image('stage1-overview'), image('stage1-patrol')],
@@ -44,7 +44,7 @@ export const LOADING_CHAPTERS = {
   },
   archive: {
     chapter: 'LEVEL 1 / MINIGAME STAGE / ARCHIVE', title: 'THE EQUIPMENT ARCHIVE', images: [image('stage2-archive')],
-    tips: ['The sealed archive holds another weapon and a keycard.',
+    tips: ['The sealed archive holds a lightsaber beam and a keycard.',
       'Keycards persist when you return to the surveillance room.'],
   },
   rust: {

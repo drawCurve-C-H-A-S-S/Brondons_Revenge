@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "test": "node --test tests/*.test.mjs",
     "audio:fallbacks": "node scripts/createAudioFallbacks.mjs",
+    "textures:earth": "node scripts/createEarthTextures.mjs",
     "animations:import": "node scripts/importQuaterniusAnimations.mjs",
     "typecheck": "tsc --noEmit"
   },

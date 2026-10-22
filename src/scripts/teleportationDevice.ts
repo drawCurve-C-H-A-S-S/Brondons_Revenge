@@ -94,7 +94,7 @@ export class TeleportationDeviceController {
   collect(announce = true) {
     if (this.state.collected) return;
     this.state.collected = true;
-    if (announce) this.showMessage(inputHint('Teleport crystal linked! Q: place marker / T: return / Hold Tab: weapons.'));
+    if (announce) this.showMessage(inputHint('Teleporting crystal shard linked! Q: place marker / T: return / Hold Tab: weapons.'));
   }
 
   reset() {
@@ -103,7 +103,7 @@ export class TeleportationDeviceController {
   }
 
   setMarker(sceneId: string, position: { x: number; y: number; z: number }, rotation: number) {
-    if (!this.state.collected) throw new Error('Cannot set a teleport marker before collecting the device');
+    if (!this.state.collected) throw new Error('Cannot set a teleport marker before collecting the crystal shard');
     if (!sceneId || ![position.x, position.y, position.z, rotation].every(Number.isFinite))
       throw new Error('Teleport markers require a scene and finite coordinates/rotation');
     this.state.placed = true;

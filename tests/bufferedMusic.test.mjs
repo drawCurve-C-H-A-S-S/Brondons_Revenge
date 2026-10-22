@@ -63,6 +63,16 @@ test('decoded loops remove silent padding and join at the next adjacent musical 
   assert.throws(() => prepareMusicLoop(context, new Buffer(2, 3000, 1000)), /silent/);
 });
 
+test('long ambient recordings support a two-second seam on the sample clock', () => {
+  const source = new Buffer(1, 20000, 1000), context = new Context();
+  source.channels[0].forEach((_, frame, values) => { values[frame] = Math.sin(frame * 0.037) * 0.3; });
+  const { buffer, loopStart } = prepareMusicLoop(context, source, 2);
+  assert.equal(loopStart, 2);
+  const samples = buffer.getChannelData(0);
+  assert.ok(Math.abs(samples.at(-1) - samples[Math.round(loopStart * source.sampleRate)]) < 0.02);
+  for (const blend of [0, -1, NaN, Infinity]) assert.throws(() => prepareMusicLoop(context, source, blend), RangeError);
+});
+
 test('music uses one sample-clock loop without replay callbacks, and resumes the exact paused position', async t => {
   const music = new BufferedMusic('buffer-loop', true); t.after(() => music.dispose());
   await music.ready; await music.play();

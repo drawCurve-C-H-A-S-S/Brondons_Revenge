@@ -491,6 +491,7 @@ export function createScene({ audioManager, entryState, entryDoor = 'back', cafe
     if (chestInteractionStarted) return;
     chestInteractionStarted = true;
     chestLooted = true;
+    playSfx('chest');
     cafeteriaUnlocked = true;
     frontDoorTarget.visible = true;
     if (interactPrompt) interactPrompt.classList.add('hidden');

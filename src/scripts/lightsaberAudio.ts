@@ -1,4 +1,4 @@
-import { getAudioSettings, subscribeAudioSettings } from '../helpers/audio/AudioManager.js';
+import { getAudioSettings, getSfxGain, subscribeAudioSettings, SFX_MAX_GAIN } from '../helpers/audio/AudioManager.js';
 
 /** Procedural ignition, swing, clash, and hum from the ASCII shader branch. */
 export class LightsaberAudio {
@@ -13,7 +13,7 @@ export class LightsaberAudio {
   private sources = new Set<AudioBufferSourceNode>();
   private disposed = false;
   private stopSettings = subscribeAudioSettings(settings => {
-    if (this.output) this.output.gain.value = settings.paused ? 0 : settings.sfx;
+    if (this.output) this.output.gain.value = settings.paused ? 0 : settings.sfx * SFX_MAX_GAIN;
     if (this.context && this.context.state !== 'closed') {
       const change = settings.paused ? this.context.suspend() : this.context.resume();
       void change.catch(() => {});
@@ -26,7 +26,7 @@ export class LightsaberAudio {
       if (!this.context) {
         this.context = new AudioContext();
         this.output = this.context.createGain();
-        this.output.gain.value = getAudioSettings().sfx;
+        this.output.gain.value = getSfxGain();
         this.output.connect(this.context.destination);
       }
       if (this.context.state === 'suspended') void this.context.resume().catch(() => {});

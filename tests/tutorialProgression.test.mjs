@@ -27,8 +27,11 @@ before(async () => {
   const base = new URL('../src/assets/models/Tools/', import.meta.url);
   chestJSON = JSON.parse(await readFile(new URL('Prop_Chest.gltf', base), 'utf8'));
   for (const buffer of chestJSON.buffers) buffer.uri = `data:application/octet-stream;base64,${(await readFile(new URL(buffer.uri, base))).toString('base64')}`;
-  delete chestJSON.materials; delete chestJSON.textures; delete chestJSON.images;
-  for (const mesh of chestJSON.meshes) for (const primitive of mesh.primitives) delete primitive.material;
+  delete chestJSON.textures; delete chestJSON.images;
+  for (const material of chestJSON.materials) {
+    delete material.normalTexture;
+    delete material.pbrMetallicRoughness.metallicRoughnessTexture;
+  }
 });
 after(async () => server?.close());
 function browser(t) {
@@ -150,6 +153,25 @@ test('crew reward chest faces into the room and rotates its collider without loa
   chest.root.updateMatrixWorld(true);
   const latch = chest.root.getObjectByName('ChestLatch').getWorldPosition(new THREE.Vector3());
   assert.ok(latch.x > chest.root.position.x, 'The latch is on the approach side, not against the wall');
+  for (const name of ['ChestBase', 'ChestLid'])
+    assert.equal(chest.root.getObjectByName(name).material.color.getHex(), 0xc4c4c4);
+});
+
+test('model reward chests stay light grey before and after the asset loads', async t => {
+  browser(t); const f = fixture(t);
+  const chest = createRewardChest({ ...f, position: new THREE.Vector3(), reward: 'goggles',
+    unlocked: () => true, onCollect: () => true });
+  t.cleanup(() => chest.dispose());
+  for (const name of ['ChestBase', 'ChestLid'])
+    assert.equal(chest.root.getObjectByName(name).material.color.getHex(), 0xc4c4c4);
+  await chest.ready;
+  assert.equal(chest.root.getObjectByName('CrewFootlocker'), undefined);
+  for (const name of ['Prop_Chest', 'Prop_Chest_Lid']) {
+    const mesh = chest.root.getObjectByName(name);
+    assert.ok(mesh instanceof THREE.SkinnedMesh);
+    assert.equal(mesh.material.color.getHex(), 0xc4c4c4);
+    assert.equal(mesh.material.map, null, 'The dark shared atlas must not tint the light grey exterior');
+  }
 });
 
 function input(element, type, properties = {}) {

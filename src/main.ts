@@ -513,6 +513,7 @@ const lightsaber = new LightsaberController(() => ({
   character: globalCharacter?.model ?? null,
   thirdPerson: isGameplayThirdPerson(),
   hasLightsaber,
+  hasLightsaberBeam: stageTwoProgress.lightsaberBeamCollected,
   attackClips: globalCharacter?.lightsaberAttackClips,
   targets: currentSceneData?.getDamageTargets?.() ?? [],
   setCharacterEquipped: (equipped) =>
@@ -561,7 +562,7 @@ const goggles = new GogglesController(() => ({
   onToggle: (active) => gogglesPostProcess.setActive(active),
 }));
 
-// --- Teleportation Device ---
+// --- Teleport crystal shard ---
 let teleportDeviceMessageTimeout: number | null = null;
 function showTeleportDeviceMessage(message: string) {
   if (currentSceneData?.showTeleportMessage) {
@@ -713,7 +714,7 @@ function weaponEntries(): WeaponWheelEntry[] {
   const entries: WeaponWheelEntry[] = [{ id: "unarmed", label: "Unarmed" }];
   if (hasPistol) entries.push({ id: "pistol", label: "Pistol" });
   if (hasCrowbar) entries.push({ id: "crowbar", label: "Crowbar" });
-  if (hasLightsaber) entries.push({ id: "lightsaber", label: "Lightsaber" });
+  if (hasLightsaber) entries.push({ id: "lightsaber", label: stageTwoProgress.lightsaberBeamCollected ? "Lightsaber" : "Lightsaber hilt" });
   return entries;
 }
 function equippedWeapon(): WeaponId {
@@ -821,7 +822,9 @@ async function initializeApp() {
       preview.has("stage2-hub"))
   ) {
     hasPistol = true;
+    hasLightsaber = true;
     quartersProgress.pistolCollected = true;
+    quartersProgress.lightsaberCollected = true;
     goggles.collect(false);
     teleportDevice.collect(false);
     if (preview.has("stage2-hub")) {
@@ -871,7 +874,7 @@ function prepareEntireGame(loading: ReturnType<typeof beginCinematicLoading>) {
       { label: "Preparing first-person hands", run: prepareFirstPersonHands },
       {
         label: "Preparing the opening chapter music",
-        run: () => preloadMusic(MUSIC_URLS.emotional),
+        run: () => preloadMusic(MUSIC_URLS.prologue),
       },
       {
         label: "Preparing the chain-break music cue",
@@ -950,15 +953,15 @@ const lessons: Record<string, Omit<ControlCard, "key" | "scene">> = {
     touch: ["CROW equip · SWING attack"],
   },
   lightsaber: {
-    title: "Lightsaber acquired",
+    title: "Lightsaber",
     lines: [
-      "Hold Tab → lightsaber · Left click slash",
-      "Rapid clicks → heavy combo · Click on beam → parry / reflect",
+      "Hold Tab → lightsaber · Left click swing",
+      "Rapid clicks → heavy combo · Beam required for damage / parry",
     ],
-    touch: ["SABER equip · SLASH attack", "Direction + SLASH — lunge / combo"],
+    touch: ["SABER equip · SLASH attack", "Beam required for damage / deflection"],
   },
   teleport: {
-    title: "Teleportation device",
+    title: "Teleporting crystal shard",
     lines: ["Q place anchor · T teleport to it"],
     touch: ["Q place anchor · T teleport"],
   },
@@ -1333,7 +1336,7 @@ async function loadPrologue1(alreadyCovered = false) {
   try {
     await prepareGlobalCharacter();
     await Promise.all([
-      preloadMusic(MUSIC_URLS.emotional),
+      preloadMusic(MUSIC_URLS.prologue),
       preloadMusic(MUSIC_URLS["broken-chains"]),
     ]);
     data = module.createScene({
@@ -1467,7 +1470,6 @@ async function loadLivingQuarters(
       fromPassage,
       entryState,
       deferActivation: true,
-      allowComputerPlay: campaignCompleted || developerRun,
       developerAccess: developerRun,
       warmRoom: async (scene, camera) => {
         await prepareSceneRendering(renderer, scene, camera);
@@ -1475,6 +1477,10 @@ async function loadLivingQuarters(
       onPistolCollected: () => {
         hasPistol = true;
         introduceControls("pistol");
+      },
+      onLightsaberCollected: () => {
+        hasLightsaber = true;
+        introduceControls("lightsaber");
       },
       onCrystalCollected: () => {
         teleportDevice.collect();
@@ -1503,6 +1509,7 @@ async function loadLivingQuarters(
     retireTraversalRoom();
     currentSceneData?.dispose?.();
     hasPistol = quartersProgress.pistolCollected;
+    hasLightsaber = quartersProgress.lightsaberCollected;
     if (quartersProgress.crystalCollected) teleportDevice.collect(false);
     if (quartersProgress.gogglesCollected) goggles.collect(false);
     enterManagedScene("living-quarters", sceneData);
@@ -2152,6 +2159,7 @@ async function loadStageTwo(
   const [module] = await Promise.all([
     prepareScene(1.2),
     preloadMusic(MUSIC_URLS["stealth-alert"]),
+    preloadMusic(MUSIC_URLS.tension),
   ]);
   if (!module || expectedRequest !== sceneRequestVersion) return false;
   const source = currentSceneData,
@@ -2191,7 +2199,7 @@ async function loadStageTwo(
   activateExtension(sceneData, "stage2-infiltration");
   sceneData.activate();
   if (stageTwoProgress.crowbarCollected) hasCrowbar = true;
-  if (stageTwoProgress.lightsaberCollected) hasLightsaber = true;
+  if (quartersProgress.lightsaberCollected) hasLightsaber = true;
   shipMapProgress.reveal(sceneData.getMapLayout());
   updatePlayerView(0);
   return true;
@@ -2310,6 +2318,9 @@ async function loadCameraVisit(
     showTeleportDeviceMessage("Prime: Set a marker with Q first.");
     return false;
   }
+  void preloadMusic(MUSIC_URLS.puzzle).catch((error) =>
+    console.warn("[Audio] Puzzle music preparation failed:", error),
+  );
   const source = currentSceneData;
   let sceneData;
   if (id === "scene5") {
@@ -2369,8 +2380,7 @@ async function loadCameraVisit(
         collectStageTwoKeycard(stageTwoProgress, "stage2-armory");
         completeArcadeStage();
       },
-      onLightsaberCollected: () => {
-        hasLightsaber = true;
+      onLightsaberBeamCollected: () => {
         introduceControls("lightsaber");
       },
     });
@@ -2751,8 +2761,12 @@ async function loadScene21(
       await Promise.all([
         sceneData.ready.then(() => prepared("Characters and combat ready")),
         loading.presented.then(() => prepared("Loading artwork ready")),
-        Promise.all([preloadMusic(MUSIC_URLS.loading), preloadMusic(MUSIC_URLS.ship)])
-          .then(() => prepared("Soundtrack ready")),
+        // Later cues are requested first so the opening cue survives a tight decoded-music budget.
+        Promise.all([
+          preloadMusic(MUSIC_URLS["final-battle"]),
+          preloadMusic(MUSIC_URLS.ship),
+          preloadMusic(MUSIC_URLS.loading),
+        ]).then(() => prepared("Soundtrack ready")),
         prepareGlobalCharacter().then(() => prepared("Player ready")),
       ]);
       if (request !== sceneRequestVersion) {
@@ -3914,13 +3928,15 @@ async function enterSceneById(id: number) {
   hasPistol = true;
   hasCrowbar = true;
   hasLightsaber = true;
+  stageTwoProgress.lightsaberBeamCollected = true;
   goggles.collect(false);
   teleportDevice.collect(false);
   quartersProgress.pistolCollected = true;
+  quartersProgress.lightsaberCollected = true;
   if (id === 1.2) {
     stageTwoProgress = createStageTwoProgress();
     cctv.clearSources();
-    hasCrowbar = hasLightsaber = false;
+    hasCrowbar = false;
     bayBossDefeated = false;
     healthPackCollectedScene13 = false;
   } else if (id === 1.25) {
@@ -3929,12 +3945,15 @@ async function enterSceneById(id: number) {
     stageTwoProgress.guardDown = true;
     stageTwoProgress.ventCleared = true;
     cctv.clearSources();
-    hasCrowbar = hasLightsaber = false;
+    hasCrowbar = false;
     bayBossDefeated = false;
     healthPackCollectedScene13 = false;
   } else if (id === 1.3 || id === 1.4 || id === 5 || id === 6) {
     stageTwoProgress.checkpoint = "surveillance";
     stageTwoProgress.guardDown = true;
+    if (id === 1.3)
+      stageTwoProgress.lightsaberBeamCollected =
+        stageTwoProgress.remoteRooms["stage2-armory"].rewardCollected;
   }
   if (id === 13 || id === 13.5) bayBossDefeated = false;
   developerRun = true;

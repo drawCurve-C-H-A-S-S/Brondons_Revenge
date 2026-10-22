@@ -6,17 +6,7 @@ type PreparedMusic = { buffer: AudioBuffer; loopStart: number };
 const prepared = new Map<string, Promise<PreparedMusic>>();
 const preparedSizes = new Map<string, number>();
 const unsupportedSources = new Set<string>();
-const fallbackAssets = import.meta.glob<string>('../../assets/bgm/*.ogg', { eager: true, query: '?url', import: 'default' });
-const originalAssets = import.meta.glob<string>('../../assets/bgm/*.m4a', { eager: true, query: '?url', import: 'default' });
-export const MUSIC_FALLBACK_URLS = Object.values(fallbackAssets);
-const portableSources = new Map(Object.entries(originalAssets).map(([path, source]) => [source, fallbackAssets[path.replace(/\.m4a$/, '.ogg')]]));
 let context: AudioContext | null = null;
-
-export function playableMusicSource(source: string) {
-  const portable = portableSources.get(source);
-  return portable && typeof document !== 'undefined'
-    && document.createElement('audio').canPlayType?.('audio/ogg; codecs="vorbis"') ? portable : source;
-}
 
 export function supportsBufferedMusic(source?: string) {
   return typeof window.AudioContext === 'function' && (!source || !unsupportedSources.has(source));
@@ -26,6 +16,9 @@ function musicContext() {
   if (!context) context = new window.AudioContext();
   return context;
 }
+
+/** One Web Audio context for music, ambient loops and footsteps, so a single user gesture unlocks them all. */
+export function sharedAudioContext() { return musicContext(); }
 
 export function resumeMusicContext() {
   return context && context.state !== 'running' ? context.resume() : Promise.resolve();
@@ -46,7 +39,8 @@ export function createMusicMuffleFilter(audio?: HTMLMediaElement) {
   };
 }
 
-export function prepareMusicLoop(audioContext: BaseAudioContext, original: AudioBuffer): PreparedMusic {
+export function prepareMusicLoop(audioContext: BaseAudioContext, original: AudioBuffer, blendSeconds = MUSIC_LOOP_BLEND_SECONDS): PreparedMusic {
+  if (!Number.isFinite(blendSeconds) || blendSeconds <= 0) throw new RangeError('Loop blending requires a positive, finite duration');
   const channels = Array.from({ length: original.numberOfChannels }, (_, channel) => original.getChannelData(channel));
   const audible = (frame: number) => channels.some(channel => Math.abs(channel[frame]) > 0.0005);
   let start = 0, end = original.length;
@@ -56,7 +50,7 @@ export function prepareMusicLoop(audioContext: BaseAudioContext, original: Audio
   const padding = Math.ceil(original.sampleRate * 0.002);
   start = Math.max(0, start - padding); end = Math.min(original.length, end + padding);
   const length = end - start;
-  const blend = Math.min(Math.round(MUSIC_LOOP_BLEND_SECONDS * original.sampleRate), Math.floor(length / 4));
+  const blend = Math.min(Math.round(blendSeconds * original.sampleRate), Math.floor(length / 4));
   if (blend < 2) throw new Error('Music buffer is too short for a seamless loop');
   const buffer = audioContext.createBuffer(original.numberOfChannels, length, original.sampleRate);
   for (let channel = 0; channel < channels.length; channel++) {
@@ -72,22 +66,15 @@ export function prepareMusicLoop(audioContext: BaseAudioContext, original: Audio
   return { buffer, loopStart: blend / original.sampleRate };
 }
 
-function loadMusic(source: string, loop: boolean) {
-  const key = `${loop}:${source}`;
+function loadMusic(source: string, loop: boolean, blendSeconds = MUSIC_LOOP_BLEND_SECONDS) {
+  const key = `${loop}:${blendSeconds}:${source}`;
   let pending = prepared.get(key);
   if (pending) { prepared.delete(key); prepared.set(key, pending); return pending; }
   const audioContext = musicContext();
-  pending = fetchAsset(playableMusicSource(source)).then(async response => {
+  pending = fetchAsset(source).then(async response => {
     if (!response.ok) throw new Error(`Music request failed (${response.status}): ${source}`);
-    let buffer: AudioBuffer;
-    try { buffer = await audioContext.decodeAudioData(await response.arrayBuffer()); }
-    catch (error) {
-      if (!(error instanceof Error) || error.name !== 'EncodingError' || playableMusicSource(source) === source) throw error;
-      console.warn('[Audio] Portable decoding failed; trying the original soundtrack:', source, error);
-      const original = await fetchAsset(source);
-      buffer = await audioContext.decodeAudioData(await original.arrayBuffer());
-    }
-    const music = loop ? prepareMusicLoop(audioContext, buffer) : { buffer, loopStart: 0 };
+    const buffer = await audioContext.decodeAudioData(await response.arrayBuffer());
+    const music = loop ? prepareMusicLoop(audioContext, buffer, blendSeconds) : { buffer, loopStart: 0 };
     preparedSizes.set(key, music.buffer.length * music.buffer.numberOfChannels * Float32Array.BYTES_PER_ELEMENT);
     const memory = (globalThis.navigator as Navigator & { deviceMemory?: number } | undefined)?.deviceMemory;
     const budget = memory !== undefined && memory <= 4 ? MUSIC_CACHE_BUDGET_BYTES / 2 : MUSIC_CACHE_BUDGET_BYTES;
@@ -102,7 +89,7 @@ function loadMusic(source: string, loop: boolean) {
   }).catch(error => {
     if (error instanceof Error && error.name === 'EncodingError' && !unsupportedSources.has(source)) {
       unsupportedSources.add(source);
-      const message = 'The soundtrack could not be decoded. Use a browser with OGG or AAC audio support.';
+      const message = 'The soundtrack could not be decoded. Use a browser with OGG Vorbis audio support.';
       console.warn('[Audio]', message, source, error);
       window.dispatchEvent(new CustomEvent('music-unavailable', { detail: { message } }));
     }
@@ -139,12 +126,12 @@ export class BufferedMusic extends EventTarget {
   private generation = 0;
   private disposed = false;
 
-  constructor(readonly src: string, loop: boolean) {
+  constructor(readonly src: string, loop: boolean, blendSeconds = MUSIC_LOOP_BLEND_SECONDS) {
     super();
     this.loop = loop;
     this.filter.input.connect(this.gain);
     this.gain.connect(this.context.destination);
-    this.ready = loadMusic(src, loop).then(music => { this.prepared = music; });
+    this.ready = loadMusic(src, loop, blendSeconds).then(music => { this.prepared = music; });
     void this.ready.catch(error => console.warn('[Audio] Music preparation failed:', src, error));
   }
 

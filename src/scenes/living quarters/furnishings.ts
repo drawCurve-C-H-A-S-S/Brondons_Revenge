@@ -7,7 +7,7 @@ import { createRescueDesktop, createSdpBrowserDesktop, drawDesktopBackground } f
 import { createCrewChest } from '../../helpers/scene/crewChest.js';
 import { createGoggles } from '../../scripts/rewardChest.js';
 import { createTeleportCrystal } from '../../scripts/teleportationDevice.js';
-import { createShipTerminal } from '../../helpers/scene/shipInterior.js';
+import { createShipInteriorMaterials, createShipServerRack, createShipTerminal } from '../../helpers/scene/shipInterior.js';
 import { fitRoomProp } from '../../helpers/scene/shipRoom.js';
 export { fitRoomProp as fitCabinProp } from '../../helpers/scene/shipRoom.js';
 
@@ -198,6 +198,16 @@ export async function createCabinFurnishings(cabin: CabinDefinition, physics: Ph
     chair.position.add(new THREE.Vector3(cabin.side * -0.55, 0, 1.65)); root.add(chair);
     collider(chairSize, cabinPoint(cabin, -0.55, chairSize.y / 2, 1.65));
 
+    if (cabin.id === 'student-05') {
+      const materials = createShipInteriorMaterials(1, 1);
+      materials.deck.dispose(); materials.deckTexture.dispose();
+      const server = createShipServerRack(materials);
+      server.position.set(cabin.side * -2.15, 0, -2.75); root.add(server);
+      server.updateWorldMatrix(true, true);
+      const bounds = new THREE.Box3().setFromObject(server);
+      collider(bounds.getSize(new THREE.Vector3()), bounds.getCenter(new THREE.Vector3()));
+    }
+
     const desktop = cabin.id === 'branden' ? createRescueDesktop(progress) : cabin.id === 'brendan' ? createSdpBrowserDesktop() : null;
     const playScreen = cabin.id === 'brondon' ? await loadTexture(playScreenUrl) : null;
     if (playScreen) { playScreen.colorSpace = THREE.SRGBColorSpace; playScreen.name = 'CrewGameMenu-brondon'; }
@@ -228,14 +238,6 @@ export async function createCabinFurnishings(cabin: CabinDefinition, physics: Ph
     const goggles = cabin.id === 'branden' ? createGoggles() : null;
     if (goggles) { goggles.position.y = 0.69; goggles.scale.setScalar(1.7); chest.add(goggles); }
 
-    const teleporter = new THREE.Group(); teleporter.name = 'PersonalTeleportDevice';
-    if (cabin.id === 'brondon') {
-      const led = new THREE.Mesh(new THREE.SphereGeometry(0.018, 10, 8), glow);
-      teleporter.position.set(0, 0.71, 0.25); bed.add(teleporter);
-      box(teleporter, 'TeleporterCasing', [0.19, 0.07, 0.13], [0, 0, 0]);
-      box(teleporter, 'TeleporterInset', [0.13, 0.006, 0.08], [0, 0.039, 0], pale);
-      led.position.set(0.045, 0.05, 0); teleporter.add(led);
-    }
     footlocker.update(0, progress.openedChests.has(cabin.id), true);
     function update(dt: number, clock: number) {
       const open = progress.openedChests.has(cabin.id);
@@ -246,14 +248,12 @@ export async function createCabinFurnishings(cabin: CabinDefinition, physics: Ph
         crystal.rotation.y = clock * 1.4; crystal.position.y = 0.85 + Math.sin(clock * 2) * 0.045;
       }
       if (goggles) goggles.visible = footlocker.openness > 0.15 && !progress.gogglesCollected;
-      teleporter.visible = cabin.id === 'brondon' && !progress.teleporterCollected;
       glow.emissiveIntensity = 1.4 + Math.sin(clock * 2.6) * 0.3;
     }
     update(0, 0);
     return {
-      root, desk, chair, bed, computer, screen, desktop, poster, chest, teleporter, lidPivot, crystal, goggles,
+      root, desk, chair, bed, computer, screen, desktop, poster, chest, lidPivot, crystal, goggles,
       chestPoint: cabinPoint(cabin, 1.7, 0.6, 0.65),
-      teleporterPoint: cabinPoint(cabin, 1.65, 0.76, -1.45),
       update,
       dispose() {
         bodies.forEach(body => { if (body.world === physics.world) physics.world.removeBody(body); });

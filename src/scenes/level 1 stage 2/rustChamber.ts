@@ -717,7 +717,7 @@ export function createScene({ entryState, preview = false, deferActivation = fal
   return {
     roomId: 'rust-chamber', scene, camera, player, physicsWorld: world, cutsceneManager: null, ready: chest.ready,
     getSceneId: () => 'stage2-rust',
-    getMapLayout: () => cameraVisitMap(38), getMapSceneId: () => 'scene38', getMusicTrack: () => 'stealth-2' as const,
+    getMapLayout: () => cameraVisitMap(38), getMapSceneId: () => 'scene38', getMusicTrack: () => 'puzzle' as const,
     activate() { active = true; ui.classList.remove('hidden'); visitUI?.setVisible(true); player.clearInput(); player.enable(); },
     controlsReady: playable, isCinematic: () => !!presentation || !!melting,
     get ownsWeaponInput() { return !!presentation || !!melting; },

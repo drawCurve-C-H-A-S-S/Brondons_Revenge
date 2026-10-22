@@ -1,18 +1,19 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { gzipSync } from 'node:zlib';
 import { after, before, test } from 'node:test';
 import { createServer } from 'vite';
 import * as THREE from 'three';
 
-let server, createEarthTextures, createEarthGroup, updateEarthGroup, addPlanetBackdrop, animatePlanetBackdrop, createFinaleWorld, disposeRoom;
+let server, createEarthTextures, preloadEarthTextures, createEarthGroup, updateEarthGroup, addPlanetBackdrop, animatePlanetBackdrop, createFinaleWorld, disposeRoom;
 
 before(async () => {
   server = await createServer({
     server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom',
     optimizeDeps: { noDiscovery: true, include: [] },
   });
-  ({ createEarthTextures, createEarthGroup, updateEarthGroup } = await server.ssrLoadModule('/scripts/earthTexture.ts'));
+  ({ createEarthTextures, preloadEarthTextures, createEarthGroup, updateEarthGroup } = await server.ssrLoadModule('/scripts/earthTexture.ts'));
   ({ addPlanetBackdrop, animatePlanetBackdrop } = await server.ssrLoadModule('/scripts/items/createEscapeShip.ts'));
   ({ createFinaleWorld } = await server.ssrLoadModule('/helpers/scene/finaleWorld.ts'));
   ({ disposeRoom } = await server.ssrLoadModule('/helpers/scene/shipRoom.ts'));
@@ -43,10 +44,49 @@ test('generated Earth maps match the earth branch pixel-for-pixel', () => {
   }
 });
 
-test('full-resolution maps are reused without sharing disposable texture handles', t => {
+test('invalid baked maps fail explicitly and allow another preparation attempt', async t => {
+  t.mock.method(globalThis, 'fetch', async source => new Response(
+    source === 'earth-invalid-gzip' ? new Uint8Array([1, 2, 3]) : gzipSync(new Uint8Array(12)),
+  ));
+  await assert.rejects(preloadEarthTextures('earth-invalid-gzip'), /invalid gzip data/);
+  await assert.rejects(preloadEarthTextures('earth-invalid-size'), /Earth texture data must contain 25165824 bytes/);
+});
+
+test('baked full-resolution maps preserve every pixel without regenerating procedural noise', async t => {
+  const compressed = await readFile(new URL('../src/assets/planets/earth-maps.rgba.bin', import.meta.url));
+  let requests = 0;
+  t.mock.method(globalThis, 'fetch', async () => { requests++; return new Response(compressed); });
+  t.mock.method(Math, 'sin', () => { throw new Error('Preloaded Earth maps must not regenerate noise'); });
+  const first = preloadEarthTextures('earth-baked'), second = preloadEarthTextures('earth-baked');
+  assert.equal(first, second, 'Concurrent preparation shares one decode');
+  await Promise.all([first, second]);
+  assert.equal(requests, 1);
+  const textures = createEarthTextures();
+  const expected = {
+    colorTexture: 'd52a717aa7b1e92a8b12c816501bf5edf0d6827fb96dd50d9a4ea747c87e32e1',
+    roughnessTexture: '539cea1668a13a02a76d9152305d1a1c36766eadad19e5ad0bb03ec868073411',
+    cloudTexture: '9fc4843372a8b8384e92fed69ef0a347fa7814331daaae871c59d7ed7dfbc859',
+  };
+  try {
+    for (const [name, texture] of Object.entries(textures)) {
+      assert.equal(texture.image.width, 2048);
+      assert.equal(texture.image.height, 1024);
+      assert.equal(createHash('sha256').update(texture.image.data).digest('hex'), expected[name]);
+    }
+    assert.equal(textures.colorTexture.colorSpace, THREE.SRGBColorSpace);
+    assert.equal(textures.cloudTexture.colorSpace, THREE.SRGBColorSpace);
+    assert.equal(textures.roughnessTexture.colorSpace, THREE.NoColorSpace);
+  } finally {
+    Object.values(textures).forEach(texture => texture.dispose());
+  }
+});
+
+test('full-resolution maps are reused without sharing disposable texture handles', async t => {
   const first = createEarthTextures();
   Object.values(first).forEach(texture => texture.dispose());
+  t.mock.method(globalThis, 'fetch', () => { throw new Error('Cached Earth maps must not download again'); });
   t.mock.method(Math, 'sin', () => { throw new Error('Cached Earth maps must not regenerate noise'); });
+  await preloadEarthTextures('earth-already-prepared');
   const second = createEarthTextures();
   try {
     for (const name of Object.keys(first)) {

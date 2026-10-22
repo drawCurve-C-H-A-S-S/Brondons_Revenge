@@ -1,8 +1,17 @@
 import * as THREE from 'three';
 import { clone as cloneRig } from 'three/addons/utils/SkeletonUtils.js';
-import { loadSubjectModel, loadToolModel } from '../../core/loader.js';
+import { loadBossModel, loadModel, loadPlayerModel, loadSubjectModel, loadToolModel } from '../../core/loader.js';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
 import { createStealthHangar } from '../level 1 stage 1/stealthHangar.js';
+import { createStealthPassage } from '../level 1 stage 1/stealthPassage.js';
+import { createHangarFourteenSet } from '../level 1/scene14.js';
+import { createSurveillanceHubSet, createSurveillanceWorkstation, SURVEILLANCE_WORKSTATIONS } from '../level 1 stage 2/scene.js';
+import { createMothership } from '../../helpers/scene/mothership.js';
+import { disposeRoom, fitRoomProp } from '../../helpers/scene/shipRoom.js';
+import { createShipInteriorMaterials } from '../../helpers/scene/shipInterior.js';
+import { createCorridorMonitor } from '../../helpers/scene/corridorMonitor.js';
+import { createCctvWall } from '../../scripts/cctv.js';
+import { STAGE_TWO_MINIGAMES } from '../level 1 stage 2/stageTwoLayout.js';
 import hologramVertexShader from '../../shaders/hologram.vert.glsl?raw';
 import hologramFragmentShader from '../../shaders/hologram.frag.glsl?raw';
 import { createEarthTextures, createEarthGroup, updateEarthGroup } from '../../scripts/earthTexture.js';
@@ -11,12 +20,44 @@ import { yieldToMainThread } from '../../core/loader.js';
 import { createContainmentPod, type ContainmentPod } from '../../helpers/scene/containmentPod.js';
 
 export type PrologueShot = 'present' | 'asteroid' | 'collection' | 'ingest' | 'corruption'
-  | 'capture' | 'laboratory' | 'shield' | 'planet' | 'corridor' | 'patrol' | 'stealth';
+  | 'capture' | 'laboratory' | 'experiment' | 'breakout' | 'planet' | 'corridor' | 'stealth' | 'security';
 
-export function createPrologueFlashbacks() {
+export const PROLOGUE_SECURITY_CUTS = [
+  { id: 'hangar14-ship', start: 0, end: 2.4, label: 'PRIME / HANGAR 14 / OUR SHIP' },
+  { id: 'surveillance-hub', start: 2.4, end: 4.7, label: 'PRIME / SURVEILLANCE HUB' },
+  { id: 'deck-one', start: 4.7, end: 7, label: 'PRIME / DECK ONE / LIVE PATROLS' },
+  { id: 'bay-warden', start: 7, end: 7.75, label: 'PRIME / BAY WARDEN' },
+  { id: 'surveillance-screens', start: 7.75, end: 10, label: 'PRIME / SURVEILLANCE / SECURITY EVERYWHERE' },
+] as const;
+
+export function createPrologueShield() {
+  const root = new THREE.Group();
+  root.name = 'PrimeShieldBurst';
+  root.visible = false;
+  const surface = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 3), new THREE.MeshBasicMaterial({
+    color: 0x7bdfff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
+    depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
+  }));
+  const lattice = new THREE.Mesh(new THREE.IcosahedronGeometry(1.005, 1), new THREE.MeshBasicMaterial({
+    color: 0xb1efff, transparent: true, opacity: 0, wireframe: true,
+    blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
+  }));
+  root.add(surface, lattice);
+  return { root, update(elapsed: number) {
+    const expansion = THREE.MathUtils.smootherstep(elapsed, 0, 0.45);
+    const fade = 1 - THREE.MathUtils.smoothstep(elapsed, 0.45, 1.15);
+    root.visible = elapsed >= 0 && elapsed < 1.15;
+    root.scale.setScalar(THREE.MathUtils.lerp(0.15, 1.65, expansion));
+    surface.material.opacity = (0.12 + expansion * 0.13) * fade;
+    lattice.material.opacity = 0.65 * fade;
+  } };
+}
+
+export function createPrologueFlashbacks({ characterLoader = loadSubjectModel, playerLoader = loadPlayerModel,
+  modelLoader = loadToolModel, shipLoader = loadModel, bossLoader = loadBossModel, monitorFactory = createCorridorMonitor } = {}) {
   const textures = new Set<THREE.Texture>();
   type HologramPose = 'standing' | 'kneeling' | 'carrying' | 'restrained';
-  const holograms: Array<{ group: THREE.Group; pose: HologramPose; height: number; mixer?: THREE.AnimationMixer }> = [];
+  const holograms: Array<{ group: THREE.Group; pose: HologramPose; height: number; brondon: boolean; mixer?: THREE.AnimationMixer }> = [];
   const scenes: THREE.Scene[] = [];
   const robots: Array<{ root: THREE.Group; mixer?: THREE.AnimationMixer; phase: number; hangar?: boolean; scan?: THREE.Mesh }> = [];
   const cameraRigs: THREE.Group[] = [];
@@ -24,6 +65,7 @@ export function createPrologueFlashbacks() {
   let clock = 0;
   let lastShot: PrologueShot = 'present';
   let currentRenderScene: THREE.Scene | null = null;
+  let securityCut: typeof PROLOGUE_SECURITY_CUTS[number] = PROLOGUE_SECURITY_CUTS[0];
 
   const noise = (seed: number) => {
     const value = Math.sin(seed * 12.9898 + 37.719) * 43758.5453;
@@ -66,12 +108,12 @@ export function createPrologueFlashbacks() {
     toneMapped: false,
   });
 
-  function figure(parent: THREE.Object3D, position: [number, number, number], pose: HologramPose = 'standing', height = 1.9) {
+  function figure(parent: THREE.Object3D, position: [number, number, number], pose: HologramPose = 'standing', height = 1.9, brondon = false) {
     const group = new THREE.Group();
     group.position.set(...position);
-    group.name = `Hologram-${pose}`;
+    group.name = brondon ? 'BrondonRecoveredMemory' : `Hologram-${pose}`;
     parent.add(group);
-    holograms.push({ group, pose, height });
+    holograms.push({ group, pose, height, brondon });
     return group;
   }
 
@@ -311,55 +353,59 @@ export function createPrologueFlashbacks() {
     pods.push(capsule);
     captives.add(capsule.group);
   }
-  for (const toolZ of [-3.3, 2.1]) {
-    box(laboratoryScene, [0.3, 1.5, 0.3], [0.1, 0.75, toolZ], metal);
-    const arm = box(laboratoryScene, [0.1, 0.1, 1.4], [0.1, 1.55, toolZ - 0.65], paleMetal);
-    arm.rotation.x = -0.25;
-    box(laboratoryScene, [0.4, 0.25, 0.25], [0.1, 1.65, toolZ - 1.3], darkMetal);
+  const brondonPod = createContainmentPod({ glow: 0x65d9ff });
+  brondonPod.group.name = 'BrondonExperimentPod';
+  brondonPod.group.position.set(2.5, 0, 3.3);
+  brondonPod.group.rotation.y = -Math.PI / 2;
+  figure(brondonPod.interior, [0, 0, 0], 'standing', 1.83, true);
+  pods.push(brondonPod);
+  captives.add(brondonPod.group);
+  const labShield = createPrologueShield();
+  labShield.root.position.y = 1.4;
+  brondonPod.group.add(labShield.root);
+  const podDebris = new THREE.Group();
+  podDebris.name = 'BrondonPodDebris';
+  podDebris.visible = false;
+  brondonPod.group.add(podDebris);
+  const fragments: Array<{ mesh: THREE.Mesh; origin: THREE.Vector3; velocity: THREE.Vector3; spin: THREE.Vector3 }> = [];
+  const brokenGlass = new THREE.MeshPhysicalMaterial({ color: 0xa9e9f4, transparent: true, opacity: 0.5,
+    roughness: 0.12, metalness: 0.1, side: THREE.DoubleSide, depthWrite: false });
+  function fragment(mesh: THREE.Mesh, angle: number) {
+    const index = fragments.length;
+    const speed = 1.5 + noise(index + 2100);
+    fragments.push({ mesh, origin: mesh.position.clone(),
+      velocity: new THREE.Vector3(Math.cos(angle) * speed, 0.9 + noise(index + 2200), Math.sin(angle) * speed),
+      spin: new THREE.Vector3(noise(index + 2300) * 3, noise(index + 2400) * 4, noise(index + 2500) * 3) });
+    podDebris.add(mesh);
   }
-
-  const shieldScene = newScene(0x041019, true);
-  interior(shieldScene, 6, 7);
-  figure(shieldScene, [0, 0.1, -0.3], 'standing', 1.95);
-  const shieldMaterial = new THREE.MeshBasicMaterial({ color: 0x78d8f0, transparent: true, opacity: 0.1, wireframe: true, depthWrite: false });
-  const shield = new THREE.Mesh(new THREE.IcosahedronGeometry(1.28, 2), shieldMaterial);
-  shield.scale.set(0.82, 1.12, 0.82);
-  shield.position.set(0, 1.16, -0.3);
-  shieldScene.add(shield);
-  const shieldLight = new THREE.PointLight(0x81dcf4, 7, 7);
-  shieldLight.position.set(0, 1.7, 0.3);
-  shieldScene.add(shieldLight);
-  for (const instrumentX of [-2.0, 2.0]) {
-    box(shieldScene, [0.5, 1.4, 0.5], [instrumentX, 0.7, -0.5], darkMetal);
-    box(shieldScene, [1.2, 0.12, 0.12], [instrumentX * 0.68, 1.4, -0.5], paleMetal);
-    box(shieldScene, [0.12, 0.25, 0.3], [instrumentX * 0.4, 1.32, -0.5], redStrip);
+  for (let band = 0; band < 4; band++) {
+    for (let sector = 0; sector < 5; sector++) {
+      const angle = sector * Math.PI * 2 / 5;
+      const shard = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.52, 5, 1, true, angle, Math.PI * 0.36), brokenGlass);
+      shard.position.y = 0.34 + (band + 0.5) * 0.55;
+      fragment(shard, angle + Math.PI / 5);
+    }
   }
-  const neuralCanvas = document.createElement('canvas');
-  neuralCanvas.width = 768;
-  neuralCanvas.height = 384;
-  const neuralContext = neuralCanvas.getContext('2d')!;
-  neuralContext.fillStyle = '#051820';
-  neuralContext.fillRect(0, 0, 768, 384);
-  neuralContext.fillStyle = '#8ce5ed';
-  neuralContext.font = 'bold 40px monospace';
-  neuralContext.fillText('NEURALINK / PRIME', 30, 75);
-  neuralContext.font = '24px monospace';
-  neuralContext.fillText('LINK PROTECTED', 30, 150);
-  neuralContext.fillText('INVASIVE COMMAND: REJECTED', 30, 211);
-  neuralContext.fillText('BRONDON / SIGNAL STABLE', 30, 285);
-  const neuralTexture = new THREE.CanvasTexture(neuralCanvas);
-  neuralTexture.colorSpace = THREE.SRGBColorSpace;
-  textures.add(neuralTexture);
-  const neuralScreen = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.2), new THREE.MeshBasicMaterial({ map: neuralTexture }));
-  neuralScreen.position.set(0, 2.2, -3.37);
-  shieldScene.add(neuralScreen);
+  for (let side = 0; side < 4; side++) {
+    const angle = Math.PI / 4 + side * Math.PI / 2;
+    const strut = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.2, 0.1), darkMetal);
+    strut.position.set(Math.cos(angle) * 0.61, 1.44, Math.sin(angle) * 0.61);
+    fragment(strut, angle);
+  }
+  const brokenCap = new THREE.Mesh(new THREE.CylinderGeometry(0.79, 0.73, 0.3, 24), darkMetal);
+  brokenCap.position.y = 2.69;
+  fragment(brokenCap, Math.PI * 0.6);
 
   const planetScene = newScene();
   stars(planetScene);
-  const planet = createEarthGroup(planetScene, new THREE.Vector3(0, 0, -3), 5, createEarthTextures());
+  const planet = createEarthGroup(planetScene, new THREE.Vector3(80, 50, -650), 45, createEarthTextures());
+  planet.name = 'DistantRescuePlanet';
   planet.rotation.z = 0.22;
-  const transport = spacecraft(planetScene, [-5.5, 1, 5], 0.28);
-  transport.rotation.y = 0.3;
+  const mothership = createMothership(shipLoader);
+  mothership.root.position.set(0, 0, 0);
+  mothership.root.scale.setScalar(2.2);
+  mothership.root.rotation.set(0, Math.PI, 0.04);
+  planetScene.add(mothership.root);
 
   const securityScene = newScene(0x060a10, true);
   interior(securityScene, 6, 24);
@@ -412,8 +458,26 @@ export function createPrologueFlashbacks() {
   const stealthScene = newScene(0x0a0b16, true);
   stealthScene.fog = new THREE.Fog(0x0a0b16, 28, 120);
   const stealthPhysics = createScenePhysics();
+  const passage = createStealthPassage(stealthScene, stealthPhysics, 0);
+  passage.quartersDoor.setLocked(true);
   createStealthHangar(stealthScene, stealthPhysics, 0);
   figure(stealthScene, [19.4, 0.02, 9.7], 'kneeling');
+  const passageDrone = new THREE.Group();
+  passageDrone.name = 'StoragePatrolCameraDrone';
+  stealthScene.add(passageDrone);
+  const passageLight = new THREE.SpotLight(0xc5e7fa, 25, 12, Math.PI / 7, 0.65, 1.3);
+  passageLight.name = 'HallwayDroneSearchlight';
+  stealthScene.add(passageLight, passageLight.target);
+  const passageReady = modelLoader('Enemy_EyeDrone').then(gltf => {
+    if (disposed) { disposeRoom(gltf.scene); return; }
+    const bounds = new THREE.Box3().setFromObject(gltf.scene);
+    const size = bounds.getSize(new THREE.Vector3());
+    const center = bounds.getCenter(new THREE.Vector3());
+    const scale = 0.95 / Math.max(size.x, size.y, size.z, 0.01);
+    gltf.scene.scale.multiplyScalar(scale);
+    gltf.scene.position.addScaledVector(center, -scale);
+    passageDrone.add(gltf.scene);
+  });
   const scanMaterial = new THREE.MeshBasicMaterial({ color: 0x7bead3, transparent: true, opacity: 0.13, depthWrite: false, toneMapped: false });
   function patrolRobot(parent: THREE.Scene, robotIndex: number, x: number, hangar = false) {
     const root = new THREE.Group();
@@ -440,7 +504,70 @@ export function createPrologueFlashbacks() {
     patrolRobot(robotIndex === 2 ? computerScene : securityScene, robotIndex, robotIndex === 2 ? -1.1 : robotIndex % 2 ? 2.1 : -2.1);
   for (const [index, x] of [36.8, 56.6, 69.1].entries()) patrolRobot(stealthScene, index + 3, x, true);
 
-  const toolReady = loadToolModel('Enemy_Trilobite').then(gltf => {
+  const montagePhysics = createScenePhysics();
+  const hangarFourteenScene = newScene(0x020611);
+  hangarFourteenScene.name = 'PrologueHangar14';
+  const hangarFourteen = createHangarFourteenSet(hangarFourteenScene, montagePhysics);
+  const hubScene = newScene(0x0a121d);
+  hubScene.name = 'PrologueSurveillanceHub';
+  const hubMaterials = createShipInteriorMaterials(17, 25); hubMaterials.deck.color.setHex(0x3b4c5d);
+  const hub = createSurveillanceHubSet(hubScene, montagePhysics, hubMaterials);
+  hub.returnAirlock.setLocked(true);
+  const monitors = [0, 1, 2].map(monitorFactory);
+  const cameraFeeds = [...STAGE_TWO_MINIGAMES, { id: 'stage2-vents', label: 'Vent maze' } as const,
+    { id: 'stage2-prison', label: 'Prison' } as const];
+  const cameraWall = createCctvWall(cameraFeeds, cameraFeeds.map((_, index) => monitors[index % monitors.length].texture));
+  hub.root.add(cameraWall.panel);
+  const workstationsReady = Promise.all(SURVEILLANCE_WORKSTATIONS.map(async (_, index) => {
+    const [desk, chair] = await Promise.all([modelLoader('Prop_Desk_Small'), modelLoader('Prop_Chair')]);
+    if (disposed) { disposeRoom(desk.scene); disposeRoom(chair.scene); return; }
+    createSurveillanceWorkstation(hubScene, montagePhysics, hubMaterials, hub.root, index,
+      desk.scene, chair.scene, monitors[index % monitors.length].texture);
+  }));
+  const montageMixers: THREE.AnimationMixer[] = [];
+  const securityBotsReady = modelLoader('Enemy_Trilobite').then(gltf => {
+    if (disposed) { disposeRoom(gltf.scene); return; }
+    fitRoomProp(gltf.scene, 1.1, 1.5, 1.8);
+    const placements: Array<{ scene: THREE.Scene; x: number; z: number }> = [
+      { scene: hubScene, x: 28, z: -61.8 },
+      ...[-12, -7, 7, 12].flatMap(x => [2, 12, 28].map(z => ({ scene: hangarFourteenScene, x, z }))),
+    ];
+    for (const [index, placement] of placements.entries()) {
+      const root = new THREE.Group(); root.name = 'MontageSecurityRobot';
+      root.position.set(placement.x, 0, placement.z); root.rotation.y = index % 2 ? 0 : Math.PI;
+      const model = cloneRig(gltf.scene); root.add(model); placement.scene.add(root);
+      const walk = gltf.animations.find(clip => /walk|run|move/i.test(clip.name)) ?? gltf.animations[0];
+      if (walk) { const mixer = new THREE.AnimationMixer(model); mixer.clipAction(walk).play(); montageMixers.push(mixer); }
+    }
+  });
+  const wardenScene = newScene(0x020306);
+  wardenScene.name = 'PrologueBayWarden';
+  for (const light of wardenScene.children) {
+    if (light instanceof THREE.AmbientLight) light.intensity = 0.08;
+    if (light instanceof THREE.DirectionalLight) { light.intensity = 1.4; light.position.set(-3, 9, -4); }
+  }
+  const wardenKey = new THREE.PointLight(0xff3020, 34, 16); wardenKey.position.set(3, 4.8, 5); wardenScene.add(wardenKey);
+  const wardenEyes = new THREE.PointLight(0x2af08a, 4, 7); wardenEyes.position.set(0, 7.86, 1.15); wardenScene.add(wardenEyes);
+  const wardenReady = bossLoader().then(gltf => {
+    if (disposed) { disposeRoom(gltf.scene); return; }
+    fitRoomProp(gltf.scene, 8.2, 14, 14);
+    gltf.scene.name = 'BayWardenSecurityPreview';
+    const shell = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, emissive: 0x1a1a2e,
+      emissiveIntensity: 0.3, metalness: 0.75, roughness: 0.3 });
+    const originals = new Set<THREE.Material>();
+    gltf.scene.traverse(node => {
+      if (!(node instanceof THREE.Mesh)) return;
+      for (const material of Array.isArray(node.material) ? node.material : [node.material]) originals.add(material);
+      node.material = shell;
+    });
+    for (const material of originals) {
+      for (const value of Object.values(material)) if (value instanceof THREE.Texture) textures.add(value);
+      material.dispose();
+    }
+    wardenScene.add(gltf.scene);
+  });
+
+  const toolReady = modelLoader('Enemy_Trilobite').then(gltf => {
     if (disposed) return;
     for (const robot of robots) {
       robot.root.traverse(node => { if (node instanceof THREE.Mesh) node.geometry.dispose(); });
@@ -467,10 +594,11 @@ export function createPrologueFlashbacks() {
     }
   }).catch(error => console.warn('Prologue patrol model unavailable; using the built-in shell.', error));
 
-  const characterReady = loadSubjectModel().then(gltf => {
-    if (disposed) return;
+  const characterReady = Promise.all([characterLoader(), playerLoader()]).then(([crewModel, brondonModel]) => {
+    if (disposed) { disposeRoom(crewModel.scene); disposeRoom(brondonModel.scene); return; }
     const geometries = new Map<THREE.BufferGeometry, THREE.BufferGeometry>();
     for (const hologram of holograms) {
+      const gltf = hologram.brondon ? brondonModel : crewModel;
       const model = cloneRig(gltf.scene);
       model.traverse(node => {
         if (!(node instanceof THREE.Mesh)) return;
@@ -487,12 +615,12 @@ export function createPrologueFlashbacks() {
       const poseName = hologram.pose === 'kneeling' ? 'Fixing_Kneeling' : hologram.pose === 'carrying' ? 'PickUp_Table'
         : 'Idle_Loop';
       const clip = gltf.animations.find(animation => animation.name === poseName)
-        ?? gltf.animations.find(animation => animation.name === 'Idle_Loop');
+        ?? gltf.animations.find(animation => /idle/i.test(animation.name));
       if (clip) {
         hologram.mixer = new THREE.AnimationMixer(model);
         const action = hologram.mixer.clipAction(clip).play();
         hologram.mixer.setTime(0.6);
-        action.paused = hologram.pose !== 'standing' && hologram.pose !== 'kneeling';
+        action.paused = hologram.brondon || hologram.pose !== 'standing' && hologram.pose !== 'kneeling';
         action.timeScale = 0.3;
       }
       model.updateMatrixWorld(true);
@@ -503,13 +631,15 @@ export function createPrologueFlashbacks() {
       hologram.group.updateMatrixWorld(true);
       if (hologram.pose === 'restrained') restrain(hologram.group, model, hologram.height);
     }
-  }).catch(error => console.warn('Prologue hologram character unavailable.', error));
+    disposeRoom(crewModel.scene);
+    disposeRoom(brondonModel.scene);
+  });
 
   const sceneForShot: Record<PrologueShot, THREE.Scene | null> = {
     present: null, asteroid: asteroidScene, collection: asteroidScene,
     ingest: computerScene, corruption: computerScene, capture: securityScene,
-    laboratory: laboratoryScene, shield: shieldScene, planet: planetScene,
-    corridor: securityScene, patrol: securityScene, stealth: stealthScene,
+    laboratory: laboratoryScene, experiment: laboratoryScene, breakout: laboratoryScene, planet: planetScene,
+    corridor: stealthScene, stealth: stealthScene, security: hangarFourteenScene,
   };
   const focus = new THREE.Vector3();
   const start = new THREE.Vector3();
@@ -519,8 +649,8 @@ export function createPrologueFlashbacks() {
     clock += dt;
     lastShot = shot;
     currentRenderScene = sceneForShot[shot];
-    const progress = THREE.MathUtils.smootherstep(elapsed, 0, Math.max(duration, 0.1));
-    let fov = 48;
+    let progress = THREE.MathUtils.smootherstep(elapsed, 0, Math.max(duration, 0.1));
+    let fov = 48, roll = 0;
     switch (shot) {
       case 'asteroid':
         start.set(10.8, 5.3, 12.5); end.set(7.6, 3.5, 10.2); focus.set(0, 0.75, 0); fov = 50; break;
@@ -533,40 +663,51 @@ export function createPrologueFlashbacks() {
       case 'capture':
         start.set(0.8, 1.8, 6.4); end.set(-0.3, 1.5, 2.7); focus.set(0, 1.1, -3.2); fov = 48; break;
       case 'laboratory':
-        start.set(0.8, 1.7, 5.5); end.set(-0.6, 1.5, 0.7); focus.set(-1.4, 1.1, -3.1); fov = 57; break;
-      case 'shield':
-        start.set(2.1, 1.7, 2.7); end.set(0.65, 1.4, 2.45); focus.set(0, 1.3, -0.4); fov = 50; break;
+        start.set(0, 2.75, 6.2); end.set(0.25, 2.5, 5.9); focus.set(0, 1.3, -1.25); fov = 66; break;
+      case 'experiment':
+        start.set(0, 1.8, 5.8); end.set(0.15, 1.65, 5.55); focus.set(2.5, 1.4, 3.3); fov = 49; break;
+      case 'breakout':
+        start.set(-0.2, 1.65, 5.6); end.set(-0.4, 1.5, 5.9); focus.set(2.5, 1.35, 3.3); fov = 56; break;
       case 'planet':
-        start.set(9.8, 3.2, 12.5); end.set(6.5, 2.0, 10.8); focus.set(0, 0, -3); fov = 54; break;
+        start.set(7, 3.4, 15); end.set(9, 4.5, 19); focus.set(0, 1, -35); fov = 48; break;
       case 'corridor':
-        if (elapsed < 2.3) {
-          start.set(1.15, 2.25, 9.5); end.set(1.45, 2.35, 8.9); focus.set(2.72, 2.8, 7); fov = 40;
-        } else {
-          start.set(-1.2, 1.7, 9); end.set(1.15, 1.6, 4); focus.set(0, 1.2, -4); fov = 58;
-        }
-        break;
-      case 'patrol':
-        if (elapsed < 3.6) {
-          start.set(1.8, 0.85, 5.8); end.set(1.55, 0.75, 0.5); focus.set(-0.9, 0.5, -3.5); fov = 58;
-        } else {
-          currentRenderScene = computerScene;
-          start.set(-2.4, 1.8, 2.9); end.set(-1.4, 1.6, 2.4); focus.set(0.5, 1.2, -1.8); fov = 58;
-          updateMonitors(1, clock);
-        }
-        break;
+        start.set(-7.5, 1.7, -3.7); end.set(-4.5, 1.7, -3.5); focus.set(8, 1.8, -2.5); fov = 58; break;
       case 'stealth':
         if (elapsed < 3.8) {
           start.set(19, 6.5, 27); end.set(28, 5.2, 23); focus.set(53, 2.5, 0); fov = 64;
-        } else if (elapsed < 6.4) {
+        } else if (elapsed < duration * 0.78) {
           start.set(33.2, 1.45, 11); end.set(34.8, 1.3, 8.5); focus.set(36.8, 0.6, -8); fov = 58;
         } else {
           start.set(55.8, 3.6, 25); end.set(58, 3.2, 23); focus.set(73, 1.8, 5); fov = 60;
+        }
+        break;
+      case 'security':
+        securityCut = PROLOGUE_SECURITY_CUTS.find(cut => elapsed < cut.end) ?? PROLOGUE_SECURITY_CUTS[PROLOGUE_SECURITY_CUTS.length - 1];
+        progress = THREE.MathUtils.smootherstep(elapsed, securityCut.start, securityCut.end);
+        switch (securityCut.id) {
+          case 'hangar14-ship':
+            start.set(4.5, 2.8, 12); end.set(9, 4.2, 6); focus.set(0, 1.2, 21);
+            fov = THREE.MathUtils.lerp(46, 62, progress); currentRenderScene = hangarFourteenScene; break;
+          case 'surveillance-hub':
+            start.set(33, 3, -54); end.set(24, 3.1, -52); focus.set(28, 1.95, -42.22);
+            fov = THREE.MathUtils.lerp(48, 68, progress); currentRenderScene = hubScene; break;
+          case 'deck-one':
+            start.set(41, 6.4, 23); end.set(24, 9.5, 27.5); focus.set(57, 2, 0);
+            fov = THREE.MathUtils.lerp(48, 67, progress); currentRenderScene = stealthScene; break;
+          case 'bay-warden':
+            start.set(2.4, 6.5, 7.8); end.set(0.9, 7.1, 5.8); focus.set(0, 6.8, 0.2);
+            fov = THREE.MathUtils.lerp(44, 35, progress); roll = -0.045; currentRenderScene = wardenScene; break;
+          case 'surveillance-screens':
+            start.set(31, 2.7, -53); end.set(28.4, 2.5, -50.5); focus.set(28, 2.3, -42.22);
+            fov = THREE.MathUtils.lerp(64, 54, progress); currentRenderScene = hubScene; break;
         }
         break;
       default: return;
     }
     camera.position.lerpVectors(start, end, progress);
     camera.lookAt(focus);
+    camera.rotateZ(roll);
+    camera.far = shot === 'planet' ? 1600 : 180;
     camera.fov = camera.aspect < 1 ? Math.min(84, fov + 18) : fov;
     camera.updateProjectionMatrix();
     hologramMaterial.uniforms.hologramTime.value = clock;
@@ -584,11 +725,26 @@ export function createPrologueFlashbacks() {
     });
     surveyShip.position.y = 5 + Math.sin(clock * 0.15) * 0.15;
     updateEarthGroup(planet, dt);
-    transport.position.x = -5.5 + Math.sin(clock * 0.15) * 0.8;
-    shield.rotation.y = clock * 0.16;
-    shieldMaterial.opacity = 0.11 + Math.sin(clock * 3) * 0.025;
-    shieldLight.intensity = 7 + Math.sin(clock * 2) * 0.45;
+    hangarFourteen.ship.update(dt);
+    if (shot === 'security') {
+      if (currentRenderScene === hubScene) monitors.forEach(monitor => monitor.update(dt));
+      montageMixers.forEach(mixer => mixer.update(dt));
+    }
+    const burstTime = shot === 'breakout' ? elapsed - 0.65 : -1;
+    labShield.update(burstTime);
+    const broken = burstTime >= 0.45;
+    brondonPod.shell.visible = !broken;
+    podDebris.visible = broken;
+    for (const piece of fragments) {
+      const elapsedFlight = Math.max(0, burstTime - 0.45);
+      const landing = (piece.velocity.y + Math.sqrt(piece.velocity.y ** 2 + 19.6 * (piece.origin.y - 0.08))) / 9.8;
+      const flight = Math.min(elapsedFlight, landing);
+      piece.mesh.position.copy(piece.origin).addScaledVector(piece.velocity, flight);
+      piece.mesh.position.y = Math.max(0.08, piece.origin.y + piece.velocity.y * flight - 4.9 * flight * flight);
+      piece.mesh.rotation.set(piece.spin.x * flight, piece.spin.y * flight, piece.spin.z * flight);
+    }
     for (const capsule of pods) capsule.update(clock);
+    if (broken) brondonPod.light.intensity = 0;
     capturedCrew.visible = shot === 'capture';
     cameraRigs.forEach((rig, rigIndex) => {
       rig.lookAt(Math.sin(clock * 0.65 + rigIndex) * 1.1, 0.9, rig.position.z + 3.2);
@@ -604,6 +760,14 @@ export function createPrologueFlashbacks() {
       }
       robot.mixer?.update(dt);
     });
+    const passageTime = shot === 'corridor' ? elapsed : clock;
+    const passagePhase = 2.15 + passageTime * 0.19;
+    const facing = Math.cos(passagePhase) >= 0 ? 1 : -1;
+    passageDrone.position.set(Math.sin(passagePhase) * 11, 2.02 + Math.sin(passageTime * 2.2) * 0.055, -2.5);
+    passageDrone.lookAt(passageDrone.position.x + facing, passageDrone.position.y, -2.5);
+    passageLight.position.copy(passageDrone.position);
+    passageLight.position.x += facing * 0.45;
+    passageLight.target.position.set(passageDrone.position.x + facing * 5.5, 0.04, -2.5);
     if (shot === 'ingest' || shot === 'corruption') {
       updateMonitors(shot === 'corruption' ? THREE.MathUtils.smoothstep(elapsed, 0.8, 2.4) : 0, elapsed);
     }
@@ -613,6 +777,11 @@ export function createPrologueFlashbacks() {
     if (disposed) return;
     disposed = true;
     stealthPhysics.dispose();
+    montagePhysics.dispose();
+    mothership.dispose();
+    const monitorTextures = new Set<THREE.Texture>(monitors.map(monitor => monitor.texture));
+    monitors.forEach(monitor => monitor.dispose());
+    montageMixers.forEach(mixer => { mixer.stopAllAction(); mixer.uncacheRoot(mixer.getRoot()); });
     for (const robot of robots) { robot.mixer?.stopAllAction(); if (robot.mixer) robot.mixer.uncacheRoot(robot.mixer.getRoot()); }
     for (const hologram of holograms) {
       hologram.mixer?.stopAllAction();
@@ -632,11 +801,13 @@ export function createPrologueFlashbacks() {
     });
     for (const geometry of geometries) geometry.dispose();
     for (const material of materials) material.dispose();
-    for (const texture of textures) texture.dispose();
+    for (const texture of textures) if (!monitorTextures.has(texture)) texture.dispose();
   }
 
-  const ready = Promise.all([characterReady, toolReady]);
+  const ready = Promise.all([characterReady, toolReady, passageReady, mothership.ready, workstationsReady, securityBotsReady, wardenReady,
+    ...monitors.map(monitor => monitor.ready)]);
   return { ready, sceneFor: (shot: PrologueShot) => shot === lastShot ? currentRenderScene : sceneForShot[shot], update, dispose,
+    getSecurityCut: () => securityCut,
     async prepareRendering(renderer: THREE.WebGLRenderer, camera: THREE.PerspectiveCamera) {
       await ready;
       for (const scene of scenes) {

@@ -1,24 +1,28 @@
 import { AudioManager } from './AudioManager.js';
 import { preloadMusic } from './bufferedMusic.js';
 import type { FinalePhase } from '../../scripts/finaleDirector.js';
-import loading from '../../assets/bgm/Loading.m4a?url';
-import emotional from '../../assets/bgm/Emotional.m4a?url';
-import livingQuarters from '../../assets/bgm/Living quarters.m4a?url';
-import menu from '../../assets/bgm/Menu.m4a?url';
-import stealth1 from '../../assets/bgm/Stealth1.m4a?url';
-import stealth2 from '../../assets/bgm/Stealth1 2.m4a?url';
-import stealthAlert from '../../assets/bgm/Stealth1 3.m4a?url';
-import ship from '../../assets/bgm/DonRevBGM1.m4a?url';
-import level2 from '../../assets/bgm/DonRevLevel2.m4a?url';
-import level2Boss from '../../assets/bgm/DonRevLevel2Boss.m4a?url';
-import planet from '../../assets/bgm/Planetbfm.m4a?url';
-import brokenChains from '../../assets/bgm/BrokenChainsBGm.m4a?url';
-import credits from '../../assets/bgm/Level 2.m4a?url';
+import loading from '../../assets/bgm/Loading.ogg?url';
+import prologue from '../../assets/bgm/Prologue less mashing .ogg?url';
+import livingQuarters from '../../assets/bgm/Living quarters.ogg?url';
+import menu from '../../assets/bgm/Menu.ogg?url';
+import stealth1 from '../../assets/bgm/Stealth1.ogg?url';
+import stealth2 from '../../assets/bgm/Stealth1 2.ogg?url';
+import stealthAlert from '../../assets/bgm/Stealth1 3.ogg?url';
+import tension from '../../assets/bgm/Tension.ogg?url';
+import puzzle from '../../assets/bgm/Puzzle_.ogg?url';
+import boss from '../../assets/bgm/Some boss_.ogg?url';
+import ship from '../../assets/bgm/DonRevBGM1.ogg?url';
+import finalBattle from '../../assets/bgm/Final battle.ogg?url';
+import level2 from '../../assets/bgm/DonRevLevel2.ogg?url';
+import level2Boss from '../../assets/bgm/DonRevLevel2Boss.ogg?url';
+import planet from '../../assets/bgm/Planetbfm.ogg?url';
+import brokenChains from '../../assets/bgm/BrokenChainsBGm.ogg?url';
+import credits from '../../assets/bgm/Level 2.ogg?url';
 
 export const MUSIC_URLS = {
-  loading, emotional, 'living-quarters': livingQuarters, menu,
-  'stealth-1': stealth1, 'stealth-2': stealth2, 'stealth-alert': stealthAlert,
-  ship, 'level-2': level2, 'level-2-boss': level2Boss, planet, 'broken-chains': brokenChains, credits,
+  loading, prologue, 'living-quarters': livingQuarters, menu,
+  'stealth-1': stealth1, 'stealth-2': stealth2, 'stealth-alert': stealthAlert, tension, puzzle, boss,
+  ship, 'final-battle': finalBattle, 'level-2': level2, 'level-2-boss': level2Boss, planet, 'broken-chains': brokenChains, credits,
 } as const;
 export type BackgroundMusicTrack = Exclude<keyof typeof MUSIC_URLS, 'menu'>;
 export interface SceneMusicState {
@@ -30,17 +34,18 @@ export const MUSIC_CROSSFADE_SECONDS = 0.9;
 
 const sources = new Map<string, string>(Object.entries(MUSIC_URLS));
 const sceneTracks = new Map<string, BackgroundMusicTrack>([
-  ['scene1', 'loading'], ['prologue1', 'emotional'], ['living-quarters', 'living-quarters'],
-  ['stage1-storage', 'stealth-1'], ['scene5', 'stealth-2'], ['scene13', 'ship'], ['scene14', 'ship'],
+  ['scene1', 'loading'], ['prologue1', 'prologue'], ['living-quarters', 'living-quarters'],
+  ['stage1-storage', 'stealth-1'], ['scene5', 'puzzle'], ['scene6', 'puzzle'], ['scene13', 'boss'], ['scene14', 'ship'],
   ['scene15', 'level-2'], ['scene16', 'level-2'], ['scene17', 'planet'],
   ['scene20', 'stealth-2'], ['scene21', 'loading'],
 ]);
 
-export function finaleMusicTrack(phase: FinalePhase): BackgroundMusicTrack {
+/** `bombDetonated` tells the phases that straddle the Planet Breaker blast (rupture, defeat) which side they are on. */
+export function finaleMusicTrack(phase: FinalePhase, bombDetonated = false): BackgroundMusicTrack {
   if (phase === 'credits' || phase === 'done') return 'credits';
   if (phase === 'loading' || phase === 'error' || phase === 'reveal' || phase === 'enemyTransform'
     || phase === 'heroTransform' || phase === 'versus') return 'loading';
-  return 'ship';
+  return bombDetonated || phase === 'space' || phase === 'finisher' || phase === 'victory' ? 'final-battle' : 'ship';
 }
 
 function createMusicManager(pauseWithMenu = true) {
@@ -62,7 +67,7 @@ export function createGameMusic() {
     track = next;
     if (!next) { background.stopBgm(); return; }
     const settings = { path: next, loop: true, volume: next.startsWith('level-2') ? 0.45 : 0.5, autoplay: !paused };
-    const immediate = next === 'emotional' || next === 'stealth-alert' || next === 'broken-chains';
+    const immediate = next === 'prologue' || next === 'stealth-alert' || next === 'broken-chains';
     if (background.bgm && !paused && !immediate) {
       background.crossfadeBgm(settings, sceneId === 'scene21' && next === 'ship'
         ? FINAL_BOSS_CROSSFADE_SECONDS : MUSIC_CROSSFADE_SECONDS);

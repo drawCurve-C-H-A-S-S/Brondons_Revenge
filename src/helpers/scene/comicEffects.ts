@@ -2,13 +2,14 @@ import * as THREE from 'three';
 import { yieldToMainThread } from '../../core/loader.js';
 import { playSfx } from '../audio/sfx.js';
 
-export type ComicEffectKind = 'hit' | 'boom' | 'clank' | 'pew' | 'thud';
+export type ComicEffectKind = 'hit' | 'boom' | 'clank' | 'pew' | 'thud' | 'confused';
 interface ComicEffectOptions {
   source?: THREE.Object3D;
   position?: THREE.Vector3;
   anchor?: THREE.Object3D;
   size?: number;
   weapon?: string;
+  duration?: number;
 }
 interface Effect {
   kind: ComicEffectKind;
@@ -19,6 +20,7 @@ interface Effect {
   localPoint: THREE.Vector3;
   size: number;
   age: number;
+  duration: number;
   side: number;
   sprite: THREE.Sprite | null;
 }
@@ -42,6 +44,7 @@ const STYLE = {
   clank: { life: 0.95, opacity: 1, color: '#a8e9f5', minPixels: 40, maxPixels: 92, cooldown: 0.4, burst: true },
   pew: { life: 0.32, opacity: 0.46, color: '#c9f7ff', minPixels: 15, maxPixels: 25, cooldown: 0.24, burst: false },
   thud: { life: 0.8, opacity: 0.95, color: '#ffdb57', minPixels: 34, maxPixels: 76, cooldown: 0.4, burst: true },
+  confused: { life: 1, opacity: 1, color: '#e0b3ff', minPixels: 40, maxPixels: 92, cooldown: 0, burst: false },
 } as const;
 const systems = new WeakMap<THREE.Object3D, ComicSystem>();
 const roots = new WeakMap<THREE.Object3D, ComicSystem>();
@@ -50,7 +53,7 @@ const artwork = new Map<string, THREE.CanvasTexture>();
 const EFFECT_WORDS: Array<[ComicEffectKind, string]> = [
   ['hit', 'SHING!'], ['hit', 'SWOOSH!'], ['hit', 'KRAK!'], ['hit', 'ZAP!'],
   ['hit', 'BAM!'], ['hit', 'PING!'], ['boom', 'BOOM!'], ['clank', 'CLANK!'],
-  ['pew', 'PEW!'], ['thud', 'THUD!'],
+  ['pew', 'PEW!'], ['thud', 'THUD!'], ['confused', '???'],
 ];
 const cameraPosition = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3(), forward = new THREE.Vector3();
 const cameraRotation = new THREE.Quaternion();
@@ -93,8 +96,9 @@ function release(system: ComicSystem, index: number) {
 export function emitComicEffect(container: THREE.Object3D, kind: ComicEffectKind, options: ComicEffectOptions) {
   if (!options.source && !options.position) throw new Error('A comic combat effect requires a source or world position');
   if ((options.position && !options.position.toArray().every(Number.isFinite))
-    || (options.size !== undefined && (!Number.isFinite(options.size) || options.size <= 0))) {
-    throw new Error('Invalid comic combat effect position or size');
+    || (options.size !== undefined && (!Number.isFinite(options.size) || options.size <= 0))
+    || (options.duration !== undefined && (!Number.isFinite(options.duration) || options.duration <= 0))) {
+    throw new Error('Invalid comic combat effect position, size or duration');
   }
   const system = systemFor(container), style = STYLE[kind];
   const cooldown = options.source ? system.cooldowns.get(options.source) ?? {} : null;
@@ -118,12 +122,17 @@ export function emitComicEffect(container: THREE.Object3D, kind: ComicEffectKind
   const word = kind === 'hit'
     ? options.weapon === 'sword' ? ['SHING!', 'SWOOSH!', 'KRAK!'][system.serial % 3]
       : options.weapon === 'lightsaber' || options.weapon === 'laser' ? 'ZAP!' : options.weapon === 'crowbar' ? 'KRAK!' : ['BAM!', 'PING!', 'KRAK!'][system.serial % 3]
-    : `${kind.toUpperCase()}!`;
-  const anchor = options.anchor ?? ((kind === 'hit' || kind === 'pew') ? options.source ?? null : null);
+    : kind === 'confused' ? '???' : `${kind.toUpperCase()}!`;
+  const anchor = options.anchor ?? ((kind === 'hit' || kind === 'pew' || kind === 'confused') ? options.source ?? null : null);
   if (kind === 'boom') playSfx('explosion', Math.min(1, 0.55 + size * 0.04));
   const localPoint = anchor ? anchor.worldToLocal(point.clone()) : point.clone();
-  system.active.push({ kind, word, source: options.source, anchor, point, localPoint, size, age: 0,
-    side: system.serial++ % 2 ? -1 : 1, sprite: null });
+  const effect: Effect = { kind, word, source: options.source, anchor, point, localPoint, size, age: 0,
+    duration: options.duration ?? style.life, side: system.serial++ % 2 ? -1 : 1, sprite: null };
+  system.active.push(effect);
+  return () => {
+    const index = system.active.indexOf(effect);
+    if (index >= 0) release(system, index);
+  };
 }
 
 function textureFor(system: ComicSystem, effect: Effect) {
@@ -171,7 +180,7 @@ export async function prepareComicEffects(container: THREE.Object3D, renderer: T
   await yieldToMainThread();
 }
 
-export function createComicEffectArtwork(kind: ComicEffectKind, word = `${kind.toUpperCase()}!`) {
+export function createComicEffectArtwork(kind: ComicEffectKind, word = kind === 'confused' ? '???' : `${kind.toUpperCase()}!`) {
   const canvas = document.createElement('canvas'), context = canvas.getContext('2d');
   if (!context) throw new Error('Comic combat effects require a 2D canvas context');
   const font = 'italic 900 104px Impact, Haettenschweiler, "Franklin Gothic Heavy", sans-serif';
@@ -216,7 +225,7 @@ export function updateComicEffects(container: THREE.Object3D, camera: THREE.Came
   renderer.getSize(viewSize);
   for (let index = system.active.length - 1; index >= 0; index--) {
     const effect = system.active[index], style = STYLE[effect.kind]; effect.age += delta;
-    if (effect.age >= style.life) { release(system, index); continue; }
+    if (effect.age >= effect.duration) { release(system, index); continue; }
     position.copy(effect.point);
     if (effect.anchor) { effect.anchor.updateWorldMatrix(true, false); position.copy(effect.localPoint).applyMatrix4(effect.anchor.matrixWorld); }
     const depth = projected.copy(position).sub(cameraPosition).dot(forward);
@@ -231,7 +240,7 @@ export function updateComicEffects(container: THREE.Object3D, camera: THREE.Came
     else throw new Error('Comic combat effects require a perspective or orthographic camera');
     const pixelsPerUnit = Math.max(1, viewSize.y) / visibleHeight;
     const pixels = THREE.MathUtils.clamp(effect.size * (effect.kind === 'pew' ? 0.2 : 0.62) * pixelsPerUnit, style.minPixels, style.maxPixels);
-    const height = pixels / pixelsPerUnit, progress = effect.age / style.life;
+    const height = pixels / pixelsPerUnit, progress = effect.age / effect.duration;
     if (!effect.sprite) {
       const sprite = system.pool.pop() ?? new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthTest: true, depthWrite: false, toneMapped: false }));
       if (!system.sprites.has(sprite)) {
@@ -245,12 +254,13 @@ export function updateComicEffects(container: THREE.Object3D, camera: THREE.Came
     const sprite = effect.sprite, image = sprite.material.map!.image;
     const aspect = image.width / image.height;
     const pop = system.reducedMotion ? 1 : 0.8 + THREE.MathUtils.smootherstep(progress, 0, 0.16) * 0.2 + Math.sin(THREE.MathUtils.clamp(progress / 0.28, 0, 1) * Math.PI) * 0.13;
-    const sideOffset = height * (aspect * 0.5 + 0.25) + Math.min(effect.size * 0.3, height * 0.75);
+    const sideOffset = effect.kind === 'confused' ? 0 : height * (aspect * 0.5 + 0.25) + Math.min(effect.size * 0.3, height * 0.75);
     sprite.position.copy(position).addScaledVector(right, effect.side * sideOffset)
       .addScaledVector(up, height * (0.45 + (system.reducedMotion ? 0 : progress * 0.55)));
     sprite.scale.set(height * aspect * pop, height * pop, 1);
     sprite.material.rotation = system.reducedMotion ? 0 : effect.side * (effect.kind === 'pew' ? 0.1 : 0.15);
-    sprite.material.opacity = style.opacity * THREE.MathUtils.smoothstep(progress, 0, 0.09) * (1 - THREE.MathUtils.smoothstep(progress, 0.58, 1));
+    sprite.material.opacity = effect.kind === 'confused' ? style.opacity
+      : style.opacity * THREE.MathUtils.smoothstep(progress, 0, 0.09) * (1 - THREE.MathUtils.smoothstep(progress, 0.58, 1));
     sprite.visible = true;
   }
 }

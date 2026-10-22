@@ -5,7 +5,10 @@ import hideoutImageUrl from '../../assets/textures/sudoers-hideout.png?url';
 import { FINALE_DECK_Y, FINALE_ROOFTOP } from './finaleWorld.js';
 import { normalizeFinaleActor } from './finaleActors.js';
 import { createJungleTextures } from './jungleTextures.js';
-import { RESCUE_SITE } from './rescueSite.js';
+import { RESCUE_SITE, isJungleGrassSite, jungleTrailDistance } from './rescueSite.js';
+import { CONIFER_PARTS, JUNGLE_GRASS_SPACING, createJungleFoliageGeometry, createJungleFoliageMaterials, writeConifer,
+  createJungleView, partitionJungleInstances, writeGrassTuft, type ConiferPart } from './jungleFoliage.js';
+import { createFallingPinecones } from './fallingPinecones.js';
 import { disposeRoom } from './shipRoom.js';
 
 type Point = { x: number; y: number; z: number };
@@ -53,44 +56,104 @@ export function createFinaleSite() {
   mural.name = 'SudoersHideoutBackWall'; mural.position.set(0, 12, z - depth / 2 + 0.48); mural.rotation.y = Math.PI; scene.add(mural);
 
   const backdrop = new THREE.Group(); backdrop.name = 'FinaleLandscapeBackdrop'; scene.add(backdrop);
-  const soil = new THREE.MeshStandardMaterial({ color: 0x425336, roughness: 1, map: textures.stone });
+  textures.grass.repeat.set(64, 50);
+  const soil = new THREE.MeshStandardMaterial({ color: 0x8fa670, roughness: 1, map: textures.grass });
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(330, 260), soil);
   ground.rotation.x = -Math.PI / 2; ground.position.set(-65, -0.04, 0); ground.receiveShadow = true; backdrop.add(ground);
   const clearing = new THREE.Mesh(new THREE.CircleGeometry(26, 40),
     new THREE.MeshStandardMaterial({ color: 0x8a805a, roughness: 1, map: textures.stone }));
   clearing.rotation.x = -Math.PI / 2; clearing.position.copy(RESCUE_SITE.clearing); clearing.position.y = 0.015; backdrop.add(clearing);
-  const bark = new THREE.MeshStandardMaterial({ color: 0x82725b, map: textures.bark, roughness: 1 });
-  const leaves = new THREE.MeshStandardMaterial({ color: 0x799454, map: textures.leaves, roughness: 1 });
+  const wind = { value: 0 }, foliage = createJungleFoliageMaterials(textures, wind);
+  const geometry = createJungleFoliageGeometry();
   const count = 320;
-  const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.28, 0.65, 1, 5), bark, count);
-  const crowns = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1), leaves, count * 2);
-  trunks.name = 'FinaleBackdropTrunks'; crowns.name = 'FinaleBackdropCanopy';
-  trunks.receiveShadow = crowns.receiveShadow = true;
+  const forest: Record<ConiferPart, THREE.InstancedMesh> = {
+    trunk: new THREE.InstancedMesh(geometry.trunk, foliage.bark, count),
+    branch: new THREE.InstancedMesh(geometry.branch, foliage.branches, count * CONIFER_PARTS.branch),
+    spray: new THREE.InstancedMesh(geometry.spray, foliage.sprays, count * CONIFER_PARTS.spray),
+    canopy: new THREE.InstancedMesh(geometry.canopy, foliage.canopy, count * CONIFER_PARTS.canopy),
+  };
+  forest.trunk.name = 'FinaleBackdropTrunks'; forest.branch.name = 'FinaleBackdropBranches';
+  forest.spray.name = 'FinaleBackdropCanopy'; forest.trunk.castShadow = true;
+  forest.canopy.name = 'FinaleDistantCanopy';
   const trees: Array<{ x: number; z: number; height: number; radius: number; age: number }> = [];
   let seed = 7319;
   const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
-  const dummy = new THREE.Object3D(), tint = new THREE.Color();
-  function placeTree(index: number, scale = 1) {
-    const tree = trees[index];
-    dummy.position.set(tree.x, tree.height * 0.5 * scale, tree.z); dummy.rotation.set(0, index * 2.399, 0);
-    dummy.scale.set(scale, tree.height * scale, scale); dummy.updateMatrix(); trunks.setMatrixAt(index, dummy.matrix);
-    for (let layer = 0; layer < 2; layer++) {
-      dummy.position.set(tree.x + (layer ? 0.8 : -0.6) * scale, (tree.height + layer * 1.6) * scale, tree.z);
-      dummy.scale.set(tree.radius * scale, (3.4 + layer) * scale, tree.radius * 0.9 * scale);
-      dummy.updateMatrix(); crowns.setMatrixAt(index * 2 + layer, dummy.matrix);
-    }
-  }
+  const written: Record<ConiferPart, number> = { trunk: 0, branch: 0, spray: 0, canopy: 0 };
   while (trees.length < count) {
     const x = -140 + random() * 215, treeZ = -115 + random() * 240;
     const clearingDistance = ((x - RESCUE_SITE.clearing.x) / 28) ** 2 + ((treeZ - RESCUE_SITE.clearing.z) / 26) ** 2;
-    if (clearingDistance < 1 || Math.abs(x) < width / 2 + 7 && Math.abs(treeZ - z) < depth / 2 + 7) continue;
-    const index = trees.length;
-    trees.push({ x, z: treeZ, height: 11 + random() * 9, radius: 3.6 + random() * 2.6, age: -1 });
-    placeTree(index);
-    tint.setHSL(0.25 + random() * 0.06, 0.25, 0.32 + random() * 0.17);
-    crowns.setColorAt(index * 2, tint); crowns.setColorAt(index * 2 + 1, tint);
+    if (clearingDistance < 1 || jungleTrailDistance(x, treeZ) < 5
+      || Math.abs(treeZ - RESCUE_SITE.riverZ) < RESCUE_SITE.riverHalfWidth + 4
+      || (Math.abs(x) < width / 2 + 7 && Math.abs(treeZ - z) < depth / 2 + 7)) continue;
+    const height = 15 + random() * 11, radius = 0.4 + random() * 0.35;
+    trees.push({ x, z: treeZ, height, radius, age: -1 });
+    writeConifer(x, treeZ, height, radius, random, (part, matrix, color) => {
+      const index = written[part]++;
+      forest[part].setMatrixAt(index, matrix);
+      if (color) forest[part].setColorAt(index, color);
+    });
   }
-  trunks.computeBoundingSphere(); crowns.computeBoundingSphere(); backdrop.add(trunks, crowns);
+  for (const mesh of Object.values(forest)) mesh.receiveShadow = true;
+  const originalMatrices = {
+    trunk: forest.trunk.instanceMatrix.array.slice(),
+    branch: forest.branch.instanceMatrix.array.slice(),
+    spray: forest.spray.instanceMatrix.array.slice(),
+    canopy: forest.canopy.instanceMatrix.array.slice(),
+  };
+  const forestBatches = {
+    trunk: partitionJungleInstances(forest.trunk),
+    branch: partitionJungleInstances(forest.branch),
+    spray: partitionJungleInstances(forest.spray),
+    canopy: partitionJungleInstances(forest.canopy),
+  };
+  const renderBatches: Array<{ mesh: THREE.InstancedMesh; range: number; lod?: 'near' | 'far'; detailed: boolean }> = [];
+  const changedMeshes = new Set<THREE.InstancedMesh>();
+  for (const part of ['trunk', 'branch', 'spray', 'canopy'] as const) {
+    for (const mesh of forestBatches[part].meshes) {
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); backdrop.add(mesh);
+      renderBatches.push({ mesh, range: part === 'branch' ? 46 : 145, detailed: true,
+        lod: part === 'spray' || part === 'branch' ? 'near' : part === 'canopy' ? 'far' : undefined });
+    }
+    forest[part].dispose();
+  }
+  const matrix = new THREE.Matrix4(), scaleVector = new THREE.Vector3();
+  function placeTree(index: number, scale: number) {
+    const tree = trees[index];
+    scaleVector.setScalar(scale);
+    for (const part of ['trunk', 'branch', 'spray', 'canopy'] as const) {
+      const start = index * CONIFER_PARTS[part];
+      for (let offset = 0; offset < CONIFER_PARTS[part]; offset++) {
+        matrix.fromArray(originalMatrices[part], (start + offset) * 16);
+        matrix.scale(scaleVector);
+        matrix.elements[12] = tree.x + (matrix.elements[12] - tree.x) * scale;
+        matrix.elements[13] *= scale;
+        matrix.elements[14] = tree.z + (matrix.elements[14] - tree.z) * scale;
+        const location = forestBatches[part].locations[start + offset];
+        matrix.elements[12] -= location.mesh.position.x; matrix.elements[14] -= location.mesh.position.z;
+        location.mesh.setMatrixAt(location.index, matrix); changedMeshes.add(location.mesh);
+      }
+    }
+  }
+  const grass = new THREE.InstancedMesh(geometry.tuft, foliage.grass, 12000);
+  grass.name = 'FinaleGroundGrass'; grass.receiveShadow = true;
+  let grassCount = 0;
+  for (let x0 = RESCUE_SITE.mountainX + 2; x0 <= RESCUE_SITE.east - 2; x0 += JUNGLE_GRASS_SPACING) {
+    for (let z0 = -118; z0 <= 118; z0 += JUNGLE_GRASS_SPACING) {
+      const x = x0 + (random() - 0.5) * 0.9, grassZ = z0 + (random() - 0.5) * 0.9;
+      if (!isJungleGrassSite(x, grassZ) || (Math.abs(x) < width / 2 + 1.1 && Math.abs(grassZ - z) < depth / 2 + 1.1)) continue;
+      writeGrassTuft(x, grassZ, random, (transform, color) => {
+        grass.setMatrixAt(grassCount, transform); grass.setColorAt(grassCount++, color);
+      });
+    }
+  }
+  grass.count = grassCount;
+  for (const mesh of partitionJungleInstances(grass).meshes) {
+    backdrop.add(mesh); renderBatches.push({ mesh, range: 40, detailed: true });
+  }
+  grass.dispose();
+  const pinecones = createFallingPinecones(scene, trees.map(tree => ({
+    x: tree.x, z: tree.z, height: tree.height, alive: () => tree.age < 0,
+  })));
   const ship = createEscapeShip(); ship.root.position.copy(RESCUE_SITE.ship); ship.setThrust(0); ship.setFlying(false, true); scene.add(ship.root);
   const boy = new THREE.Group(); boy.name = 'RescuedPodBoy'; boy.position.copy(RESCUE_SITE.boy); scene.add(boy);
   let disposed = false, mixer: THREE.AnimationMixer | null = null;
@@ -120,7 +183,16 @@ export function createFinaleSite() {
   sun.shadow.mapSize.set(1024, 1024);
   Object.assign(sun.shadow.camera, { left: -48, right: 48, top: 48, bottom: -48, far: 260 });
   sun.shadow.camera.updateProjectionMatrix(); sun.shadow.bias = -0.001; scene.add(sun, sun.target);
+  const foliageView = createJungleView();
   function updateVisibility(camera: THREE.Camera) {
+    foliageView.update(camera); pinecones.updateView(camera);
+    for (const batch of renderBatches) {
+      batch.detailed = foliageView.detailed(batch.mesh, batch.detailed);
+      batch.mesh.visible = foliageView.visible(batch.mesh, batch.range)
+        && (!batch.lod || (batch.lod === 'near' ? batch.detailed : !batch.detailed));
+      batch.mesh.castShadow = batch.mesh.visible && batch.mesh.name.startsWith('FinaleBackdropTrunks/')
+        && foliageView.detailed(batch.mesh, false);
+    }
     const forest = camera.position.z > 35;
     const focus = forest ? RESCUE_SITE.boy : new THREE.Vector3(0, FINALE_DECK_Y, FINALE_ROOFTOP.z);
     sun.target.position.copy(focus); sun.position.copy(focus).add(new THREE.Vector3(-40, 90, 30));
@@ -139,21 +211,26 @@ export function createFinaleSite() {
       return impacted;
     },
     update(dt: number, animateBoy = true) {
+      wind.value += dt;
+      pinecones.update(dt);
       if (animateBoy) mixer?.update(dt);
       if (ship.root.visible) ship.update(dt);
-      let changed = false;
       trees.forEach((tree, index) => {
         if (tree.age < 0 || tree.age >= 1.4) return;
         tree.age = Math.min(1.4, tree.age + dt);
-        placeTree(index, 1 - THREE.MathUtils.smoothstep(tree.age, 0, 1.4)); changed = true;
+        placeTree(index, 1 - THREE.MathUtils.smoothstep(tree.age, 0, 1.4));
       });
-      if (changed) { trunks.instanceMatrix.needsUpdate = crowns.instanceMatrix.needsUpdate = true; }
+      for (const mesh of changedMeshes) mesh.instanceMatrix.needsUpdate = true;
+      changedMeshes.clear();
     },
     dispose() {
       if (disposed) return;
       disposed = true; mixer?.stopAllAction(); mixer?.uncacheRoot(mixer.getRoot());
       boy.traverse(node => { if (node instanceof THREE.SkinnedMesh) node.skeleton.dispose(); });
-      trunks.dispose(); crowns.dispose(); disposeRoom(scene);
+      pinecones.dispose();
+      for (const batch of renderBatches) batch.mesh.dispose();
+      textures.leaves.dispose(); textures.needles.dispose();
+      disposeRoom(scene);
     },
   };
 }

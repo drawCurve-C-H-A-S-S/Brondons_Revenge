@@ -1178,7 +1178,10 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onVi
       : director.getState().phase === 'finisher' ? 'scene21.9'
         : director.getState().phase === 'credits' || director.getState().phase === 'done' ? 'scene22' : 'scene21',
     getControllerPhase: () => lastPhase,
-    getMusicTrack: () => finaleMusicTrack(director.getState().phase),
+    getMusicTrack: () => {
+      const { phase, phaseTime } = director.getState();
+      return finaleMusicTrack(phase, reachedSpace || (phase === 'rupture' && phaseTime >= PLANET_RUPTURE.impact));
+    },
     hasBossVictory: () => director.getState().phase === 'victory',
     isMusicPaused: playbackPaused,
     dispose() {

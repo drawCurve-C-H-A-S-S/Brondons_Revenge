@@ -8,6 +8,7 @@ const THREE_ADDONS = [
   'controls/OrbitControls',
   'controls/TransformControls',
   'environments/RoomEnvironment',
+  'libs/fflate.module',
   'loaders/DRACOLoader',
   'loaders/GLTFLoader',
   'loaders/OBJLoader',

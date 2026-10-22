@@ -36,14 +36,7 @@ const ACTION_BEATS = {
 } as const;
 const BOARDING = { run: 1.05, takeoff: 1.4, land: 2.15, settle: 2.6, seated: 3.9, end: 4.5 } as const;
 
-/** A continuous hangar escape cinematic, timed actions, cockpit boarding and launch. */
-export function createScene({ entryState, checkpoint = false, onFailure, onLaunch, loadModel = loadToolModel }: {
-  entryState?: PlayerTransitionState; onFailure: () => void; onLaunch: (state: LaunchState) => void;
-  checkpoint?: boolean;
-  loadModel?: typeof loadToolModel;
-}) {
-  const scene = new THREE.Scene(); scene.background = new THREE.Color(0x020611);
-  const physics = createScenePhysics(), physicsWorld = physics.world;
+export function createHangarFourteenSet(scene: THREE.Scene, physics: ReturnType<typeof createScenePhysics>) {
   const steel = new THREE.MeshStandardMaterial({ color: 0x435667, metalness: 0.6, roughness: 0.5 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x1b2c3a, metalness: 0.45, roughness: 0.7 });
   const amber = new THREE.MeshStandardMaterial({ color: 0xe4a14a, emissive: 0xa86614, emissiveIntensity: 0.7 });
@@ -72,10 +65,22 @@ export function createScene({ entryState, checkpoint = false, onFailure, onLaunc
   liftRim.name = 'HangarLiftLandingRim'; liftRim.rotation.x = Math.PI / 2; liftRim.position.set(0, 0.025, -29); scene.add(liftRim);
   const ship = createEscapeShip(); ship.root.position.set(0, 0, 21); ship.root.rotation.y = Math.PI; ship.setThrust(0); scene.add(ship.root);
   const shipCollider = physics.addBox({ x: 3, y: 2.6, z: 7 }, { x: 0, y: 1.3, z: 21 });
-  const { planet, starfield } = addPlanetBackdrop(scene, new THREE.Vector3(0, 60, 1500), 320, 2400, { nebulaOpacity: 0.7, nebulaProgress: 0.05 }); planet.visible = false;
   scene.add(new THREE.HemisphereLight(0xa8cce9, 0x2b3139, 2.2));
   const sun = new THREE.DirectionalLight(0xb9d8ff, 3); sun.position.set(-20, 50, 30); scene.add(sun);
   for (const z of [-25, -5, 15]) { const light = new THREE.PointLight(0xb3def7, 180, 40); light.position.set(0, 12, z); scene.add(light); }
+  return { blastDoors, ship, shipCollider, lift };
+}
+
+/** A continuous hangar escape cinematic, timed actions, cockpit boarding and launch. */
+export function createScene({ entryState, checkpoint = false, onFailure, onLaunch, loadModel = loadToolModel }: {
+  entryState?: PlayerTransitionState; onFailure: () => void; onLaunch: (state: LaunchState) => void;
+  checkpoint?: boolean;
+  loadModel?: typeof loadToolModel;
+}) {
+  const scene = new THREE.Scene(); scene.background = new THREE.Color(0x020611);
+  const physics = createScenePhysics(), physicsWorld = physics.world;
+  const { blastDoors, ship, shipCollider, lift } = createHangarFourteenSet(scene, physics);
+  const { planet, starfield } = addPlanetBackdrop(scene, new THREE.Vector3(0, 60, 1500), 320, 2400, { nebulaOpacity: 0.7, nebulaProgress: 0.05 }); planet.visible = false;
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 5000);
   const versus = createHangarVersus({ playerName: 'BRONDON', opponentName: 'TRILOBOT SWARM' });
   const player = createPlayer({ camera, physicsWorld, spawnPosition: { x: 0, y: 3.3, z: -29 } }); player.enable();

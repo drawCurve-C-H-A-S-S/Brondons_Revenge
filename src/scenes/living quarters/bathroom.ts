@@ -6,8 +6,9 @@ import toiletUrl from '../../assets/models/toilet (1).glb';
 import toiletPaperUrl from '../../assets/models/toilet_paper.glb';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
 import { createShipInteriorMaterials } from '../../helpers/scene/shipInterior.js';
-import { QUARTERS, CABINS } from './layout.js';
+import { QUARTERS, CABINS, type QuartersProgress } from './layout.js';
 import { comicNameTexture } from './furnishings.js';
+import { createLightsaber } from '../../scripts/items/createLightsaber.js';
 
 type Physics = ReturnType<typeof createScenePhysics>;
 
@@ -31,7 +32,7 @@ interface DropField { points: THREE.Points; positions: Float32Array; speeds: Flo
  * Communal bathroom. Every object named `Placeholder-*` is a stand-in made of primitives
  * and can be replaced with an imported model without touching the rest of the room.
  */
-export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
+export function createCommunalBathroom(scene: THREE.Scene, physics: Physics, progress: QuartersProgress) {
   const { steel, dark, trim, cyan, deck } = createShipInteriorMaterials(6, 6);
   const tile = new THREE.MeshStandardMaterial({ color: 0xc9dae2, roughness: 0.35, metalness: 0.15 });
   const porcelain = new THREE.MeshStandardMaterial({ color: 0xeef4f6, roughness: 0.25, metalness: 0.05 });
@@ -240,16 +241,30 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
 
   // Lockers back to back down the middle of the room, with a bench well clear of each side so the doors can swing.
   const lockerLength = 7.2, lockerZ = -24, lockersPerSide = 4, unit = lockerLength / lockersPerSide, lockerDoorWidth = unit / 2 - 0.04;
-  box(root, 'LockerBlock', [0.9, 2.0, lockerLength], [0, 1.0, lockerZ], dark, true);
+  box(root, 'LockerBlock', [0.12, 2.0, lockerLength], [0, 1.0, lockerZ], dark, true);
   box(root, 'LockerCap', [0.94, 0.05, lockerLength + 0.04], [0, 2.025, lockerZ], trim);
   const lockerDoors: Array<{ hinge: THREE.Group; swing: number; open: boolean; amount: number }> = [];
+  const lightsaber = createLightsaber(false); lightsaber.name = 'RecoveredLightsaberHilt'; lightsaber.visible = false;
+  lightsaber.scale.setScalar(1.8);
+  const lightsaberPoint = new THREE.Vector3();
+  let lightsaberLocker: { state: { open: boolean }; leaves: typeof lockerDoors } | null = null;
   for (const side of [-1, 1] as const) {
     for (let i = 0; i < lockersPerSide; i++) {
       const centerLockerZ = lockerZ - lockerLength / 2 + unit * (i + 0.5);
-      const name = crewNames[(side < 0 ? 0 : lockersPerSide) + i];
+      const cabin = CABINS[(side < 0 ? 0 : lockersPerSide) + i], name = cabin.occupant;
       const locker = new THREE.Group(); locker.name = `Locker-${name}`; root.add(locker);
       const state = { open: false };
       const leaves: typeof lockerDoors = [];
+      if (cabin.id === 'student-03') {
+        for (const y of [0.03, 1.97]) box(locker, 'LockerInteriorPanel', [0.39, 0.06, unit],
+          [side * 0.255, y, centerLockerZ], dark, true);
+        for (const dir of [-1, 1]) box(locker, 'LockerInteriorDivider', [0.39, 2, 0.05],
+          [side * 0.255, 1, centerLockerZ + dir * unit / 2], dark, true);
+        box(locker, 'LockerShelf', [0.39, 0.05, unit - 0.1], [side * 0.255, 1.02, centerLockerZ], trim, true);
+        lightsaber.position.set(side * 0.24, 1.045, centerLockerZ); locker.add(lightsaber);
+        lightsaberPoint.set(side * 0.24, 1.35, centerLockerZ);
+        lightsaberLocker = { state, leaves };
+      } else box(locker, 'LockerCompartment', [0.39, 2, unit], [side * 0.255, 1, centerLockerZ], dark, true);
       for (const dir of [1, -1] as const) {
         const hinge = new THREE.Group(); hinge.position.set(side * 0.46, 1.0, centerLockerZ - dir * (unit / 2 - 0.02)); locker.add(hinge);
         box(hinge, 'LockerDoor', [0.025, 1.8, lockerDoorWidth], [0, 0, dir * lockerDoorWidth / 2], steel);
@@ -264,7 +279,7 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
       lockerDoors.push(...leaves);
       fixtures.push({ id: `locker-${name.toLowerCase()}`, label: 'locker', root: locker,
         point: new THREE.Vector3(side * 0.5, 1.2, centerLockerZ), isOn: () => state.open,
-        prompt: () => `E / ${state.open ? 'Close' : 'Open'} ${name}'s locker`,
+        prompt: () => `E / ${state.open ? 'Close' : 'Open'} ${name}${name.endsWith("'") ? 's' : "'s"} locker`,
         toggle: () => { state.open = !state.open; playSfx('door', 0.7); leaves.forEach(leaf => { leaf.open = state.open; }); } });
     }
     box(root, 'BenchSeat', [0.42, 0.07, lockerLength - 0.4], [side * 2.55, 0.46, lockerZ], trim, true);
@@ -300,6 +315,8 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
       if (Math.abs(target - leaf.amount) < 0.01) leaf.amount = target;
       leaf.hinge.rotation.y = leaf.swing * leaf.amount * 1.75;
     }
+    lightsaber.visible = !progress.lightsaberCollected && lightsaberLocker !== null
+      && lightsaberLocker.state.open && lightsaberLocker.leaves.every(leaf => leaf.amount > 0.7);
     // Showering starts once the water is running with Brondon in the stall and lasts until he steps out.
     const stall = stallBounds.findIndex(b => player.x > b.minX && player.x < b.maxX && player.z > b.minZ && player.z < b.maxZ);
     if (stall < 0) showeringStall = -1;
@@ -335,7 +352,7 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
     waterMaterial.dispose();
     for (const material of labelMaterials) { material.map?.dispose(); material.dispose(); } curtainMaterial.dispose(); porcelain.dispose(); chrome.dispose(); tile.dispose();
   }
-  return { root, fixtures, seats, update, dispose, mirror, isShowering: () => showeringStall >= 0 };
+  return { root, fixtures, seats, lightsaber, lightsaberPoint, update, dispose, mirror, isShowering: () => showeringStall >= 0 };
 }
 
 function respawn(positions: Float32Array, speeds: Float32Array, index: number, origin: THREE.Vector3, scatter: boolean) {

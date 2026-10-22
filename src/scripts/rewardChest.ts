@@ -7,6 +7,7 @@ import { createCrowbar } from './items/createCrowbar.js';
 import { createCrewChest, CREW_CHEST_SIZE } from '../helpers/scene/crewChest.js';
 import { createRecoveryPickup } from '../helpers/scene/recoveryPickup.js';
 import { inputHint } from './gamepadInput.js';
+import { playSfx } from '../helpers/audio/sfx.js';
 
 export function createGoggles() {
   const root = new THREE.Group(); root.name = 'ScannerGoggles';
@@ -127,7 +128,7 @@ export function createRewardChest({ scene, world, player, position, yaw = 0, rew
     if (reward === 'health' && player.getHealth() >= 100) return;
     if (reward === 'shield' && player.getShield() >= player.getMaxShield()) return;
     event.preventDefault(); event.stopImmediatePropagation();
-    opening = 0.001; loot.visible = true; hidePrompt();
+    opening = 0.001; loot.visible = true; hidePrompt(); playSfx('chest');
     if (openAction && mixer) { mixer.stopAllAction(); openAction.reset().play(); }
   }
   window.addEventListener('keydown', onKeyDown);

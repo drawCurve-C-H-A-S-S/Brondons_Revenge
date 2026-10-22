@@ -1,5 +1,6 @@
-import { getAudioSettings } from './AudioManager.js';
-import footstepUrl from '../../assets/sounds/footstep.mp3?url';
+import { getAudioSettings, getSfxGain, subscribeAudioSettings } from './AudioManager.js';
+import { BufferedMusic, sharedAudioContext, supportsBufferedMusic } from './bufferedMusic.js';
+import { cachedAssetUrl } from '../../core/assetCache.js';
 import robotStepUrl from '../../assets/sounds/robot-step.mp3?url';
 import doorUrl from '../../assets/sounds/door-open.mp3?url';
 import gunshotUrl from '../../assets/sounds/gunshot.mp3?url';
@@ -15,11 +16,12 @@ import brendanUrl from '../../assets/sounds/brendan-voice.mp3?url';
 import explosionUrl from '../../assets/sounds/explosion.mp3?url';
 import toiletFlushUrl from '../../assets/sounds/toilet-flush.mp3?url';
 import waterUrl from '../../assets/sounds/water.mp3?url';
+import chestUrl from '../../assets/sounds/chest.ogg?url';
 
 export const SFX_URLS = {
-  footstep: footstepUrl, robotStep: robotStepUrl, door: doorUrl, gunshot: gunshotUrl, redBomb: bombUrl,
+  robotStep: robotStepUrl, door: doorUrl, gunshot: gunshotUrl, redBomb: bombUrl,
   shipDoor: shipDoorUrl, keypad: keypadUrl, slash: slashUrl, clank: clankUrl, crowbar: crowbarUrl,
-  melee: meleeUrl,   brendan: brendanUrl, explosion: explosionUrl, toiletFlush: toiletFlushUrl,
+  melee: meleeUrl,   brendan: brendanUrl, explosion: explosionUrl, toiletFlush: toiletFlushUrl, chest: chestUrl,
 } as const;
 export type SfxName = keyof typeof SFX_URLS;
 
@@ -27,16 +29,16 @@ const MIN_GAP_MS: Partial<Record<SfxName, number>> = { robotStep: 90, clank: 80,
 const lastPlayed = new Map<string, number>();
 
 export function playSfx(name: SfxName, volume = 1, rate = 1) {
-  if (typeof Audio === 'undefined') return;
+  if (typeof Audio === 'undefined' || getAudioSettings().paused) return;
   const now = performance.now();
   if (now - (lastPlayed.get(name) ?? -1e9) < (MIN_GAP_MS[name] ?? 0)) return;
   lastPlayed.set(name, now);
-  const level = Math.min(1, Math.max(0, volume)) * getAudioSettings().sfx;
+  const level = Math.min(1, Math.max(0, volume)) * getSfxGain();
   if (level <= 0) return;
-  const audio = new Audio(SFX_URLS[name]);
+  const audio = new Audio(cachedAssetUrl(SFX_URLS[name]));
   audio.volume = level;
   audio.playbackRate = rate;
-  audio.play().catch(() => undefined);
+  audio.play().catch(error => console.warn('[Audio] Sound effect playback failed:', name, error));
 }
 
 /** Distance-attenuated sfx at a world position, relative to the supplied listener. */
@@ -47,29 +49,108 @@ export function playSfxAt(name: SfxName, source: { x: number; y: number; z: numb
   if (falloff > 0) playSfx(name, volume * falloff * falloff);
 }
 
-let waterfall: HTMLAudioElement | null = null;
-/** Looping waterfall bed: loudest at the falls, fading to silence by `radius`. */
-export function updateWaterfallAudio(distance: number | null, radius = 110) {
-  if (distance === null || distance >= radius || getAudioSettings().sfx <= 0) {
-    if (waterfall && !waterfall.paused) waterfall.pause();
-    return;
+function createAmbientLoop(url: string, blendSeconds: number) {
+  const context = supportsBufferedMusic(url) ? sharedAudioContext() : null;
+  const audio = context ? new BufferedMusic(url, true, blendSeconds) : new Audio(cachedAssetUrl(url));
+  if (!(audio instanceof BufferedMusic)) {
+    audio.loop = true;
+    console.warn('[Audio] Web Audio is unavailable; ambient sound uses browser looping:', url);
   }
-  if (!waterfall) { waterfall = new Audio(waterfallUrl); waterfall.loop = true; }
-  const t = 1 - Math.max(0, distance) / radius;
-  waterfall.volume = Math.min(1, Math.sqrt(t) * getAudioSettings().sfx);
-  if (waterfall.paused) waterfall.play().catch(() => undefined);
+  let volume = 0, pending = false, blocked = false, failed = false;
+  const wanted = () => volume > 0 && getSfxGain() > 0 && !getAudioSettings().paused && !document.hidden;
+  function sync() {
+    audio.volume = volume * getSfxGain();
+    if (!wanted()) {
+      if (!audio.paused || pending) audio.pause();
+      return;
+    }
+    if (pending || blocked || failed || !audio.paused || (context && context.state !== 'running')) return;
+    pending = true;
+    void audio.play().catch(error => {
+      if (error?.name === 'AbortError') return;
+      if (error?.name === 'NotAllowedError') blocked = true;
+      else failed = true;
+      console.warn('[Audio] Ambient sound could not start:', url, error);
+    }).finally(() => {
+      pending = false;
+      if (!wanted()) audio.pause();
+    });
+  }
+  subscribeAudioSettings(sync);
+  context?.addEventListener('statechange', sync);
+  document.addEventListener('visibilitychange', sync);
+  for (const type of ['pointerdown', 'keydown']) {
+    window.addEventListener(type, () => { blocked = false; sync(); }, { passive: true });
+  }
+  return {
+    setVolume(value: number) { volume = Math.min(1, Math.max(0, value)); sync(); },
+    stop() { volume = 0; sync(); },
+  };
 }
-export function stopWaterfallAudio() { waterfall?.pause(); }
 
-let runningWater: HTMLAudioElement | null = null;
+export function waterfallAttenuation(distance: number | null, radius = 110) {
+  if (!Number.isFinite(radius) || radius <= 0 || (distance !== null && !Number.isFinite(distance))) {
+    throw new RangeError('Waterfall distance and audible radius must be finite, with a positive radius');
+  }
+  return distance === null ? 0 : (1 - Math.min(1, Math.max(0, distance) / radius)) ** 2;
+}
+
+let waterfall: ReturnType<typeof createAmbientLoop> | null = null;
+export function updateWaterfallAudio(distance: number | null, radius = 110) {
+  const volume = waterfallAttenuation(distance, radius);
+  if (!waterfall && volume > 0) waterfall = createAmbientLoop(waterfallUrl, 2);
+  waterfall?.setVolume(volume);
+}
+export function stopWaterfallAudio() { waterfall?.stop(); }
+
+let runningWater: ReturnType<typeof createAmbientLoop> | null = null;
 /** Looping tap/shower water: pass the distance to the nearest running fixture, or null when none is on. */
 export function updateRunningWaterAudio(distance: number | null, radius = 9) {
-  if (distance === null || distance >= radius || getAudioSettings().sfx <= 0) {
-    if (runningWater && !runningWater.paused) runningWater.pause();
+  const volume = waterfallAttenuation(distance, radius) ** 0.25 * 0.7;
+  if (!runningWater && volume > 0) runningWater = createAmbientLoop(waterUrl, 0.65);
+  runningWater?.setVolume(volume);
+}
+export function stopRunningWaterAudio() { runningWater?.stop(); }
+
+export type Foot = 'left' | 'right';
+let footstepBuffers: { context: AudioContext; left: AudioBuffer; right: AudioBuffer } | null = null;
+let footstepWarningShown = false;
+
+function createFootstepBuffer(context: BaseAudioContext, seed: number) {
+  const buffer = context.createBuffer(1, Math.ceil(context.sampleRate * 0.22), context.sampleRate);
+  const samples = buffer.getChannelData(0);
+  const lowPass = 1 - Math.exp(-Math.PI * 2 * 420 / context.sampleRate);
+  const bodyPass = 1 - Math.exp(-Math.PI * 2 * 120 / context.sampleRate);
+  let low = 0, body = 0;
+  for (let frame = 0; frame < samples.length; frame++) {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    const noise = seed / 2147483648 - 1, time = frame / context.sampleRate;
+    low += (noise - low) * lowPass;
+    body += (low - body) * bodyPass;
+    const attack = 1 - Math.exp(-time * 900);
+    const heel = Math.sin(Math.PI * 2 * (54 * time - 55 * time * time)) * Math.exp(-time * 32);
+    const scuff = (body * 0.8 + low * 0.2) * Math.exp(-time * 27);
+    const fade = Math.min(1, (samples.length - 1 - frame) / (context.sampleRate * 0.02));
+    samples[frame] = (heel * 0.7 + scuff * 0.65) * attack * fade;
+  }
+  return buffer;
+}
+
+export function playFootstep(foot: Foot, volume: number) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') {
+    if (!footstepWarningShown) { console.warn('[Audio] Generated footsteps require Web Audio'); footstepWarningShown = true; }
     return;
   }
-  if (!runningWater) { runningWater = new Audio(waterUrl); runningWater.loop = true; }
-  runningWater.volume = Math.min(1, Math.sqrt(1 - distance / radius) * 0.7 * getAudioSettings().sfx);
-  if (runningWater.paused) runningWater.play().catch(() => undefined);
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  footstepBuffers ??= { context, left: createFootstepBuffer(context, 7319), right: createFootstepBuffer(context, 170916) };
+  const source = context.createBufferSource(), output = context.createGain();
+  source.buffer = footstepBuffers[foot];
+  source.playbackRate.value = foot === 'left' ? 0.96 : 1;
+  output.gain.value = gain;
+  source.connect(output); output.connect(context.destination);
+  source.onended = () => { source.disconnect(); output.disconnect(); };
+  source.start();
 }
-export function stopRunningWaterAudio() { runningWater?.pause(); }
