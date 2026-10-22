@@ -7,9 +7,9 @@ import * as CANNON from 'cannon-es';
 let server, createScene7, createScene8, createScene9, applyTraversalCamera, applyThirdPersonCamera, isCameraForcedFirstPerson, resetThirdPersonCamera;
 before(async () => {
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
-  ({ createScene: createScene7 } = await server.ssrLoadModule('/scenes/level 1/scene7.ts'));
-  ({ createScene: createScene8 } = await server.ssrLoadModule('/scenes/level 1/scene8.ts'));
-  ({ createScene: createScene9 } = await server.ssrLoadModule('/scenes/level 1/scene9.ts'));
+  ({ createScene: createScene7 } = await server.ssrLoadModule('/scenes/legacy scenes/scene7.ts'));
+  ({ createScene: createScene8 } = await server.ssrLoadModule('/scenes/legacy scenes/scene8.ts'));
+  ({ createScene: createScene9 } = await server.ssrLoadModule('/scenes/legacy scenes/scene9.ts'));
   ({ applyTraversalCamera, applyThirdPersonCamera, isCameraForcedFirstPerson, resetThirdPersonCamera } = await server.ssrLoadModule('/core/camera.ts'));
 });
 after(async () => { await server?.close(); });

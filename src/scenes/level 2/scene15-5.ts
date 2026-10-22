@@ -1,6 +1,6 @@
 import { playSfx } from '../../helpers/audio/sfx.js';
 import * as THREE from 'three';
-import { emitComicEffect } from '../../helpers/scene/comicEffects.js';
+import { emitComicEffect } from '../../scripts/global/comicEffects.js';
 
 export const SCRAMBLER_HEALTH = 280;
 type Options = {

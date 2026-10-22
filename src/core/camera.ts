@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import type { Player } from '../scripts/player.js';
+import type { Player } from '../scripts/player/player.js';
 
 const followCameras = new WeakMap<THREE.PerspectiveCamera, {
   player: Player; pivot: THREE.Vector3; distance: number; firstPerson: boolean;

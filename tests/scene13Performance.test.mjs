@@ -6,9 +6,9 @@ import { createServer } from 'vite';
 let server, createScene, THREE, CANNON, GLTFLoader, bossBytes, boyBytes, droneJSON, droneBytes, zeroGBossRules, updateComicEffects, clearComicEffects, disposeComicEffects;
 before(async () => {
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
-  ({ createScene } = await server.ssrLoadModule('/scenes/level 1/scene13.ts'));
-  ({ ZERO_G_BOSS: zeroGBossRules } = await server.ssrLoadModule('/scripts/mechBaymaxBoss.ts'));
-  ({ updateComicEffects, clearComicEffects, disposeComicEffects } = await server.ssrLoadModule('/helpers/scene/comicEffects.ts'));
+  ({ createScene } = await server.ssrLoadModule('/scenes/level 1 boss stage/scene13.ts'));
+  ({ ZERO_G_BOSS: zeroGBossRules } = await server.ssrLoadModule('/scripts/npc/mechBaymaxBoss.ts'));
+  ({ updateComicEffects, clearComicEffects, disposeComicEffects } = await server.ssrLoadModule('/scripts/global/comicEffects.ts'));
   // Use the scene's module graph: Windows drive-letter casing can otherwise load
   // two copies of Three.js, breaking instanceof checks for the imported real rig.
   THREE = await server.ssrLoadModule('three');

@@ -119,7 +119,7 @@ body:is(.hud-hidden, [data-scene="trailer"]) :is(
   #control-card, #minimap, #touch-controls, #weapon-status, #weapon-wheel, #music-warning,
   #loading-bay-status, #stealth-status, #prime-stealth-hint, #stealth-checkpoint,
   #prologue-exit-prompt, #scene-menu-hint, #skip-btn, #quarters-status,
-  .stage-two-ui, .camera-visit-ui
+  .stage-two-ui, .camera-visit-ui, .room-name-tag
 ) {
   display: none !important;
 }
@@ -2360,7 +2360,10 @@ body[data-scene="scene15"] #flight-hud { top: auto; bottom: max(24px, env(safe-a
 .hold-to-skip { overflow: hidden; user-select: none; max-width: calc(100vw - 40px); }
 .scene-dialogue-skip { position: fixed; right: 20px; bottom: 22px; z-index: 2600; padding: 10px 16px 14px;
   font-size: 12px; pointer-events: auto; touch-action: none; }
-.finale-skip { bottom: 10vh; }
+.finale-skip, .facility-intro-skip {
+  top: max(18px, env(safe-area-inset-top)); right: max(18px, env(safe-area-inset-right));
+  bottom: auto;
+}
 .hold-to-skip::after {
   content: '';
   position: absolute;
@@ -2790,15 +2793,15 @@ body.quick-menu-open .finale-hud { visibility: hidden; }
 }
 
 body.finale-active #boss-hud {
-  top: max(20px, env(safe-area-inset-top)); right: 3vw; left: auto; z-index: 1710;
-  width: min(350px, 36vw); padding: 10px 13px; transform: none;
+  top: max(18px, env(safe-area-inset-top)); right: auto; left: 50%; z-index: 1710;
+  width: min(440px, 52vw); padding: 10px 13px; transform: translateX(-50%);
   border: 3px solid var(--comic-ink); border-radius: 2px;
   background: var(--comic-paper); box-shadow: 4px 4px 0 var(--comic-ink);
   color: var(--comic-ink); font: 800 11px/1.2 var(--comic-body);
 }
 body.finale-active #boss-health-label {
   margin-bottom: 8px; color: var(--comic-ink); font: 400 18px/1.1 var(--comic-display);
-  letter-spacing: 0.03em; text-align: right;
+  letter-spacing: 0.03em; text-align: center;
 }
 body.finale-active #boss-health-track { height: 16px; border: 2px solid var(--comic-ink); background: #e0e6eb; box-shadow: none; }
 body.finale-active #boss-health-fill {
@@ -2812,18 +2815,14 @@ body.finale-active #boss-health-fill {
 .finale-objective span { color: #535969; font-size: 9px; letter-spacing: 0.06em; }
 .finale-objective strong { color: var(--comic-ink); }
 .finale-objective small { color: #424653; }
-.finale-hud.mech .finale-objective {
-  top: 24px; left: 50%; padding: 0; border: 0; background: none; box-shadow: none;
-  max-width: 20vw; transform: translateX(-50%); text-align: center;
-}
-.finale-hud.mech .finale-objective span, .finale-hud.mech .finale-objective small { display: none; }
-.finale-hud.mech .finale-objective strong { font-size: 14px; letter-spacing: 0.04em; color: var(--comic-paper); text-shadow: 2px 2px 0 var(--comic-ink); }
+.finale-hud.mech .finale-objective { display: none; }
 .finale-hud[data-phase="finisher"] .finale-objective { display: none; }
 .finale-hud[data-phase="rupture"] .finale-objective { display: none; }
 .finale-player-status {
   --integrity-fill: var(--comic-green);
-  position: absolute; top: max(20px, env(safe-area-inset-top)); left: 3vw; display: grid; gap: 7px;
-  width: min(350px, 36vw); padding: 10px 13px; border: 3px solid var(--comic-ink); border-radius: 2px;
+  position: absolute; right: 3vw; bottom: max(24px, env(safe-area-inset-bottom)); left: auto; top: auto;
+  display: grid; gap: 7px; width: min(310px, 31vw); padding: 10px 13px;
+  border: 3px solid var(--comic-ink); border-radius: 2px;
   background: var(--comic-paper); box-shadow: 4px 4px 0 var(--comic-ink); color: var(--comic-ink); text-shadow: none;
 }
 .finale-player-status[data-health="mid"] { --integrity-fill: var(--comic-yellow); }
@@ -2835,37 +2834,43 @@ body.finale-active #boss-health-fill {
 .finale-player-status meter::-webkit-meter-bar { border: 0; border-radius: 0; background: #e0e6eb; }
 .finale-player-status .finale-integrity::-webkit-meter-optimum-value { background: var(--integrity-fill); }
 .finale-player-status .finale-integrity::-moz-meter-bar { background: var(--integrity-fill); }
-.finale-player-status .finale-shield-meter::-webkit-meter-optimum-value { background: var(--comic-cyan); }
-.finale-player-status .finale-shield-meter::-moz-meter-bar { background: var(--comic-cyan); }
-.finale-player-status .finale-energy-meter::-webkit-meter-optimum-value { background: var(--comic-yellow); }
-.finale-player-status .finale-energy-meter::-moz-meter-bar { background: var(--comic-yellow); }
-.finale-resource-meters { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.finale-resource-meters meter { height: 6px; border-width: 1px; }
-.finale-resources { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 8px; margin: 0;
-  color: #424653; font: 800 9px/1.25 var(--comic-body); letter-spacing: 0; }
-.finale-ultimate { position: absolute; right: 3vw; bottom: 28px; display: flex; align-items: center; gap: 12px;
-  min-width: 175px; padding: 10px 12px; border: 3px solid var(--comic-ink); border-radius: 2px;
-  background: var(--comic-paper); color: var(--comic-ink); box-shadow: 4px 4px 0 var(--comic-ink); text-shadow: none; }
-.finale-ultimate > div { display: grid; gap: 6px; }
-.finale-ultimate strong { font: 400 17px/1 var(--comic-display); letter-spacing: 0.03em; }
-.finale-ultimate span { color: #424653; font-size: 10px; font-weight: 800; }
-.finale-ultimate.ready kbd { background: var(--comic-yellow); }
-.finale-ultimate.ready span { color: var(--comic-ink); }
-.finale-ultimate meter { width: 100%; height: 5px; border: 1px solid var(--comic-ink); appearance: none; background: #e0e6eb; }
-.finale-ultimate meter::-webkit-meter-bar { border: 0; border-radius: 0; background: #e0e6eb; }
-.finale-ultimate meter::-webkit-meter-optimum-value { background: var(--comic-yellow); }
-.finale-ultimate meter::-moz-meter-bar { background: var(--comic-yellow); }
-.finale-controls { position: absolute; bottom: 32px; left: 3vw; display: flex; flex-wrap: wrap; gap: 14px;
-  max-width: calc(94vw - 220px); padding: 7px 10px; border: 2px solid var(--comic-ink); border-radius: 2px;
-  color: var(--comic-ink); background: var(--comic-paper); box-shadow: 3px 3px 0 var(--comic-ink);
-  text-shadow: none; font: 800 10px/1.5 var(--comic-body); letter-spacing: 0; }
-.finale-controls span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-.finale-hud kbd { display: inline-grid; place-items: center; min-width: 21px; min-height: 23px; padding: 2px 5px;
-  border: 2px solid var(--comic-ink); border-radius: 2px; background: #e9eff4; color: var(--comic-ink); font: 800 10px/1 var(--comic-body); }
-.finale-ultimate kbd { min-width: 34px; min-height: 36px; font-size: 17px; }
+.finale-controls {
+  position: absolute; inset: 0; max-width: none; padding: 0; border: 0; border-radius: 0;
+  background: none; box-shadow: none; color: var(--comic-ink); text-shadow: none;
+}
+.finale-control-group { position: absolute; display: flex; align-items: center; gap: 12px; }
+.finale-control-movement { left: 3vw; bottom: max(24px, env(safe-area-inset-bottom)); }
+.finale-control-actions { left: 50%; bottom: max(24px, env(safe-area-inset-bottom)); transform: translateX(-50%); }
+.finale-control-systems { right: 3vw; top: 50%; flex-direction: column; transform: translateY(-50%); }
+.finale-control {
+  --charge: 100%;
+  --button-color: var(--comic-yellow);
+  position: relative; isolation: isolate; display: grid; place-items: center; align-content: center;
+  width: clamp(62px, 5.7vw, 78px); aspect-ratio: 1; box-sizing: border-box; padding: 8px;
+  border: 3px solid var(--comic-ink); border-radius: 50%;
+  background: conic-gradient(var(--button-color) var(--charge), #9ca6af var(--charge));
+  box-shadow: 4px 4px 0 var(--comic-ink); text-align: center; overflow: hidden;
+}
+.finale-control::before {
+  content: ""; position: absolute; z-index: -1; inset: 5px; border: 2px solid var(--comic-ink);
+  border-radius: 50%; background: var(--comic-paper);
+}
+.finale-control.ready { --button-color: var(--comic-green); }
+.finale-control-charge[data-control="rifle"] { --button-color: var(--comic-yellow); }
+.finale-control-charge[data-control="guard"] { --button-color: var(--comic-cyan); }
+.finale-control-charge[data-control="special"] { --button-color: var(--comic-red); }
+.finale-control.charging { filter: saturate(0.72); }
+.finale-control kbd {
+  display: block; min-width: 0; min-height: 0; padding: 0; border: 0; border-radius: 0;
+  background: none; color: var(--comic-ink); font: 400 clamp(17px, 1.55vw, 23px)/1 var(--comic-display);
+}
+.finale-control[data-control="dodge"] kbd { font-size: clamp(11px, 0.9vw, 14px); }
+.finale-control small { display: grid; margin-top: 3px; color: var(--comic-ink); font: 800 8px/1 var(--comic-body); }
+.finale-control small b { font: 400 11px/1 var(--comic-display); }
+.finale-control small em { margin-top: 2px; color: #535969; font-size: 7px; font-style: normal; }
+.finale-control.ready small em { color: #174d32; }
 .finale-hud:not([data-phase="space"]) .finale-orbit-controls { display: none; }
 body.touch-device .finale-controls { display: none; }
-body.touch-device .finale-ultimate { bottom: 130px; }
 .finale-dialogue {
   bottom: 8.5vh; padding: 11px 17px 13px; border: 3px solid var(--comic-ink); border-radius: 2px;
   background: var(--comic-paper); box-shadow: 4px 4px 0 var(--comic-ink);
@@ -2915,15 +2920,38 @@ body.touch-device .finale-ultimate { bottom: 130px; }
 .finale-speed-lines { position: absolute; inset: -6%; z-index: 0; opacity: 0;
   background: repeating-conic-gradient(from 12deg at 50% 46%, transparent 0deg 6.8deg, #e3e9f033 6.9deg 7deg, transparent 7.1deg 11deg);
   mask-image: radial-gradient(ellipse at 50% 46%, transparent 0 29%, #000 78%); pointer-events: none; }
-.finale-touch button { min-width: 44px; min-height: 44px; border: 3px solid var(--comic-ink); border-radius: 2px;
-  background: var(--comic-paper); color: var(--comic-ink); box-shadow: 3px 3px 0 var(--comic-ink); }
+.finale-touch button {
+  --charge: 100%;
+  --button-color: var(--comic-yellow);
+  position: relative; isolation: isolate;
+  width: 52px; min-width: 52px; height: 52px; min-height: 52px; padding: 5px;
+  border: 3px solid var(--comic-ink); border-radius: 50%;
+  background: conic-gradient(var(--button-color) var(--charge), #9ca6af var(--charge));
+  color: var(--comic-ink); box-shadow: 3px 3px 0 var(--comic-ink);
+  font: 400 9px/1 var(--comic-display);
+}
+.finale-touch button::before {
+  content: ""; position: absolute; z-index: -1; inset: 4px; border: 1px solid var(--comic-ink);
+  border-radius: 50%; background: var(--comic-paper);
+}
+.finale-touch button::after {
+  content: attr(data-state); position: absolute; right: 4px; bottom: 7px; left: 4px;
+  color: #535969; font: 800 6px/1 var(--comic-body);
+}
+.finale-touch button.ready { --button-color: var(--comic-green); }
+.finale-touch button[data-key="KeyF"] { --button-color: var(--comic-yellow); }
+.finale-touch button[data-key="KeyR"] { --button-color: var(--comic-cyan); }
+.finale-touch button[data-key="KeyE"] { --button-color: var(--comic-red); }
 .finale-touch button:active { background: var(--comic-yellow); translate: 2px 2px; box-shadow: 1px 1px 0 var(--comic-ink); }
 .finale-result { background: radial-gradient(circle, #251a17 0.8px, transparent 1.2px) 0 0 / 9px 9px, #f4ddc3; color: #17130f; }
 .finale-result span, .finale-result p { color: #31271f; }
 .finale-result h1 { color: #ed374c; -webkit-text-stroke: 2px #17130f; text-shadow: 4px 4px 0 #17130f; }
 .finale-result button { border: 3px solid #17130f; background: #f3c339; color: #17130f; box-shadow: 4px 4px 0 #17130f; }
 @media (max-width: 700px) {
-  body.finale-active #boss-hud { top: 10px; right: 10px; width: 43vw; padding: 7px 9px; font-size: 8px; }
+  body.finale-active #boss-hud {
+    top: 10px; right: auto; left: 50%; width: min(430px, 58vw); padding: 7px 9px;
+    transform: translateX(-50%); font-size: 8px;
+  }
   body.finale-active #boss-health-label { margin-bottom: 7px; font-size: 15px; }
   body.finale-active #boss-health-track { height: 13px; }
   .finale-objective { top: 6.5vh; left: 10px; max-width: 76vw; padding: 6px 8px; }
@@ -2931,18 +2959,21 @@ body.touch-device .finale-ultimate { bottom: 130px; }
   .finale-objective strong { font-size: 11px; }
   .finale-objective small { font-size: 8px; }
   .finale-hud.mech .finale-objective { display: none; }
-  .finale-player-status { top: 10px; left: 10px; width: 43vw; padding: 7px 9px; gap: 6px; }
+  .finale-player-status { right: 10px; bottom: 10px; left: auto; top: auto; width: 36vw; padding: 7px 9px; gap: 6px; }
   .finale-player-status strong { font-size: 15px; }
   .finale-health-value { font-size: 8px; }
   .finale-player-status meter { height: 13px; }
-  .finale-resource-meters meter { height: 5px; }
-  .finale-resources { gap: 3px; font-size: 8px; }
   .finale-tell { top: 122px; max-width: 80vw; font-size: 12px; }
-  .finale-controls { bottom: 20px; left: 10px; gap: 6px; max-width: calc(100vw - 180px); font-size: 7px; }
-  .finale-controls kbd { min-width: 15px; min-height: 18px; font-size: 8px; }
-  .finale-ultimate { right: 10px; bottom: 16px; min-width: 145px; padding: 8px; gap: 8px; }
-  .finale-ultimate strong { font-size: 15px; }
-  .finale-ultimate span { font-size: 9px; }
+  .finale-control-group { gap: 6px; }
+  .finale-control-movement { left: 10px; bottom: 10px; }
+  .finale-control-actions { bottom: 10px; }
+  .finale-control-systems { right: 10px; }
+  .finale-control { width: 52px; padding: 5px; border-width: 2px; box-shadow: 3px 3px 0 var(--comic-ink); }
+  .finale-control::before { inset: 4px; border-width: 1px; }
+  .finale-control kbd { font-size: 15px; }
+  .finale-control[data-control="dodge"] kbd { font-size: 8px; }
+  .finale-control small b { font-size: 8px; }
+  .finale-control small em { display: none; }
   .finale-dialogue { bottom: 10vh; padding: 8px 10px 9px; }
   .finale-dialogue b { font-size: 16px; }
   .finale-dialogue p { font-size: 12px; }
@@ -3114,7 +3145,50 @@ body.touch-device .finale-ultimate { bottom: 130px; }
 #fps-counter.hidden { display: none; }
 
 
-.prime-top-left {
-  position: fixed !important; top: 14px !important; left: 14px !important; right: auto !important; bottom: auto !important;
-  transform: none !important; width: min(380px, 44vw) !important; text-align: left !important; z-index: 2400;
+/* Prime's lines use the prologue's Prime panel styling and own the top-left corner. */
+.prime-top-left, #prime-stealth-hint {
+  position: fixed !important; top: max(14px, env(safe-area-inset-top)) !important; left: max(14px, env(safe-area-inset-left)) !important;
+  right: auto !important; bottom: auto !important; transform: none !important; rotate: none !important; translate: none !important;
+  box-sizing: border-box !important; width: min(440px, calc(100vw - 40px)) !important; max-width: none !important; margin: 0 !important;
+  padding: 12px 16px 10px !important; text-align: left !important; white-space: normal !important;
+  color: var(--comic-ink) !important; text-shadow: none !important; letter-spacing: normal !important; text-transform: none !important;
+  background: var(--comic-dots) 0 0 / 6px 6px, var(--comic-paper) !important;
+  border: 4px solid var(--comic-ink) !important; border-radius: 3px !important; box-shadow: 7px 7px 0 var(--comic-ink) !important;
+  font: 700 16px/1.45 var(--comic-body) !important; z-index: 2400 !important; animation: none !important;
 }
+.prime-top-left.prime-tagged::before, #prime-stealth-hint strong, .prime-top-left .quarters-speaker {
+  content: "PRIME"; display: block !important; width: fit-content !important; margin: 0 0 6px !important; padding: 3px 8px !important;
+  color: var(--comic-ink) !important; background: var(--comic-cyan) !important; border: 2px solid var(--comic-ink) !important;
+  border-radius: 0 !important; font: 400 17px/1.1 var(--comic-display) !important; text-transform: uppercase !important; letter-spacing: normal !important;
+}
+#prime-stealth-hint { padding-right: 58px !important; }
+#prime-stealth-hint.hidden { display: none !important; }
+
+.room-name-tag {
+  position: fixed; top: max(14px, env(safe-area-inset-top)); left: max(14px, env(safe-area-inset-left)); z-index: 2300;
+  padding: 6px 12px; color: var(--comic-ink); background: var(--comic-yellow); border: 3px solid var(--comic-ink);
+  box-shadow: 4px 4px 0 var(--comic-ink); font: 400 20px/1.1 var(--comic-display); text-transform: uppercase; pointer-events: none;
+  transition: opacity 0.2s;
+}
+.room-name-tag.hidden, body.prime-speaking .room-name-tag, body.quick-menu-open .room-name-tag { opacity: 0; visibility: hidden; }
+
+/* Only Prime lives in the top-left: other HUD panels move to the top-centre. */
+html body .stage-two-objective, html body .camera-visit-ui, html body #quarters-status, html body .platformer-hud,
+html body #stealth-status {
+  left: 50% !important; right: auto !important; top: max(14px, env(safe-area-inset-top)) !important;
+  transform: translateX(-50%) !important; rotate: none !important;
+}
+html body .finale-player-status {
+  right: max(20px, env(safe-area-inset-right)) !important;
+  bottom: max(20px, env(safe-area-inset-bottom)) !important;
+  left: auto !important; top: auto !important; transform: none !important; rotate: none !important;
+}
+
+/* Player health and shield always sit in the bottom-right corner. */
+html body #health-bar, html body #shield-bar {
+  left: auto !important; top: auto !important; transform: none !important;
+  right: max(20px, env(safe-area-inset-right)) !important; width: min(220px, 38vw) !important;
+}
+html body #health-bar { bottom: max(20px, env(safe-area-inset-bottom)) !important; }
+html body #shield-bar { bottom: calc(max(20px, env(safe-area-inset-bottom)) + 30px) !important; }
+html body #goggles-status { bottom: calc(max(20px, env(safe-area-inset-bottom)) + 62px); }

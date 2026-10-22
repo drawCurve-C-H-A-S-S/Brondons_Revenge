@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import vertexShader from '../shaders/retroConsole.vert.glsl?raw';
-import fragmentShader from '../shaders/retroConsole.frag.glsl?raw';
+import vertexShader from '../shaders/vert/retroConsole.vert.glsl?raw';
+import fragmentShader from '../shaders/frag/retroConsole.frag.glsl?raw';
 
 export class RetroConsolePass {
   private readonly target = new THREE.WebGLRenderTarget(1, 1, {

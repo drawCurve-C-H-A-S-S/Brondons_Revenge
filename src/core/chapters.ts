@@ -28,14 +28,14 @@ export const LOADING_CHAPTERS = {
   },
   stage2: {
     chapter: 'LEVEL 1 / MINIGAME STAGE', title: 'THE SURVEILLANCE HUB', images: [image('stage2-camera-wall')],
-    tips: ['Take down the door guard silently before using the cameras.',
+    tips: ['Open the crowbar chest, then use the cameras to find minigame keycards.',
       'Visit a camera room with E and return with T.',
       'Each minigame chest contains a keycard. Try your latest card at the elevator.'],
   },
   cargo: {
     chapter: 'LEVEL 1 / MINIGAME STAGE / CARGO', title: 'THE CARGO HOLD', images: [image('stage2-cargo')],
     tips: ['Move the cargo to solve the room\'s challenge and open its reward chest.',
-      'Take down the guard in surveillance first, then return from any camera room with T.'],
+      'The ceiling crystal anchors your return from any camera room with T.'],
   },
   range: {
     chapter: 'LEVEL 1 / MINIGAME STAGE / RANGE', title: 'THE TARGET RANGE', images: [image('stage2-range')],
@@ -43,9 +43,9 @@ export const LOADING_CHAPTERS = {
       'Collect the keycard from the reward chest, then return with T.'],
   },
   archive: {
-    chapter: 'LEVEL 1 / MINIGAME STAGE / ARCHIVE', title: 'THE EQUIPMENT ARCHIVE', images: [image('stage2-archive')],
-    tips: ['The sealed archive holds a lightsaber beam and a keycard.',
-      'Keycards persist when you return to the surveillance room.'],
+    chapter: 'LEVEL 1 / MINIGAME STAGE / TENNIS', title: 'SABER TENNIS', images: [image('stage2-archive')],
+    tips: ['Take the working lightsaber off the wall (E), then equip it.',
+      'Stand on a lane plate and parry shots into the force field. Land 10 in a row on each lane; one miss resets that lane to 0.'],
   },
   rust: {
     chapter: 'LEVEL 1 / MINIGAME STAGE / RUST CHAMBER', title: 'THE RUST CHAMBER', images: [image('stage2-archive')],
@@ -121,14 +121,15 @@ export type LoadingChapterId = keyof typeof LOADING_CHAPTERS;
 export type LoadingDestination = LoadingChapterId | 'game';
 
 export const SCENE_CHOICES = [
-  [1, 'Opening - Space prologue'], [0, 'Prologue - Awakening'],
+  [1, 'Main Menu'], [0, 'Prologue - Awakening'],
   [0.5, 'Level 1 - Living quarters'],
   [1.1, 'Level 1 Stealth Stage - Deck One hangar'],
   [1.2, 'Level 1 Minigame Stage - Vents and surveillance'],
   [1.25, 'Level 1 Minigame Stage - Camera room'],
   [5, 'Level 1 Minigame Stage - Cargo hold'], [6, 'Level 1 Minigame Stage - Target range'],
-  [1.3, 'Level 1 Minigame Stage - Equipment archive'],
+  [1.3, 'Level 1 Minigame Stage - Saber Tennis'],
   [1.4, 'Level 1 Minigame Stage - Rust chamber'],
+  [1.5, 'Level 1 Minigame Stage - Reactor Sequencer'],
   [13, 'Level 1 Boss Stage - Bay Warden'], [13.5, 'Level 1 Boss Stage - Bay Warden Phase 4'],
   [14, 'Level 1 Escape Stage - Hangar escape'],
   [15, 'Level 2 Phase 1 - Interceptors'], [15.5, 'Level 2 Phase 2 - Green scrambler'],

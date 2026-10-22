@@ -3,38 +3,34 @@ import * as CANNON from 'cannon-es';
 import { loadToolModel, preloadToolModel } from '../../core/loader.js';
 import type { MinimapSettings } from '../../core/renderer.js';
 import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
-import { createSlidingPortal, disposeRoom, roomBox } from '../../helpers/scene/shipRoom.js';
+import { createSlidingPortal, disposeRoom, roomBox } from '../../scripts/global/shipRoom.js';
 import { createShipInteriorMaterials, createShipServerRack,
-  createShipTerminal, SHIP_INTERIOR_PALETTE } from '../../helpers/scene/shipInterior.js';
+  createShipTerminal, SHIP_INTERIOR_PALETTE } from '../../scripts/global/shipInterior.js';
 import { getAudioSettings, subscribeAudioSettings, SFX_MAX_GAIN } from '../../helpers/audio/AudioManager.js';
-import { createPlayer, PLAYER_MAX_HEALTH, type PlayerState, type PlayerTransitionState } from '../../scripts/player.js';
-import { createRewardChest } from '../../scripts/rewardChest.js';
-import { createCorridorMonitor } from '../../helpers/scene/corridorMonitor.js';
-import { createTeleportCrystal, teleportPlayer } from '../../scripts/teleportationDevice.js';
-import { playSfx } from '../../helpers/audio/sfx.js';
-import { hologramTransitionAt, HOLOGRAM_TRANSFER_DURATION, type CinematicPose } from '../../scripts/characterManager.js';
-import type { DamageTarget } from '../../scripts/pistol.js';
-import type { CctvTarget } from '../../scripts/cctv.js';
-import type { WeaponId } from '../../scripts/weaponWheel.js';
-import { inputHint, isControllerActive } from '../../scripts/gamepadInput.js';
+import { createPlayer, PLAYER_MAX_HEALTH, type PlayerState, type PlayerTransitionState } from '../../scripts/player/player.js';
+import { createRewardChest } from '../../scripts/global/rewardChest.js';
+import { createCorridorMonitor } from '../../scripts/global/corridorMonitor.js';
+import { createTeleportCrystal, teleportPlayer } from '../../scripts/global/teleportationDevice.js';
+import { hologramTransitionAt, HOLOGRAM_TRANSFER_DURATION, type CinematicPose } from '../../scripts/player/characterManager.js';
+import type { DamageTarget } from '../../scripts/weapons/pistol.js';
+import type { CctvTarget } from '../../scripts/npc/cctv.js';
+import { inputHint, isControllerActive } from '../../scripts/player/gamepadInput.js';
 import { fitCabinProp } from '../living quarters/furnishings.js';
-import { createChairSeating, type ChairSeat } from '../../scripts/chairSeating.js';
-import { emitComicEffect } from '../../helpers/scene/comicEffects.js';
+import { createChairSeating, type ChairSeat } from '../../scripts/player/chairSeating.js';
+import { emitComicEffect } from '../../scripts/global/comicEffects.js';
 import { STAGE_TWO, STAGE_TWO_MAP, STAGE_TWO_KEYCARD_ROOMS, VENT_MAZE, VENT_BOUNDS, VENT_START,
   VENT_EXIT, VENT_CENTER, VENT_SENSORS, VENT_SAFE_CELLS, ventPoint, ventSensorState, swipeStageTwoKeycard, collectStageTwoKeycard,
   type CameraRoomId, type StageTwoProgress } from './stageTwoLayout.js';
 
 type Physics = ReturnType<typeof createScenePhysics>;
 type Materials = ReturnType<typeof createShipInteriorMaterials>;
-type Phase = 'maze' | 'drop' | 'hub-loading' | 'guard' | 'takedown' | 'surveillance'
+type Phase = 'maze' | 'drop' | 'hub-loading' | 'surveillance'
   | 'swipe' | 'teleport' | 'lift-button' | 'lift' | 'handoff' | 'load-error' | 'failed';
 interface StageTwoOptions {
   progress: StageTwoProgress;
   entryState?: PlayerTransitionState;
   deferActivation?: boolean;
   getCameraTarget: () => CctvTarget | null;
-  hasReturnMarker: () => boolean;
-  getEquippedWeapon: () => WeaponId;
   holsterWeapons: () => void;
   onCrowbarCollected: () => void;
   onRetryFeed: (id: CctvTarget['id']) => void;
@@ -50,7 +46,7 @@ interface StageTwoOptions {
 }
 
 export async function preloadAssets() {
-  await Promise.all((['Enemy_Trilobite', 'Prop_Desk_Small', 'Prop_Chair', 'Prop_KeyCard'] as const)
+  await Promise.all((['Prop_Desk_Small', 'Prop_Chair', 'Prop_KeyCard'] as const)
     .map(name => preloadToolModel(name)));
 }
 
@@ -265,9 +261,9 @@ export function createScene(options: StageTwoOptions) {
   const start = ventPoint(VENT_START.column, VENT_START.row, STAGE_TWO.ventHeight + PHYSICS.playerRadius);
   const player = createPlayer({ camera, physicsWorld: physics.world, spawnPosition: start });
   teleportPlayer(player, start, -Math.PI / 2, options.entryState);
-  const playable = new Set<Phase>(['maze', 'guard', 'surveillance', 'lift-button']);
+  const playable = new Set<Phase>(['maze', 'surveillance', 'lift-button']);
   let phase: Phase = 'maze', phaseTime = 0, elapsed = 0, active = !options.deferActivation, disposed = false, menuPaused = false;
-  let lastDelta = 0, captionTime = 0, sensorGrace = 2, guardGrace = 2.5, guardAlert = -1, guardAlertReason = '';
+  let lastDelta = 0, captionTime = 0, sensorGrace = 2;
   let transferTarget: CameraRoomId | null = null, transferPending = false, loadError: 'hub' | 'boss' = 'hub';
   let swipeDone = false, swipeResult: 'missing' | 'rejected' | 'accepted' = 'missing';
   let objectiveShown = '', objectiveTime = 0, liftStomp = 0, lastStomp = -10, liftPressed = false, liftArrived = false;
@@ -317,30 +313,11 @@ export function createScene(options: StageTwoOptions) {
     if (disposed) { disposeRoom(gltf.scene); return; }
     fitCabinProp(gltf.scene, 0.3, 0.4, 0.12); heldCard.add(gltf.scene);
   });
-  const guardRoot = new THREE.Group(); guardRoot.name = 'SurveillanceDoorGuard';
-  guardRoot.position.set(STAGE_TWO.guard.x, 0, STAGE_TWO.guard.z); guardRoot.rotation.y = Math.PI; surveillance.add(guardRoot);
-  const guardBody = new CANNON.Body({ mass: 0, type: CANNON.Body.KINEMATIC, shape: new CANNON.Sphere(0.48) });
-  guardBody.position.set(STAGE_TWO.guard.x, 0.64, STAGE_TWO.guard.z); physics.world.addBody(guardBody);
-  let guardMixer: THREE.AnimationMixer | null = null, guardDead = false, guardDeathTime = 0;
-  let guardIdle: THREE.AnimationAction | null = null, guardDeath: THREE.AnimationAction | null = null;
-  const guardReady = modelLoader('Enemy_Trilobite').then(gltf => {
-    if (disposed) { disposeRoom(gltf.scene); return; }
-    const bounds = new THREE.Box3().setFromObject(gltf.scene), size = bounds.getSize(new THREE.Vector3());
-    const scale = 1.7 / Math.max(size.x, size.y, size.z);
-    if (!Number.isFinite(scale) || scale <= 0) { disposeRoom(gltf.scene); throw new Error('Invalid surveillance guard bounds'); }
-    const center = bounds.getCenter(new THREE.Vector3()); gltf.scene.scale.multiplyScalar(scale);
-    gltf.scene.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale); guardRoot.add(gltf.scene);
-    guardMixer = new THREE.AnimationMixer(gltf.scene);
-    const idle = gltf.animations.find(clip => /idle/i.test(clip.name)), death = gltf.animations.find(clip => /death|destroy|dead|die/i.test(clip.name));
-    if (idle) { guardIdle = guardMixer.clipAction(idle); guardIdle.play(); }
-    if (death) { guardDeath = guardMixer.clipAction(death).setLoop(THREE.LoopOnce, 1); guardDeath.clampWhenFinished = true; }
-    if (!gltf.animations.length) console.warn('[StageTwo] Guard model has no animation clips; using scripted shutdown motion');
-  });
   const exitCover = box(maze.root, [1.25, 0.16, 1.25], [STAGE_TWO.drop.x, 3.92, STAGE_TWO.drop.z], materials.trim, false);
   exitCover.name = 'VentExitGrate'; exitCover.visible = !progress.remoteRooms['stage2-vents'].rewardCollected;
   let exitCoverBody = exitCover.visible ? physics.addBox({ x: 1.25, y: 0.16, z: 1.25 }, exitCover.position) : null;
   const ventChest = createRewardChest({ scene, world: physics.world, player,
-    position: new THREE.Vector3(STAGE_TWO.ventChest.x, 4, STAGE_TWO.ventChest.z), yaw: Math.PI,
+    position: new THREE.Vector3(STAGE_TWO.ventChest.x, 4, STAGE_TWO.ventChest.z), yaw: 0,
     reward: 'keycard', style: 'crew', initialCollected: progress.remoteRooms['stage2-vents'].rewardCollected,
     unlocked: () => true, canInteract: () => active && !menuPaused && phase === 'maze',
     onCollect: () => {
@@ -352,30 +329,11 @@ export function createScene(options: StageTwoOptions) {
   const crowbarChest = createRewardChest({ scene, world: physics.world, player,
     position: new THREE.Vector3(STAGE_TWO.crowbarChest.x, 0, STAGE_TWO.crowbarChest.z), yaw: 0,
     reward: 'crowbar', style: 'crew', initialCollected: progress.crowbarCollected,
-    unlocked: () => progress.guardDown, lockedPrompt: 'Take down the door guard first',
+    unlocked: () => true,
     canInteract: () => active && !menuPaused && phase === 'surveillance',
     onCollect: () => { progress.crowbarCollected = true; options.onCrowbarCollected(); tell('Crowbar recovered.'); return true; } }, modelLoader);
   surveillance.add(crowbarChest.root);
-  const ready = Promise.all([desksReady, cardReady, guardReady, ventChest.ready, crowbarChest.ready]).then(() => undefined);
-  const guardEye = new THREE.PointLight(0xff3a24, 0, 6); surveillance.add(guardEye);
-  const guardBeamMaterial = new THREE.MeshBasicMaterial({ color: 0xff5a3a, toneMapped: false, transparent: true, opacity: 0, depthWrite: false });
-  const guardBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 1, 6), guardBeamMaterial);
-  guardBeam.name = 'GuardShot'; guardBeam.userData.minimap = false; surveillance.add(guardBeam);
-  function hideGuardShot() { guardBeamMaterial.opacity = 0; guardEye.intensity = 0; }
-  function downGuard(announce = false) {
-    if (guardDead) return;
-    if (announce) playSfx('clank', 0.9);
-    guardDead = true; guardDeathTime = 0; guardMixer?.stopAllAction(); guardDeath?.reset().play();
-    if (guardBody.world === physics.world) physics.world.removeBody(guardBody);
-  }
-  function resetGuard() {
-    guardDead = false; guardDeathTime = 0; guardRoot.visible = true; guardRoot.scale.setScalar(1);
-    guardRoot.position.set(STAGE_TWO.guard.x, 0, STAGE_TWO.guard.z); guardRoot.rotation.set(0, Math.PI, 0);
-    if (guardBody.world !== physics.world) physics.world.addBody(guardBody);
-    guardMixer?.stopAllAction();
-    guardIdle?.reset().play();
-    hideGuardShot();
-  }
+  const ready = Promise.all([desksReady, cardReady, ventChest.ready, crowbarChest.ready]).then(() => undefined);
 
   let audioContext: AudioContext | null = null, audioMaster: GainNode | null = null, audioUnavailable = false;
   let rumble: OscillatorNode | null = null, rumbleGain: GainNode | null = null;
@@ -422,13 +380,12 @@ export function createScene(options: StageTwoOptions) {
     progress.checkpoint = 'vent'; setPhase('maze'); player.setVentMode(true); player.setOverheadMovement(true);
     ventSafe.copy(start); sensorGrace = 2; checkpoint();
   }
-  function enterGuardRoom() {
+  function enterSurveillance() {
     player.setVentMode(false); player.setOverheadMovement(false);
     player.setPosition(options.fromAirlock ? room.minX + 1.15 : STAGE_TWO.drop.x, player.radius,
       options.fromAirlock ? -46 : STAGE_TWO.drop.z); player.setRotation(options.fromAirlock ? -Math.PI / 2 : 0, 0);
-    progress.checkpoint = 'surveillance'; guardGrace = 2.5; guardAlert = -1; hideGuardShot();
-    if (progress.guardDown) { downGuard(); guardRoot.visible = false; }
-    player.setForcedCrouch(!progress.guardDown); setPhase(progress.guardDown ? 'surveillance' : 'guard'); checkpoint();
+    progress.checkpoint = 'surveillance'; progress.guardDown = true;
+    player.setForcedCrouch(false); setPhase('surveillance'); checkpoint();
     if (arrivalRemarkPending) {
       arrivalRemarkPending = false;
       tell("Prime: Security seems kind of lacklustre. I wonder what's going on.", 7);
@@ -438,21 +395,21 @@ export function createScene(options: StageTwoOptions) {
     if (phase === 'failed' || disposed) return;
     player.takeDamage(player.getHealth() + player.getShield() + 1, true); setPhase('failed');
     failureTitle.textContent = 'CAUGHT'; failureText.textContent = reason;
-    retry.textContent = isControllerActive() ? 'Restarting surveillance checkpoint...' : 'R / Retry silent takedown';
-    caption.classList.add('hidden'); stopRumble(); hideGuardShot();
+    retry.textContent = isControllerActive() ? 'Restarting surveillance checkpoint...' : 'R / Retry checkpoint';
+    caption.classList.add('hidden'); stopRumble();
   }
   function restoreCheckpoint() {
     failure.classList.add('hidden'); fade.style.opacity = '0'; captionTime = 0; heldCard.visible = false;
     player.setVentMode(false); player.setForcedCrouch(false); player.setClimbing(false);
     teleportPlayer(player, progress.checkpoint === 'surveillance' ? { ...STAGE_TWO.drop, y: player.radius } : start, 0,
       { ...checkpointState, health: checkpointState.health ?? PLAYER_MAX_HEALTH });
-    if (progress.checkpoint === 'surveillance') { resetGuard(); enterGuardRoom(); }
+    if (progress.checkpoint === 'surveillance') enterSurveillance();
     else enterMaze();
   }
   async function loadHub() {
     if (transferPending || disposed) return;
     transferPending = true; setPhase('hub-loading'); loadError = 'hub';
-    try { await options.onVentDrop(); if (!disposed) enterGuardRoom(); }
+    try { await options.onVentDrop(); if (!disposed) enterSurveillance(); }
     catch (error) {
       if (!disposed) {
         console.error('[StageTwo] Surveillance preparation failed:', error); setPhase('load-error');
@@ -460,41 +417,6 @@ export function createScene(options: StageTwoOptions) {
         failureText.textContent = 'The vent maze is cleared. Retry loading the camera room.'; retry.textContent = 'R / Retry Phase Two';
       }
     } finally { transferPending = false; }
-  }
-  function alertGuard(reason: string) {
-    if (phase !== 'guard' || guardAlert >= 0 || disposed) return;
-    guardAlert = 0; guardAlertReason = reason; player.clearInput(); player.setInputLocked(true);
-    prompt?.classList.add('hidden'); ensureAudio(); playSound('alarm');
-  }
-  const shotFrom = new THREE.Vector3(), shotTo = new THREE.Vector3(), shotAxis = new THREE.Vector3(0, 1, 0);
-  function updateGuard(dt: number) {
-    if (guardAlert >= 0) {
-      guardAlert += dt;
-      const dx = player.body.position.x - guardRoot.position.x, dz = player.body.position.z - guardRoot.position.z;
-      const turn = Math.atan2(Math.sin(Math.atan2(dx, dz) - guardRoot.rotation.y), Math.cos(Math.atan2(dx, dz) - guardRoot.rotation.y));
-      guardRoot.rotation.y += turn * (1 - Math.exp(-dt * 12));
-      guardEye.position.set(guardRoot.position.x + Math.sin(guardRoot.rotation.y) * 0.55, 1.05,
-        guardRoot.position.z + Math.cos(guardRoot.rotation.y) * 0.55);
-      guardEye.intensity = 9 * THREE.MathUtils.smoothstep(guardAlert, 0, 0.45);
-      if (guardAlert >= 0.75 && guardAlert < 0.95) {
-        shotFrom.copy(guardEye.position); shotTo.set(player.body.position.x, player.body.position.y + 0.35, player.body.position.z).sub(shotFrom);
-        guardBeam.position.copy(shotFrom).addScaledVector(shotTo, 0.5); guardBeam.scale.set(1, Math.max(0.01, shotTo.length()), 1);
-        guardBeam.quaternion.setFromUnitVectors(shotAxis, shotTo.normalize()); guardBeamMaterial.opacity = 0.9;
-      }
-      if (guardAlert >= 0.95) fail(guardAlertReason);
-      return;
-    }
-    guardGrace = Math.max(0, guardGrace - dt); if (guardGrace > 0) return;
-    const dx = player.body.position.x - STAGE_TWO.guard.x, dz = player.body.position.z - STAGE_TWO.guard.z;
-    const distance = Math.hypot(dx, dz), front = dx * Math.sin(guardRoot.rotation.y) + dz * Math.cos(guardRoot.rotation.y);
-    if (distance < 7 && front > distance * 0.55) alertGuard('Approach the guard from behind, crouched.');
-    else if (distance < 3 && player.getState().isMoving && !player.getState().crouching) alertGuard('The guard heard you. Stay crouched.');
-  }
-  function tryTakedown() {
-    if (guardAlert >= 0) return;
-    const dx = player.body.position.x - STAGE_TWO.guard.x, dz = player.body.position.z - STAGE_TWO.guard.z;
-    if (!player.getState().crouching || dz < 0.35 || Math.abs(dx) > 1.5) { alertGuard('Use E from behind the guard while crouched.'); return; }
-    setPhase('takedown'); player.setPosition(STAGE_TWO.guard.x, player.radius, STAGE_TWO.guard.z + 1.05); player.setRotation(0, 0);
   }
   function readerFocused() {
     if (Math.hypot(player.body.position.x - readerPoint.x, player.body.position.z - readerPoint.z) > 2.6) return false;
@@ -599,9 +521,6 @@ export function createScene(options: StageTwoOptions) {
       if (nearLiftButton()) startLift(); else tell('Move to the Bay 13 button.');
       return;
     }
-    if (phase === 'guard' && Math.hypot(player.body.position.x - STAGE_TWO.guard.x, player.body.position.z - STAGE_TWO.guard.z) < 2.1) {
-      event.preventDefault(); event.stopImmediatePropagation(); tryTakedown(); return;
-    }
     if (phase !== 'surveillance') return;
     if (returnAirlock.near(player)) {
       event.preventDefault(); event.stopImmediatePropagation();
@@ -623,9 +542,6 @@ export function createScene(options: StageTwoOptions) {
     if (!active || disposed || menuPaused || document.hidden || document.body.classList.contains('quick-menu-open')) return;
     if (event.target instanceof HTMLElement && event.target.closest('button, dialog, input, .stage-two-ui, #touch-controls')) return;
     ensureAudio();
-    if (event.button === 0 && phase === 'guard' && player.isEnabled() && options.getEquippedWeapon() !== 'unarmed') {
-      event.preventDefault(); alertGuard('That was not silent. Use E from behind the guard.');
-    }
   }
   function onVisibility() { player.clearInput(); syncAudio(); }
   window.addEventListener('keydown', onKey); window.addEventListener('mousedown', onPointer, true);
@@ -634,7 +550,6 @@ export function createScene(options: StageTwoOptions) {
     if (phase === 'maze') return progress.remoteRooms['stage2-vents'].rewardCollected
       ? 'Find the camera-room exit. Green sensors are safe.'
       : 'Find the first keycard chest. Green sensors are safe; blue pads save your progress.';
-    if (phase === 'guard') return 'Stay low. E behind the door guard: silent takedown.';
     if (phase === 'lift-button') return 'E: press the Bay 13 button.';
     if (phase !== 'surveillance') return '';
     if (progress.elevatorUnlocked) return 'Elevator unlocked. Walk inside.';
@@ -652,13 +567,12 @@ export function createScene(options: StageTwoOptions) {
     if (seating.active) return seating.getState();
     if (playable.has(phase)) return null;
     return { ...player.getState(), isMoving: liftWalking(), isOnGround: phase !== 'drop', climbing: false, jumping: false,
-      crouching: phase === 'takedown', sprinting: false, actionRequest: null, boxHandling: false, sliding: false };
+      crouching: false, sprinting: false, actionRequest: null, boxHandling: false, sliding: false };
   }
   function cinematicPose(): CinematicPose | null {
     if (seating.active) return seating.getPose();
     if (phase === 'failed') return { clip: 'Death01', time: phaseTime };
     if (phase === 'drop') return { clip: phaseTime < 1.2 ? 'Jump_Loop' : 'Jump_Land', time: phaseTime < 1.2 ? phaseTime : phaseTime - 1.2 };
-    if (phase === 'takedown') return { clip: 'Silent_Takedown', time: phaseTime };
     if (phase === 'lift' && phaseTime >= 1.6 && phaseTime < 2.6) return { clip: 'Interact', time: phaseTime - 1.6,
       handTargets: { left: new THREE.Vector3(liftX - 1, 0.95, liftZ), right: liftButtonPoint, weight: 0.9 } };
     if (phase === 'swipe') return { clip: 'Interact', time: Math.max(0, phaseTime - 0.3),
@@ -671,7 +585,6 @@ export function createScene(options: StageTwoOptions) {
     if (seating.applyCamera()) return;
     const p = player.body.position; camera.fov = 64;
     if (phase === 'drop') { camera.position.set(STAGE_TWO.drop.x + 2.1, Math.min(3.1, p.y + 1), STAGE_TWO.drop.z + 1); camera.lookAt(p.x, p.y + 0.5, p.z); }
-    else if (phase === 'takedown') { camera.position.set(STAGE_TWO.guard.x + 2.2, 1.7, STAGE_TWO.guard.z + 2); camera.lookAt(STAGE_TWO.guard.x, 0.95, STAGE_TWO.guard.z + 0.5); }
     else if (phase === 'swipe') { camera.position.set(readerPoint.x + 1.25, 1.85, readerPoint.z + 2.2); camera.lookAt(readerPoint); }
     else if (phase === 'teleport' || phase === 'hub-loading') { camera.position.set(28, 1.8, -51); camera.lookAt(STAGE_TWO.cameraWall.x, 1.95, STAGE_TWO.cameraWall.z); }
     else if (phase === 'failed') { camera.position.set(p.x + 2.2, p.y + 1.7, p.z + 2.2); camera.lookAt(p.x, p.y + 0.5, p.z); }
@@ -710,10 +623,10 @@ export function createScene(options: StageTwoOptions) {
     };
     return { position: player.body.position, yaw: player.getState().yaw, floor: 0,
       bounds: { minX: 18.5, maxX: 37.5, minZ: -70, maxZ: -41.5 }, goal: { x: liftX, z: room.minZ, label: 'ELEVATOR' },
-      enemies: progress.guardDown ? [] : [{ id: 'surveillance-guard', position: guardRoot.position, yaw: guardRoot.rotation.y + Math.PI, range: 7 }],
+      enemies: [],
       prepare: () => mapVisibility([surveillance, lift]) };
   }
-  if (progress.checkpoint === 'surveillance') enterGuardRoom(); else enterMaze();
+  if (progress.checkpoint === 'surveillance') enterSurveillance(); else enterMaze();
   updateObjective();
   return {
     restartAtCheckpoint: () => { if (disposed) return false; restoreCheckpoint(); return true; },
@@ -723,11 +636,10 @@ export function createScene(options: StageTwoOptions) {
     getSceneId: () => 'scene1.2',
     getMapSceneId: () => `scene${progress.checkpoint === 'vent' ? 34 : player.body.position.z < room.minZ ? 36 : 35}`,
     getMapLayout: () => STAGE_TWO_MAP, getMinimapState,
-    getMusicTrack: () => guardAlert >= 0 ? 'stealth-alert' as const
-      : phase === 'maze' ? 'tension' as const
+    getMusicTrack: () => phase === 'maze' ? 'tension' as const
       : phase === 'lift' || phase === 'handoff' ? 'ship' as const : 'stealth-2' as const,
     getCctvEnabled: () => progress.checkpoint === 'surveillance',
-    getCctvPaused: () => phase === 'takedown',
+    getCctvPaused: () => false,
     isMazeActive: () => phase === 'maze',
     controlsReady: () => active && !menuPaused && playable.has(phase) && !seating.active,
     isCinematic: () => !playable.has(phase) || seating.active,
@@ -742,8 +654,6 @@ export function createScene(options: StageTwoOptions) {
     ventChest, crowbarChest,
     getMonitorFrames: () => monitors.map(monitor => monitor.getFrameIndex()),
     getDamageTargets(): DamageTarget[] {
-      if (phase === 'guard') return [{ root: guardRoot, body: guardBody,
-        damage: () => { alertGuard('That was not silent. Use E from behind the guard.'); return false; } }];
       if (phase !== 'surveillance' || progress.airlockUnlocked || seating.active) return [];
       return returnAirlock.panels.map(panel => ({ root: panel.mesh, body: panel.body ?? undefined,
         damage(amount, weapon) {
@@ -754,21 +664,18 @@ export function createScene(options: StageTwoOptions) {
           return true;
         } }));
     },
-    onPistolShot() { if (phase === 'guard') alertGuard('That was not silent. Use E from behind the guard.'); },
     updateInteractionFocus() {
       if (!active || menuPaused || !player.isEnabled() || !prompt || ventChest.isPromptVisible() || crowbarChest.isPromptVisible()) return;
       if (seating.updateInteractionFocus()) return;
       let text = '';
-      if (phase === 'guard' && guardAlert < 0 && Math.hypot(player.body.position.x - STAGE_TWO.guard.x, player.body.position.z - STAGE_TWO.guard.z) < 2.1)
-        text = 'E / Silent takedown';
-      else if (phase === 'lift-button') text = nearLiftButton() ? 'E / Press Bay 13 button' : 'Move to the Bay 13 button';
+      if (phase === 'lift-button') text = nearLiftButton() ? 'E / Press Bay 13 button' : 'Move to the Bay 13 button';
       else if (phase === 'surveillance') {
         if (returnAirlock.near(player)) text = progress.airlockUnlocked ? 'E / Return through hangar airlock' : 'E / Airlock locked';
         else if (readerFocused() || nearLiftDoor()) text = progress.elevatorUnlocked ? 'Walk into the elevator' : 'E / Swipe keycard';
         else {
           const target = options.getCameraTarget();
           if (target) text = target.id === 'stage2-vents' || target.id === 'stage2-prison' ? `${target.label} / Cleared` : target.status === 'error' ? `E / Retry ${target.label}`
-            : target.status !== 'ready' ? `${target.label} / connecting` : options.hasReturnMarker() ? `E / Visit ${target.label}` : 'Take down the guard first';
+            : target.status !== 'ready' ? `${target.label} / connecting` : `E / Visit ${target.label}`;
         }
       }
       prompt.textContent = inputHint(text); prompt.classList.toggle('hidden', !text);
@@ -779,16 +686,16 @@ export function createScene(options: StageTwoOptions) {
       lastDelta = frame; elapsed += frame; phaseTime += frame; seating.update(frame); physics.step(frame, player, thirdPerson); maze.update(elapsed);
       ventChest.update(frame); crowbarChest.update(frame);
       hangingCrystal.rotation.y += frame * 1.2; hangingCrystal.position.y = height - 1.3 + Math.sin(elapsed * 2) * 0.05;
-      if (phase !== 'takedown') monitors.forEach(monitor => monitor.update(frame));
-      captionTime = Math.max(0, captionTime - frame); if (!captionTime) caption.classList.add('hidden');
-      guardMixer?.update(frame);
-      if (guardDead && guardRoot.visible) {
-        guardDeathTime += frame;
-        if (!guardDeath) { guardRoot.rotation.z = Math.min(1.3, guardDeathTime * 1.8); guardRoot.position.y = 0.32; }
-        if (guardDeathTime > 0.75) guardRoot.scale.setScalar(Math.max(0.001, 1 - THREE.MathUtils.smoothstep(guardDeathTime, 0.75, 1.25)));
-        if (guardDeathTime > 1.25) guardRoot.visible = false;
+      monitors.forEach(monitor => monitor.update(frame));
+      captionTime = Math.max(0, captionTime - frame);
+      if (!captionTime) {
+        caption.classList.add('hidden');
+        if (phase === 'surveillance' && !crystalRemarked) {
+          crystalRemarked = true;
+          tell('Prime: That crystal on the ceiling is a teleport anchor. We can teleport back here no problem.', 7);
+        }
       }
-      returnAirlock.update(frame, player, progress.guardDown && progress.airlockUnlocked && returnAirlock.near(player) && phase === 'surveillance');
+      returnAirlock.update(frame, player, progress.airlockUnlocked && returnAirlock.near(player) && phase === 'surveillance');
       frontDoor.update(frame, player, progress.elevatorUnlocked && (phase !== 'lift' || phaseTime < 2.1) && phase !== 'handoff');
       rearDoor.update(frame, player, phase === 'lift' && phaseTime > 9.8 || phase === 'handoff' || phase === 'load-error' && loadError === 'boss');
       readerMaterial.color.setHex(progress.elevatorUnlocked ? 0x72eeaa : 0xff785e);
@@ -824,14 +731,6 @@ export function createScene(options: StageTwoOptions) {
             THREE.MathUtils.smootherstep(phaseTime, 0, 1.2)), STAGE_TWO.drop.z);
           if (phaseTime >= 1.5) { arrivalRemarkPending = true; progress.ventCleared = true; progress.checkpoint = 'surveillance'; void loadHub(); }
           break;
-        case 'guard': updateGuard(frame); break;
-        case 'takedown':
-          if (phaseTime >= 0.8 && !progress.guardDown) { progress.guardDown = true; downGuard(true); }
-          if (phaseTime >= 2) {
-            player.setForcedCrouch(false); setPhase('surveillance'); checkpoint();
-            if (!crystalRemarked) { crystalRemarked = true; tell('Prime: That crystal on the ceiling is a teleport anchor. We can teleport back here no problem.', 7); }
-          }
-          break;
         case 'surveillance':
           if (progress.elevatorUnlocked && frontDoor.open > 0.9 && Math.abs(player.body.position.x - liftX) < 1.55
             && player.body.position.z < room.minZ - 0.35) setPhase('lift-button');
@@ -850,9 +749,8 @@ export function createScene(options: StageTwoOptions) {
       if (disposed) return; disposed = true; active = false;
       window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onPointer, true);
       window.removeEventListener('visibilitychange', onVisibility); window.removeEventListener('blur', onVisibility);
-      unsubscribeAudio(); stopRumble(); guardMixer?.stopAllAction();
+      unsubscribeAudio(); stopRumble();
       seating.dispose(); ventChest.dispose(); crowbarChest.dispose(); monitors.forEach(monitor => monitor.dispose());
-      if (guardBody.world === physics.world) physics.world.removeBody(guardBody);
       if (audioContext && audioContext.state !== 'closed') void audioContext.close().catch(error => console.warn('[StageTwo] Audio cleanup failed:', error));
       ui.remove(); prompt?.classList.add('hidden'); document.body.classList.remove('stage-two-maze', 'quarters-cinematic');
       player.dispose(); physics.dispose(); disposeRoom(scene);

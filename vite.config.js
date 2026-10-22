@@ -36,8 +36,8 @@ export default defineConfig({
   },
   optimizeDeps: {
     noDiscovery: true,
-    entries: ['index.html', 'finale-preview.html'],
-    include: ['three', ...THREE_ADDONS, 'three/examples/jsm/loaders/GLTFLoader.js',
+    entries: ['index.html', 'computer-preview.html'],
+    include: ['three', ...THREE_ADDONS,
       'cannon-es', 'pathfinding', 'three-bvh-csg', 'gifuct-js'],
   },
   build: {

@@ -1,24 +1,26 @@
 import * as THREE from 'three';
 import { loadBrendanModel, loadPlayerModel } from '../../core/loader.js';
 import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
-import { roomBox, disposeRoom } from '../../helpers/scene/shipRoom.js';
-import { applyStoneStatueShader } from '../../helpers/scene/stoneStatue.js';
-import { createStarfield } from '../../helpers/scene/starfield.js';
-import { createPlayer } from '../../scripts/player.js';
-import { teleportPlayer } from '../../scripts/teleportationDevice.js';
-import { inputHint } from '../../scripts/gamepadInput.js';
+import { roomBox, disposeRoom } from '../../scripts/global/shipRoom.js';
+import { applyStoneStatueShader } from '../../scripts/museum/stoneStatue.js';
+import { createStarfield } from '../../scripts/global/starfield.js';
+import { createPlayer } from '../../scripts/player/player.js';
+import { teleportPlayer } from '../../scripts/global/teleportationDevice.js';
+import { inputHint } from '../../scripts/player/gamepadInput.js';
+import { createPrisonLight } from '../../scripts/global/prisonLight.js';
 import { createBannerTexture, createComicLabel, createLogoTexture, createPainting, createTextTexture } from './museumArt.js';
 import { createDisplayFigure, createExhibitFigure, type DisplayKind } from './museumExhibits.js';
 import { createEscapeShip } from '../../scripts/items/createEscapeShip.js';
 import { MUSEUM_EXHIBITS, MUSEUM_HALL, WING_SIGNS, paintingOffsets, type MuseumExhibit, type MuseumWall } from './museumCatalog.js';
-import fireVertexShader from '../../shaders/fireExplosion.vert.glsl?raw';
-import fireFragmentShader from '../../shaders/fireExplosion.frag.glsl?raw';
+import fireVertexShader from '../../shaders/vert/fireExplosion.vert.glsl?raw';
+import fireFragmentShader from '../../shaders/frag/fireExplosion.frag.glsl?raw';
 
 export type MuseumCharacter = 'brondon' | 'brendan';
 interface MuseumOptions {
   character: MuseumCharacter;
   returnTo?: number;
   onEnterStage: (id: number) => Promise<unknown> | void;
+  onReturnToMainMenu: () => void;
 }
 
 const { halfX: HX, halfZ: HZ, height: HEIGHT } = MUSEUM_HALL;
@@ -94,11 +96,15 @@ function carpetTexture() {
   const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = 8;
   return texture;
 }
-export function createScene({ character, returnTo, onEnterStage }: MuseumOptions) {
+export function createScene({ character, returnTo, onEnterStage, onReturnToMainMenu }: MuseumOptions) {
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x020510);
   const starfield = createStarfield({ scene });
   const physics = createScenePhysics();
   const camera = new THREE.PerspectiveCamera(72, window.innerWidth / Math.max(1, window.innerHeight), 0.05, 900);
+  const mainMenuLight = createPrisonLight();
+  mainMenuLight.root.name = 'Main Menu exit';
+  mainMenuLight.root.position.y = 0.025;
+  scene.add(mainMenuLight.root);
 
   const wallTextures: THREE.CanvasTexture[] = [];
   const wallMaterial = (repeatX: number, repeatY: number) => {
@@ -379,7 +385,7 @@ export function createScene({ character, returnTo, onEnterStage }: MuseumOptions
   flash.style.cssText = 'position:fixed;inset:0;z-index:150;pointer-events:none;opacity:0;transition:opacity .45s ease;background:radial-gradient(circle,#ffffff 0%,#9fe6ff 35%,#1a3a6a 100%)';
   document.body.append(flash);
   let active = true, disposed = false, paused = false, entering = false, time = 0, focus: typeof paintings[number] | null = null;
-  let nearScope = false, looking = false;
+  let nearScope = false, looking = false, nearMainMenu = false;
   function setLooking(value: boolean) {
     if (looking === value) return; looking = value;
     if (value) { drawScope(); player.disable(); player.clearInput(); prompt?.classList.add('hidden'); } else player.enable();
@@ -395,9 +401,17 @@ export function createScene({ character, returnTo, onEnterStage }: MuseumOptions
     entering = false; flash.style.opacity = '0'; player.enable();
   }
   const onKey = (event: KeyboardEvent) => {
-    if (disposed) return;
+    if (disposed || document.hidden || document.body.classList.contains('quick-menu-open')) return;
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable="true"]')) return;
     if (looking) {
       if (event.code === 'KeyE' || event.code === 'Escape') { if (event.code === 'KeyE') event.preventDefault(); setLooking(false); }
+      return;
+    }
+    if (event.code === 'KeyE' && !event.repeat && active && !paused && !entering && nearMainMenu) {
+      event.preventDefault();
+      player.clearInput();
+      onReturnToMainMenu();
       return;
     }
     if (event.code === 'KeyE' && !event.repeat && active && !paused && !focus && !entering && nearScope) { event.preventDefault(); setLooking(true); return; }
@@ -435,7 +449,7 @@ export function createScene({ character, returnTo, onEnterStage }: MuseumOptions
       if (disposed || !active || paused) return;
       const frame = Number.isFinite(dt) ? THREE.MathUtils.clamp(dt, 0, PHYSICS.maxFrameTime) : 0;
       physics.step(frame, player, thirdPerson); time += frame;
-      fireTime.value = time; starfield.update(time);
+      fireTime.value = time; starfield.update(time); mainMenuLight.update(time);
       for (const banner of banners) {
         const array = banner.geometry.attributes.position.array as Float32Array;
         for (let i = 0; i < array.length; i += 3) array[i + 2] = banner.home[i + 2] + Math.sin(banner.home[i] * 0.9 + time * 1.6) * 0.07 * (1 - (banner.home[i + 1] + 1.2) / 2.4 * 0.4);
@@ -457,9 +471,12 @@ export function createScene({ character, returnTo, onEnterStage }: MuseumOptions
         if (distance < bestDistance) { best = entry; bestDistance = distance; }
       });
       focus = best;
+      nearMainMenu = Math.hypot(p.x / 1.15, p.z / (1.15 * 1.35)) <= 1
+        && Math.abs(p.y - player.radius) < 1;
       nearScope = !focus && Math.hypot(p.x - SCOPE_POS.x, p.z - SCOPE_POS.z) < 3.2;
       if (prompt && !entering && !looking) {
-        if (focus) { prompt.textContent = inputHint(`E / Enter the painting: ${(focus as typeof paintings[number]).exhibit.title}`); prompt.classList.remove('hidden'); }
+        if (nearMainMenu) { prompt.textContent = inputHint('Press E to return to Main Menu'); prompt.classList.remove('hidden'); }
+        else if (focus) { prompt.textContent = inputHint(`E / Enter the painting: ${(focus as typeof paintings[number]).exhibit.title}`); prompt.classList.remove('hidden'); }
         else if (nearScope) { prompt.textContent = inputHint('E / Look through the telescope'); prompt.classList.remove('hidden'); }
         else prompt.classList.add('hidden');
       }

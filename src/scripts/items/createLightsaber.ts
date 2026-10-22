@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import saberGlowVertex from '../../shaders/saberGlow.vert.glsl?raw';
-import saberGlowFragment from '../../shaders/saberGlow.frag.glsl?raw';
-import { MELEE_STRIKES, SWORD_ATTACK_CLIPS } from '../finaleChoreography.js';
+import saberGlowVertex from '../../shaders/vert/saberGlow.vert.glsl?raw';
+import saberGlowFragment from '../../shaders/frag/saberGlow.frag.glsl?raw';
+import { MELEE_STRIKES, SWORD_ATTACK_CLIPS } from '../global/finaleChoreography.js';
 
 export type LightsaberAttackName = typeof SWORD_ATTACK_CLIPS[keyof typeof SWORD_ATTACK_CLIPS];
 export const LIGHTSABER_ATTACK_SPEED = 1.6;

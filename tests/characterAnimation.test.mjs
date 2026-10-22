@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { after, before, test } from 'node:test';
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createServer } from 'vite';
 import { mockCombatAnimationFetch } from './combatAnimationFixtures.mjs';
 
@@ -24,8 +24,8 @@ before(async () => {
     appType: 'custom',
     optimizeDeps: { noDiscovery: true, include: [] },
   });
-  ({ loadCharacter } = await server.ssrLoadModule('/scripts/characterManager.ts'));
-  ({ createPlayer } = await server.ssrLoadModule('/scripts/player.ts'));
+  ({ loadCharacter } = await server.ssrLoadModule('/scripts/player/characterManager.ts'));
+  ({ createPlayer } = await server.ssrLoadModule('/scripts/player/player.ts'));
   ({ createScenePhysics } = await server.ssrLoadModule('/helpers/physics/scenePhysics.ts'));
 });
 

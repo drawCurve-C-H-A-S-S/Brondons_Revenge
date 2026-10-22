@@ -8,8 +8,8 @@ let server, MeleeSwing, emitComicEffect, updateComicEffects, disposeComicEffects
 before(async () => {
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false },
     appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
-  ({ MeleeSwing } = await server.ssrLoadModule('/scripts/melee.ts'));
-  ({ emitComicEffect, updateComicEffects, disposeComicEffects } = await server.ssrLoadModule('/helpers/scene/comicEffects.ts'));
+  ({ MeleeSwing } = await server.ssrLoadModule('/scripts/weapons/melee.ts'));
+  ({ emitComicEffect, updateComicEffects, disposeComicEffects } = await server.ssrLoadModule('/scripts/global/comicEffects.ts'));
 });
 after(async () => server?.close());
 

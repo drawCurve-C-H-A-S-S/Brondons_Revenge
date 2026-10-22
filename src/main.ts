@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { createScreenBloom } from "./helpers/scene/screenBloom.js";
+import { createScreenBloom } from "./scripts/global/screenBloom.js";
 import {
   applyThirdPersonCamera,
   applyTraversalCamera,
@@ -10,7 +10,7 @@ import {
 import {
   disposeComicEffects,
   updateComicEffects,
-} from "./helpers/scene/comicEffects.js";
+} from "./scripts/global/comicEffects.js";
 import { createSceneMinimap, prepareSceneRendering } from "./core/renderer.js";
 import { configureAssetCache, type PreloadTask } from "./core/assetCache.js";
 import { GAME_ASSET_URLS, preloadGameAssets } from "./core/gamePreload.js";
@@ -32,56 +32,56 @@ import {
   type CameraFeedId,
 } from "./scenes/level 1 stage 2/stageTwoLayout.js";
 import { createScene as createScene1 } from "./scenes/scene1.js";
-import { createHoldToSkip } from "./helpers/animation/holdToSkip.js";
+import { createHoldToSkip } from "./scripts/global/holdToSkip.js";
 import {
   createCinematicLoadingScreen,
   type LoadingDestination,
-} from "./helpers/scene/cinematicLoading.js";
-import type { LaunchState } from "./scenes/level 1/scene14.js";
+} from "./scripts/global/cinematicLoading.js";
+import type { LaunchState } from "./scenes/level 1 boss stage/scene14.js";
 import type {
   FlightExitState,
   FlightStartPhase,
 } from "./scenes/level 2/scene15.js";
-import type { RescueArrival } from "./helpers/scene/rescueSite.js";
-import type { FinaleCheckpoint } from "./scripts/finaleDirector.js";
-import type { loadCharacter } from "./scripts/characterManager.js";
+import type { RescueArrival } from "./scripts/global/rescueSite.js";
+import type { FinaleCheckpoint } from "./scripts/global/finaleDirector.js";
 import {
+  loadCharacter,
   TELEPORT_TRANSFER_DURATION,
   hologramTransitionAt,
-} from "./scripts/characterManager.js";
+} from "./scripts/player/characterManager.js";
 import {
   startCharacterPreview,
   stopCharacterPreview,
   setCharacterPreviewPostRender,
   getCharacterPreviewRenderer,
-} from "./helpers/scene/characterPreview.js";
-import type { Player, PlayerTransitionState } from "./scripts/player.js";
-import { PLAYER_MAX_HEALTH } from "./scripts/player.js";
-import { PistolController } from "./scripts/pistol.js";
-import { CrowbarController } from "./scripts/crowbar.js";
-import { GogglesController } from "./scripts/goggles.js";
-import { GogglesPostProcess } from "./scripts/gogglesPostProcess.js";
-import { GpuTimer } from "./scripts/gpuTimer.js";
-import { LightsaberController } from "./scripts/lightsaber.js";
-import { UnarmedCombatController } from "./scripts/unarmedCombat.js";
-import { AdaptiveHintManager } from "./scripts/adaptiveHints.js";
-import { createCctvSystem, type CctvFeedSource } from "./scripts/cctv.js";
+} from "./scripts/global/characterPreview.js";
+import type { Player, PlayerTransitionState } from "./scripts/player/player.js";
+import { PLAYER_MAX_HEALTH } from "./scripts/player/player.js";
+import { PistolController } from "./scripts/weapons/pistol.js";
+import { CrowbarController } from "./scripts/weapons/crowbar.js";
+import { GogglesController } from "./scripts/player/goggles.js";
+import { GogglesPostProcess } from "./scripts/player/gogglesPostProcess.js";
+import { GpuTimer } from "./scripts/global/gpuTimer.js";
+import { LightsaberController } from "./scripts/weapons/lightsaber.js";
+import { UnarmedCombatController } from "./scripts/weapons/unarmedCombat.js";
+import { AdaptiveHintManager } from "./scripts/player/adaptiveHints.js";
+import { createCctvSystem, type CctvFeedSource } from "./scripts/npc/cctv.js";
 import {
   TeleportationDeviceController,
   teleportPlayer,
-} from "./scripts/teleportationDevice.js";
+} from "./scripts/global/teleportationDevice.js";
 import {
   createWeaponWheel,
   type WeaponId,
   type WeaponWheelEntry,
-} from "./scripts/weaponWheel.js";
-import type { createFirstPersonHands } from "./scripts/firstPersonHands.js";
+} from "./scripts/weapons/weaponWheel.js";
+import type { createFirstPersonHands } from "./scripts/player/firstPersonHands.js";
 import {
   initTouchControls,
   setTouchFlightMode,
   resetTouchInput,
   registerWeaponEquip,
-} from "./scripts/touchControls.js";
+} from "./scripts/player/touchControls.js";
 import {
   createGamepadInput,
   isControllerActive,
@@ -96,7 +96,7 @@ import {
   type ControllerContext,
   type ControllerMenuAction,
   type ControllerStatus,
-} from "./scripts/gamepadInput.js";
+} from "./scripts/player/gamepadInput.js";
 import { PixelArtPass } from "./core/PixelArtPass.js";
 import { RetroConsolePass } from "./core/RetroConsolePass.js";
 import {
@@ -128,10 +128,11 @@ const sceneImports = {
   1.2: () => import("./scenes/level 1 stage 2/scene.js"),
   1.3: () => import("./scenes/level 1 stage 2/equipmentRoom.js"),
   1.4: () => import("./scenes/level 1 stage 2/rustChamber.js"),
-  5: () => import("./scenes/level 1/scene5.js"),
-  6: () => import("./scenes/level 1/scene6.js"),
-  13: () => import("./scenes/level 1/scene13.js"),
-  14: () => import("./scenes/level 1/scene14.js"),
+  1.5: () => import("./scenes/level 1 stage 2/reactorSequencer.js"),
+  5: () => import("./scenes/legacy scenes/scene5.js"),
+  6: () => import("./scenes/legacy scenes/scene6.js"),
+  13: () => import("./scenes/level 1 boss stage/scene13.js"),
+  14: () => import("./scenes/level 1 boss stage/scene14.js"),
   15: () => import("./scenes/level 2/scene15.js"),
   16: () => import("./scenes/level 2/scene16.js"),
   17: () => import("./scenes/level 3/scene17.js"),
@@ -399,7 +400,7 @@ let firstPersonHandsLoading: Promise<void> | null = null;
 let firstPersonHandsFailed = false;
 
 function prepareFirstPersonHands() {
-  firstPersonHandsLoading ??= import("./scripts/firstPersonHands.js")
+  firstPersonHandsLoading ??= import("./scripts/player/firstPersonHands.js")
     .then(async ({ createFirstPersonHands }) => {
       firstPersonHands = await createFirstPersonHands();
     })
@@ -581,10 +582,10 @@ function showTeleportDeviceMessage(message: string) {
   }, 3000);
 }
 
-// Prime speaks from the top-left corner of the screen during gameplay.
+// Prime speaks from the top-left corner of the screen during gameplay, styled like the prologue's Prime panel.
 function installPrimeDialoguePlacement() {
   const mark = (node: Node) => {
-    const element = node instanceof Element ? node : node.parentElement;
+    const element = node instanceof HTMLElement ? node : node.parentElement;
     if (!element || element.closest("#prologue-dialogue, .finale-dialogue")) return;
     const text = (element.textContent ?? "").trim();
     if (element.classList.contains("quarters-speaker") && text.toLowerCase() === "prime") {
@@ -592,11 +593,36 @@ function installPrimeDialoguePlacement() {
       return;
     }
     if (element.children.length || text.length > 400) return;
-    element.classList.toggle("prime-top-left", /^prime:/i.test(text));
+    const prefix = /^prime:\s*/i.exec(text);
+    if (prefix) {
+      // The speaker tag replaces the "Prime:" prefix, matching the prologue panel.
+      const line = text.slice(prefix[0].length);
+      element.dataset.primeLine = line;
+      element.classList.add("prime-top-left", "prime-tagged");
+      element.textContent = line;
+      return;
+    }
+    if (element.dataset.primeLine !== undefined && text === element.dataset.primeLine) return;
+    delete element.dataset.primeLine;
+    element.classList.remove("prime-top-left", "prime-tagged");
   };
   new MutationObserver((records) => {
-    for (const record of records) mark(record.target);
+    for (const record of records) {
+      mark(record.target);
+      record.addedNodes.forEach((added) => {
+        if (added instanceof HTMLElement && !added.children.length) mark(added);
+      });
+    }
   }).observe(document.body, { childList: true, characterData: true, subtree: true });
+  // Room names share the top-left corner and step aside whenever Prime is talking.
+  window.setInterval(() => {
+    const speaking = Array.from(document.querySelectorAll<HTMLElement>(".prime-top-left, #prime-stealth-hint")).some((element) => {
+      if (!element.textContent?.trim() || !element.getClientRects().length) return false;
+      const style = getComputedStyle(element);
+      return style.visibility !== "hidden" && Number(style.opacity) > 0.05;
+    });
+    document.body.classList.toggle("prime-speaking", speaking);
+  }, 150);
 }
 installPrimeDialoguePlacement();
 
@@ -840,9 +866,8 @@ async function initializeApp() {
 async function prepareGlobalCharacter() {
   if (globalCharacter) return;
   if (!characterPreparation) {
-    characterPreparation = import("./scripts/characterManager.js")
-      .then(async ({ loadCharacter }) => {
-        const character = await loadCharacter();
+    characterPreparation = loadCharacter()
+      .then((character) => {
         if (!character)
           throw new Error("The player character could not be prepared");
         character.setSilhouetteEnabled(playerSilhouetteEnabled);
@@ -1369,25 +1394,7 @@ async function loadPrologue1(alreadyCovered = false) {
     stage1LoadingShown = false;
     hideScene1Skip();
     retireTraversalRoom();
-    quartersProgress = createQuartersProgress();
-    stageTwoProgress = createStageTwoProgress();
-    hasPistol =
-      hasCrowbar =
-      hasLightsaber =
-      bayBossDefeated =
-      healthPackCollectedScene13 =
-        false;
-    pistol.holster();
-    crowbar.holster();
-    lightsaber.holster();
-    goggles.reset();
-    teleportDevice.reset();
-    cctv.clearSources();
-    shipMapProgress.reset();
-    shipMap?.dispose();
-    shipMap = null;
-    shipMapLayout = undefined;
-    mappedSceneData = null;
+    resetStoryProgress();
     activeSceneId = "prologue1";
     enterHudScene("prologue1");
     currentSceneData = data;
@@ -1651,8 +1658,25 @@ async function loadStage1Storage(
   }
 }
 
-// --- Load Scene 1 ---
-async function loadScene1() {
+function resetStoryProgress() {
+  quartersProgress = createQuartersProgress();
+  stageTwoProgress = createStageTwoProgress();
+  hasPistol = hasCrowbar = hasLightsaber = bayBossDefeated = healthPackCollectedScene13 = false;
+  pistol.holster();
+  crowbar.holster();
+  lightsaber.holster();
+  goggles.reset();
+  teleportDevice.reset();
+  cctv.clearSources();
+  shipMapProgress.reset();
+  shipMap?.dispose();
+  shipMap = null;
+  shipMapLayout = undefined;
+  mappedSceneData = null;
+}
+
+// --- Main Menu (Scene 1) ---
+async function loadScene1(skipOpening = false) {
   openingReady = false;
   const startup = document.getElementById("startup-loading")!;
   startup.classList.remove("hidden");
@@ -1667,7 +1691,8 @@ async function loadScene1() {
   const quitButton = document.getElementById("quit-btn") as HTMLButtonElement;
   quitButton.classList.remove("no-choice", "hidden");
   quitButton.disabled = false;
-  currentSceneData = createScene1({ audioManager, renderer });
+  const introScene = createScene1({ audioManager, renderer });
+  currentSceneData = introScene;
   music.enterScene("scene1", currentSceneData);
   scene1Data = currentSceneData;
   activeScene = currentSceneData.scene;
@@ -1682,7 +1707,6 @@ async function loadScene1() {
   updatePhysics = currentSceneData.updatePhysics;
   cutsceneManager = currentSceneData.cutsceneManager;
   lastSplinePoint = currentSceneData.lastSplinePoint;
-  const introScene = currentSceneData;
   if (orbitControls) {
     orbitControls.object = activeCamera!;
     orbitControls.enabled = false;
@@ -1699,6 +1723,18 @@ async function loadScene1() {
   if (currentSceneData !== introScene) return;
   openingReady = true;
   startup.classList.add("hidden");
+
+  if (skipOpening) {
+    activeCamera!.position.copy(introScene.lastSplinePoint);
+    activeCamera!.lookAt(0, 15, 0);
+    if (orbitControls) {
+      orbitControls.target.set(0, 15, 0);
+      orbitControls.enabled = true;
+    }
+    hideScene1Skip();
+    showMenuButtons();
+    return;
+  }
 
   if (cutsceneManager) {
     cutsceneManager.play("cutscene_1788121916257");
@@ -1903,6 +1939,10 @@ async function loadMuseum(returnTo?: number) {
           character: arcade.character,
           returnTo,
           onEnterStage: startArcadeStage,
+          onReturnToMainMenu: () => {
+            document.getElementById("main-menu-error")!.textContent = "";
+            setPauseMenu("main-menu");
+          },
         }),
       };
     },
@@ -1914,6 +1954,9 @@ async function loadMuseum(returnTo?: number) {
 }
 
 async function startArcadeStage(id: number) {
+  arcade.active = true;
+  stageTwoProgress = createStageTwoProgress();
+  cctv.clearSources();
   arcade.run = {
     id,
     sceneKey: null,
@@ -2170,8 +2213,6 @@ async function loadStageTwo(
     deferActivation: true,
     fromAirlock,
     getCameraTarget: () => (activeCamera ? cctv.getTarget(activeCamera) : null),
-    hasReturnMarker: surveillanceMarkerPlaced,
-    getEquippedWeapon: equippedWeapon,
     holsterWeapons: () => {
       pistol.holster();
       crowbar.holster();
@@ -2275,10 +2316,15 @@ async function cameraFeed(id: CameraFeedId): Promise<CctvFeedSource> {
               preview: true,
               loot: stageTwoProgress.remoteRooms["stage2-rust"],
             })
-          : (await sceneModule(1.3)).createScene({
-              progress: stageTwoProgress,
-              preview: true,
-            });
+          : id === "stage2-reactor"
+            ? (await sceneModule(1.5)).createScene({
+                preview: true,
+                loot: stageTwoProgress.remoteRooms["stage2-reactor"],
+              })
+            : (await sceneModule(1.3)).createScene({
+                progress: stageTwoProgress,
+                preview: true,
+              });
   try {
     await sceneData.ready;
     await renderer.compileAsync(sceneData.scene, sceneData.camera);
@@ -2367,6 +2413,20 @@ async function loadCameraVisit(
         completeArcadeStage();
       },
     });
+  } else if (id === "stage2-reactor") {
+    const module = await prepareScene(1.5);
+    if (!module || source !== currentSceneData) return false;
+    sceneData = module.createScene({
+      deferActivation: true,
+      entryState,
+      loot: stageTwoProgress.remoteRooms["stage2-reactor"],
+      hasReturnMarker: surveillanceMarkerPlaced,
+      onRestart: restartSurveillance,
+      onKeycardCollected: () => {
+        collectStageTwoKeycard(stageTwoProgress, "stage2-reactor");
+        completeArcadeStage();
+      },
+    });
   } else {
     const module = await prepareScene(1.3);
     if (!module || source !== currentSceneData) return false;
@@ -2376,12 +2436,13 @@ async function loadCameraVisit(
       entryState,
       hasReturnMarker: surveillanceMarkerPlaced,
       onRestart: restartSurveillance,
+      onLightsaberCollected: () => {
+        hasLightsaber = true;
+        introduceControls("lightsaber");
+      },
       onKeycardCollected: () => {
         collectStageTwoKeycard(stageTwoProgress, "stage2-armory");
         completeArcadeStage();
-      },
-      onLightsaberBeamCollected: () => {
-        introduceControls("lightsaber");
       },
     });
   }
@@ -2983,6 +3044,7 @@ const creditsDialog = document.getElementById(
 ) as HTMLDialogElement;
 type MenuScreen =
   | "home"
+  | "main-menu"
   | "map"
   | "sound"
   | "display"
@@ -3523,6 +3585,12 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
                 ? "Developer Mode"
                 : "Pause";
     document
+      .getElementById("pause-main-menu-panel")!
+      .classList.toggle("hidden", screen !== "main-menu");
+    document
+      .getElementById("pause-main-menu")!
+      .classList.toggle("hidden", prologue);
+    document
       .getElementById("pause-home")!
       .classList.toggle("hidden", screen !== "home");
     document
@@ -3583,7 +3651,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
       .getElementById("pause-return-museum")!
       .classList.toggle(
         "hidden",
-        !arcade.active || activeSceneId === "museum" || screen !== "home",
+        developerUnlocked || !arcade.active || activeSceneId === "museum" || screen !== "home",
       );
     document.getElementById("pause-display")!.classList.remove("hidden");
     document
@@ -3788,6 +3856,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
       "stage2-infiltration": 1.2,
       "stage2-armory": 1.3,
       "stage2-rust": 1.4,
+      "stage2-reactor": 1.5,
       museum: 99,
     };
     const selectedId =
@@ -3822,6 +3891,8 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
               ? "bloom-level"
               : screen === "developer"
                 ? "developer-unlock"
+                : screen === "main-menu"
+                  ? "pause-main-menu-cancel"
                 : prologue
                   ? "pause-controls"
                   : "pause-resume";
@@ -3865,6 +3936,10 @@ async function jumpToScene(id: number) {
     !SCENE_CHOICES.some(([scene]) => scene === id)
   )
     return;
+  if (id === 1) {
+    setPauseMenu("main-menu");
+    return;
+  }
   if (id !== 1 && id !== 100) {
     document.getElementById("scene-menu-error")!.textContent =
       "Preparing character...";
@@ -3877,6 +3952,11 @@ async function jumpToScene(id: number) {
     }
     if (menuScreen !== "scenes") return;
   }
+  arcade.run = null;
+  arcadeReturnTo = undefined;
+  arcade.active = id === MUSEUM_ID;
+  stageTwoProgress = createStageTwoProgress();
+  cctv.clearSources();
   await enterSceneById(id);
 }
 async function enterSceneById(id: number) {
@@ -3924,6 +4004,25 @@ async function enterSceneById(id: number) {
   const fade = document.getElementById("fade-overlay");
   fade?.classList.remove("active", "black");
   fade?.classList.add("hidden");
+  if (id === 1) {
+    setPauseMenu(null, false);
+    closeArcadeResults();
+    arcade.active = false;
+    arcade.run = null;
+    arcadeReturnTo = undefined;
+    developerRun = false;
+    resetStoryProgress();
+    try {
+      await loadScene1(true);
+    } catch (error) {
+      console.error("[Main Menu] Unable to return:", error);
+      document.getElementById("startup-loading")!.classList.add("hidden");
+      document.getElementById("main-menu-error")!.textContent =
+        "Unable to load the Main Menu. Please try again.";
+      setPauseMenu("main-menu");
+    }
+    return;
+  }
   // Developer spawn grants the tools but equips nothing; the player selects them per scene.
   hasPistol = true;
   hasCrowbar = true;
@@ -3948,12 +4047,9 @@ async function enterSceneById(id: number) {
     hasCrowbar = false;
     bayBossDefeated = false;
     healthPackCollectedScene13 = false;
-  } else if (id === 1.3 || id === 1.4 || id === 5 || id === 6) {
+  } else if (id === 1.3 || id === 1.4 || id === 1.5 || id === 5 || id === 6) {
     stageTwoProgress.checkpoint = "surveillance";
     stageTwoProgress.guardDown = true;
-    if (id === 1.3)
-      stageTwoProgress.lightsaberBeamCollected =
-        stageTwoProgress.remoteRooms["stage2-armory"].rewardCollected;
   }
   if (id === 13 || id === 13.5) bayBossDefeated = false;
   developerRun = true;
@@ -3979,14 +4075,15 @@ async function enterSceneById(id: number) {
         break;
       case 1.3:
         if (!(await loadCameraVisit("stage2-armory", undefined, true)))
-          throw new Error("The archive did not activate");
+          throw new Error("Saber Tennis did not activate");
         break;
       case 1.4:
         if (!(await loadCameraVisit("stage2-rust", undefined, true)))
           throw new Error("The rust chamber did not activate");
         break;
-      case 1:
-        await loadScene1();
+      case 1.5:
+        if (!(await loadCameraVisit("stage2-reactor", undefined, true)))
+          throw new Error("The Reactor Sequencer did not activate");
         break;
       case 5:
         if (!(await loadCameraVisit("scene5", undefined, true)))
@@ -4135,6 +4232,7 @@ function setupSceneQuickMenu() {
   updateSceneButtonRotations();
 
   const pauseButtonIds = [
+    "pause-main-menu",
     "pause-restart-checkpoint",
     "pause-ship-map",
     "pause-sound",
@@ -4273,6 +4371,11 @@ function setupSceneQuickMenu() {
       "button",
     );
     if (button?.id === "pause-resume") setPauseMenu(null);
+    else if (button?.id === "pause-main-menu") {
+      document.getElementById("main-menu-error")!.textContent = "";
+      setPauseMenu("main-menu");
+    }
+    else if (button?.id === "pause-main-menu-confirm") void enterSceneById(1);
     else if (button?.id === "pause-restart-checkpoint") {
       setPauseMenu(null, false);
       void restartAtLastCheckpoint();
@@ -4693,7 +4796,9 @@ function animate() {
     shieldBarEl.style.display =
       activeSceneId === "scene1" ||
       activeSceneId === "prologue1" ||
-      activeSceneId === "scene21"
+      activeSceneId === "scene21" ||
+      !currentPlayer ||
+      currentPlayer.getShield() <= 0
         ? "none"
         : "";
 

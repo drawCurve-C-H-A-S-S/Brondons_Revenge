@@ -2,13 +2,13 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { playSfx } from '../../helpers/audio/sfx.js';
 import { addPlanetBackdrop, createEscapePod, createEscapeShip, animatePlanetBackdrop } from '../../scripts/items/createEscapeShip.js';
-import { createPlayer } from '../../scripts/player.js';
-import type { CinematicPose } from '../../scripts/characterManager.js';
+import { createPlayer } from '../../scripts/player/player.js';
+import type { CinematicPose } from '../../scripts/player/characterManager.js';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
-import { disposeRoom } from '../../helpers/scene/shipRoom.js';
-import { createHoldToSkip } from '../../helpers/animation/holdToSkip.js';
+import { disposeRoom } from '../../scripts/global/shipRoom.js';
+import { createHoldToSkip } from '../../scripts/global/holdToSkip.js';
 import type { FlightExitState } from './scene15.js';
-import { createRescueSite, RESCUE_SITE, JUNGLE_ENTRY_YAW, type RescueArrival } from '../../helpers/scene/rescueSite.js';
+import { createRescueSite, RESCUE_SITE, JUNGLE_ENTRY_YAW, type RescueArrival } from '../../scripts/global/rescueSite.js';
 import { prepareSceneRendering } from '../../core/renderer.js';
 
 /** An uninterrupted handoff, then pursuit, atmospheric entry, and the crash. */

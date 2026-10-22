@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { preloadToolModel } from '../../core/loader.js';
 import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
-import { createHoldToSkip } from '../../helpers/animation/holdToSkip.js';
-import { createPlayer, type PlayerState, type PlayerTransitionState } from '../../scripts/player.js';
-import { HOLOGRAM_TRANSFER_DURATION, hologramTransitionAt } from '../../scripts/characterManager.js';
+import { createHoldToSkip } from '../../scripts/global/holdToSkip.js';
+import { createPlayer, type PlayerState, type PlayerTransitionState } from '../../scripts/player/player.js';
+import { HOLOGRAM_TRANSFER_DURATION, hologramTransitionAt } from '../../scripts/player/characterManager.js';
 import { CABINS, CABIN_BY_ID, QUARTERS, LIVING_QUARTERS_MAP, cabinPoint, cabinDoorPoint,
   createQuartersProgress, cabinRoomName, FORWARD_BULKHEAD_CODE, quartersEquipmentReady, quartersExitHint, setStudentCabinAccess,
   type CabinId, type QuartersLocation, type QuartersProgress } from './layout.js';
@@ -12,9 +12,9 @@ import { createQuartersHull } from './hull.js';
 import { createCommunalBathroom, type BathroomFixture } from './bathroom.js';
 import { createShowerCensor } from './showerCensor.js';
 import { createInspectionView, type InspectionTarget } from './inspectionView.js';
-import { inputHint } from '../../scripts/gamepadInput.js';
-import { createChairSeating } from '../../scripts/chairSeating.js';
-import { createFacilityBrowser } from '../../helpers/scene/facilityBrowser.js';
+import { inputHint } from '../../scripts/player/gamepadInput.js';
+import { createChairSeating } from '../../scripts/player/chairSeating.js';
+import { createFacilityBrowser } from '../../scripts/global/facilityBrowser.js';
 import { playSfx } from '../../helpers/audio/sfx.js';
 
 interface QuartersOptions {

@@ -7,9 +7,9 @@ let server, createPlayer, createScenePhysics, SLIDE_TACKLE;
 before(async () => {
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom',
     optimizeDeps: { noDiscovery: true, include: [] } });
-  ({ createPlayer } = await server.ssrLoadModule('/scripts/player.ts'));
+  ({ createPlayer } = await server.ssrLoadModule('/scripts/player/player.ts'));
   ({ createScenePhysics } = await server.ssrLoadModule('/helpers/physics/scenePhysics.ts'));
-  ({ SLIDE_TACKLE } = await server.ssrLoadModule('/helpers/animation/slideTackle.ts'));
+  ({ SLIDE_TACKLE } = await server.ssrLoadModule('/scripts/player/slideTackle.ts'));
 });
 after(async () => server?.close());
 

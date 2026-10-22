@@ -73,7 +73,7 @@ test('rescue Brendan uses DonfromStreets with independent materials and the land
     assert.ok(otherMaterials[index].color.equals(sourceMaterials[index].color), 'Finale changes cannot affect another scene');
   });
 
-  const { createBrendanBehavior } = await server.ssrLoadModule('/helpers/scene/brendanBehavior.ts');
+  const { createBrendanBehavior } = await server.ssrLoadModule('/scripts/global/brendanBehavior.ts');
   for (const fps of [30, 60, 144]) {
     await t.test(`standing conversation and autonomous pacing/inspection at ${fps} FPS`, () => {
       t.mock.method(Math, 'random', () => 0.25);
@@ -116,7 +116,7 @@ test('rescue Brendan uses DonfromStreets with independent materials and the land
   }
 
   await t.test('finale scorching composes with Brendan cel shading', async () => {
-    const { createFinaleAftermath } = await server.ssrLoadModule('/helpers/scene/finaleAftermath.ts');
+    const { createFinaleAftermath } = await server.ssrLoadModule('/scripts/level-3/finaleAftermath.ts');
     const root = new THREE.Group(); root.add(second.scene);
     const aftermath = createFinaleAftermath(new THREE.Scene(), root, Promise.resolve(), false);
     await aftermath.ready;

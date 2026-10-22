@@ -4,20 +4,20 @@ import { loadBossModel, loadModel, loadPlayerModel, loadSubjectModel, loadToolMo
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
 import { createStealthHangar } from '../level 1 stage 1/stealthHangar.js';
 import { createStealthPassage } from '../level 1 stage 1/stealthPassage.js';
-import { createHangarFourteenSet } from '../level 1/scene14.js';
+import { createHangarFourteenSet } from '../level 1 boss stage/scene14.js';
 import { createSurveillanceHubSet, createSurveillanceWorkstation, SURVEILLANCE_WORKSTATIONS } from '../level 1 stage 2/scene.js';
-import { createMothership } from '../../helpers/scene/mothership.js';
-import { disposeRoom, fitRoomProp } from '../../helpers/scene/shipRoom.js';
-import { createShipInteriorMaterials } from '../../helpers/scene/shipInterior.js';
-import { createCorridorMonitor } from '../../helpers/scene/corridorMonitor.js';
-import { createCctvWall } from '../../scripts/cctv.js';
+import { createMothership } from '../../scripts/global/mothership.js';
+import { disposeRoom, fitRoomProp } from '../../scripts/global/shipRoom.js';
+import { createShipInteriorMaterials } from '../../scripts/global/shipInterior.js';
+import { createCorridorMonitor } from '../../scripts/global/corridorMonitor.js';
+import { createCctvWall } from '../../scripts/npc/cctv.js';
 import { STAGE_TWO_MINIGAMES } from '../level 1 stage 2/stageTwoLayout.js';
-import hologramVertexShader from '../../shaders/hologram.vert.glsl?raw';
-import hologramFragmentShader from '../../shaders/hologram.frag.glsl?raw';
-import { createEarthTextures, createEarthGroup, updateEarthGroup } from '../../scripts/earthTexture.js';
+import hologramVertexShader from '../../shaders/vert/hologram.vert.glsl?raw';
+import hologramFragmentShader from '../../shaders/frag/hologram.frag.glsl?raw';
+import { createEarthTextures, createEarthGroup, updateEarthGroup } from '../../scripts/global/earthTexture.js';
 import { prepareSceneRendering } from '../../core/renderer.js';
 import { yieldToMainThread } from '../../core/loader.js';
-import { createContainmentPod, type ContainmentPod } from '../../helpers/scene/containmentPod.js';
+import { createContainmentPod, type ContainmentPod } from '../../scripts/prologue/containmentPod.js';
 
 export type PrologueShot = 'present' | 'asteroid' | 'collection' | 'ingest' | 'corruption'
   | 'capture' | 'laboratory' | 'experiment' | 'breakout' | 'planet' | 'corridor' | 'stealth' | 'security';

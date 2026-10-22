@@ -13,15 +13,15 @@ before(async () => {
       load: id => id === '\0controller-test-deps' ? "export * as THREE from 'three';" : null,
     }] });
   ({ THREE } = await server.ssrLoadModule('virtual:controller-test-deps'));
-  inputModule = await server.ssrLoadModule('/scripts/gamepadInput.ts');
-  ({ createPlayer } = await server.ssrLoadModule('/scripts/player.ts'));
+  inputModule = await server.ssrLoadModule('/scripts/player/gamepadInput.ts');
+  ({ createPlayer } = await server.ssrLoadModule('/scripts/player/player.ts'));
   ({ createScenePhysics } = await server.ssrLoadModule('/helpers/physics/scenePhysics.ts'));
-  ({ createWeaponWheel } = await server.ssrLoadModule('/scripts/weaponWheel.ts'));
-  ({ PistolController } = await server.ssrLoadModule('/scripts/pistol.ts'));
-  ({ CrowbarController } = await server.ssrLoadModule('/scripts/crowbar.ts'));
-  ({ LightsaberController } = await server.ssrLoadModule('/scripts/lightsaber.ts'));
-  ({ createFinaleQte, FINISHER_BEATS } = await server.ssrLoadModule('/scripts/mechDuel.ts'));
-  choreography = await server.ssrLoadModule('/scripts/finaleChoreography.ts');
+  ({ createWeaponWheel } = await server.ssrLoadModule('/scripts/weapons/weaponWheel.ts'));
+  ({ PistolController } = await server.ssrLoadModule('/scripts/weapons/pistol.ts'));
+  ({ CrowbarController } = await server.ssrLoadModule('/scripts/weapons/crowbar.ts'));
+  ({ LightsaberController } = await server.ssrLoadModule('/scripts/weapons/lightsaber.ts'));
+  ({ createFinaleQte, FINISHER_BEATS } = await server.ssrLoadModule('/scripts/npc/mechDuel.ts'));
+  choreography = await server.ssrLoadModule('/scripts/global/finaleChoreography.ts');
 });
 after(async () => server?.close());
 

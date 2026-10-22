@@ -14,13 +14,13 @@ before(async () => {
     appType: 'custom',
     optimizeDeps: { noDiscovery: true, include: [] },
   });
-  ({ createMechDuel, DUEL } = await server.ssrLoadModule('/scripts/mechDuel.ts'));
-  ({ createFinaleDirector, FINALE_DURATION } = await server.ssrLoadModule('/scripts/finaleDirector.ts'));
-  choreography = await server.ssrLoadModule('/scripts/finaleChoreography.ts');
+  ({ createMechDuel, DUEL } = await server.ssrLoadModule('/scripts/npc/mechDuel.ts'));
+  ({ createFinaleDirector, FINALE_DURATION } = await server.ssrLoadModule('/scripts/global/finaleDirector.ts'));
+  choreography = await server.ssrLoadModule('/scripts/global/finaleChoreography.ts');
   FINISHER_BEATS = choreography.FINISHER_BEATS;
-  ({ createMechAnimator } = await server.ssrLoadModule('/scripts/mechAnimation.ts'));
-  ({ createIndustrialSkin, createBeamMaterial, SLASH_MARK_LIFETIME, FRAME_COLORS } = await server.ssrLoadModule('/helpers/scene/finaleMaterials.ts'));
-  ({ createBladeTrail } = await server.ssrLoadModule('/helpers/scene/finaleEffects.ts'));
+  ({ createMechAnimator } = await server.ssrLoadModule('/scripts/npc/mechAnimation.ts'));
+  ({ createIndustrialSkin, createBeamMaterial, SLASH_MARK_LIFETIME, FRAME_COLORS } = await server.ssrLoadModule('/scripts/level-3/finaleMaterials.ts'));
+  ({ createBladeTrail } = await server.ssrLoadModule('/scripts/level-3/finaleEffects.ts'));
 });
 
 after(async () => server?.close());
@@ -80,6 +80,42 @@ test('the held shield drains, breaks, and recharges after release', () => {
   advance(dt => duel.update(dt), duel.getState().shieldLock + 0.1);
   assert.ok(duel.getState().shield > 0);
   assert.equal(DUEL.shieldMax, 100);
+});
+
+test('the grounded C slide knocks Sudoers 5 down before it can recover', () => {
+  const duel = createMechDuel('ground');
+  const contact = [{ base: [0, 7, 10], tip: [0, 8, 14] }, { base: [0, 7, 10], tip: [0, 8, 14] }];
+  duel.setPhysicalPaths({ jab: contact, cross: contact, hook: contact, slide: contact });
+  duel.hero.x = -6;
+  duel.enemy.x = 6;
+  Object.assign(duel.enemy, { move: 'stagger', time: 0, duration: 10, shield: 0 });
+  duel.setInput({ move: 1, lift: 0, guard: false });
+
+  assert.equal(duel.act('slide'), true);
+  for (let frame = 0; frame < 120 && duel.enemy.move !== 'knockdown'; frame++) duel.update(1 / 120);
+  assert.equal(duel.enemy.move, 'knockdown');
+  assert.equal(duel.enemy.duration, DUEL.slideKnockdown);
+  assert.ok(duel.getState().feedback.includes('KNOCKDOWN'));
+
+  advance(dt => duel.update(dt), DUEL.slideKnockdown - 0.2);
+  assert.equal(duel.enemy.move, 'knockdown');
+  advance(dt => duel.update(dt), 0.3);
+  assert.notEqual(duel.enemy.move, 'knockdown');
+});
+
+test('the finale HUD uses edge-mounted comic controls and keeps status bars in their requested corners', async () => {
+  const presentation = await readFile(new URL('../src/scripts/level-3/finalePresentation.ts', import.meta.url), 'utf8');
+  const css = await readFile(new URL('../src/styles/main.css', import.meta.url), 'utf8');
+
+  for (const control of ['KeyA', 'KeyD', 'KeyJ', 'Space', 'KeyC', 'KeyF', 'KeyR', 'KeyE']) {
+    assert.match(presentation, new RegExp(`data-input-key="${control}"`));
+  }
+  assert.doesNotMatch(presentation, /KeyG|STOW|RECALL/);
+  assert.match(presentation, /--charge/);
+  assert.match(css, /\.finale-control \{[\s\S]*?border-radius: 50%;[\s\S]*?conic-gradient/);
+  assert.match(css, /html body \.finale-player-status \{[\s\S]*?right: max[\s\S]*?bottom: max[\s\S]*?top: auto !important/);
+  assert.match(css, /\.finale-skip,\s*\.facility-intro-skip \{[\s\S]*?top: max[\s\S]*?right: max[\s\S]*?bottom: auto/);
+  assert.match(css, /body\.finale-active #boss-hud \{[\s\S]*?left: 50%[\s\S]*?translateX\(-50%\)/);
 });
 
 test('combat inputs cannot stop, redirect or fail the continuous finisher', () => {
@@ -253,10 +289,10 @@ test('cinematic rifle damage advances through one recoil rather than reversing t
 
 test('the world has no generated mech pads and the ship flight is wired into Scene 21', async () => {
   const [world, scene, mechs, credits] = await Promise.all([
-    readFile(new URL('../src/helpers/scene/finaleWorld.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/scripts/level-3/finaleWorld.ts', import.meta.url), 'utf8'),
     readFile(new URL('../src/scenes/level 3/scene21.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../src/helpers/scene/finaleMechs.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../src/helpers/scene/finalePresentation.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/scripts/level-3/finaleMechs.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/scripts/level-3/finalePresentation.ts', import.meta.url), 'utf8'),
   ]);
   assert.doesNotMatch(world, /MechPoweredRooftopStage|OrbitalFacilityWreckage/);
   assert.match(world, /EarthRockDebris/);
@@ -273,7 +309,7 @@ test('the world has no generated mech pads and the ship flight is wired into Sce
 });
 
 test('finale cockpit uses the on-foot Brondon model rather than the mech model', async () => {
-  const source = await readFile(new URL('../src/helpers/scene/finaleAftermath.ts', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../src/scripts/level-3/finaleAftermath.ts', import.meta.url), 'utf8');
   assert.match(source, /Promise\.all\(\[forestReady, loadPlayerModel\(\)\]\)/);
   assert.doesNotMatch(source, /loadMCModel/);
   assert.match(source, /clip\.name === 'Sitting_Idle_Loop'/);
@@ -672,10 +708,10 @@ test('epilogue uses the opening mothership, native mech dance, shared comic BOOM
   const [opening, finale, mechs, presentation, main, comic] = await Promise.all([
     readFile(new URL('../src/scenes/scene1.ts', import.meta.url), 'utf8'),
     readFile(new URL('../src/scenes/level 3/scene21.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../src/helpers/scene/finaleMechs.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../src/helpers/scene/finalePresentation.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/scripts/level-3/finaleMechs.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/scripts/level-3/finalePresentation.ts', import.meta.url), 'utf8'),
     readFile(new URL('../src/main.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../src/helpers/scene/comicEffects.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/scripts/global/comicEffects.ts', import.meta.url), 'utf8'),
   ]);
   assert.match(opening, /createMothership\(loadShip\)/); assert.match(finale, /createMothership\(\)/);
   assert.match(mechs, /move === 'dance'.*find\('Dance_Loop'\)/);
@@ -786,7 +822,7 @@ test('authored UAL sword timings and cinematic clips are retained instead of pro
   assert.equal(RIFLE_SEQUENCE.swordReady, 4.25);
   assert.equal(HERO_ULTIMATE.duration, 2.95);
   assert.equal(ENEMY_VERDICT.duration, 3.15);
-  const source = await readFile(new URL('../src/helpers/scene/finaleMechs.ts', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../src/scripts/level-3/finaleMechs.ts', import.meta.url), 'utf8');
   assert.match(source, /const clip = nativeClip\(poseMove, airborne, time, !!jump, custom\)/);
   assert.doesNotMatch(source, /custom \? undefined : nativeClip/);
   assert.match(source, /isMeleeStrike\(move\)\) return find\(SWORD_ATTACK_CLIPS\[move\]\)/);
@@ -949,7 +985,7 @@ test('the burning boy and cockpit grief finish before the seamless orbital hando
   assert.equal(director.getState().phase, 'space');
   const [scene, aftermath] = await Promise.all([
     readFile(new URL('../src/scenes/level 3/scene21.ts', import.meta.url), 'utf8'),
-    readFile(new URL('../src/helpers/scene/finaleAftermath.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/scripts/level-3/finaleAftermath.ts', import.meta.url), 'utf8'),
   ]);
   assert.match(scene, /Nooooo, Brendan!!/);
   assert.match(scene, /I will never forgive you\. You must die\./);

@@ -1,6 +1,6 @@
 import { AudioManager } from './AudioManager.js';
 import { preloadMusic } from './bufferedMusic.js';
-import type { FinalePhase } from '../../scripts/finaleDirector.js';
+import type { FinalePhase } from '../../scripts/global/finaleDirector.js';
 import loading from '../../assets/bgm/Loading.ogg?url';
 import prologue from '../../assets/bgm/Prologue less mashing .ogg?url';
 import livingQuarters from '../../assets/bgm/Living quarters.ogg?url';

@@ -10,12 +10,12 @@ before(async () => {
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false },
     appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
   THREE = await server.ssrLoadModule('three');
-  ({ createPlayer } = await server.ssrLoadModule('/scripts/player.ts'));
+  ({ createPlayer } = await server.ssrLoadModule('/scripts/player/player.ts'));
   ({ createScenePhysics } = await server.ssrLoadModule('/helpers/physics/scenePhysics.ts'));
-  ({ createWeaponWheel, weaponWheelIndex } = await server.ssrLoadModule('/scripts/weaponWheel.ts'));
-  ({ GogglesController } = await server.ssrLoadModule('/scripts/goggles.ts'));
-  ({ TeleportationDeviceController, teleportPlayer } = await server.ssrLoadModule('/scripts/teleportationDevice.ts'));
-  ({ hologramTransitionAt, TELEPORT_TRANSFER_DURATION } = await server.ssrLoadModule('/scripts/characterManager.ts'));
+  ({ createWeaponWheel, weaponWheelIndex } = await server.ssrLoadModule('/scripts/weapons/weaponWheel.ts'));
+  ({ GogglesController } = await server.ssrLoadModule('/scripts/player/goggles.ts'));
+  ({ TeleportationDeviceController, teleportPlayer } = await server.ssrLoadModule('/scripts/global/teleportationDevice.ts'));
+  ({ hologramTransitionAt, TELEPORT_TRANSFER_DURATION } = await server.ssrLoadModule('/scripts/player/characterManager.ts'));
 });
 after(async () => server?.close());
 
@@ -330,11 +330,11 @@ test('Stage Two has an easy connected vent route, moving sensors with safe windo
 });
 
 test('gem collection preserves the shader light layout and no weapon consumes T/K/L', async () => {
-  const room = await source('scenes/level 1/scene4.ts');
+  const room = await source('scenes/legacy scenes/scene4.ts');
   assert.doesNotMatch(room, /teleportDeviceLight\.visible\s*=\s*false/);
   assert.match(room, /teleportDevice\.visible = false;\s*teleportDeviceLight\.intensity = 0;/);
   assert.doesNotMatch(room, /createPlacedMarker|placedMarkerLight/);
-  for (const path of ['scripts/crowbar.ts', 'scripts/pistol.ts', 'scripts/lightsaber.ts', 'scripts/touchControls.ts', 'scenes/level 3/scene17.ts']) {
+  for (const path of ['scripts/weapons/crowbar.ts', 'scripts/weapons/pistol.ts', 'scripts/weapons/lightsaber.ts', 'scripts/player/touchControls.ts', 'scenes/level 3/scene17.ts']) {
     assert.doesNotMatch(await source(path), /['"]Key[TKL]['"]/);
   }
 });

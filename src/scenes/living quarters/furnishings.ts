@@ -4,12 +4,12 @@ import playScreenUrl from '../../assets/textures/brondon-play-screen.png?url';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
 import { cabinCenter, cabinPoint, type CabinDefinition, type QuartersProgress } from './layout.js';
 import { createRescueDesktop, createSdpBrowserDesktop, drawDesktopBackground } from './surfaces.js';
-import { createCrewChest } from '../../helpers/scene/crewChest.js';
-import { createGoggles } from '../../scripts/rewardChest.js';
-import { createTeleportCrystal } from '../../scripts/teleportationDevice.js';
-import { createShipInteriorMaterials, createShipServerRack, createShipTerminal } from '../../helpers/scene/shipInterior.js';
-import { fitRoomProp } from '../../helpers/scene/shipRoom.js';
-export { fitRoomProp as fitCabinProp } from '../../helpers/scene/shipRoom.js';
+import { createCrewChest } from '../../scripts/global/crewChest.js';
+import { createGoggles } from '../../scripts/global/rewardChest.js';
+import { createTeleportCrystal } from '../../scripts/global/teleportationDevice.js';
+import { createShipInteriorMaterials, createShipServerRack, createShipTerminal } from '../../scripts/global/shipInterior.js';
+import { fitRoomProp } from '../../scripts/global/shipRoom.js';
+export { fitRoomProp as fitCabinProp } from '../../scripts/global/shipRoom.js';
 
 type Physics = ReturnType<typeof createScenePhysics>;
 export type CabinProp = 'Prop_Desk_Small' | 'Prop_Chair' | 'Gun_Revolver';

@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
-import { roomBox } from '../../helpers/scene/shipRoom.js';
-import { createShipInteriorMaterials, SHIP_INTERIOR_PALETTE } from '../../helpers/scene/shipInterior.js';
+import { roomBox } from '../../scripts/global/shipRoom.js';
+import { createShipInteriorMaterials, SHIP_INTERIOR_PALETTE } from '../../scripts/global/shipInterior.js';
 import { LADDER } from '../../utils/constants.js';
-import beamVertex from '../../shaders/stealthBeam.vert.glsl?raw';
-import beamFragment from '../../shaders/stealthBeam.frag.glsl?raw';
+import beamVertex from '../../shaders/vert/stealthBeam.vert.glsl?raw';
+import beamFragment from '../../shaders/frag/stealthBeam.frag.glsl?raw';
 
 type Physics = ReturnType<typeof createScenePhysics>;
 export type HangarPoint = { x: number; z: number };

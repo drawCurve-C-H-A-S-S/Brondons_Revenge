@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { loadBossModel, loadDinoModel, loadMCModel, loadToolModel } from '../../core/loader.js';
-import { createMothership } from '../../helpers/scene/mothership.js';
+import { createMothership } from '../../scripts/global/mothership.js';
 import { createEscapeShip } from '../../scripts/items/createEscapeShip.js';
 import { createLightsaber } from '../../scripts/items/createLightsaber.js';
-import { createShipStatusTexture, createShipTerminal } from '../../helpers/scene/shipInterior.js';
+import { createShipStatusTexture, createShipTerminal } from '../../scripts/global/shipInterior.js';
 import type { ExhibitKind } from './museumCatalog.js';
 
 const FIGURE_HEIGHT = 0.9;

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
-import { roomBox, createSlidingPortal } from '../../helpers/scene/shipRoom.js';
-import { createShipInteriorMaterials, SHIP_INTERIOR_PALETTE } from '../../helpers/scene/shipInterior.js';
+import { roomBox, createSlidingPortal } from '../../scripts/global/shipRoom.js';
+import { createShipInteriorMaterials, SHIP_INTERIOR_PALETTE } from '../../scripts/global/shipInterior.js';
 
 export const STORAGE_CLOSET = { width: 3.6, depth: 3.3, height: 3.05, doorWidth: 1.5, doorHeight: 2.55 };
 

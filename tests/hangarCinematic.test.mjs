@@ -15,8 +15,8 @@ before(async () => {
     }],
   });
   ({ THREE, GLTFLoader } = await server.ssrLoadModule('virtual:hangar-dependencies'));
-  ({ createScene: createHangar } = await server.ssrLoadModule('/scenes/level 1/scene14.ts'));
-  ({ loadCharacter } = await server.ssrLoadModule('/scripts/characterManager.ts'));
+  ({ createScene: createHangar } = await server.ssrLoadModule('/scenes/level 1 boss stage/scene14.ts'));
+  ({ loadCharacter } = await server.ssrLoadModule('/scripts/player/characterManager.ts'));
 });
 after(async () => server?.close());
 

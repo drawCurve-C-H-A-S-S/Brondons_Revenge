@@ -12,7 +12,7 @@ const server = await createServer({
   optimizeDeps: { noDiscovery: true, include: [] },
 });
 try {
-  const { createEarthTextures } = await server.ssrLoadModule('/scripts/earthTexture.ts');
+  const { createEarthTextures } = await server.ssrLoadModule('/scripts/global/earthTexture.ts');
   const textures = createEarthTextures();
   try {
     const pixels = Buffer.concat([

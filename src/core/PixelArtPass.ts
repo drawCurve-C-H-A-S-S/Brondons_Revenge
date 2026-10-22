@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import vertexShader from '../shaders/pixelArt.vert.glsl?raw';
-import fragmentShader from '../shaders/pixelArt.frag.glsl?raw';
+import vertexShader from '../shaders/vert/pixelArt.vert.glsl?raw';
+import fragmentShader from '../shaders/frag/pixelArt.frag.glsl?raw';
 
 export class PixelArtPass {
   private readonly target = new THREE.WebGLRenderTarget(1, 1, {

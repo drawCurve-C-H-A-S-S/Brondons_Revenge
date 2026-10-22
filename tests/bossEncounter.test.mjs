@@ -3,18 +3,18 @@ import { before, after, test } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createServer } from 'vite';
 
 let server, createScene, createPassage, createPuzzleState, traceShot, CrowbarController, rules, boyData, droneData, droneBuffer;
 before(async () => {
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
-  ({ createScene } = await server.ssrLoadModule('/scenes/level 1/scene13.ts'));
-  ({ createScene: createPassage } = await server.ssrLoadModule('/scenes/level 1/scene12.ts'));
-  ({ createCargoPuzzleState: createPuzzleState } = await server.ssrLoadModule('/scripts/cargoPuzzle.ts'));
-  ({ traceShot } = await server.ssrLoadModule('/scripts/pistol.ts'));
-  ({ CrowbarController } = await server.ssrLoadModule('/scripts/crowbar.ts'));
-  ({ BOSS_RULES: rules } = await server.ssrLoadModule('/scripts/mechBaymaxBoss.ts'));
+  ({ createScene } = await server.ssrLoadModule('/scenes/level 1 boss stage/scene13.ts'));
+  ({ createScene: createPassage } = await server.ssrLoadModule('/scenes/legacy scenes/scene12.ts'));
+  ({ createCargoPuzzleState: createPuzzleState } = await server.ssrLoadModule('/scripts/global/cargoPuzzle.ts'));
+  ({ traceShot } = await server.ssrLoadModule('/scripts/weapons/pistol.ts'));
+  ({ CrowbarController } = await server.ssrLoadModule('/scripts/weapons/crowbar.ts'));
+  ({ BOSS_RULES: rules } = await server.ssrLoadModule('/scripts/npc/mechBaymaxBoss.ts'));
   const buffer = await readFile(new URL('../src/assets/models/boy.glb', import.meta.url));
   boyData = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
   droneData = await readFile(new URL('../src/assets/models/Tools/Enemy_EyeDrone.gltf', import.meta.url), 'utf8');

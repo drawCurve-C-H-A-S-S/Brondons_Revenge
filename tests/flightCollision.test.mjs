@@ -6,8 +6,8 @@ import { createServer } from 'vite';
 let server, predictsCollision, createFlightShield;
 before(async () => {
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
-  ({ predictsCollision } = await server.ssrLoadModule('/helpers/scene/flightCollision.ts'));
-  ({ createFlightShield } = await server.ssrLoadModule('/scripts/flightShield.ts'));
+  ({ predictsCollision } = await server.ssrLoadModule('/scripts/level-2/flightCollision.ts'));
+  ({ createFlightShield } = await server.ssrLoadModule('/scripts/level-2/flightShield.ts'));
 });
 after(async () => server?.close());
 

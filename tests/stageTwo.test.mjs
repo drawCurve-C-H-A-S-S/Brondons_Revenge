@@ -20,13 +20,13 @@ before(async () => {
   ({ createScene: createStorage } = await server.ssrLoadModule('/scenes/level 1 stage 1/storageRoom.ts'));
   ({ createStealthHangar: createHangar, HANGAR_LAYOUT: hangarLayout } = await server.ssrLoadModule('/scenes/level 1 stage 1/stealthHangar.ts'));
   ({ createScenePhysics: createPhysics } = await server.ssrLoadModule('/helpers/physics/scenePhysics.ts'));
-  ({ createPlayer } = await server.ssrLoadModule('/scripts/player.ts'));
-  ({ createCctvSystem: createCctv } = await server.ssrLoadModule('/scripts/cctv.ts'));
+  ({ createPlayer } = await server.ssrLoadModule('/scripts/player/player.ts'));
+  ({ createCctvSystem: createCctv } = await server.ssrLoadModule('/scripts/npc/cctv.ts'));
   ({ createScene: createEquipment } = await server.ssrLoadModule('/scenes/level 1 stage 2/equipmentRoom.ts'));
   ({ createScene: createRust } = await server.ssrLoadModule('/scenes/level 1 stage 2/rustChamber.ts'));
-  corridorMonitor = await server.ssrLoadModule('/helpers/scene/corridorMonitor.ts');
+  corridorMonitor = await server.ssrLoadModule('/scripts/global/corridorMonitor.ts');
   droneStrategy = await server.ssrLoadModule('/scenes/level 1 stage 1/stealthDirector.ts');
-  for (const id of [5, 6]) rooms[id] = (await server.ssrLoadModule(`/scenes/level 1/scene${id}.ts`)).createScene;
+  for (const id of [5, 6]) rooms[id] = (await server.ssrLoadModule(`/scenes/legacy scenes/scene${id}.ts`)).createScene;
   const base = new URL('../src/assets/models/Tools/', import.meta.url);
   keycardJSON = JSON.parse(await readFile(new URL('Prop_KeyCard.gltf', base), 'utf8'));
   for (const buffer of keycardJSON.buffers)
@@ -90,8 +90,8 @@ function key(code, type = 'keydown') {
 function tap(code) { key(code); key(code, 'keyup'); }
 function step(data, seconds, fps = 60) { for (let i = 0; i < Math.ceil(seconds * fps); i++) data.updatePhysics(1 / fps, true); }
 async function stage(t, progress = layout.createStageTwoProgress(), overrides = {}) {
-  const data = createStage({ progress, modelLoader, getCameraTarget: () => null, hasReturnMarker: () => true,
-    getEquippedWeapon: () => 'unarmed', holsterWeapons() {}, onCrowbarCollected() {}, onRetryFeed() {},
+  const data = createStage({ progress, modelLoader, getCameraTarget: () => null,
+    holsterWeapons() {}, onCrowbarCollected() {}, onRetryFeed() {},
     onCameraTeleport: async () => true, onVentDrop: async () => {}, prepareBay13: async () => {}, onExitToBay13: async () => true,
     onAirlockReturn: async () => true,
     monitorFactory: () => ({ texture: new THREE.Texture(), ready: Promise.resolve(), update() {}, getFrameIndex: () => 0, dispose() {} }),
@@ -186,19 +186,22 @@ test('ceiling climb loops by height, rises without sideward dismount, and transi
   assert.ok(data.player.body.position.y >= 24.4); step(data, 1); assert.equal(transfers, 1);
 });
 
-test('vent completion drops through a real hole and loads Phase Two exactly once before the guard', async t => {
+test('vent completion drops through a real hole and loads Phase Two exactly once into surveillance', async t => {
   browser(t); const progress = layout.createStageTwoProgress(); let loads = 0, release;
   const data = await stage(t, progress, { onVentDrop: () => { loads++; return new Promise(resolve => { release = resolve; }); } });
   assert.equal(data.getStageState().phase, 'maze'); assert.equal(data.player.getState().ventMode, true);
   assert.ok(data.scene.getObjectByName('VentWallTrim')); assert.equal(data.scene.getObjectByName('VentRibs'), undefined);
+  assert.equal(data.ventChest.root.rotation.y, 0);
   data.player.setPosition(layout.STAGE_TWO.ventChest.x - 1.2, 4.3, layout.STAGE_TWO.ventChest.z); tap('KeyE'); step(data, 1);
   assert.equal(data.ventChest.isCollected(), true); assert.deepEqual(progress.keycards, ['stage2-vents']);
   data.player.setPosition(layout.STAGE_TWO.drop.x, 4.3, layout.STAGE_TWO.drop.z); step(data, 1.8);
   assert.equal(loads, 1); assert.equal(data.getStageState().phase, 'hub-loading'); assert.equal(progress.ventCleared, true);
   assert.equal(data.player.isEnabled(), false); step(data, 3); assert.equal(loads, 1);
   release(); await Promise.resolve(); await Promise.resolve();
-  assert.equal(data.getStageState().phase, 'guard'); assert.equal(data.player.getState().crouching, true);
-  assert.equal(progress.guardDown, false);
+  assert.equal(data.getStageState().phase, 'surveillance'); assert.equal(data.player.getState().crouching, false);
+  assert.equal(progress.guardDown, true);
+  const ui = document.body.children.find(element => element.classList.contains('stage-two-ui'));
+  assert.match(ui.children.find(element => element.classList.contains('stage-two-dialogue')).textContent, /Security seems kind of lacklustre/);
 });
 
 test('Phase Two loading uses the actual camera-wall screenshot and holds it for at least three seconds', async t => {
@@ -206,7 +209,7 @@ test('Phase Two loading uses the actual camera-wall screenshot and holds it for 
   const previous = globalThis.requestAnimationFrame;
   globalThis.requestAnimationFrame = callback => { callback(0); return 1; };
   t.after(() => { globalThis.requestAnimationFrame = previous; });
-  const { createCinematicLoadingScreen } = await server.ssrLoadModule('/helpers/scene/cinematicLoading.ts');
+  const { createCinematicLoadingScreen } = await server.ssrLoadModule('/scripts/global/cinematicLoading.ts');
   const screen = createCinematicLoadingScreen(), transition = screen.begin('stage2');
   const root = document.body.children.find(element => element.classList.contains('cinematic-loading'));
   assert.equal(root.dataset.destination, 'stage2');
@@ -221,13 +224,12 @@ test('Phase Two loading uses the actual camera-wall screenshot and holds it for 
   transition.finish(); assert.equal(screen.active, false); assert.equal(root.classList.contains('hidden'), true);
 });
 
-test('door guard blocks camera interactions; silent takedown unlocks the separate crowbar chest', async t => {
+test('camera-room arrival unlocks the crowbar chest and camera links without a guard', async t => {
   browser(t); const progress = layout.createStageTwoProgress(); progress.checkpoint = 'surveillance'; progress.ventCleared = true;
   let teleports = 0, crowbars = 0;
   const data = await stage(t, progress, { getCameraTarget: () => ({ id: 'scene5', label: 'Cargo hold', status: 'ready' }),
     onCameraTeleport: async () => { teleports++; return true; }, onCrowbarCollected: () => crowbars++ });
-  tap('KeyE'); step(data, 1); assert.equal(teleports, 0);
-  data.player.setPosition(layout.STAGE_TWO.guard.x, 0.3, layout.STAGE_TWO.guard.z + 1.2); tap('KeyE'); step(data, 2.2);
+  assert.equal(data.scene.getObjectByName('SurveillanceDoorGuard'), undefined);
   assert.equal(progress.guardDown, true); assert.equal(progress.crowbarCollected, false); assert.equal(crowbars, 0);
   assert.equal(data.getStageState().phase, 'surveillance'); assert.equal(data.getDamageTargets().length, 0);
   assert.equal(data.player.getState().climbing, false);
@@ -238,12 +240,14 @@ test('door guard blocks camera interactions; silent takedown unlocks the separat
   assert.equal(data.scene.children.some(item => /Keypad/i.test(item.name)), false);
 });
 
-test('a noisy guard attack kills the player and retry preserves vent progress and health', async t => {
+test('camera-room checkpoint restarts directly in surveillance without resetting vent progress', async t => {
   browser(t); const progress = layout.createStageTwoProgress(); progress.checkpoint = 'surveillance'; progress.ventCleared = true;
-  const data = await stage(t, progress); data.onPistolShot(); step(data, 1.2);
-  assert.equal(data.getStageState().phase, 'failed'); assert.equal(data.player.getHealth(), 0);
-  tap('KeyR'); assert.equal(data.getStageState().phase, 'guard'); assert.equal(data.player.getHealth(), 100);
-  assert.equal(progress.ventCleared, true); assert.equal(progress.guardDown, false);
+  const data = await stage(t, progress);
+  assert.equal(data.onPistolShot, undefined);
+  assert.equal(data.restartAtCheckpoint(), true);
+  assert.equal(data.getStageState().phase, 'surveillance'); assert.equal(data.player.getHealth(), 100);
+  assert.equal(progress.ventCleared, true); assert.equal(progress.guardDown, true);
+  assert.equal(data.player.getState().crouching, false);
 });
 
 test('cleared vent and prison feeds never teleport or add keycards when used', async t => {
@@ -460,8 +464,8 @@ test('rust chamber releases animate, reset correctly, and award one persistent k
 
 test('rust mechanisms respond to actual melee sweeps and pistol traces', async t => {
   browser(t);
-  const { MeleeSwing, getAttackSegment } = await server.ssrLoadModule('/scripts/melee.ts');
-  const { traceShot } = await server.ssrLoadModule('/scripts/pistol.ts');
+  const { MeleeSwing, getAttackSegment } = await server.ssrLoadModule('/scripts/weapons/melee.ts');
+  const { traceShot } = await server.ssrLoadModule('/scripts/weapons/pistol.ts');
   const data = createRust({ modelLoader, hasReturnMarker: () => true, onRestart: async () => true,
     onKeycardCollected() {} });
   t.cleanup(() => data.dispose()); await data.ready;
@@ -495,7 +499,7 @@ test('rust mechanisms respond to actual melee sweeps and pistol traces', async t
 
 test('rust mirrors reflect one real pistol ray through both blue locks and drop the fence', async t => {
   browser(t);
-  const { traceShot } = await server.ssrLoadModule('/scripts/pistol.ts');
+  const { traceShot } = await server.ssrLoadModule('/scripts/weapons/pistol.ts');
   const data = createRust({ modelLoader, hasReturnMarker: () => true, onRestart: async () => true, onKeycardCollected() {} });
   t.cleanup(() => data.dispose()); await data.ready;
   const origin = new THREE.Vector3(17.5, 1.4, 8);
@@ -553,7 +557,7 @@ test('rust corrosive water melts a falling player and returns them without erasi
 
 test('rust tightrope is a walkable narrow collider and its orange lock is within melee reach', async t => {
   browser(t);
-  const { MeleeSwing, getAttackSegment } = await server.ssrLoadModule('/scripts/melee.ts');
+  const { MeleeSwing, getAttackSegment } = await server.ssrLoadModule('/scripts/weapons/melee.ts');
   const data = createRust({ modelLoader, hasReturnMarker: () => true, onRestart: async () => true, onKeycardCollected() {} });
   t.cleanup(() => data.dispose()); await data.ready;
   const start = new THREE.Vector3(5.1, 8.63, 16.6), end = new THREE.Vector3(17.4, 8.63, 24.8);
@@ -629,7 +633,7 @@ test('camera-room seating finds the cushion on the real chair asset', async t =>
   for (const mesh of json.meshes) for (const primitive of mesh.primitives) delete primitive.material;
   const chair = (await new GLTFLoader().parseAsync(JSON.stringify(json), '')).scene;
   const { fitCabinProp } = await server.ssrLoadModule('/scenes/living quarters/furnishings.ts');
-  const { createChairSeating } = await server.ssrLoadModule('/scripts/chairSeating.ts');
+  const { createChairSeating } = await server.ssrLoadModule('/scripts/player/chairSeating.ts');
   fitCabinProp(chair, 1.05, 0.68, 0.8, Math.PI);
   const scene = new THREE.Scene(), physics = createPhysics(), camera = new THREE.PerspectiveCamera(68, 16 / 9, 0.05, 100);
   scene.add(chair); physics.addBox({ x: 10, y: 0.2, z: 10 }, { x: 0, y: -0.1, z: 0 });
@@ -665,7 +669,7 @@ test('rust surveillance preview follows puzzle resets and completion without inp
   assert.equal(data.player.isEnabled(), false);
 });
 
-test('camera wall has six active feeds and six off screens; vents and prison are cleared view-only feeds', async t => {
+test('camera wall has two rows with six active feeds and two off screens; vents and prison are view-only', async t => {
   browser(t); const rendered = [];
   const renderer = { shadowMap: { autoUpdate: true }, getRenderTarget: () => null, setRenderTarget() {}, render: (_scene, camera) => rendered.push(camera) };
   const feedCamera = new THREE.PerspectiveCamera();
@@ -675,7 +679,9 @@ test('camera wall has six active feeds and six off screens; vents and prison are
   const cctv = createCctv(renderer, definitions); t.cleanup(() => cctv.dispose()); await cctv.prepareFeeds();
   const scene = new THREE.Scene(); cctv.update(0.2, scene, true);
   assert.equal(cctv.panel.children.filter(item => /^cctv-screen-/.test(item.name)).length, 6);
-  assert.equal(cctv.panel.children.filter(item => /^cctv-standby-/.test(item.name)).length, 6);
+  assert.equal(cctv.panel.children.filter(item => /^cctv-standby-/.test(item.name)).length, 2);
+  const screenRows = new Set(cctv.panel.children.filter(item => /^cctv-(screen|standby)-/.test(item.name)).map(item => item.position.y));
+  assert.equal(screenRows.size, 2);
   assert.equal(rendered.length, 6); assert.ok(rendered.every(camera => camera === feedCamera));
   const ventScreen = cctv.panel.getObjectByName('cctv-screen-stage2-vents'); scene.updateMatrixWorld(true);
   const targetPoint = ventScreen.getWorldPosition(new THREE.Vector3()), camera = new THREE.PerspectiveCamera();
@@ -743,7 +749,7 @@ for (const entry of ['checkpoint', 'teleport', 'airlock']) {
     const data = await stage(t, progress, { fromAirlock: entry === 'airlock',
       onAirlockReturn: async () => { returns++; return true; } });
     if (entry === 'teleport') {
-      const { teleportPlayer } = await server.ssrLoadModule('/scripts/teleportationDevice.ts');
+      const { teleportPlayer } = await server.ssrLoadModule('/scripts/global/teleportationDevice.ts');
       teleportPlayer(data.player, { x: 20.1, y: 0.3, z: -46 }, Math.PI / 2);
     } else data.player.setPosition(20.1, 0.3, -46);
     step(data, 0.8);

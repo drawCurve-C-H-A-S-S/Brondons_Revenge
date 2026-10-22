@@ -626,6 +626,9 @@
         <button id="pause-restart-checkpoint" type="button" class="menu-button menu-tilt">
           Restart at last checkpoint
         </button>
+        <button id="pause-main-menu" type="button" class="menu-button menu-tilt">
+          Main Menu
+        </button>
         <button id="pause-ship-map" type="button" class="menu-button menu-tilt hidden">
           View Ship Map
         </button>
@@ -645,6 +648,13 @@
           ><input id="stealth-hints-toggle" type="checkbox" checked />
         </label>
         <button id="pause-developer" type="button" class="menu-button menu-tilt">Developer Mode</button>
+      </section>
+      <section id="pause-main-menu-panel" class="pause-panel hidden" aria-labelledby="main-menu-heading">
+        <h2 id="main-menu-heading">Return to Main Menu?</h2>
+        <p>No progress will be saved. Returning to the Main Menu will discard your current progress.</p>
+        <p id="main-menu-error" role="alert"></p>
+        <button id="pause-main-menu-confirm" type="button" class="menu-button">Return to Main Menu</button>
+        <button id="pause-main-menu-cancel" type="button" data-pause-back class="menu-button">Cancel</button>
       </section>
       <section
         id="pause-map-panel"

@@ -22,12 +22,12 @@ before(async () => {
   });
   // Use the runner's module instance (Windows drive-letter casing can otherwise duplicate Three.js).
   ({ THREE, GLTFLoader, OBJLoader } = await server.ssrLoadModule('virtual:combat-dependencies'));
-  ({ NPCEnemyManager } = await server.ssrLoadModule('/scripts/npc-enemy-robots.ts'));
-  ({ PistolController, traceShot } = await server.ssrLoadModule('/scripts/pistol.ts'));
+  ({ NPCEnemyManager } = await server.ssrLoadModule('/scripts/npc/npc-enemy-robots.ts'));
+  ({ PistolController, traceShot } = await server.ssrLoadModule('/scripts/weapons/pistol.ts'));
   ({ createScenePhysics } = await server.ssrLoadModule('/helpers/physics/scenePhysics.ts'));
-  ({ loadCharacter } = await server.ssrLoadModule('/scripts/characterManager.ts'));
+  ({ loadCharacter } = await server.ssrLoadModule('/scripts/player/characterManager.ts'));
   for (const id of ['scene2', 'scene3', 'scene4']) {
-    factories[id] = (await server.ssrLoadModule(`/scenes/level 1/${id}.ts`)).createScene;
+    factories[id] = (await server.ssrLoadModule(`/scenes/legacy scenes/${id}.ts`)).createScene;
   }
 });
 after(async () => { await server?.close(); });

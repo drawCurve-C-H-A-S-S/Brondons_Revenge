@@ -3,18 +3,18 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { createScenePhysics, createGroundMotor, PHYSICS, registerPhysicsActor } from '../../helpers/physics/scenePhysics.js';
 import { createRescueSite, RESCUE_SITE, JUNGLE_PATH, JUNGLE_ROUTE, JUNGLE_ENTRY_YAW,
-  type RescueArrival, type WaterfallCharacterContact } from '../../helpers/scene/rescueSite.js';
-import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
+  type RescueArrival, type WaterfallCharacterContact } from '../../scripts/global/rescueSite.js';
+import { createPlayer, type PlayerTransitionState } from '../../scripts/player/player.js';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { loadToolModel, loadDinoModel, loadSharkModel } from '../../core/loader.js';
-import { disposeRoom } from '../../helpers/scene/shipRoom.js';
-import { emitComicEffect } from '../../helpers/scene/comicEffects.js';
-import type { DamageTarget, DamageWeapon } from '../../scripts/pistol.js';
-import type { CinematicPose } from '../../scripts/characterManager.js';
-import { PARRY_DAMAGE, type ParryableBolt } from '../../scripts/lightsaber.js';
-import { createRiverAmbushers } from '../../scripts/riverAmbusher.js';
-import { createWaterfallMiniboss } from '../../scripts/waterfallMiniboss.js';
-import { KNOCKDOWN_DURATION, knockdownTilt } from '../../helpers/animation/knockdown.js';
+import { disposeRoom } from '../../scripts/global/shipRoom.js';
+import { emitComicEffect } from '../../scripts/global/comicEffects.js';
+import type { DamageTarget, DamageWeapon } from '../../scripts/weapons/pistol.js';
+import type { CinematicPose } from '../../scripts/player/characterManager.js';
+import { PARRY_DAMAGE, type ParryableBolt } from '../../scripts/weapons/lightsaber.js';
+import { createRiverAmbushers } from '../../scripts/npc/riverAmbusher.js';
+import { createWaterfallMiniboss } from '../../scripts/npc/waterfallMiniboss.js';
+import { KNOCKDOWN_DURATION, knockdownTilt } from '../../scripts/npc/knockdown.js';
 
 const MURAL_DISCOVERY_SECONDS = 10;
 
