@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
-import { prepareComicEffects } from '../helpers/scene/comicEffects.js';
+import { prepareComicEffects } from '../scripts/global/comicEffects.js';
 import { yieldToMainThread } from './loader.js';
 
 /** Upload textures and run the first shadow/render programs without advancing the story. */

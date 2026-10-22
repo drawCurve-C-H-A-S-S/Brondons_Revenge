@@ -1,14 +1,14 @@
 /**
- * Scene 1 - Space exterior with starfield and imported mothership.
+ * Scene 1 - Main Menu with starfield and imported mothership.
  * Cutscene camera fly-through with the model's authored materials.
  */
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { loadModel } from '../core/loader.js';
-import { createMothership } from '../helpers/scene/mothership.js';
+import { createMothership } from '../scripts/global/mothership.js';
 import { CutsceneManager } from '../helpers/animation/CutsceneManager.js';
-import { disposeRoom } from '../helpers/scene/shipRoom.js';
-import { createStarfield } from '../helpers/scene/starfield.js';
+import { disposeRoom } from '../scripts/global/shipRoom.js';
+import { createStarfield } from '../scripts/global/starfield.js';
 
 export function createScene({ audioManager, loadShip = loadModel, renderer }: {
   audioManager?: unknown;

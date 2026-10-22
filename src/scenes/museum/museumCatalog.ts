@@ -31,7 +31,7 @@ export const MUSEUM_EXHIBITS: readonly MuseumExhibit[] = [
   { id: 1.2, title: 'VENT MAZE', caption: 'Minigame stage', wall: 'north', theme: 'vents', kind: 'cctv', sceneKeys: [] },
   { id: 5, title: 'CARGO HOLD', caption: 'Minigame stage', wall: 'north', theme: 'cargo', kind: 'crates', sceneKeys: ['stage2-infiltration'] },
   { id: 6, title: 'TARGET RANGE', caption: 'Minigame stage', wall: 'north', theme: 'range', kind: 'target', sceneKeys: ['stage2-infiltration'] },
-  { id: 1.3, title: 'EQUIPMENT ARCHIVE', caption: 'Minigame stage', wall: 'north', theme: 'archive', kind: 'lightsaber', sceneKeys: ['stage2-infiltration'] },
+  { id: 1.3, title: 'SABER TENNIS', caption: '20 consecutive returns', wall: 'north', theme: 'archive', kind: 'lightsaber', sceneKeys: ['stage2-armory'] },
   { id: 1.4, title: 'RUST CHAMBER', caption: 'Minigame stage', wall: 'north', theme: 'rust', kind: 'ironBars', sceneKeys: ['stage2-infiltration'] },
   { id: 13, title: 'BAY WARDEN', caption: 'Boss fight, all phases', wall: 'north', theme: 'warden', kind: 'warden', sceneKeys: ['scene13', 'scene13_5'] },
   { id: 14, title: 'QTE ESCAPE', caption: 'Escape stage', wall: 'north', theme: 'escape', kind: 'trilobite', sceneKeys: [] },

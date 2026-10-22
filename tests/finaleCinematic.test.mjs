@@ -44,14 +44,14 @@ before(async () => {
     server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom',
     optimizeDeps: { noDiscovery: true, include: [] },
   });
-  choreography = await server.ssrLoadModule('/scripts/finaleChoreography.ts');
-  ({ createFinaleDirector, shouldPauseFinale } = await server.ssrLoadModule('/scripts/finaleDirector.ts'));
-  ({ createFinaleMech } = await server.ssrLoadModule('/helpers/scene/finaleMechs.ts'));
-  ({ createFinaleSite } = await server.ssrLoadModule('/helpers/scene/finaleSite.ts'));
-  ({ createFinaleAftermath } = await server.ssrLoadModule('/helpers/scene/finaleAftermath.ts'));
-  ({ createFinaleCamera } = await server.ssrLoadModule('/helpers/scene/finaleCinematography.ts'));
+  choreography = await server.ssrLoadModule('/scripts/global/finaleChoreography.ts');
+  ({ createFinaleDirector, shouldPauseFinale } = await server.ssrLoadModule('/scripts/global/finaleDirector.ts'));
+  ({ createFinaleMech } = await server.ssrLoadModule('/scripts/level-3/finaleMechs.ts'));
+  ({ createFinaleSite } = await server.ssrLoadModule('/scripts/level-3/finaleSite.ts'));
+  ({ createFinaleAftermath } = await server.ssrLoadModule('/scripts/level-3/finaleAftermath.ts'));
+  ({ createFinaleCamera } = await server.ssrLoadModule('/scripts/level-3/finaleCinematography.ts'));
   ({ prepareSceneRendering } = await server.ssrLoadModule('/core/renderer.ts'));
-  world = await server.ssrLoadModule('/helpers/scene/finaleWorld.ts');
+  world = await server.ssrLoadModule('/scripts/level-3/finaleWorld.ts');
 });
 
 after(async () => {
@@ -86,6 +86,29 @@ test('visible cinematics autoplay without canvas focus but deliberate and hidden
   for (const phase of ['ground', 'space']) {
     assert.equal(shouldPauseFinale(phase, { menuPaused: false, hidden: false, blurred: true }), true);
   }
+});
+
+test('each student confession has a complete reveal shot before Brondon answers them', () => {
+  const { FINALE_REVEAL, STUDENT_TIMELINE, activeStudent } = choreography;
+  assert.equal(STUDENT_TIMELINE.length, 5);
+  assert.equal(STUDENT_TIMELINE[0].reveal.start, FINALE_REVEAL.studentStart);
+  assert.equal(STUDENT_TIMELINE.at(-1).reveal.end, FINALE_REVEAL.studentEnd);
+  STUDENT_TIMELINE.forEach((student, index) => {
+    assert.ok(student.reveal.end - student.reveal.start >= 5);
+    assert.equal(activeStudent((student.reveal.start + student.reveal.end) / 2, 'reveal'), index);
+    if (index > 0) assert.equal(student.reveal.start, STUDENT_TIMELINE[index - 1].reveal.end);
+  });
+  assert.ok(FINALE_REVEAL.end - FINALE_REVEAL.studentEnd >= 25);
+
+  const director = createFinaleDirector('reveal');
+  director.assetsLoaded();
+  let elapsed = 0;
+  while (director.getState().phase === 'reveal' && elapsed < FINALE_REVEAL.end + 1) {
+    director.update(1 / 60);
+    elapsed += 1 / 60;
+  }
+  assert.equal(director.getState().phase, 'enemyTransform');
+  assert.ok(Math.abs(elapsed - FINALE_REVEAL.end) <= 1 / 60 + 1e-7);
 });
 
 test('the visible mechs keep body clearance, including the vanishing approach', () => {

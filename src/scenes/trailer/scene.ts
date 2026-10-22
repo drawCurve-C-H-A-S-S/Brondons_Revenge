@@ -1,5 +1,5 @@
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
-import { createPlayer } from '../../scripts/player.js';
+import { createPlayer } from '../../scripts/player/player.js';
 import { CHAIR_TRAILER_DURATION, createChairHorizon } from './chairHorizon.js';
 
 export function createScene({ onFinished }: { onFinished: () => void }) {

@@ -54,7 +54,7 @@ test('scene 1 uses the shared hold-Enter skip and has no instant click handler',
 
 test('prologue and wake-up skip controls share Enter-only progress, pause reset, and cleanup', async () => {
   const prologue = await readFile(new URL('../src/scenes/prologue/prologue_scene_1.ts', import.meta.url), 'utf8');
-  const wake = await readFile(new URL('../src/scenes/level 1/scene2.ts', import.meta.url), 'utf8');
+  const wake = await readFile(new URL('../src/scenes/legacy scenes/scene2.ts', import.meta.url), 'utf8');
   assert.match(prologue, /createHoldToSkip\(\{ button: skipButton, onSkip: finishCutscene/);
   assert.match(prologue, /skipHold\.update\(frame\)/);
   assert.match(prologue, /setMenuPaused:[\s\S]*skipHold\.reset\(\)/);
@@ -290,7 +290,7 @@ test('shared cinematic skips require continuous Enter and reset on release, blur
     optimizeDeps: { noDiscovery: true, include: [] } });
   const restore = stageBrowser(); let hold;
   try {
-    const { createHoldToSkip } = await server.ssrLoadModule('/helpers/animation/holdToSkip.ts');
+    const { createHoldToSkip } = await server.ssrLoadModule('/scripts/global/holdToSkip.ts');
     const button = document.createElement('button'); button.classList.remove('hidden');
     let skipped = 0, paused = false;
     hold = createHoldToSkip({ button, onSkip: () => skipped++, isPaused: () => paused });

@@ -5,7 +5,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import toiletUrl from '../../assets/models/toilet (1).glb';
 import toiletPaperUrl from '../../assets/models/toilet_paper.glb';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
-import { createShipInteriorMaterials } from '../../helpers/scene/shipInterior.js';
+import { createShipInteriorMaterials } from '../../scripts/global/shipInterior.js';
 import { QUARTERS, CABINS, type QuartersProgress } from './layout.js';
 import { comicNameTexture } from './furnishings.js';
 import { createLightsaber } from '../../scripts/items/createLightsaber.js';

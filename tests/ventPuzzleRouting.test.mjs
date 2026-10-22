@@ -6,9 +6,9 @@ let server, portals, createState, applyCamera;
 const scenes = {};
 before(async () => {
   server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
-  for (const id of [8, 9, 10, 11, 12, 13]) scenes[id] = (await server.ssrLoadModule(`/scenes/level 1/scene${id}.ts`)).createScene;
-  portals = (await server.ssrLoadModule('/scenes/level 1/scene12.ts')).PASSAGE_PORTALS;
-  createState = (await server.ssrLoadModule('/scripts/cargoPuzzle.ts')).createCargoPuzzleState;
+  for (const id of [8, 9, 10, 11, 12, 13]) scenes[id] = (await server.ssrLoadModule(`/scenes/${id === 13 ? 'level 1 boss stage' : 'legacy scenes'}/scene${id}.ts`)).createScene;
+  portals = (await server.ssrLoadModule('/scenes/legacy scenes/scene12.ts')).PASSAGE_PORTALS;
+  createState = (await server.ssrLoadModule('/scripts/global/cargoPuzzle.ts')).createCargoPuzzleState;
   applyCamera = (await server.ssrLoadModule('/core/camera.ts')).applyTraversalCamera;
 });
 after(async () => server?.close());

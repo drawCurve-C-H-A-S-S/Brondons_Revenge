@@ -13,10 +13,10 @@ before(async () => {
     server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom',
     optimizeDeps: { noDiscovery: true, include: [] },
   });
-  ({ createEarthTextures, preloadEarthTextures, createEarthGroup, updateEarthGroup } = await server.ssrLoadModule('/scripts/earthTexture.ts'));
+  ({ createEarthTextures, preloadEarthTextures, createEarthGroup, updateEarthGroup } = await server.ssrLoadModule('/scripts/global/earthTexture.ts'));
   ({ addPlanetBackdrop, animatePlanetBackdrop } = await server.ssrLoadModule('/scripts/items/createEscapeShip.ts'));
-  ({ createFinaleWorld } = await server.ssrLoadModule('/helpers/scene/finaleWorld.ts'));
-  ({ disposeRoom } = await server.ssrLoadModule('/helpers/scene/shipRoom.ts'));
+  ({ createFinaleWorld } = await server.ssrLoadModule('/scripts/level-3/finaleWorld.ts'));
+  ({ disposeRoom } = await server.ssrLoadModule('/scripts/global/shipRoom.ts'));
 });
 
 after(async () => server?.close());
@@ -219,7 +219,7 @@ test('disposing one backdrop leaves the next scene with independently owned text
 });
 
 test('every existing Earth scene uses the shared renderer and its paused update path', async () => {
-  for (const path of ['scenes/level 1/scene14.ts', 'scenes/level 2/scene15.ts', 'scenes/level 2/scene16.ts']) {
+  for (const path of ['scenes/level 1 boss stage/scene14.ts', 'scenes/level 2/scene15.ts', 'scenes/level 2/scene16.ts']) {
     const source = await readFile(new URL(`../src/${path}`, import.meta.url), 'utf8');
     assert.match(source, /animatePlanetBackdrop.*from.*createEscapeShip/);
     assert.match(source, /animatePlanetBackdrop\(planet, dt\)/);

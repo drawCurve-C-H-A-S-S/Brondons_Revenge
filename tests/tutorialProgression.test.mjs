@@ -13,17 +13,17 @@ before(async () => {
       resolveId: id => id === 'virtual:tutorial-deps' ? '\0tutorial-deps' : null,
       load: id => id === '\0tutorial-deps' ? "export * as THREE from 'three'; export * as CANNON from 'cannon-es';" : null }] });
   ({ THREE, CANNON } = await server.ssrLoadModule('virtual:tutorial-deps'));
-  ({ PistolController, traceShot } = await server.ssrLoadModule('/scripts/pistol.ts'));
-  ({ CrowbarController } = await server.ssrLoadModule('/scripts/crowbar.ts'));
-  ({ LightsaberController } = await server.ssrLoadModule('/scripts/lightsaber.ts'));
-  ({ MeleeSwing } = await server.ssrLoadModule('/scripts/melee.ts'));
-  touchControls = await server.ssrLoadModule('/scripts/touchControls.ts');
-  ({ GogglesController } = await server.ssrLoadModule('/scripts/goggles.ts'));
-  ({ createBreakables } = await server.ssrLoadModule('/scripts/breakables.ts'));
-  ({ createRewardChest } = await server.ssrLoadModule('/scripts/rewardChest.ts'));
-  ({ createPlayer } = await server.ssrLoadModule('/scripts/player.ts'));
+  ({ PistolController, traceShot } = await server.ssrLoadModule('/scripts/weapons/pistol.ts'));
+  ({ CrowbarController } = await server.ssrLoadModule('/scripts/weapons/crowbar.ts'));
+  ({ LightsaberController } = await server.ssrLoadModule('/scripts/weapons/lightsaber.ts'));
+  ({ MeleeSwing } = await server.ssrLoadModule('/scripts/weapons/melee.ts'));
+  touchControls = await server.ssrLoadModule('/scripts/player/touchControls.ts');
+  ({ GogglesController } = await server.ssrLoadModule('/scripts/player/goggles.ts'));
+  ({ createBreakables } = await server.ssrLoadModule('/scripts/global/breakables.ts'));
+  ({ createRewardChest } = await server.ssrLoadModule('/scripts/global/rewardChest.ts'));
+  ({ createPlayer } = await server.ssrLoadModule('/scripts/player/player.ts'));
   ({ createScenePhysics } = await server.ssrLoadModule('/helpers/physics/scenePhysics.ts'));
-  for (const id of [3, 5, 6, 7]) scenes[id] = (await server.ssrLoadModule(`/scenes/level 1/scene${id}.ts`)).createScene;
+  for (const id of [3, 5, 6, 7]) scenes[id] = (await server.ssrLoadModule(`/scenes/legacy scenes/scene${id}.ts`)).createScene;
   const base = new URL('../src/assets/models/Tools/', import.meta.url);
   chestJSON = JSON.parse(await readFile(new URL('Prop_Chest.gltf', base), 'utf8'));
   for (const buffer of chestJSON.buffers) buffer.uri = `data:application/octet-stream;base64,${(await readFile(new URL(buffer.uri, base))).toString('base64')}`;

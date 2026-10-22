@@ -3,12 +3,12 @@ import { MODEL_ASSET_URLS, modelPreloadTasks } from './loader.js';
 import { LOADING_IMAGE_URLS } from './chapters.js';
 import { MUSIC_URLS } from '../helpers/audio/gameMusic.js';
 import { preloadMusic } from '../helpers/audio/bufferedMusic.js';
-import { CORRIDOR_FOOTAGE, preloadCorridorFootage } from '../helpers/scene/corridorMonitor.js';
-import { preloadEarthTextures } from '../scripts/earthTexture.js';
+import { CORRIDOR_FOOTAGE, preloadCorridorFootage } from '../scripts/global/corridorMonitor.js';
+import { preloadEarthTextures } from '../scripts/global/earthTexture.js';
 import earthTextureUrl from '../assets/planets/earth-maps.rgba.bin?url';
-import { preloadComicEffectArtwork } from '../helpers/scene/comicEffects.js';
+import { preloadComicEffectArtwork } from '../scripts/global/comicEffects.js';
 import { preloadEscapeShipGeometry } from '../scripts/items/createEscapeShip.js';
-import { preloadJungleTextures, preloadPhotoBark, PHOTO_BARK_URLS } from '../helpers/scene/jungleTextures.js';
+import { preloadJungleTextures, preloadPhotoBark, PHOTO_BARK_URLS } from '../scripts/level-3/jungleTextures.js';
 import shieldPowerupUrl from '../assets/power ups/Shield_powerup.png?url';
 import { COMBAT_ANIMATION_URLS, preloadCombatAnimations } from './combatAnimations.js';
 

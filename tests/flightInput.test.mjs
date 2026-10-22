@@ -12,7 +12,7 @@ before(async () => {
     }] });
   ({ THREE } = await server.ssrLoadModule('virtual:flight-input-deps'));
   ({ createScene, OPENING_INTERCEPTOR_HIT_RADIUS: hitRadius, FLIGHT_OPENING_RULES: openingRules } = await server.ssrLoadModule('/scenes/level 2/scene15.ts'));
-  ({ FLIGHT_VERSUS_DURATION: versusDuration } = await server.ssrLoadModule('/helpers/scene/flightVersus.ts'));
+  ({ FLIGHT_VERSUS_DURATION: versusDuration } = await server.ssrLoadModule('/scripts/level-2/flightVersus.ts'));
 });
 after(async () => server?.close());
 

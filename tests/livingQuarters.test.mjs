@@ -20,10 +20,10 @@ before(async () => {
   ({ createCabinFurnishings } = await server.ssrLoadModule('/scenes/living quarters/furnishings.ts'));
   ({ getMapRoomContents, createShipMapProgress, SHIP_MAP_LAYOUT } = await server.ssrLoadModule('/core/shipMap.ts'));
   ({ DECK_ONE_MAP } = await server.ssrLoadModule('/scenes/level 1 stage 1/storageRoom.ts'));
-  ({ roomPoint } = await server.ssrLoadModule('/helpers/scene/shipLayout.ts'));
+  ({ roomPoint } = await server.ssrLoadModule('/scripts/global/shipLayout.ts'));
   ({ createPrologueFlashbacks } = await server.ssrLoadModule('/scenes/prologue/prologueFlashbacks.ts'));
-  ({ PistolController } = await server.ssrLoadModule('/scripts/pistol.ts'));
-  ({ createPlayer } = await server.ssrLoadModule('/scripts/player.ts'));
+  ({ PistolController } = await server.ssrLoadModule('/scripts/weapons/pistol.ts'));
+  ({ createPlayer } = await server.ssrLoadModule('/scripts/player/player.ts'));
   ({ createScenePhysics } = await server.ssrLoadModule('/helpers/physics/scenePhysics.ts'));
 });
 after(async () => server?.close());

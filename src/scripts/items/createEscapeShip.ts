@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { createEarthTextures, createEarthGroup, updateEarthGroup } from '../earthTexture.js';
-import { disposeRoom } from '../../helpers/scene/shipRoom.js';
-import { createStarfield, type Starfield } from '../../helpers/scene/starfield.js';
+import { createEarthTextures, createEarthGroup, updateEarthGroup } from '../global/earthTexture.js';
+import { disposeRoom } from '../global/shipRoom.js';
+import { createStarfield, type Starfield } from '../global/starfield.js';
 
 const cockpitGeometry = new Map<string, THREE.BufferGeometry>();
 

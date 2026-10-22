@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { ShipRoom, ShipMapBlock } from '../../helpers/scene/shipLayout.js';
+import type { ShipRoom, ShipMapBlock } from '../../scripts/global/shipLayout.js';
 import type { ShipMapLayout } from '../../core/shipMap.js';
 
 export type CabinId = 'brondon' | 'branden' | 'brendan'

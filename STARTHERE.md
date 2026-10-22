@@ -7,8 +7,8 @@ This document explains how the test project is structured and how to add new sce
 `main.ts` is the entry point. It:
 
 1. Creates the renderer and appends its canvas to `document.body`.
-2. Loads the shared UAL character, then creates Scene 1 (intro/cutscene).
-3. Switches to Scene 2 (medical bay) and Scene 3 (passageway) through scene factories.
+2. Creates Scene 1 (Main Menu), playing the opening cutscene only on initial load.
+3. Prepares the shared character and switches to the prison prologue when Story Mode starts.
 4. Calls the active scene's `updatePhysics(dt)`, updates character animation/view, then renders.
 
 Third person is the default. V or the HUD button switches views; first person hides the character, including in mirrors. The character model persists across scenes; each playable scene owns its own player controller and physics world.
@@ -17,11 +17,11 @@ Everything flows from `main.ts`. If you need to add a new system (physics, audio
 
 ## How to create a new scene
 
-Create a `createScene()` factory in the appropriate folder under `src/scenes/`: `level 1/` holds scenes 2–14, `level 2/` holds scenes 15, 15.5 (`scene15-5.ts`), and 16, and `level 3/` holds scenes 17–19 plus the final-boss scene 21. Scene 1 remains at the root. The restored finale progression runs from scene 16 through scenes 17–19, then enters scene 21 from scene 19's facility door. Use this minimal playable-scene pattern from a level folder (not the old `build()` / `Player` class APIs):
+Create a `createScene()` factory in the appropriate folder under `src/scenes/`: `legacy scenes/` holds scenes 2–12, `level 1 stage 1/` and `level 1 stage 2/` hold the stealth and surveillance stages, `level 1 boss stage/` holds scenes 13–14, `level 2/` holds flight and crash scenes, and `level 3/` holds approach 17, facility 20 and final boss 21. Scene 1 (Main Menu) remains at the root. Use this minimal playable-scene pattern from a level folder (not the old `build()` / `Player` class APIs):
 
 ```typescript
 import * as THREE from 'three';
-import { createPlayer } from '../../scripts/player.js';
+import { createPlayer } from '../../scripts/player/player.js';
 import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
 
 export function createScene() {
@@ -59,11 +59,19 @@ export function createScene() {
 }
 ```
 
-Wire the factory into `main.ts` using the Scene 2/3 transition pattern: dispose the previous scene, select the new camera/update callback/player, and reparent the shared character. Do not create another render loop or another shared character. Scene 1 is a cutscene, not a player-physics template.
+Wire the factory into `main.ts` using the existing scene transition pattern: dispose the previous scene, select the new camera/update callback/player, and reparent the shared character. Do not create another render loop or another shared character. Scene 1 is the Main Menu with an opening cutscene, not a player-physics template.
+
+TypeScript animation helpers live alongside their consumers in `src/scripts/global/`,
+`src/scripts/player/` and `src/scripts/npc/`; the JavaScript animation managers
+remain in `src/helpers/animation/`. GLSL vertex and fragment files live under
+`src/shaders/vert/` and `src/shaders/frag/`, with shared chunks at the shader root.
+Use `three/addons/` consistently for Three.js addon imports. Vite pre-bundles
+the game and `computer-preview.html`; character creation remains on demand,
+while its shared manager module is statically imported.
 
 ## How to add a player controller
 
-`createPlayer()` in `src/scripts/player.ts` owns input, a nonrotating Cannon sphere, support detection, and the base camera. `characterManager.ts` owns the separate animated GLB. Never move the physics body from an animation or camera script.
+`createPlayer()` in `src/scripts/player/player.ts` owns input, a nonrotating Cannon sphere, support detection, and the base camera. `characterManager.ts` owns the separate animated GLB. Never move the physics body from an animation or camera script.
 
 ## Physics standard for every new playable scene
 

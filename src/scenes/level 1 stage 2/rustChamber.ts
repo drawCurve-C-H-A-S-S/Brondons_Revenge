@@ -2,16 +2,16 @@ import * as THREE from 'three';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { loadToolModel } from '../../core/loader.js';
 import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
-import { createSlidingPortal, disposeRoom, roomBox } from '../../helpers/scene/shipRoom.js';
-import { createShipInteriorMaterials, createShipTerminal } from '../../helpers/scene/shipInterior.js';
-import { createRecoveryPickup } from '../../helpers/scene/recoveryPickup.js';
-import { createCameraVisitUI } from '../../helpers/scene/cameraVisit.js';
-import { createPlayer, type PlayerTransitionState } from '../../scripts/player.js';
-import { teleportPlayer } from '../../scripts/teleportationDevice.js';
-import { createBreakables, type Breakable } from '../../scripts/breakables.js';
-import { traceShot } from '../../scripts/pistol.js';
-import { createRewardChest } from '../../scripts/rewardChest.js';
-import { inputHint } from '../../scripts/gamepadInput.js';
+import { createSlidingPortal, disposeRoom, roomBox } from '../../scripts/global/shipRoom.js';
+import { createShipInteriorMaterials, createShipTerminal } from '../../scripts/global/shipInterior.js';
+import { createRecoveryPickup } from '../../scripts/global/recoveryPickup.js';
+import { createCameraVisitUI } from '../../scripts/global/cameraVisit.js';
+import { createPlayer, type PlayerTransitionState } from '../../scripts/player/player.js';
+import { teleportPlayer } from '../../scripts/global/teleportationDevice.js';
+import { createBreakables, type Breakable } from '../../scripts/global/breakables.js';
+import { traceShot } from '../../scripts/weapons/pistol.js';
+import { createRewardChest } from '../../scripts/global/rewardChest.js';
+import { inputHint } from '../../scripts/player/gamepadInput.js';
 import { cameraVisitMap, type CameraRoomProgress } from './stageTwoLayout.js';
 
 interface RustChamberOptions {

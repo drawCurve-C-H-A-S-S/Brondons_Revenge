@@ -1,40 +1,40 @@
 import * as THREE from 'three';
 import { prepareSceneRendering } from '../../core/renderer.js';
-import { SPECIAL_MOVE_NAMES, isNamedSpecialMove } from '../../scripts/finaleChoreography.js';
+import { SPECIAL_MOVE_NAMES, isNamedSpecialMove } from '../../scripts/global/finaleChoreography.js';
 import { finaleMusicTrack } from '../../helpers/audio/gameMusic.js';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
-import { createFinaleStudents, SUDOERS_5 } from '../../helpers/scene/finaleActors.js';
-import { createFinaleCamera } from '../../helpers/scene/finaleCinematography.js';
-import { createFinaleAftermath } from '../../helpers/scene/finaleAftermath.js';
-import { createBladeTrail, createFinaleEffects } from '../../helpers/scene/finaleEffects.js';
-import { createFinaleMech, type MechFactory } from '../../helpers/scene/finaleMechs.js';
-import { createFinalePresentation } from '../../helpers/scene/finalePresentation.js';
-import { createFinaleRenderer } from '../../helpers/scene/finaleRenderer.js';
-import { createFinaleShipTransformation } from '../../helpers/scene/finaleShipTransformation.js';
-import { createMothership } from '../../helpers/scene/mothership.js';
-import { createHoldToSkip } from '../../helpers/animation/holdToSkip.js';
-import { createBeamMaterial, FRAME_COLORS } from '../../helpers/scene/finaleMaterials.js';
-import { createHangarVersus } from '../../helpers/scene/hangarVersus.js';
+import { createFinaleStudents, SUDOERS_5 } from '../../scripts/level-3/finaleActors.js';
+import { createFinaleCamera } from '../../scripts/level-3/finaleCinematography.js';
+import { createFinaleAftermath } from '../../scripts/level-3/finaleAftermath.js';
+import { createBladeTrail, createFinaleEffects } from '../../scripts/level-3/finaleEffects.js';
+import { createFinaleMech, type MechFactory } from '../../scripts/level-3/finaleMechs.js';
+import { createFinalePresentation } from '../../scripts/level-3/finalePresentation.js';
+import { createFinaleRenderer } from '../../scripts/level-3/finaleRenderer.js';
+import { createFinaleShipTransformation } from '../../scripts/level-3/finaleShipTransformation.js';
+import { createMothership } from '../../scripts/global/mothership.js';
+import { createHoldToSkip } from '../../scripts/global/holdToSkip.js';
+import { createBeamMaterial, FRAME_COLORS } from '../../scripts/level-3/finaleMaterials.js';
+import { createHangarVersus } from '../../scripts/global/hangarVersus.js';
 import {
   FINALE_DECK_Y, FINALE_ROOFTOP, FINALE_BATTLE_YAW, PLANET_CENTER, PLANET_RADIUS, SPACE_ALTITUDE, createFinaleWorld, finaleBattlePoint,
-} from '../../helpers/scene/finaleWorld.js';
+} from '../../scripts/level-3/finaleWorld.js';
 import { loadSubjectModel } from '../../core/loader.js';
-import { RESCUE_SITE, type RescueArrival } from '../../helpers/scene/rescueSite.js';
-import { createFinaleSite } from '../../helpers/scene/finaleSite.js';
-import { disposeComicEffects, emitComicEffect } from '../../helpers/scene/comicEffects.js';
-import { createFinaleDirector, FINALE_DURATION, shouldPauseFinale, type FinaleCheckpoint, type FinalePhase } from '../../scripts/finaleDirector.js';
-import { DUEL, type MechAction, type DuelProjectileKind, type BladeDamageTrace } from '../../scripts/mechDuel.js';
+import { RESCUE_SITE, type RescueArrival } from '../../scripts/global/rescueSite.js';
+import { createFinaleSite } from '../../scripts/level-3/finaleSite.js';
+import { disposeComicEffects, emitComicEffect } from '../../scripts/global/comicEffects.js';
+import { createFinaleDirector, FINALE_DURATION, shouldPauseFinale, type FinaleCheckpoint, type FinalePhase } from '../../scripts/global/finaleDirector.js';
+import { DUEL, type MechAction, type DuelProjectileKind, type BladeDamageTrace } from '../../scripts/npc/mechDuel.js';
 import {
-  FINALE_START_X, STUDENT_TIMELINE, HERO_TRANSFORM, PLANET_RUPTURE, RIFLE_SEQUENCE,
+  FINALE_START_X, FINALE_REVEAL, STUDENT_TIMELINE, HERO_TRANSFORM, PLANET_RUPTURE, RIFLE_SEQUENCE,
   HERO_ULTIMATE, ENEMY_VERDICT, ENEMY_ORBITAL_CUT, MELEE_STRIKES, FINISHER_EXECUTION, FINISHER_RIFLE,
   activeStudent, sampleStudentBoarding, sampleFinisherSequence, samplePlanetAftermath, isMeleeStrike, sampleMeleeBlade,
   finisherActionTime, cinematicProgress, sampleRooftopNight, DONUS_RETURN, sampleDodgeArc, sampleMothershipArrival,
   type FinisherBeat,
-} from '../../scripts/finaleChoreography.js';
-import type { MechPoseName } from '../../scripts/mechAnimation.js';
-import { createPlayer } from '../../scripts/player.js';
-import type { CinematicPose, loadCharacter } from '../../scripts/characterManager.js';
-import { isControllerActive, getControllerMovement } from '../../scripts/gamepadInput.js';
+} from '../../scripts/global/finaleChoreography.js';
+import type { MechPoseName } from '../../scripts/npc/mechAnimation.js';
+import { createPlayer } from '../../scripts/player/player.js';
+import type { CinematicPose, loadCharacter } from '../../scripts/player/characterManager.js';
+import { isControllerActive, getControllerMovement } from '../../scripts/player/gamepadInput.js';
 
 interface FinaleOptions {
   entryState?: RescueArrival;
@@ -57,38 +57,55 @@ const summitPoint = (x: number, y = 0, z = 0) =>
   vector(FINALE_ROOFTOP.x + x, FINALE_DECK_Y + y, FINALE_ROOFTOP.z + z);
 const COMBAT_KEYS = new Set([
   'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyS', 'KeyR', 'Space', 'KeyJ', 'KeyF', 'KeyE',
-  'ArrowUp', 'ArrowDown', 'KeyC', 'KeyG',
+  'ArrowUp', 'ArrowDown', 'KeyC',
 ]);
 const ACTION_KEYS: Partial<Record<string, MechAction>> = {
-  KeyJ: 'slash', KeyF: 'missiles', Space: 'dash', KeyE: 'overdrive', KeyC: 'slide', KeyG: 'toggleWeapons',
+  KeyJ: 'slash', KeyF: 'missiles', Space: 'dash', KeyE: 'overdrive', KeyC: 'slide',
 };
 
 const LINES: Partial<Record<FinalePhase, { start: number; end: number; speaker: string; text: string }[]>> = {
   reveal: [
-    { start: 0, end: 3.1, speaker: 'BRONDON', text: 'Top floor. The command signal ends here.' },
-    { start: 3.1, end: 6.4, speaker: 'BRONDON', text: 'Those are the five student signatures.' },
-    { start: 6.4, end: 8.2, speaker: 'BRONDON', text: 'You corrupted Donus. You planned this all along?' },
+    { start: 0, end: 3.4, speaker: 'BRONDON', text: 'I came all this way to hear the truth from you.' },
+    { start: 3.4, end: 6.4, speaker: 'BRONDON',
+      text: 'Look at me and tell me what you did to Branden and Brendan.' },
+    { start: 6.4, end: FINALE_REVEAL.studentStart, speaker: 'BRONDON',
+      text: "Tell me I didn't teach you this." },
     ...[
-      'You followed the signal exactly where we wanted.',
-      'We taught Donus to fear the people he meant to protect.',
-      'His corruption was only the first test.',
-      'Five student minds. One perfect command.',
-      'We never needed the facility. Only its key.',
+      "You taught us to question every limit, Professor. Donus's safeguards were simply the first ones we broke.",
+      "Branden let us perfect neural control, and Brendan showed us how often a mind could be broken and made to begin again.",
+      'Prime never saw us in that laboratory. We gave it the memory and let your guilt turn it into truth.',
+      'Every lock, keycard, and signal was placed for you. You did not find us, Professor. We guided you here.',
+      'Branden and Brendan were rehearsals, Donus was our alibi, and you were the only result that mattered.',
     ].map((text, i) => ({ ...STUDENT_TIMELINE[i].reveal, speaker: SUDOERS_5[i].name, text })),
-    { start: 21.2, end: 24, speaker: 'SUDOERS 5', text: 'Donus was only the beginning.' },
-    { start: 24, end: 27, speaker: 'SUDOERS 5', text: 'Five minds. One verdict. Your last.' },
+    { start: FINALE_REVEAL.studentEnd, end: FINALE_REVEAL.mentorEnd,
+      speaker: 'BRONDON', text: 'All those years, I thought I was teaching you to make the world better.' },
+    { start: FINALE_REVEAL.mentorEnd, end: FINALE_REVEAL.correctionEnd,
+      speaker: SUDOERS_5[4].name, text: 'You taught us to make it obey.' },
+    { start: FINALE_REVEAL.correctionEnd, end: FINALE_REVEAL.brandenEnd,
+      speaker: 'BRONDON', text: 'Branden died believing there was still something in you worth saving.' },
+    { start: FINALE_REVEAL.brandenEnd, end: FINALE_REVEAL.mockeryEnd,
+      speaker: SUDOERS_5[4].name, text: 'You crossed a world for the same mistake.' },
+    { start: FINALE_REVEAL.mockeryEnd, end: FINALE_REVEAL.betrayalEnd,
+      speaker: 'BRONDON', text: 'You used my trust, tortured my friends, and rewrote Prime just to put a leash around me.' },
+    { start: FINALE_REVEAL.betrayalEnd, end: FINALE_REVEAL.recognitionEnd,
+      speaker: 'BRONDON', text: 'You wanted your mentor to see what you became. I see you.' },
+    { start: FINALE_REVEAL.recognitionEnd, end: FINALE_REVEAL.renounceEnd,
+      speaker: 'BRONDON', text: 'And I am ashamed I ever called you my students.' },
+    { start: FINALE_REVEAL.renounceEnd, end: FINALE_REVEAL.challengeEnd,
+      speaker: 'SUDOERS 5', text: 'Then give us one final lesson.' },
+    { start: FINALE_REVEAL.challengeEnd, end: FINALE_REVEAL.end,
+      speaker: 'BRONDON', text: 'Gladly.' },
   ],
   enemyTransform: [
-    { start: 0, end: 3.2, speaker: 'PRIME', text: 'Brondon, behind me! The roof is coming down!' },
-    { start: 3.2, end: 5.4, speaker: 'SUDOERS 5', text: 'Behold the Final Verdict.' },
-    ...[
-      'Every escape route ends here.',
-      'Five cores. One flawless machine.',
-      'Donus was proof that our design works.',
-      'Five wills. One verdict.',
-      'Erase him.',
-    ].map((text, i) => ({ ...STUDENT_TIMELINE[i].boarding, speaker: SUDOERS_5[i].name, text })),
-    { start: 17, end: 19.2, speaker: 'SUDOERS 5', text: 'Final Verdict. All five cores online.' },
+    { start: 0, end: 3.2, speaker: 'PRIME', text: "Brondon—move! They're tearing the roof open!" },
+    { start: 3.2, end: 5.4, speaker: SUDOERS_5[4].name, text: 'You wanted us face to face. Look up.' },
+    { start: 5.4, end: 9.3, speaker: 'SUDOERS 5',
+      text: 'You taught us every machine has a weakness, Professor. We learned that people do too.' },
+    { start: 9.3, end: 13.3, speaker: 'SUDOERS 5',
+      text: "Branden gave us control, Brendan gave us endurance, and Donus gave us reach." },
+    { start: 13.3, end: 17, speaker: 'SUDOERS 5',
+      text: 'Now your final lesson gives us a body.' },
+    { start: 17, end: 19.2, speaker: 'SUDOERS 5', text: 'Five minds. One Final Verdict.' },
   ],
   heroTransform: [
     { start: 0, end: 2.6, speaker: 'PRIME', text: 'They have five cores. We have one chance.' },
@@ -191,7 +208,6 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onVi
   const cameraRig = createFinaleCamera(camera, reducedMotion);
   const director = createFinaleDirector(checkpoint?.stage ?? 'reveal', {
     bossImmunityAvailable: entryState?.bossImmunityCollected, bossImmunityUsed: checkpoint?.bossImmunityUsed,
-    weaponsEquipped: checkpoint?.weaponsEquipped,
   });
   const presentation = createFinalePresentation((code, pressed) => handleInput(code, pressed), retryCheckpoint);
   let postProcessing: ReturnType<typeof createFinaleRenderer> | null = null;
@@ -385,9 +401,13 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onVi
         student.root.position.copy(summitPoint(spread, 0, -8.2 + approach * 4.7));
         student.root.rotation.y = 0;
         const entering = phaseTime < 7.1 + i * 0.12;
-        const speaking = activeStudent(phaseTime, 'reveal') === i;
-        const mode = entering ? 'walk' : phaseTime >= 21.2 ? 'pose' : speaking ? 'talk' : 'idle';
-        students.animate(i, mode, mode === 'pose' ? phaseTime - 21.2 : phaseTime);
+        const speaking = activeStudent(phaseTime, 'reveal') === i
+          || i === 4 && (
+            phaseTime >= FINALE_REVEAL.mentorEnd && phaseTime < FINALE_REVEAL.correctionEnd
+            || phaseTime >= FINALE_REVEAL.brandenEnd && phaseTime < FINALE_REVEAL.mockeryEnd
+          );
+        const mode = entering ? 'walk' : phaseTime >= FINALE_REVEAL.studentEnd && !speaking ? 'pose' : speaking ? 'talk' : 'idle';
+        students.animate(i, mode, mode === 'pose' ? phaseTime - FINALE_REVEAL.studentEnd : phaseTime);
         world.lightStudent(i, student.root.position);
       } else if (phase === 'enemyTransform') {
         const boarding = sampleStudentBoarding(i, phaseTime);
@@ -597,7 +617,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onVi
     else if (phase === 'enemyTransform') presentation.objective('FINAL VERDICT / FIVE CORES, ONE FRAME', 'Sudoers 5 is combining their power');
     else if (phase === 'heroTransform') presentation.objective('PRIME FRAME / SHUTTLE RECALL', 'The shuttle is flying in from the jungle');
     else if (phase === 'versus') presentation.objective('FINAL CHAPTER / MATCHUP', 'Prime Frame versus Final Verdict');
-    else if (phase === 'ground') presentation.objective('THE SUMMIT', 'Direction + J selects the sword cut. G stows weapons for melee. C slides.');
+    else if (phase === 'ground') presentation.objective('THE SUMMIT', 'A / D move · J swings · Space dodges · C slide-tackles');
     else if (phase === 'rupture') presentation.objective('PLANETARY COLLAPSE / ESCAPE', 'Boost with Prime. The fight is not over.');
     else if (phase === 'space') presentation.objective('LAST ORBIT', 'W / S rise and dive  ·  Find the opening in the Final Verdict');
     else if (phase === 'finisher') presentation.objective('LAST LIGHT / THE FINAL VERDICT', '');
@@ -606,7 +626,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onVi
     else if (phase === 'credits') presentation.objective('BRONDON’S REVENGE', 'A final light remains');
     else if (phase === 'done') presentation.objective('THE END', 'Thank you for playing');
 
-    if (phase === 'reveal' && phaseTime >= 23) presentation.title('SUDOERS 5');
+    if (phase === 'reveal' && phaseTime >= FINALE_REVEAL.renounceEnd) presentation.title('SUDOERS 5');
     else if (phase === 'enemyTransform' && phaseTime >= 17.6) presentation.title('FINAL VERDICT');
     else if (phase === 'heroTransform' && phaseTime >= 14.2) presentation.title('PRIME FRAME');
     else if (phase === 'rupture' && phaseTime >= PLANET_RUPTURE.raise && phaseTime < PLANET_RUPTURE.release + 0.4) presentation.title('PLANET BREAKER');
@@ -702,7 +722,6 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onVi
       || phase === 'victory' || phase === 'credits' || phase === 'done';
     const duel = director.duel, hero = duel.hero, enemy = duel.enemy;
     const duelState = duel.getState();
-    heroMech.setWeaponsEquipped(duelState.weaponsEquipped);
     const baseY = FINALE_DECK_Y + (reachedSpace ? SPACE_ALTITUDE : 0);
     let heroX = hero.x, heroY = baseY + hero.y, enemyX = enemy.x, enemyY = baseY + enemy.y;
     if (phase === 'enemyTransform' || phase === 'heroTransform') {
@@ -739,6 +758,12 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onVi
       const turn = Math.atan2(Math.sin(yaw - mech.root.rotation.y), Math.cos(yaw - mech.root.rotation.y));
       mech.root.rotation.set(0, combat && animationDelta > 0 ? mech.root.rotation.y + turn * (1 - Math.exp(-animationDelta * 12)) : yaw,
         dodge ? -fighter.facing * dodge.roll : 0);
+      if (combat && fighter.move === 'knockdown') {
+        const down = cinematicProgress(fighter.time, 0, 0.35)
+          * (1 - cinematicProgress(fighter.time, Math.max(0.35, fighter.duration - 0.5), fighter.duration));
+        mech.root.position.y -= down * 2.1;
+        mech.root.rotateZ(-fighter.facing * down * 1.18);
+      }
       mech.setMotion(fighter.vx * fighter.facing, fighter.vy);
     }
     if (endingEntry && (phase === 'defeat' || phase === 'victory' || phase === 'credits' || phase === 'done')) {
@@ -959,10 +984,23 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onVi
   }
 
   function updateHumanPose() {
-    if (lastPhase === 'reveal' && director.getState().phaseTime < 7) {
-      return { clip: 'Walk_Loop', time: director.getState().phaseTime, loop: true } satisfies CinematicPose;
+    const { phaseTime, time } = director.getState();
+    if (lastPhase === 'reveal' && phaseTime < 7) {
+      return { clip: 'Walk_Loop', time: phaseTime, loop: true } satisfies CinematicPose;
     }
-    return { clip: 'Idle_Loop', time: director.getState().time, loop: true } satisfies CinematicPose;
+    if (lastPhase === 'reveal' && phaseTime >= FINALE_REVEAL.studentEnd && phaseTime < FINALE_REVEAL.studentEnd + 2.4) {
+      return { clip: 'Hit_Chest', time: phaseTime - FINALE_REVEAL.studentEnd, duration: 2.4, loop: false,
+        bodyPitch: -0.12 } satisfies CinematicPose;
+    }
+    if (lastPhase === 'reveal' && phaseTime < FINALE_REVEAL.recognitionEnd) {
+      return { clip: 'Idle_Loop', time, loop: true, bodyPitch: -0.16 } satisfies CinematicPose;
+    }
+    if (lastPhase === 'reveal' && phaseTime < FINALE_REVEAL.renounceEnd) {
+      return { clip: 'Idle_Loop', time, loop: true,
+        bodyPitch: THREE.MathUtils.lerp(-0.16, 0,
+          smooth(phaseTime, FINALE_REVEAL.recognitionEnd, FINALE_REVEAL.renounceEnd)) } satisfies CinematicPose;
+    }
+    return { clip: 'Idle_Loop', time, loop: true } satisfies CinematicPose;
   }
 
   function updateEnvironment(phase: FinalePhase, phaseTime: number, time: number) {
@@ -1114,8 +1152,7 @@ export function createScene({ entryState, checkpoint, renderer, onFinished, onVi
       special ? '' : duelState.feedback || (duelState.enemyGuarding ? 'SHIELD RAISED' : duelState.enemyTell === 'orbitalCut' ? 'ECLIPSE REND / DODGE OR PARRY'
         : duelState.enemyTell === 'verdict' ? 'BEAM INCOMING'
         : duelState.enemyTell === 'reap' ? 'REVERSE CUT'
-          : duelState.enemyTell === 'thrust' ? 'THRUST' : ''), duelState.shieldLock, duelState.bossImmunityRemaining,
-      duelState.weaponsEquipped, director.duel.hero.move);
+          : duelState.enemyTell === 'thrust' ? 'THRUST' : ''), duelState.shieldLock, duelState.bossImmunityRemaining);
     const speed = state.phase === 'rupture' && state.phaseTime >= PLANET_RUPTURE.slam && state.phaseTime < PLANET_RUPTURE.impact ? 0.32
       : state.phase === 'finisher' ? sampleFinisherSequence(state.phaseTime).speed : 0;
     presentation.speedLines(speed); presentation.update(animationDelta);

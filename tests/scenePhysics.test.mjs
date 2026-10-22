@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { createServer } from 'vite';
@@ -21,12 +21,12 @@ before(async () => {
     server: { middlewareMode: true, watch: null, ws: false },
     appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] },
   });
-  ({ createScene: createScene2 } = await server.ssrLoadModule('/scenes/level 1/scene2.ts'));
-  ({ createScene: createScene3 } = await server.ssrLoadModule('/scenes/level 1/scene3.ts'));
+  ({ createScene: createScene2 } = await server.ssrLoadModule('/scenes/legacy scenes/scene2.ts'));
+  ({ createScene: createScene3 } = await server.ssrLoadModule('/scenes/legacy scenes/scene3.ts'));
   ({ createScenePhysics, PHYSICS } = await server.ssrLoadModule('/helpers/physics/scenePhysics.ts'));
-  ({ createPlayer } = await server.ssrLoadModule('/scripts/player.ts'));
-  ({ loadCharacter } = await server.ssrLoadModule('/scripts/characterManager.ts'));
-  ({ createSlidingPortal, disposeRoom } = await server.ssrLoadModule('/helpers/scene/shipRoom.ts'));
+  ({ createPlayer } = await server.ssrLoadModule('/scripts/player/player.ts'));
+  ({ loadCharacter } = await server.ssrLoadModule('/scripts/player/characterManager.ts'));
+  ({ createSlidingPortal, disposeRoom } = await server.ssrLoadModule('/scripts/global/shipRoom.ts'));
 });
 after(async () => { await server?.close(); });
 

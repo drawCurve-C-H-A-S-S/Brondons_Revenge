@@ -13,6 +13,8 @@ import mothershipModelUrl from '../assets/models/mothership.glb';
 import gundamModelUrl from '../assets/models/gundam.glb';
 import vergilsChairUrl from '../assets/models/vergils chair.glb';
 import { assetUrl, cachedAssetUrl, fetchAsset, type PreloadTask } from './assetCache.js';
+import playerCelUniforms from '../shaders/frag/playerCelUniforms.frag.glsl?raw';
+import playerCelFragment from '../shaders/frag/playerCel.frag.glsl?raw';
 
 const gltfLoader = new GLTFLoader();
 const playerLoader = new GLTFLoader();
@@ -163,18 +165,9 @@ function applyPlayerCelShading(scene: THREE.Object3D) {
         shader.uniforms.uBrondonColor = { value: baseColor };
         shader.uniforms.uBrondonUnshaded = { value: unshaded ? 1 : 0 };
         shader.uniforms.uCellShadingEnabled = enabled;
-        shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `
-          #include <common>
-          uniform vec3 uBrondonColor;
-          uniform float uBrondonUnshaded;
-          uniform float uCellShadingEnabled;
-        `).replace('#include <opaque_fragment>', `
-          vec3 brondonNormal = inverseTransformDirection(normal, viewMatrix);
-          float brondonLight = dot(brondonNormal, normalize(vec3(0.5, 1.0, 0.5)));
-          float brondonShade = uBrondonUnshaded > 0.5 || brondonLight > -0.1 ? 1.0 : 0.5;
-          outgoingLight = uBrondonColor * (uCellShadingEnabled < 0.5 ? 0.3 : brondonShade);
-          #include <opaque_fragment>
-        `);
+        shader.fragmentShader = shader.fragmentShader
+          .replace('#include <common>', `#include <common>\n${playerCelUniforms}`)
+          .replace('#include <opaque_fragment>', `${playerCelFragment}\n#include <opaque_fragment>`);
       };
     }
   });

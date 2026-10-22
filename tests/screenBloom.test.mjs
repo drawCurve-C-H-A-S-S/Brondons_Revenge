@@ -10,7 +10,7 @@ before(async () => {
     appType: 'custom',
     optimizeDeps: { noDiscovery: true, include: [] },
   });
-  ({ createScreenBloom } = await server.ssrLoadModule('/helpers/scene/screenBloom.ts'));
+  ({ createScreenBloom } = await server.ssrLoadModule('/scripts/global/screenBloom.ts'));
 });
 after(async () => server?.close());
 

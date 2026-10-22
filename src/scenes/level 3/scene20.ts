@@ -1,39 +1,31 @@
 import * as THREE from 'three';
-import { inputHint } from '../../scripts/gamepadInput.js';
+import { inputHint } from '../../scripts/player/gamepadInput.js';
 import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
-import { roomBox, disposeRoom, createSlidingPortal, fitRoomProp } from '../../helpers/scene/shipRoom.js';
+import { roomBox, disposeRoom, createSlidingPortal, fitRoomProp } from '../../scripts/global/shipRoom.js';
 import { loadToolModel, loadSubjectModel, loadTexture } from '../../core/loader.js';
 import hideoutImageUrl from '../../assets/textures/sudoers-hideout.png?url';
-import { createPlayer } from '../../scripts/player.js';
-import type { RescueArrival } from '../../helpers/scene/rescueSite.js';
-import { createFacilityOffice } from '../../helpers/scene/facilityOffice.js';
-import { createFacilityBrowser } from '../../helpers/scene/facilityBrowser.js';
-import { createFacilityDeck } from '../../helpers/scene/facilityDeck.js';
-import { createFacilityCoreDisplay } from '../../helpers/scene/facilityCore.js';
+import flaPreviewUrl from '../../assets/textures/fla-screen-preview.png?url';
+import { createPlayer } from '../../scripts/player/player.js';
+import { createChairSeating, type ChairSeat } from '../../scripts/player/chairSeating.js';
+import type { RescueArrival } from '../../scripts/global/rescueSite.js';
+import { createFacilityOffice } from '../../scripts/level-3/facilityOffice.js';
+import { createFacilityBrowser } from '../../scripts/global/facilityBrowser.js';
+import { createHoldToSkip } from '../../scripts/global/holdToSkip.js';
+import { createFacilityDeck } from '../../scripts/level-3/facilityDeck.js';
+import { createFacilityCoreDisplay } from '../../scripts/level-3/facilityCore.js';
 
 /**
  * Scene 20 — AI Research Facility interior (Level 3).
  *
- * Ground floor: a laboratory / control room. A four-station control panel only
- * accepts activations in the correct order; the order is deduced from four data
- * logs grouped in the ground-floor archive. Solving it powers the stairwell.
+ * Ground floor: a laboratory / control room with a central staircase up to the
+ * mezzanine.
  *
  * Second floor: a glass office. E peeks at the five seated students; their
  * discovery of Brondon triggers the finale (scene21).
  */
 
-type StationId = 'COOLANT' | 'REACTOR' | 'VENT' | 'COMMS';
-const SOLUTION: StationId[] = ['COOLANT', 'REACTOR', 'VENT', 'COMMS'];
-
-/** One clue per log; together they uniquely determine SOLUTION. */
-const LOG_CLUES: Array<{ position: [number, number, number]; title: string; clue: string }> = [
-  { position: [-10.5, 0, 13], title: 'LOG 01 / THERMAL', clue: 'The REACTOR must come immediately after COOLANT.' },
-  { position: [-8, 0, 13], title: 'LOG 02 / COMMS', clue: 'COMMS is always activated last.' },
-  { position: [-5.5, 0, 13], title: 'LOG 03 / SAFETY', clue: 'VENT is never activated first.' },
-  { position: [-3, 0, 13], title: 'LOG 04 / SEQUENCE', clue: 'COOLANT precedes VENT.' },
-];
-
-const STATION_X: Record<StationId, number> = { COOLANT: 2, REACTOR: -6, VENT: 6, COMMS: -2 };
+// The stair climbs north from the atrium to the mezzanine edge, centred in the room.
+const STAIR_RUN = 9;
 
 export function createScene({ entryState, fromExterior = false, onReturn, onRespawn, onFinished,
   loadModel = loadToolModel, loadStudents = loadSubjectModel }: {
@@ -50,11 +42,7 @@ export function createScene({ entryState, fromExterior = false, onReturn, onResp
   scene.fog = new THREE.Fog(0x16333d, 24, 80);
   const physics = createScenePhysics(), physicsWorld = physics.world;
   let disposed = false;
-  const browser = createFacilityBrowser(() => {
-    player.clearInput(); player.disable(); prompt?.classList.add('hidden');
-  }, () => {
-    if (!disposed) { player.clearInput(); player.enable(); }
-  });
+  let browser: ReturnType<typeof createFacilityBrowser> | null = null;
 
   // ── Materials (bright teal / white control-room palette with green accents) ──
   const wall = new THREE.MeshStandardMaterial({ color: 0x9db4b8, metalness: 0.25, roughness: 0.7 });
@@ -213,9 +201,24 @@ export function createScene({ entryState, fromExterior = false, onReturn, onResp
   physics.addBox({ x: 2.3, y: 0.125, z: 2.3 }, { x: 0, y: 0.375, z: 0 });
   physics.addBox({ x: 1.3, y: 0.7, z: 1.3 }, { x: 0, y: 1.2, z: 0 });
 
-  // ── Workstation models with internet monitors ───────────────────────────
-  const monitorMat = browser.material;
+  // ── Workstations show one cheap static capture until Brondon sits down. ──
+  const monitorMat = new THREE.MeshBasicMaterial({ color: 0xd9bd91, toneMapped: false });
+  const monitorPreviewReady = loadTexture(flaPreviewUrl).then(texture => {
+    if (disposed) { texture.dispose(); return; }
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    monitorMat.map = texture;
+    monitorMat.color.setHex(0xffffff);
+    monitorMat.needsUpdate = true;
+  });
   const monitorBody = new THREE.MeshStandardMaterial({ color: 0x2b3a42, metalness: 0.5, roughness: 0.4 });
+  interface FacilityWorkstation {
+    screen: THREE.Mesh<THREE.PlaneGeometry, THREE.Material>;
+    seat: ChairSeat;
+    previewMaterial: THREE.Material;
+  }
+  const workstationByScreen = new Map<THREE.Object3D, FacilityWorkstation>();
   function workstation(x: number, z: number, desk: THREE.Group, chair: THREE.Group) {
     desk.name = 'FacilityDesk'; chair.name = 'FacilityChair';
     const deskSize = fitRoomProp(desk, 0.82, 2.2, 1.1);
@@ -237,9 +240,20 @@ export function createScene({ entryState, fromExterior = false, onReturn, onResp
     stand.position.set(0, deskSize.y + 0.08, -0.2); group.add(stand);
     const mon = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.7, 0.08), monitorBody);
     mon.position.set(0, deskSize.y + 0.51, -0.2); group.add(mon);
-    const scr = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.6), monitorMat);
+    const scr = new THREE.Mesh<THREE.PlaneGeometry, THREE.Material>(new THREE.PlaneGeometry(1.1, 0.6), monitorMat);
+    scr.name = 'FacilityComputerPreview';
     scr.position.set(0, deskSize.y + 0.51, -0.155); group.add(scr);
-    browser.register(scr);
+    const seat: ChairSeat = {
+      root: chair,
+      yaw: group.rotation.y,
+      surface: () => {
+        const bounds = new THREE.Box3().setFromObject(chair);
+        const surface = bounds.getCenter(new THREE.Vector3());
+        surface.y = bounds.min.y + (bounds.max.y - bounds.min.y) * 0.48;
+        return surface;
+      },
+    };
+    workstationByScreen.set(scr, { screen: scr, seat, previewMaterial: monitorMat });
   }
   const workstations = [[-6, -4], [6, -4], [-6, 6], [6, 6], [-11, 2], [11, 2], [-4, -12], [4, -12]] as const;
   const furnitureReady = Promise.allSettled(workstations.flatMap(() => [
@@ -260,96 +274,39 @@ export function createScene({ entryState, fromExterior = false, onReturn, onResp
     }
   });
 
-  // ── Staircase to the second floor (east side of the atrium, ascending north) ─
-  const STAIR_BASE = new THREE.Vector3(11, 0, 16);
-  const stairs = physics.addStaircase({ width: 3, run: 12, rise: MEZZ_Y + 0.2, position: STAIR_BASE, material: pale, yaw: Math.PI, stepCount: 22 });
+  // ── Staircase to the second floor (centre of the atrium, ascending north) ─
+  const STAIR_BASE = new THREE.Vector3(0, 0, MEZZ_EDGE + STAIR_RUN);
+  const stairs = physics.addStaircase({ width: 3, run: STAIR_RUN, rise: MEZZ_Y + 0.2, position: STAIR_BASE, material: pale, yaw: Math.PI, stepCount: 22 });
   scene.add(stairs.group);
   stairs.group.name = 'FacilityStaircase';
-  const slope = Math.atan2(MEZZ_Y + 0.2, 12), railLength = Math.hypot(MEZZ_Y + 0.2, 12);
+  const slope = Math.atan2(MEZZ_Y + 0.2, STAIR_RUN), railLength = Math.hypot(MEZZ_Y + 0.2, STAIR_RUN);
   const stairGlass = new THREE.MeshPhysicalMaterial({ color: 0x9fd8e0, transparent: true, opacity: 0.22,
     metalness: 0.15, roughness: 0.2, side: THREE.DoubleSide, depthWrite: false });
   for (const side of [-1, 1]) {
     for (const [height, thickness, material] of [[0.57, 1.02, stairGlass], [1.12, 0.09, dark], [-0.13, 0.22, dark]] as const) {
       const rail = new THREE.Mesh(new THREE.BoxGeometry(0.09, thickness, railLength), material);
-      rail.position.set(side * 1.52, (MEZZ_Y + 0.2) / 2 + height, 6); rail.rotation.x = -slope;
+      rail.position.set(side * 1.52, (MEZZ_Y + 0.2) / 2 + height, STAIR_RUN / 2); rail.rotation.x = -slope;
       rail.name = 'StairSlopedRailing'; stairs.group.add(rail);
       if (material === stairGlass) physics.addBoxFromMesh(rail);
     }
     for (let step = 0; step <= 8; step++) {
-      const z = 0.15 + step * 11.7 / 8;
+      const z = 0.15 + step * (STAIR_RUN - 0.3) / 8;
       const post = new THREE.Mesh(new THREE.BoxGeometry(0.09, 1.1, 0.09), dark);
-      post.position.set(side * 1.52, z / 12 * (MEZZ_Y + 0.2) + 0.55, z); stairs.group.add(post);
+      post.position.set(side * 1.52, z / STAIR_RUN * (MEZZ_Y + 0.2) + 0.55, z); stairs.group.add(post);
     }
   }
   for (let step = 0; step < 22; step++) {
     const edge = new THREE.Mesh(new THREE.BoxGeometry(2.88, 0.018, 0.045), stripe);
-    edge.position.set(0, (step + 1) * (MEZZ_Y + 0.2) / 22 + 0.014, step * 12 / 22 + 0.025);
+    edge.position.set(0, (step + 1) * (MEZZ_Y + 0.2) / 22 + 0.014, step * STAIR_RUN / 22 + 0.025);
     stairs.group.add(edge);
   }
-
-  // ── Energy barrier gating the stairwell until the puzzle is solved ─────────
-  // Full-footprint collider over the whole staircase volume so the stairs cannot
-  // be side-climbed before the panel is sequenced; the glowing plane at the mouth
-  // is the visible indicator.
-  const barrierBody = physics.addBox({ x: 3.2, y: 4.4, z: 12 }, { x: 11, y: 2.2, z: 10 });
-  const barrierMat = new THREE.MeshBasicMaterial({ color: 0xff5a3c, transparent: true, opacity: 0.28, depthWrite: false });
-  const barrier = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 3.2), barrierMat);
-  barrier.position.set(11, 1.6, 16.4);
-  scene.add(barrier);
-  const barrierFrame = box([3.6, 0.2, 0.4], [11, 3.3, 16.4], dark, false);
-  const barrierEmitter = new THREE.PointLight(0xff5a3c, 8, 8);
-  barrierEmitter.position.set(11, 1.8, 16.4);
-  scene.add(barrierEmitter);
-
-  // ── Control panel: four stations along the north wall ─────────────────────
-  interface Station { id: StationId; group: THREE.Group; lamp: THREE.Mesh; lampMat: THREE.MeshStandardMaterial; screen: THREE.Mesh; }
-  const stations: Station[] = [];
-  const consoleMat = new THREE.MeshStandardMaterial({ color: 0x0b141a, roughness: 0.55, metalness: 0.3 });
-  for (const id of SOLUTION) {
-    const x = STATION_X[id];
-    const group = new THREE.Group();
-    group.position.set(x, 0, -D + 0.9);
-    scene.add(group);
-    const bodyMesh = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.2, 0.7), consoleMat);
-    bodyMesh.position.y = 0.6; bodyMesh.castShadow = bodyMesh.receiveShadow = true; group.add(bodyMesh);
-    physics.addBox({ x: 2.4, y: 1.2, z: 0.7 }, { x, y: 0.6, z: -D + 0.9 });
-    const screenMat = new THREE.MeshBasicMaterial({ color: 0x0f2a33 });
-    const screen = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 0.5), screenMat);
-    screen.position.set(0, 1.05, 0.36); screen.rotation.x = -0.3; group.add(screen);
-    const lampMat = new THREE.MeshStandardMaterial({ color: 0x331111, emissive: 0x441111, emissiveIntensity: 1 });
-    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 8), lampMat);
-    lamp.position.set(0, 1.35, 0.3); group.add(lamp);
-    // Label
-    const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 64;
-    const ctx = canvas.getContext('2d')!; ctx.fillStyle = '#0b141a'; ctx.fillRect(0, 0, 256, 64);
-    ctx.fillStyle = '#9fd8e0'; ctx.textAlign = 'center'; ctx.font = 'bold 30px monospace'; ctx.fillText(id, 128, 42);
-    const tex = new THREE.CanvasTexture(canvas);
-    const label = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.4), new THREE.MeshBasicMaterial({ map: tex }));
-    label.position.set(0, 1.62, 0.34); group.add(label);
-    stations.push({ id, group, lamp, lampMat, screen });
-  }
-
-  // ── Data logs (interactable terminals) ─────────────────────────────────────
-  interface Log { position: THREE.Vector3; title: string; clue: string; read: boolean; screen: THREE.Mesh; screenMat: THREE.MeshBasicMaterial; }
-  const logs: Log[] = LOG_CLUES.map(entry => {
-    const group = new THREE.Group();
-    group.position.set(...entry.position);
-    scene.add(group);
-    const pedestal = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.1, 0.5), pale);
-    pedestal.position.y = 0.55; pedestal.castShadow = pedestal.receiveShadow = true; group.add(pedestal);
-    physics.addBox({ x: 0.7, y: 1.1, z: 0.5 }, { x: entry.position[0], y: 0.55, z: entry.position[2] });
-    const screenMat = new THREE.MeshBasicMaterial({ color: 0x123a44 });
-    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.4), screenMat);
-    screen.position.set(0, 1.25, 0.26); screen.rotation.x = -0.35; group.add(screen);
-    return { position: new THREE.Vector3(...entry.position), title: entry.title, clue: entry.clue, read: false, screen, screenMat };
-  });
 
   createFacilityDeck(scene, physics);
   const office = createFacilityOffice(scene, physics, loadModel, loadStudents);
 
   // ── Player / camera ────────────────────────────────────────────────────────
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 200);
-  const spawn = { x: 0, y: PHYSICS.playerRadius, z: D - 6 };
+  const spawn = { x: 0, y: PHYSICS.playerRadius, z: D - 3.6 };
   const player = createPlayer({ camera, physicsWorld, spawnPosition: spawn });
   // Keys released during the load never reach this scene, so held keys stay blocked until released again.
   if (entryState?.pilotState && fromExterior) player.restoreTransition({
@@ -357,19 +314,21 @@ export function createScene({ entryState, fromExterior = false, onReturn, onResp
     sprinting: false, crouching: false, intentionalJump: false, jumpQueued: false, slide: undefined, bobIntensity: 0,
   }, entrance.frame);
   else player.setRotation(0);
+  // Step clear of the doorway so the third-person camera never sits inside the black entrance void.
+  if (player.body.position.z > D - 3.6) {
+    player.body.position.z = D - 3.6;
+    player.body.previousPosition.copy(player.body.position);
+    player.body.interpolatedPosition.copy(player.body.position);
+  }
   player.enable();
   player.updateCamera(0);
   entrance.setTrigger(state => {
     if (!onReturn || finished) return;
     finished = true; player.clearInput(); player.disable();
-    onReturn({ ...entryState, facilitySolved: solved, pilotState: state, cameraPosition: undefined, cameraQuaternion: undefined, cameraFov: undefined });
+    onReturn({ ...entryState, facilitySolved: true, pilotState: state, cameraPosition: undefined, cameraQuaternion: undefined, cameraFov: undefined });
   });
 
-  // ── Puzzle state ───────────────────────────────────────────────────────────
-  let progress = 0;             // how many stations correctly activated in a row
-  let solved = !!entryState?.facilitySolved;
-  let alarmTime = 0;            // >0 while the wrong-order alarm flashes
-  let surgeTime = 0;            // >0 while the power surge plays
+  // ── Office reveal state ────────────────────────────────────────────────────
   let revealTime = -1;          // >=0 once the player has reached the observation deck
   let finished = false;
   const peekStart = new THREE.Vector3(), peekRotation = new THREE.Quaternion();
@@ -383,38 +342,6 @@ export function createScene({ entryState, fromExterior = false, onReturn, onResp
     camera.fov = THREE.MathUtils.lerp(peekFov, 55, blend); camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
   }
 
-  function setLamp(station: Station, state: 'idle' | 'lit' | 'error') {
-    if (state === 'lit') { station.lampMat.color.setHex(0x114411); station.lampMat.emissive.setHex(0x33ff66); }
-    else if (state === 'error') { station.lampMat.color.setHex(0x441111); station.lampMat.emissive.setHex(0xff3322); }
-    else { station.lampMat.color.setHex(0x331111); station.lampMat.emissive.setHex(0x441111); }
-  }
-  function resetPanel() {
-    progress = 0;
-    for (const s of stations) setLamp(s, 'idle');
-  }
-  function unlockStairwell() {
-    solved = true;
-    physics.world.removeBody(barrierBody);
-    barrier.visible = false;
-    barrierFrame.visible = false;
-    barrierEmitter.color.setHex(0x66ff99);
-    surgeTime = 1.6;
-    message('STAIRWELL POWER RESTORED — ASCEND TO THE OBSERVATION DECK', 4);
-  }
-  function activateStation(station: Station) {
-    if (solved) { message('The panel is already sequenced.', 1.6); return; }
-    if (station.id === SOLUTION[progress]) {
-      setLamp(station, 'lit');
-      progress++;
-      if (progress === SOLUTION.length) unlockStairwell();
-      else message(`${station.id} online — ${SOLUTION.length - progress} remaining.`, 1.8);
-    } else {
-      alarmTime = 1.2;
-      resetPanel();
-      message('INCORRECT SEQUENCE — PANEL RESET. Consult the data logs.', 2.6);
-    }
-  }
-
   // ── Transient on-screen message ────────────────────────────────────────────
   const messageEl = document.createElement('div');
   messageEl.className = 'facility-message'; messageEl.style.display = 'none';
@@ -424,12 +351,87 @@ export function createScene({ entryState, fromExterior = false, onReturn, onResp
   dialogue.setAttribute('aria-live', 'polite');
   const dialogueSpeaker = document.createElement('strong'), dialogueText = document.createElement('p');
   dialogue.append(dialogueSpeaker, dialogueText); document.body.appendChild(dialogue);
-  let arrivalTime = 0;
-  function updateArrivalDialogue() {
-    dialogue.classList.toggle('hidden', arrivalTime >= 8.2 || messageTime > 0 || revealTime >= 0);
-    dialogueSpeaker.textContent = arrivalTime < 4.8 ? 'BRONDON' : 'PRIME';
-    dialogueText.textContent = arrivalTime < 4.8
-      ? 'This looks more like a resort than a prison.' : 'Could it be...?';
+  // Arrival cutscene: Prime remarks on the resort, then Brondon approaches the hideout picture.
+  const INTRO = Object.freeze({ primeEnd: 4.2, walkMid: 7.2, walkEnd: 11.6, firstLineEnd: 15.4, end: 21.5 });
+  const introStart = new THREE.Vector3(player.body.position.x, player.radius, player.body.position.z);
+  const introCorner = new THREE.Vector3(-4, player.radius, 12);
+  const introEnd = new THREE.Vector3(-W + 2.6, player.radius, 6);
+  const picturePoint = new THREE.Vector3(-W + 0.38, 2.6, 6);
+  const introPosition = new THREE.Vector3(), introLook = new THREE.Vector3();
+  let introTime = 0, introActive = true, cinematicDelta = 0;
+  const introSkipButton = document.createElement('button');
+  introSkipButton.type = 'button';
+  introSkipButton.className = 'scene-dialogue-skip facility-intro-skip';
+  document.body.appendChild(introSkipButton);
+  function setIntroDialogue(speaker = '', text = '') {
+    dialogue.classList.toggle('hidden', !text);
+    dialogueSpeaker.textContent = speaker;
+    dialogueText.textContent = text;
+  }
+  function endIntro() {
+    if (!introActive) return;
+    introActive = false;
+    setIntroDialogue();
+    introSkipButton.classList.add('hidden');
+    player.setPosition(introEnd.x, player.radius, introEnd.z);
+    player.setRotation(Math.PI / 2);
+    camera.fov = 75; camera.updateProjectionMatrix();
+    if (!disposed && !finished && !browser?.active) { player.clearInput(); player.enable(); player.updateCamera(0); }
+  }
+  const introSkip = createHoldToSkip({
+    button: introSkipButton,
+    onSkip: endIntro,
+    isAvailable: () => introActive,
+  });
+  function updateIntro(dt: number) {
+    if (!introActive) return;
+    introSkip.update(dt);
+    if (!introActive) return;
+    introTime = Math.min(INTRO.end, introTime + dt);
+    if (introTime < INTRO.primeEnd) {
+      introPosition.copy(introStart);
+      setIntroDialogue('PRIME', 'This looks more like a resort than a prison.');
+    } else if (introTime < INTRO.walkMid) {
+      introPosition.lerpVectors(introStart, introCorner,
+        THREE.MathUtils.smootherstep(introTime, INTRO.primeEnd, INTRO.walkMid));
+      setIntroDialogue();
+    } else if (introTime < INTRO.walkEnd) {
+      introPosition.lerpVectors(introCorner, introEnd,
+        THREE.MathUtils.smootherstep(introTime, INTRO.walkMid, INTRO.walkEnd));
+      setIntroDialogue();
+    } else {
+      introPosition.copy(introEnd);
+      if (introTime < INTRO.firstLineEnd) {
+        setIntroDialogue('BRONDON', "I can't believe they're behind all this.");
+      } else {
+        setIntroDialogue('BRONDON', "I need to see them face to face. I need to understand why they would do this.");
+      }
+    }
+    const facing = introTime < INTRO.walkMid ? introCorner
+      : introTime < INTRO.walkEnd ? introEnd : picturePoint;
+    player.setPosition(introPosition.x, player.radius, introPosition.z);
+    player.setRotation(Math.atan2(-(facing.x - introPosition.x), -(facing.z - introPosition.z)));
+    if (introTime >= INTRO.end) endIntro();
+  }
+  function applyIntroCamera() {
+    if (!introActive) return;
+    if (introTime < INTRO.primeEnd) {
+      const progress = THREE.MathUtils.smootherstep(introTime, 0, INTRO.primeEnd);
+      camera.position.lerpVectors(new THREE.Vector3(4.6, 2.8, 16.2), new THREE.Vector3(3.2, 2.35, 14.6), progress);
+      introLook.set(-1.5, 1.25, 7.5);
+      camera.fov = THREE.MathUtils.lerp(60, 54, progress);
+    } else if (introTime < INTRO.walkEnd) {
+      camera.position.set(introPosition.x + 3.1, 2.45, introPosition.z + 1.8);
+      introLook.copy(introPosition).setY(1.25).lerp(picturePoint, 0.12);
+      camera.fov = 52;
+    } else {
+      camera.position.set(-8.4, 2.25, 9.2);
+      introLook.copy(picturePoint);
+      camera.fov = 48;
+    }
+    camera.lookAt(introLook);
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld(true);
   }
   let messageTime = 0;
   function message(text: string, seconds: number) {
@@ -437,25 +439,57 @@ export function createScene({ entryState, fromExterior = false, onReturn, onResp
     messageEl.style.display = 'block';
     messageTime = seconds;
   }
-  updateArrivalDialogue();
-  if (solved) {
-    physics.world.removeBody(barrierBody); barrier.visible = false; barrierFrame.visible = false;
-    barrierEmitter.color.setHex(0x66ff99);
-    for (const station of stations) setLamp(station, 'lit');
-  }
-
+  setIntroDialogue('PRIME', 'This looks more like a resort than a prison.');
+  player.clearInput(); player.disable();
   // ── Interaction (E key) ────────────────────────────────────────────────────
   const prompt = document.getElementById('interact-prompt');
-  function near(point: THREE.Vector3, radius = 2) {
-    const q = player.body.position;
-    return Math.hypot(q.x - point.x, q.y + 0.9 - point.y, q.z - point.z) < radius;
+  let computerPending: FacilityWorkstation | null = null;
+  let activeComputer: FacilityWorkstation | null = null;
+  const computerRaycaster = new THREE.Raycaster();
+  const computerScreenCenter = new THREE.Vector2();
+  const computerEye = new THREE.Vector3();
+  const seating = createChairSeating({
+    scene, camera, player, prompt,
+    chairs: () => [],
+    canInteract: () => !disposed && !finished && !introActive && revealTime < 0 && !browser?.active
+      && !document.body.classList.contains('quick-menu-open'),
+  });
+  function closeComputer() {
+    if (activeComputer && browser && activeComputer.screen.material === browser.material) {
+      activeComputer.screen.material = activeComputer.previewMaterial;
+    }
+    activeComputer = null;
+    browser?.dispose();
+    browser?.material.dispose();
+    browser = null;
   }
-  function currentTarget(): { kind: 'peek' } | { kind: 'browser'; screen: THREE.Object3D } | { kind: 'log'; log: Log } | { kind: 'station'; station: Station } | null {
-    if (solved && office.canPeek(player.body.position)) return { kind: 'peek' };
-    const screen = browser.focusedScreen(camera, player.body.position);
+  function openComputer(workstation: FacilityWorkstation) {
+    activeComputer = workstation;
+    browser = createFacilityBrowser(() => {
+      player.clearInput(); prompt?.classList.add('hidden');
+    }, () => {
+      closeComputer();
+      if (!disposed) { player.clearInput(); seating.stand(); }
+    });
+    browser.register(workstation.screen);
+    workstation.screen.material = browser.material;
+    browser.open(workstation.screen, camera);
+  }
+  function focusedComputerScreen() {
+    if (browser?.active || disposed || workstationByScreen.size === 0) return null;
+    camera.updateWorldMatrix(true, false);
+    const screens = [...workstationByScreen.keys()];
+    for (const screen of screens) screen.updateWorldMatrix(true, false);
+    computerRaycaster.setFromCamera(computerScreenCenter, camera);
+    computerEye.set(player.body.position.x, player.body.position.y + 1, player.body.position.z);
+    return computerRaycaster.intersectObjects(screens, false)
+      .find(hit => hit.point.distanceTo(computerEye) < 4)?.object ?? null;
+  }
+  function currentTarget(): { kind: 'peek' } | { kind: 'browser'; screen: THREE.Object3D } | null {
+    if (seating.active) return null;
+    if (office.canPeek(player.body.position)) return { kind: 'peek' };
+    const screen = focusedComputerScreen();
     if (screen) return { kind: 'browser', screen };
-    for (const log of logs) if (near(log.position)) return { kind: 'log', log };
-    for (const s of stations) if (near(new THREE.Vector3(STATION_X[s.id], 0, -D + 1.4))) return { kind: 'station', station: s };
     return null;
   }
   function onKey(event: KeyboardEvent) {
@@ -469,16 +503,11 @@ export function createScene({ entryState, fromExterior = false, onReturn, onResp
       dialogue.classList.add('hidden');
       player.clearInput(); player.disable(); prompt?.classList.add('hidden');
       message('BRONDON: Let me have a look...', 3);
-    } else if (target.kind === 'browser') {
-      browser.open(target.screen, camera);
-    } else if (target.kind === 'log') {
-      readLog(target.log);
     } else {
-      activateStation(target.station);
-    }
-    function readLog(log: Log) {
-      log.read = true; log.screenMat.color.setHex(0xa4ffcf);
-      message(`${log.title}\n${log.clue}`, 4);
+      const workstation = workstationByScreen.get(target.screen);
+      if (!workstation) throw new Error('Cannot sit at an unregistered facility workstation');
+      if (seating.sit(workstation.seat)) computerPending = workstation;
+      else message('Move beside the chair and face the monitor before sitting down.', 3);
     }
   }
   window.addEventListener('keydown', onKey);
@@ -487,8 +516,9 @@ export function createScene({ entryState, fromExterior = false, onReturn, onResp
   let clock = 0;
   function updatePhysics(dt: number, thirdPerson = false) {
     if (disposed || finished || document.hidden || document.body.classList.contains('quick-menu-open')) return;
-    if (browser.active) { browser.update(Math.max(0, Math.min(dt, PHYSICS.maxFrameTime))); return; }
     dt = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, PHYSICS.maxFrameTime));
+    cinematicDelta = dt;
+    if (browser?.active) { browser.update(dt); return; }
     office.update(dt, revealTime >= 3);
     if (revealTime >= 0) {
       revealTime += dt; applyPeekCamera();
@@ -501,49 +531,35 @@ export function createScene({ entryState, fromExterior = false, onReturn, onResp
       return;
     }
     clock += dt;
-    if (messageTime <= 0) arrivalTime += dt;
-    updateArrivalDialogue();
     physics.step(dt, player, thirdPerson);
-    entrance.update(dt, player, entrance.near(player));
+    updateIntro(dt);
+    seating.update(dt);
+    if (computerPending && !seating.active) computerPending = null;
+    if (computerPending && seating.resting && !browser?.active) {
+      const workstation = computerPending;
+      computerPending = null;
+      seating.applyCamera();
+      openComputer(workstation);
+    }
+    entrance.update(dt, player, !introActive && !seating.active && entrance.near(player));
     if (finished) return;
 
     // Interact prompt
-    if (prompt) {
+    const seatingOwnsPrompt = seating.updateInteractionFocus();
+    if (prompt && !introActive && !seatingOwnsPrompt) {
       const target = currentTarget();
       if (target) {
         prompt.classList.remove('hidden');
-        prompt.textContent = inputHint(target.kind === 'peek' ? 'E: peek into the office' : target.kind === 'browser' ? 'E: use computer / fla.capitalsigma.biz' : target.kind === 'log'
-          ? (target.log.read ? 'E: re-read data log' : 'E: read data log')
-          : `E: activate ${target.station.id}`);
+        prompt.textContent = inputHint(target.kind === 'peek' ? 'E: peek into the office'
+          : 'E: sit down and use fla.capitalsigma.biz');
       } else prompt.classList.add('hidden');
-    }
+    } else if (!seatingOwnsPrompt) prompt?.classList.add('hidden');
 
     // Message timer
     if (messageTime > 0) {
       messageTime -= dt;
       if (messageTime <= 0) messageEl.style.display = 'none';
     }
-
-    // Alarm flash
-    if (alarmTime > 0) {
-      alarmTime -= dt;
-      const flash = Math.sin(clock * 30) > 0;
-      for (const s of stations) if (flash) setLamp(s, 'error');
-      for (const l of labLights) l.color.setHex(flash ? 0xff5544 : 0xc4e8ff);
-      if (alarmTime <= 0) { for (const l of labLights) l.color.setHex(0xc4e8ff); resetPanel(); }
-    }
-
-    // Power surge on unlock
-    if (surgeTime > 0) {
-      surgeTime -= dt;
-      const flicker = 0.6 + Math.abs(Math.sin(clock * 24)) * 0.8;
-      for (const l of labLights) l.intensity = 30 * flicker;
-      mezzLight.intensity = 26 * flicker;
-      if (surgeTime <= 0) { for (const l of labLights) l.intensity = 30; mezzLight.intensity = 26; }
-    }
-
-    // Barrier shimmer while locked
-    if (!solved) barrierMat.opacity = 0.22 + Math.sin(clock * 4) * 0.08;
 
     facilityCore.update(clock);
 
@@ -552,11 +568,31 @@ export function createScene({ entryState, fromExterior = false, onReturn, onResp
   return {
     restartAtCheckpoint: () => { if (!onRespawn) return false; onRespawn(); return true; },
     roomId: 'scene20', scene, camera, physics, physicsWorld, player, entrance, cutsceneManager: null,
-    isCinematic: () => browser.active || revealTime >= 0,
-    hideCharacter: () => revealTime >= 0 || browser.active,
-    applyCinematicCamera: () => { if (revealTime >= 0) applyPeekCamera(); else browser.applyCamera(); },
-    renderCinematicOverlay: (renderer: THREE.WebGLRenderer) => browser.render(renderer, camera),
-    ready: Promise.all([furnitureReady, office.ready, wallScreensReady]),
+    isCinematic: () => introActive || seating.active || !!browser?.active || revealTime >= 0,
+    hideCharacter: () => revealTime >= 0 || !!browser?.active,
+    getCinematicDelta: () => seating.active ? seating.delta : cinematicDelta,
+    getCinematicState: () => seating.getState() ?? (introActive || browser?.active || revealTime >= 0 ? {
+      ...player.getState(),
+      isMoving: introActive && introTime >= INTRO.primeEnd && introTime < INTRO.walkEnd,
+      isOnGround: true,
+      jumping: false,
+      climbing: false,
+      crouching: false,
+      velocityY: 0,
+    } : null),
+    getCinematicPose: () => seating.getPose() ?? (introActive ? {
+      clip: introTime >= INTRO.primeEnd && introTime < INTRO.walkEnd ? 'Walk_Loop' as const : 'Idle_Loop' as const,
+      time: introTime,
+      loop: true,
+    } : undefined),
+    applyCinematicCamera: () => {
+      if (introActive) applyIntroCamera();
+      else if (revealTime >= 0) applyPeekCamera();
+      else if (browser?.active) browser.applyCamera();
+      else seating.applyCamera();
+    },
+    renderCinematicOverlay: (renderer: THREE.WebGLRenderer) => browser?.render(renderer, camera),
+    ready: Promise.all([furnitureReady, office.ready, wallScreensReady, monitorPreviewReady]),
     hideMinimap: () => true,
     getMinimapState: () => ({ position: player.body.position, yaw: player.getState().yaw }),
     getMusicTrack: (): 'stealth-2' => 'stealth-2',
@@ -564,11 +600,13 @@ export function createScene({ entryState, fromExterior = false, onReturn, onResp
     dispose() {
       if (disposed) return;
       disposed = true;
-      browser.dispose();
+      closeComputer();
+      seating.dispose();
       office.dispose();
+      introSkip.dispose();
       window.removeEventListener('keydown', onKey);
       prompt?.classList.add('hidden');
-      messageEl.remove(); dialogue.remove();
+      messageEl.remove(); dialogue.remove(); introSkipButton.remove();
       player.dispose();
       physics.dispose();
       disposeRoom(scene);

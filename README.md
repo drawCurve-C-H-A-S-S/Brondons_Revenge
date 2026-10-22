@@ -94,9 +94,26 @@ until you select Controller or reconnect the controller. Nonstandard devices
 still require calibration before their controls can be enabled.
 The two Controls tabs select the input and show the matching bindings.
 The menu is available during the opening as well as gameplay.
+Scene 1 is the **Main Menu**. Choose **Main Menu** from the pause menu to
+return after confirming that no progress will be saved. Returning discards the
+current run and skips the opening camera animation; a fresh page load still
+plays it.
+Entering Brondon's Museum through Developer Mode enables the same painting
+minigames and results flow as Arcade Mode. Selecting another developer scene
+clears the active Arcade run and uses the regular developer equipment access.
+Minigame progress resets for each Arcade launch and developer scene jump.
+Once Developer Mode has been unlocked, **Return to Museum** is hidden from the
+pause menu; the Museum is still available through the developer scene list.
+At the center of the Museum, beneath the open sky, the prison's blue light
+effect marks the Main Menu exit. Stand in it and press **E** to open the
+no-progress-saved confirmation.
 Scene 1 suppresses automatic controller notices and gameplay control popups;
 controller setup remains available through the pause menu.
 **Sound** is available from the pause menu in every scene, including Scene 1.
+Vertex and fragment GLSL files live in `src/shaders/vert/` and
+`src/shaders/frag/`; shared GLSL chunks remain in `src/shaders/`.
+Player cel-shading fragments are imported by `src/core/loader.ts`, preserving
+the existing model-material application and shading toggle.
 **Display** includes a **Bloom** strength slider, **Hide HUD**, **Show FPS** and
 **Perf timers**. Bloom strength and style are remembered between visits.
 Press **Backslash (\\)** outside a text field to cycle bloom off, bright and soft.
@@ -188,10 +205,10 @@ The arcade flight phases retain their directional dodges with left stick + B.
 During the **hangar escape QTE**, the displayed controls are A (shoot),
 X (crowbar), B (dodge), Y (saber spin), and R (launch).
 
-The **final boss** uses left stick for movement and space altitude, direction + A
-for sword attacks, X for the rifle salvo, hold ZL for shield/parry, B for dodge boost,
-and R for Last Light (the existing 18-second recharge). L stows/recalls the fixed
-weapons; A chains jab, cross and hook while unarmed. Y performs a grounded slide.
+The **final boss** uses left stick for movement and space altitude, A to swing,
+X for the rifle salvo, hold ZL for shield/parry, B for dodge boost, and R for
+Last Light (the existing 18-second recharge). Y performs a grounded slide tackle
+that briefly knocks Sudoers 5 down.
 There is no inventory wheel. Hold - to skip the intro;
 D-pad Left retries after defeat. The final execution is an uninterrupted cinematic:
 no controller taps, mash prompts or held inputs are required. Pause still works.
@@ -601,9 +618,9 @@ are no longer part of Stage Two.
   loading screen. Its artwork is an actual camera-wall screenshot, captured
   without HUD, browser chrome or scrollbars. Camera feeds are prepared before
   the room becomes playable.
-- The larger surveillance room has **12 wall screens, 12 furnished desks,
+- The larger surveillance room has **eight wall screens in two rows of four, 12 furnished desks,
   computers and chairs**, plus server racks. Six wall feeds are active: cargo,
-  target range, equipment archive, rust chamber, the **already-cleared vents**, and the
+  target range, Saber Tennis, rust chamber, the **already-cleared vents**, and the
   **already-cleared prologue prison**. The other
   wall screens stay off. There are no decorative wall-text plaques.
 - Desk monitors play randomly chosen **looping GIF recordings of corridor bots**,
@@ -613,10 +630,9 @@ are no longer part of Stage Two.
   rear walls; the hangar-airlock approach is clear of desks and server racks.
   After the vent drop, Prime remarks: "Security seems kind of lacklustre.
   I wonder what's going on."
-- A guard waits at the centrally placed elevator. Stay crouched, approach from
-  behind and press **E** for a silent takedown before using any camera links.
-  Open the separate **camera-room crowbar chest** afterward. A noisy attack is fatal; **R** retries
-  this local checkpoint without replaying the vents.
+- There is no guard or takedown gate in the camera hub. After landing and
+  Prime's security remark, open the **camera-room crowbar chest** and go
+  straight to the camera minigames and keycard elevator.
 - Leave a home marker in the hub with **Q**. Look at a feed and press **E** to
   visit its minigame; **T** returns to the hub. The other decks are under
   surveillance and have **no walking route** from this room. The vent feed is
@@ -624,11 +640,19 @@ are no longer part of Stage Two.
   return link; **R** can restart a stranded visit at the surveillance checkpoint.
 - Each existing minigame awards an **asset-backed keycard from its chest**:
   clear the cargo stack with the crowbar, solve the range's letter-order puzzle, or recover
-  the archive footlocker. Cargo healing, range shielding and the archive's
-  **lightsaber beam component** are retained as bonus equipment, never
-  prerequisites for collecting a card at full health/shield. The archive does
-  not award another hilt: its beam activates the one recovered from Andre's
-  locker, including its glow, sound, damage and deflection in both camera views.
+  win Saber Tennis. Cargo healing and range shielding remain bonus equipment,
+  never prerequisites for collecting a card at full health/shield.
+- **Saber Tennis** (the batting cage replacing the equipment archive feed): Prime
+  greets you with "The students would always play in here." Take the **working
+  lightsaber** from the wall rack (beside a tennis racket), equip it, and stand on a
+  lane plate. Each lane fires from a wall screen behind a **force field** that ripples
+  when a parried shot hits it; an **LED scoreboard** above tracks every lane.
+  **Centre Court** fires harmless tennis balls; **Deck Gunnery** fires bolts (10 HP,
+  dodge or parry); **No Man's Land** fires fused bombs that must be parried (25 HP
+  blast even if you dodge). Land **10 in a row per lane**; any miss shows **YOU LOSE**
+  and resets that lane to 0. Clearing all three unlocks the keycard chest. A table
+  opposite holds two health packs and two shields; the front door is locked and a
+  poem hangs on the east wall. T returns to the hub.
 - **Target range:** Prime recalls, "The students would always play in here."
   Read the wall poem and wear the goggles (**N**) to reveal seven shuffled letters
   above the targets. These high-contrast letter plates remain sharp and in their
@@ -722,7 +746,7 @@ are no longer part of Stage Two.
 
 Developer Mode includes the surveillance route, archive and camera-room previews.
 In development, `?stage2-infiltration` starts at the vent entrance;
-`?stage2-hub` starts at the uncleared camera-room guard checkpoint.
+`?stage2-hub` starts at the camera-room checkpoint with cameras and minigames ready.
 Both provide the earlier cabin equipment; the crowbar and lightsaber are still
 recovered during Stage Two.
 
@@ -885,19 +909,16 @@ Prime says, "I expected more security."
 The AI room uses the updated `earth` branch control-room styling (`55b4433`):
 a bright teal/white palette, green holographic planet dome, concentric floor and
 ceiling rings, daylight skyline panels, wall displays and bookshelves. The
-four-station puzzle and stairwell barrier remain intact. All four data logs are
-grouped in the ground-floor archive on the left side near the entrance.
-The controls are physically scrambled (REACTOR, COMMS, COOLANT, VENT from left to
-right); read the logs to deduce COOLANT, REACTOR, VENT, COMMS rather than following
-their positions.
+four-station puzzle now lives in the separate Reactor Sequencer camera room;
+Scene 20 instead has an open atrium and a central staircase to the office.
 Workstations use the same authored desk and chair models as the cabins, grounded
 and uniformly scaled, with matching rotated colliders and monitors on the desktops.
-The eight computer monitors display the real `https://fla.capitalsigma.biz/`
-website continuously as depth-occluded CSS3D surfaces, including while walking
-past. **E** pans into a monitor; the normal browser cursor interacts with the live
-page. Use **Close screen** to pan back out. Data logs, puzzle controls, wall
-displays and windows do not show this website. The external site's availability
-and permissions still apply.
+The eight monitors normally show one static capture of
+`https://fla.capitalsigma.biz/`, so walking through the facility creates no live
+web pages. Face a monitor and press **E** to sit at its chair. Once Brondon finishes
+sitting, that monitor alone changes to the live depth-occluded CSS3D page. Use
+**Close screen** or **E** to leave; the iframe is unloaded and the static capture
+returns. Wall displays and windows never load the website.
 The wall screens instead show the supplied **SUDOERS HIDEOUT** photo with an
 ink-bordered yellow title strip. The high entrance window clears the door sign;
 round windows have recessed panes and raised metal rims below the mezzanine.
@@ -905,6 +926,10 @@ On entry, comic dialogue panels show Brondon saying, "This looks more like a
 resort than a prison," followed by Prime's "Could it be...?"
 From Scene 17, the open doorway shows an unlit black aperture until the player
 crosses into Scene 20.
+The arrival is a short in-engine cutscene: Prime remarks that the facility looks
+more like a resort than a prison, Brondon walks to the Sudoers Hideout picture,
+and says he needs to confront the students face to face. Its **Hold Enter to
+skip** control sits in the top-right corner.
 
 The stairs have illuminated tread edges, structural stringers and sloped glass
 railings. Only the upstairs holographic lab fit-out from `earth` (`1c28dc6`) is
@@ -912,8 +937,8 @@ imported: framed circuit panels, blueprint display, touch consoles, ceiling beam
 and cyan lighting. The five original Subject models and their conference table
 sit in the open middle of the top-floor room, using their authored sitting
 animations. Glass panels run along the balcony edge, not around a smaller inner
-office. After solving the panel, approach the glass door at the stair landing
-and press **E** to peek.
+office. Climb the centre stairs, approach the glass door at the landing and
+press **E** to peek.
 The camera eases toward the glass; the five notice Brondon and turn toward him,
 then the scene ends and the finale begins. Merely reaching the upper floor does
 not end the scene. Stairwell power stays unlocked on a round trip outside.
@@ -927,21 +952,28 @@ still loading. Returning to storage, retrying a boss checkpoint and all other
 scene transitions retain their existing seamless handoffs. Entering Scenes
 13, 14, 15 and 16 shows the same short **CHECKPOINT SAVED** banner as Stage One.
 
-Scene 20's observation-deck reveal leads into the Sudoers 5 finale. The taller summit room
+Scene 20's observation-deck reveal leads into the Sudoers 5 finale. Each student
+gets an individual close-up while the group admits that they hacked Donus,
+experimented on Branden and Brendan through the warden and simulations, planted
+the false laboratory rescue in Prime's memory, and designed every step of
+Brondon's journey. They repeatedly call their former mentor “Professor” while
+twisting his lessons into a defence of what they did. Brondon reels when they
+mock Branden's death, renounces them as his students and accepts their challenge
+to fight. The taller summit room
 has cold, desaturated ceiling spotlights and synchronized student dialogue. The roof
 blows clear, the students enter their mech one at a time, and the shuttle recalls
 from its Scene 17 jungle parking spot to morph into Prime Frame. A comic VS
 screen introduces the fight; there are no generated platforms under the mechs.
 After the transformations, dusk deepens into a moonlit, starry nighttime rooftop.
 
-Use **A / D** to move and **direction + J** to select an authored sword attack.
-Neutral **J** chains the classic, left and finishing cuts. The free Standard
+Use **A / D** to move and **J** to swing the reactor blade. The free Standard
 animations retain their complete anticipation, contact and recovery at their
 authored playback speed. Blade afterimages fade in **0.085 seconds**, with softer, narrower
 trails and restrained charge glow and impact sparks. Damage follows the animated blade sweep; luminous cuts remain on damaged
 armor for **1.65 seconds** before fading. **F** sheaths the sword, draws the
 back-mounted rifle and fires a two-handed salvo. **Hold R** for a draining shield
-or timed parry, and **Space** for a dodge boost with **no energy cost or recharge**.
+or timed parry, **Space** performs a dodge boost with **no energy cost or recharge**,
+and **C** slide-tackles the Final Verdict and knocks it down briefly on a clean hit.
 Boosts can also cancel a committed move once its cinematic close-up is over.
 The rooftop fighting bounds are subtly wider; the facility perimeter and its
 colliders extend to the enlarged deck edges as well. **E** charges **Last Light**, then
@@ -960,7 +992,11 @@ and resource warnings remain during combat. Special-move close-ups return to the
 normal camera **at least 0.55 seconds before firing**. Both fighters are protected
 from unrelated attacks during the introductory close-up; dodge or guard when
 gameplay resumes. Release R to recharge the shield.
-Shielding uses an open, extended off-hand stance instead of the pushing animation;
+The boss health bar is centred along the top edge, Brondon's life sits at the
+bottom-right, and circular comic controls ring the remaining edges. Rifle energy,
+shield recovery and Last Light recharge directly around their **F**, **R** and
+**E** buttons and change to **READY** when available. Shielding uses an open,
+extended off-hand stance instead of the pushing animation;
 the sphere follows the center of the fighter. Orbital locomotion blends a
 momentum-driven flight stance with the same original attack animations as on the roof.
 
@@ -1082,10 +1118,9 @@ This makes approaching beams easier to reflect without speeding up the finale
 or damaging targets during recovery/idle poses. Separate combo strokes
 can hit a target once each, and holstering cancels pending swings and parries.
 
-In the finale, **G** stows/recalls the sword and rifle on the frame's back; unarmed
-**J** chains the imported jab, cross and hook. **C** uses the imported grounded
-slide start, carry and exit, with sampled foot contact rather than sword reach.
-The final cinematic recalls the weapons automatically. Sword Block supplies the guarded
+In the finale, **J** always swings the reactor blade. **C** uses the imported
+grounded slide start, carry and exit, with sampled foot contact rather than sword
+reach; a clean tackle knocks the boss down for **1.8 seconds**. Sword Block supplies the guarded
 stance without making the head inherit the torso's shield rotation. Evasions and
 boosts use the authored airborne pose where appropriate. Cinematic root motion is not overlaid with a
 second velocity-driven body lean.
@@ -1121,7 +1156,7 @@ its normal opponent-tracking remains separate from the guard's torso/arm pose.
 
 ## Earth visuals
 
-The shared [Earth renderer](./src/scripts/earthTexture.ts), brought over from the
+The shared [Earth renderer](./src/scripts/global/earthTexture.ts), brought over from the
 `earth` branch, generates **2048 x 1024** terrain, roughness and cloud maps.
 Generated pixels are cached between scenes, with separately owned texture handles
 so disposing the previous scene cannot invalidate the next planet.
@@ -1150,14 +1185,30 @@ project-root/
       controls.ts           OrbitControls (swap for FP controls later)
       loader.ts             GLTF/GLB model and texture loader
     scenes/
-      scene1.ts             Intro cutscene
+      scene1.ts             Main Menu and first-load opening cutscene
       prologue/             Prison awakening and security/stealth previews
       living quarters/      Shared habitat scene with lazy cabin interiors
-      level 1/              Scenes 2–14
+      legacy scenes/        Original scenes 2–12
+      level 1 stage 1/      Storage room and stealth hangar
+      level 1 stage 2/      Surveillance hub and minigames
+      level 1 boss stage/   Scenes 13–14
       level 2/              Scenes 15, 15.5 (scene15-5.ts), and 16
       level 3/              Continuous approach 17, facility 20 and final boss 21
     scripts/
-      player.ts             Example player controller class
+      global/               Shared gameplay and cinematic helpers, including holdToSkip
+      player/               Player controller, character animation, posed limbs and slide tackle
+      npc/                  NPC behavior and shared knockdown animation
+      items/                Item model factories
+      weapons/              Weapon controllers and selection
+      level-2/              Flight helpers
+      level-3/              Facility, jungle and finale helpers
+      museum/               Museum display helpers
+      prologue/             Containment pod helpers
+    shaders/
+      vert/                 Vertex GLSL, including ascii/
+      frag/                 Fragment GLSL and player cel-shading chunks, including ascii/
+      waterNoise.glsl        Shared water noise
+      mountainRock.glsl      Shared rock surface functions
     helpers/                Reusable managers (see MANAGERS.md)
       animation/            AnimationManager, CutsceneManager, SplineEditor
       audio/                AudioManager

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { loadVergilsChair } from '../../core/loader.js';
-import { captureFinaleResources, normalizeFinaleActor } from '../../helpers/scene/finaleActors.js';
+import { captureFinaleResources, normalizeFinaleActor } from '../../scripts/level-3/finaleActors.js';
 
 export const CHAIR_TRAILER_DURATION = 18;
 export const CHAIR_HORIZON = Object.freeze({

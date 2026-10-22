@@ -88,10 +88,16 @@ const MOTIFS: Record<PaintingTheme, (ctx: Ctx, t: number) => void> = {
     glow(ctx, W / 2 + Math.sin(t * 2) * 60, H / 2 + Math.cos(t * 2.4) * 40, 20, '#ffe08a');
   },
   archive(ctx, t) {
-    ctx.fillStyle = '#071018';
-    for (let i = 0; i < 4; i++) { ctx.fillRect(40, 60 + i * 80, W - 80, 8); }
-    ctx.fillStyle = '#68b6ff'; for (let i = 0; i < 4; i++) for (let j = 0; j < 9; j++) ctx.fillRect(60 + j * 62, 20 + i * 80, 34, 40);
-    ctx.fillStyle = `rgba(255,255,255,${0.1 + Math.abs(Math.sin(t)) * 0.1})`; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#071018'; ctx.fillRect(60, 30, W - 120, H - 60);
+    ctx.strokeStyle = '#38caff'; ctx.lineWidth = 8; ctx.strokeRect(60, 30, W - 120, H - 60);
+    ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(W / 2, 150, 30, 0, Math.PI * 2); ctx.fill();
+    const travel = (Math.sin(t * 2.5) + 1) / 2;
+    const x = W / 2 + Math.sin(t * 1.2) * 80 * travel, y = 150 + travel * 180, radius = 8 + travel * 18;
+    glow(ctx, x, y, radius * 2, '#c8ef35', 0.6);
+    ctx.fillStyle = '#c8ef35'; ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, radius * 0.7, -1, 2); ctx.stroke();
+    ctx.fillStyle = '#eefaff'; ctx.font = 'bold 28px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('SABER TENNIS / 20 IN A ROW', W / 2, 75);
   },
   rust(ctx, t) {
     const random = rng(11);

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { emitComicEffect } from '../../helpers/scene/comicEffects.js';
-import { predictsCollision } from '../../helpers/scene/flightCollision.js';
+import { emitComicEffect } from '../../scripts/global/comicEffects.js';
+import { predictsCollision } from '../../scripts/level-2/flightCollision.js';
 
 export const TOPDOWN_SCRAMBLER_HEALTH = 420;
 const SHIELD_WIDTH = 118, ORB_RADIUS = 18, PLAYER_WIDTH = 190;

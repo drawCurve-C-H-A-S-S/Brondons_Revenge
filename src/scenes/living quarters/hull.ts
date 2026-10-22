@@ -1,7 +1,7 @@
 import { playSfx } from '../../helpers/audio/sfx.js';
 import * as THREE from 'three';
 import { createScenePhysics } from '../../helpers/physics/scenePhysics.js';
-import { createShipInteriorMaterials } from '../../helpers/scene/shipInterior.js';
+import { createShipInteriorMaterials } from '../../scripts/global/shipInterior.js';
 import { CABINS, QUARTERS, cabinCenter, cabinDoorPoint } from './layout.js';
 import { comicNameTexture } from './furnishings.js';
 import { createBulkheadKeypad } from './surfaces.js';

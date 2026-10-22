@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { SHIP_ROOMS, SHIP_ROOM_BY_ID, SHIP_DECKS, SHIP_CONNECTIONS, SHIP_VENT_PATHS, SHIP_VERTICAL_LINKS,
-  roomPoint, shipPlayerPoint, type ShipDeck, type ShipRoom, type ShipMapBlock } from '../helpers/scene/shipLayout.js';
+  roomPoint, shipPlayerPoint, type ShipDeck, type ShipRoom, type ShipMapBlock } from '../scripts/global/shipLayout.js';
 
 type DeckFilter = ShipDeck | 'all';
 interface ShipMapJoin {

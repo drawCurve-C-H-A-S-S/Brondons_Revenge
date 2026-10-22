@@ -13,12 +13,12 @@ before(async () => {
     appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
   ({ createScene } = await server.ssrLoadModule('/scenes/level 3/scene17.ts'));
   ({ createScene: createFacility } = await server.ssrLoadModule('/scenes/level 3/scene20.ts'));
-  siteRules = await server.ssrLoadModule('/helpers/scene/rescueSite.ts');
-  ({ createMechDuel, BOSS_IMMUNITY_SECONDS: immunitySeconds } = await server.ssrLoadModule('/scripts/mechDuel.ts'));
-  ({ createFinaleDirector } = await server.ssrLoadModule('/scripts/finaleDirector.ts'));
-  ({ MeleeSwing } = await server.ssrLoadModule('/scripts/melee.ts'));
-  ({ traceShot } = await server.ssrLoadModule('/scripts/pistol.ts'));
-  ({ UnarmedCombatController } = await server.ssrLoadModule('/scripts/unarmedCombat.ts'));
+  siteRules = await server.ssrLoadModule('/scripts/global/rescueSite.ts');
+  ({ createMechDuel, BOSS_IMMUNITY_SECONDS: immunitySeconds } = await server.ssrLoadModule('/scripts/npc/mechDuel.ts'));
+  ({ createFinaleDirector } = await server.ssrLoadModule('/scripts/global/finaleDirector.ts'));
+  ({ MeleeSwing } = await server.ssrLoadModule('/scripts/weapons/melee.ts'));
+  ({ traceShot } = await server.ssrLoadModule('/scripts/weapons/pistol.ts'));
+  ({ UnarmedCombatController } = await server.ssrLoadModule('/scripts/weapons/unarmedCombat.ts'));
 });
 after(async () => server?.close());
 
@@ -56,6 +56,7 @@ function dom(t) {
     set className(value) { this.classes = new Set(value.split(/\s+/)); }
     get className() { return [...this.classes].join(' '); }
     setAttribute(name, value) { this[name] = String(value); }
+    focus() {}
     append(...elements) { for (const el of elements) { el.remove(); this.children.push(el); el.parent = this; } }
     appendChild(el) { this.append(el); return el; }
     remove() { if (this.parent) this.parent.children = this.parent.children.filter(el => el !== this); this.parent = null; }
@@ -79,12 +80,15 @@ function dom(t) {
   globalThis.HTMLElement = Element; globalThis.HTMLCanvasElement = Canvas;
   globalThis.KeyboardEvent = globalThis.MouseEvent = InputEvent;
   globalThis.window = Object.assign(new EventTarget(), { innerWidth: 1280, innerHeight: 720, matchMedia: () => ({ matches: false }) });
-  const body = new Element('body'), elements = new Map();
+  const body = new Element('body'), elements = new Map(), created = [];
   for (const id of ['space-cinematic-caption', 'loading-bay-status', 'interact-prompt']) {
     const el = new Element(); el.id = id; elements.set(id, el); body.append(el);
   }
   globalThis.document = Object.assign(new EventTarget(), { body, baseURI: 'http://localhost/', hidden: false, pointerLockElement: null,
-    getElementById: id => elements.get(id) ?? null, createElement: tag => tag === 'canvas' ? new Canvas() : new Element(tag) });
+    getElementById: id => elements.get(id) ?? null, createElement: tag => {
+      const element = tag === 'canvas' ? new Canvas() : new Element(tag);
+      created.push(element); return element;
+    } });
   t.mock.method(GLTFLoader.prototype, 'loadAsync', async () => asset());
   t.mock.method(globalThis, 'fetch', async () => new Response('test asset'));
   t.mock.method(THREE.TextureLoader.prototype, 'load', (url, onLoad) => {
@@ -94,7 +98,7 @@ function dom(t) {
   const cleanup = [];
   t.cleanup = fn => cleanup.push(fn);
   t.after(() => { for (const fn of cleanup.reverse()) fn(); Object.assign(globalThis, old); });
-  return { body, elements };
+  return { body, elements, created };
 }
 const key = (code, type = 'keydown') => window.dispatchEvent(new KeyboardEvent(type, { code, repeat: false }));
 function step(data, seconds, fps = 60) {
@@ -384,6 +388,19 @@ test('facility requires E at the glass office before the seated five notice Bron
   assert.equal(finishes[0].cameraPosition, undefined, 'Exterior camera does not leak into the finale');
 });
 
+test('scene 20 arrival camera stays inside the atrium shell', async t => {
+  dom(t);
+  const data = createFacility({ onFinished() {}, loadModel: async () => asset(), loadStudents: async () => officeStudent() });
+  t.cleanup(() => data.dispose());
+  await data.ready;
+  for (let frame = 0; frame < 12 * 30; frame++) {
+    data.updatePhysics(1 / 30);
+    data.applyCinematicCamera();
+    assert.ok(Math.abs(data.camera.position.x) < 13.9, `camera crossed a side wall at x=${data.camera.position.x}`);
+    assert.ok(Math.abs(data.camera.position.z) < 17.9, `camera crossed an end wall at z=${data.camera.position.z}`);
+  }
+});
+
 test('earth facility has a real entrance opening, matching exterior coordinates and a planet dome', async t => {
   dom(t);
   const data = createFacility({ onFinished() {}, loadModel: async () => asset(), loadStudents: async () => officeStudent() }); t.cleanup(() => data.dispose());
@@ -408,7 +425,7 @@ test('earth facility has a real entrance opening, matching exterior coordinates 
 });
 
 test('facility furniture uses grounded, uniformly scaled models with rotated matching colliders', async t => {
-  dom(t);
+  const { body, created } = dom(t);
   const requested = [];
   const data = createFacility({ onFinished() {}, loadStudents: async () => officeStudent(), loadModel: async name => {
     requested.push(name);
@@ -420,10 +437,16 @@ test('facility furniture uses grounded, uniformly scaled models with rotated mat
   } });
   t.cleanup(() => data.dispose()); await data.ready;
   assert.equal(requested.filter(name => name === 'Prop_Desk_Small').length, 8);
-  assert.equal(requested.filter(name => name === 'Prop_Chair').length, 13);
-  let computers = 0;
-  data.scene.traverse(node => { if (node.userData.website) computers++; });
-  assert.equal(computers, 8, 'only workstation computer screens may embed the website');
+  assert.equal(requested.filter(name => name === 'Prop_Chair').length, 8);
+  const computerScreens = [];
+  data.scene.traverse(node => { if (node.name === 'FacilityComputerPreview') computerScreens.push(node); });
+  assert.equal(computerScreens.length, 8);
+  assert.ok(computerScreens.every(screen => !screen.userData.website),
+    'the facility must not create live website surfaces while Brondon is walking around');
+  const countTags = (root, tag) => (root.tag === tag ? 1 : 0)
+    + root.children.reduce((sum, child) => sum + countTags(child, tag), 0);
+  assert.equal(created.filter(element => element.tag === 'iframe').length, 0,
+    'no FLA iframe exists before Brondon sits down');
   for (const group of data.scene.children.filter(node => node.name === 'FacilityWorkstation')) {
     for (const name of ['FacilityDesk', 'FacilityChair']) {
       const model = group.getObjectByName(name), bounds = new THREE.Box3().setFromObject(model);
@@ -436,6 +459,29 @@ test('facility furniture uses grounded, uniformly scaled models with rotated mat
       assert.ok(Math.abs(body.quaternion.y - group.quaternion.y) < 1e-6);
     }
   }
+
+  step(data, 22);
+  const workstation = data.scene.children.find(node => node.name === 'FacilityWorkstation');
+  const chair = workstation.getObjectByName('FacilityChair');
+  const screen = workstation.getObjectByName('FacilityComputerPreview');
+  const chairCenter = new THREE.Box3().setFromObject(chair).getCenter(new THREE.Vector3());
+  const screenPoint = screen.getWorldPosition(new THREE.Vector3());
+  const away = chairCenter.clone().sub(screenPoint).setY(0).normalize();
+  const start = chairCenter.clone().addScaledVector(away, 0.65);
+  data.player.setPosition(start.x, 0.3, start.z);
+  data.player.setRotation(Math.atan2(-(screenPoint.x - start.x), -(screenPoint.z - start.z)));
+  step(data, 0.2); data.player.updateCamera(0);
+  const previewMaterial = screen.material;
+  key('KeyE'); key('KeyE', 'keyup'); step(data, 1.2);
+  const frames = created.filter(element => element.tag === 'iframe');
+  assert.equal(frames.length, 1, 'only the seated workstation creates one live FLA iframe');
+  assert.match(frames[0].src, /fla\.capitalsigma\.biz/);
+  assert.notEqual(screen.material, previewMaterial);
+
+  key('KeyE'); key('KeyE', 'keyup'); step(data, 0.7);
+  assert.equal(frames[0].src, 'about:blank', 'leaving the computer unloads the FLA iframe');
+  assert.equal(countTags(body, 'iframe'), 0);
+  assert.equal(screen.material, previewMaterial, 'the monitor returns to its static capture');
 });
 
 test('facility furniture load errors reject readiness rather than silently using box props', async t => {

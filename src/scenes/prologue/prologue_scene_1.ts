@@ -1,17 +1,18 @@
 /** Prologue Scene 1 - "Awakening". */
 import * as THREE from 'three';
-import { isControllerEvent, inputHint } from '../../scripts/gamepadInput.js';
+import { isControllerEvent, inputHint } from '../../scripts/player/gamepadInput.js';
 import { createScenePhysics, PHYSICS } from '../../helpers/physics/scenePhysics.js';
 import { loadPlayerModel, loadTexture } from '../../core/loader.js';
 import eyePhotographUrl from '../../assets/textures/brondon-eyes.png?url';
 import { createEyeOpening } from './eyeOpening.js';
-import { createPlayer } from '../../scripts/player.js';
-import { applyLayFlatPose, createPrologueGetUpClip, HOLOGRAM_TRANSFER_DURATION, hologramTransitionAt } from '../../scripts/characterManager.js';
+import { createPlayer } from '../../scripts/player/player.js';
+import { applyLayFlatPose, createPrologueGetUpClip, HOLOGRAM_TRANSFER_DURATION, hologramTransitionAt } from '../../scripts/player/characterManager.js';
 import { createPrologueFlashbacks, createPrologueShield, type PrologueShot } from './prologueFlashbacks.js';
-import { createHoldToSkip } from '../../helpers/animation/holdToSkip.js';
-import hologramVertexShader from '../../shaders/hologram.vert.glsl?raw';
-import hologramFragmentShader from '../../shaders/hologram.frag.glsl?raw';
+import { createHoldToSkip } from '../../scripts/global/holdToSkip.js';
+import hologramVertexShader from '../../shaders/vert/hologram.vert.glsl?raw';
+import hologramFragmentShader from '../../shaders/frag/hologram.frag.glsl?raw';
 import { prepareSceneRendering } from '../../core/renderer.js';
+import { createPrisonLight } from '../../scripts/global/prisonLight.js';
 
 interface PrologueOptions {
   onPlayable?: () => void;
@@ -163,70 +164,9 @@ export function createScene({ onPlayable, onFinished, preview = false, thirdPers
   const releaseShield = createPrologueShield();
   scene.add(releaseShield.root);
 
-  const glowCanvas = document.createElement('canvas');
-  glowCanvas.width = glowCanvas.height = 512;
-  const glowContext = glowCanvas.getContext('2d')!;
-  const glowGradient = glowContext.createRadialGradient(256, 256, 12, 256, 256, 256);
-  glowGradient.addColorStop(0, 'rgba(223, 246, 255, 0.95)');
-  glowGradient.addColorStop(0.25, 'rgba(144, 214, 255, 0.7)');
-  glowGradient.addColorStop(0.6, 'rgba(73, 167, 237, 0.3)');
-  glowGradient.addColorStop(1, 'rgba(73, 167, 237, 0)');
-  glowContext.fillStyle = glowGradient;
-  glowContext.fillRect(0, 0, 512, 512);
-  const glowTexture = new THREE.CanvasTexture(glowCanvas);
-  glowTexture.colorSpace = THREE.SRGBColorSpace;
-  const floorGlow = new THREE.Mesh(
-    new THREE.PlaneGeometry(3.2, 4.2),
-    new THREE.MeshBasicMaterial({
-      map: glowTexture,
-      transparent: true,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    }),
-  );
-  floorGlow.rotation.x = -Math.PI / 2;
-  floorGlow.position.y = 0.012;
-  scene.add(floorGlow);
-
-  const floorLight = new THREE.PointLight(0xa0d9ff, 7, 5.5, 1.4);
-  floorLight.position.set(0, 0.28, 0);
-  scene.add(floorLight);
-
-  const flowMaterial = new THREE.ShaderMaterial({
-    uniforms: { flowTime: { value: 0 }, strength: { value: 1 } },
-    vertexShader: `
-      varying vec2 flowUv;
-      void main() {
-        flowUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: `
-      uniform float flowTime;
-      uniform float strength;
-      varying vec2 flowUv;
-      void main() {
-        float angle = flowUv.x * 6.283185;
-        float height = flowUv.y;
-        float ribbons = pow(max(0.0, sin(angle * 6.0 + sin(height * 8.0 - flowTime) * 0.7)), 8.0);
-        float rising = pow(max(0.0, sin(height * 18.0 - flowTime * 2.4 + angle)), 7.0);
-        float fade = smoothstep(0.0, 0.12, height) * (1.0 - smoothstep(0.55, 1.0, height));
-        vec3 color = mix(vec3(0.24, 0.62, 0.96), vec3(0.76, 0.91, 1.0), rising * 0.6);
-        gl_FragColor = vec4(color, strength * fade * (0.08 + ribbons * 0.22 + rising * 0.06));
-      }
-    `,
-    transparent: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
-  const floorFlow = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.55, 1.15, HOVER_HEIGHT, 48, 1, true),
-    flowMaterial,
-  );
-  floorFlow.scale.z = 1.35;
-  floorFlow.position.y = HOVER_HEIGHT / 2 + 0.02;
-  scene.add(floorFlow);
+  const prisonLight = createPrisonLight();
+  const { floorGlow, floorLight, floorFlow, flowMaterial, glowTexture } = prisonLight;
+  scene.add(prisonLight.root);
 
   const cuffMaterial = new THREE.ShaderMaterial({
     uniforms: { hologramTime: { value: 0 }, hologramColor: { value: new THREE.Color(0x32a9ff) }, hologramImpact: { value: 0 } },

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { InteractiveDisplay, SurfaceAction } from './surfaces.js';
-import { isControllerActive, isControllerEvent, controllerMenuLabel, controllerButtonLabel, inputHint } from '../../scripts/gamepadInput.js';
+import { isControllerActive, isControllerEvent, controllerMenuLabel, controllerButtonLabel, inputHint } from '../../scripts/player/gamepadInput.js';
 
 export interface InspectionTarget {
   screen: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
