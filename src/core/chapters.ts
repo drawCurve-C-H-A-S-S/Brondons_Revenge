@@ -129,6 +129,7 @@ export const SCENE_CHOICES = [
   [5, 'Level 1 Minigame Stage - Cargo hold'], [6, 'Level 1 Minigame Stage - Target range'],
   [1.3, 'Level 1 Minigame Stage - Saber Tennis'],
   [1.4, 'Level 1 Minigame Stage - Rust chamber'],
+  [1.45, 'Level 1 Minigame Stage - Rust chamber 2'],
   [1.5, 'Level 1 Minigame Stage - Reactor Sequencer'],
   [13, 'Level 1 Boss Stage - Bay Warden'], [13.5, 'Level 1 Boss Stage - Bay Warden Phase 4'],
   [14, 'Level 1 Escape Stage - Hangar escape'],

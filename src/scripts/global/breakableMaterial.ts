@@ -11,9 +11,9 @@ export class BreakableMaterial extends THREE.MeshStandardMaterial {
     uBreakableColor: { value: new THREE.Color() },
   };
 
-  constructor(weapon: DamageWeapon) {
+  constructor(weapon: DamageWeapon, glowHex?: number) {
     super({ color: weapon === 'pistol' ? 0x334c59 : 0x604632, roughness: 0.78, metalness: 0.3 });
-    this.glow.uBreakableColor.value.setHex(weapon === 'pistol' ? 0x38bcff : 0xff781f);
+    this.glow.uBreakableColor.value.setHex(glowHex ?? (weapon === 'pistol' ? 0x38bcff : 0xff781f));
     this.name = weapon === 'pistol' ? 'BlueBallisticBreakable' : 'OrangeMeleeBreakable';
     this.customProgramCacheKey = () => 'corroded-breakable-v1';
     this.onBeforeCompile = shader => {

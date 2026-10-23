@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { ShipMapLayout } from '../../core/shipMap.js';
 import type { ShipMapBlock } from '../../scripts/global/shipLayout.js';
 
-export type CameraRoomId = 'scene5' | 'scene6' | 'stage2-armory' | 'stage2-rust' | 'stage2-reactor';
+export type CameraRoomId = 'scene5' | 'scene6' | 'stage2-armory' | 'stage2-rust' | 'stage2-rust2' | 'stage2-reactor';
 export type CameraFeedId = CameraRoomId | 'stage2-vents' | 'stage2-prison';
 export type KeycardRoomId = Exclude<CameraFeedId, 'stage2-prison'>;
 export type StageTwoCheckpoint = 'vent' | 'surveillance';
@@ -29,6 +29,7 @@ export const STAGE_TWO_MINIGAMES = [
   { id: 'scene6', label: 'Target range' },
   { id: 'stage2-armory', label: 'Saber Tennis' },
   { id: 'stage2-rust', label: 'Rust chamber' },
+  { id: 'stage2-rust2', label: 'Rust chamber 2' },
   { id: 'stage2-reactor', label: 'Reactor Sequencer' },
 ] as const;
 export const STAGE_TWO_KEYCARD_ROOMS = ['stage2-vents', ...STAGE_TWO_MINIGAMES.map(room => room.id)] as const;
@@ -52,6 +53,7 @@ export function createStageTwoProgress(): StageTwoProgress {
       scene6: { cleared: new Set(), rewardCollected: false },
       'stage2-armory': { cleared: new Set(), rewardCollected: false },
       'stage2-rust': { cleared: new Set(), rewardCollected: false },
+      'stage2-rust2': { cleared: new Set(), rewardCollected: false },
       'stage2-reactor': { cleared: new Set(), rewardCollected: false },
       'stage2-vents': { cleared: new Set(), rewardCollected: false } } };
 }
@@ -167,16 +169,16 @@ export const STAGE_TWO_MAP: ShipMapLayout = {
     stops: [{ height: 0, label: 'CAMERA HUB' }, { height: -18, label: 'BAY 13' }, { height: -36, label: 'BAY 14 / OFFLINE', locked: true }] }],
 };
 
-export function cameraVisitMap(id: 5 | 6 | 37 | 38 | 39): ShipMapLayout {
+export function cameraVisitMap(id: 5 | 6 | 37 | 38 | 39 | 40): ShipMapLayout {
   const name = id === 5 ? 'CCTV cargo hold' : id === 6 ? 'CCTV target range' : id === 38 ? 'Rust simulation chamber'
-    : id === 39 ? 'Reactor Sequencer' : 'Saber Batting Cage';
-  const altitude = id === 5 ? 36 : id === 6 ? -18 : id === 38 ? 72 : id === 39 ? 90 : 54;
+    : id === 40 ? 'Rust simulation chamber II' : id === 39 ? 'Reactor Sequencer' : 'Saber Batting Cage';
+  const altitude = id === 5 ? 36 : id === 6 ? -18 : id === 38 ? 72 : id === 40 ? 108 : id === 39 ? 90 : 54;
   return { name, initialRoom: id, connections: [], playerPoint: (_id, point) => new THREE.Vector3(point.x, altitude + 2.2, point.z),
     joins: [{ from: { room: 35, portal: `feed-${id}` }, to: { room: id, portal: 'camera' },
-      kind: 'camera', verticalOffset: altitude, displayOffset: { x: id === 38 ? 70 : id === 39 ? -34 : 34, z: id === 5 ? -16 : id === 6 || id === 39 ? 0 : 16 } }],
-    rooms: [{ id, name, deck: id === 6 ? 'lower' : 'upper', width: id === 38 ? 34 : id === 37 ? 18 : id === 39 ? 16 : 10,
-      depth: id === 38 ? 34 : id === 37 ? 22 : id === 39 ? 14 : 10,
-      position: new THREE.Vector3(id === 38 ? 17 : 0, altitude, id === 38 ? 17 : 0), yaw: 0, portals: { camera: { x: 0, z: 0, yaw: Math.PI } },
+      kind: 'camera', verticalOffset: altitude, displayOffset: { x: id === 38 ? 70 : id === 40 ? -68 : id === 39 ? -34 : 34, z: id === 5 ? -16 : id === 6 || id === 39 || id === 40 ? 0 : 16 } }],
+    rooms: [{ id, name, deck: id === 6 ? 'lower' : 'upper', width: id === 38 ? 34 : id === 40 ? 76 : id === 37 ? 18 : id === 39 ? 16 : 10,
+      depth: id === 38 ? 34 : id === 40 ? 22 : id === 37 ? 22 : id === 39 ? 14 : 10,
+      position: new THREE.Vector3(id === 38 ? 17 : id === 40 ? 32 : 0, altitude, id === 38 ? 17 : id === 40 ? 11 : 0), yaw: 0, portals: { camera: { x: 0, z: 0, yaw: Math.PI } },
       description: 'Deck under surveillance / Camera teleport only / Collect a chest keycard / T to return' }] };
 }
 

@@ -128,6 +128,7 @@ const sceneImports = {
   1.2: () => import("./scenes/level 1 stage 2/scene.js"),
   1.3: () => import("./scenes/level 1 stage 2/equipmentRoom.js"),
   1.4: () => import("./scenes/level 1 stage 2/rustChamber.js"),
+  1.45: () => import("./scenes/level 1 stage 2/rustChamber2.js"),
   1.5: () => import("./scenes/level 1 stage 2/reactorSequencer.js"),
   5: () => import("./scenes/legacy scenes/scene5.js"),
   6: () => import("./scenes/legacy scenes/scene6.js"),
@@ -675,10 +676,16 @@ const teleportDevice = new TeleportationDeviceController(() => ({
     void teleportToAnchor(sceneId, position, rotation);
   },
   showMessage: showTeleportDeviceMessage,
+  canPlace: (_sceneId, position) =>
+    currentSceneData?.canPlaceMarker?.(position) ?? null,
+  getBounceImpulse: (point) =>
+    currentSceneData?.getThrowBounce?.(point) ?? null,
   placementMessage: () =>
     "Purple marker placed. Press T to return; hold Tab to choose weapons.",
   returnOverride: () =>
-    isCameraVisit(activeSceneId) && surveillanceMarkerPlaced()
+    isCameraVisit(activeSceneId) &&
+    activeSceneId !== "stage2-rust2" &&
+    surveillanceMarkerPlaced()
       ? {
           sceneId: "stage2-infiltration",
           position: {
@@ -2316,6 +2323,11 @@ async function cameraFeed(id: CameraFeedId): Promise<CctvFeedSource> {
               preview: true,
               loot: stageTwoProgress.remoteRooms["stage2-rust"],
             })
+          : id === "stage2-rust2"
+            ? (await sceneModule(1.45)).createScene({
+                preview: true,
+                loot: stageTwoProgress.remoteRooms["stage2-rust2"],
+              })
           : id === "stage2-reactor"
             ? (await sceneModule(1.5)).createScene({
                 preview: true,
@@ -2339,7 +2351,7 @@ async function cameraFeed(id: CameraFeedId): Promise<CctvFeedSource> {
       if ("syncProgress" in sceneData) sceneData.syncProgress();
       sceneData.updatePhysics(dt);
     },
-    ...(id === "stage2-rust" ? { camera: sceneData.camera } : {}),
+    ...(id === "stage2-rust" || id === "stage2-rust2" ? { camera: sceneData.camera } : {}),
     dispose: () => sceneData.dispose(),
   };
 }
@@ -2410,6 +2422,21 @@ async function loadCameraVisit(
       onRestart: restartSurveillance,
       onKeycardCollected: () => {
         collectStageTwoKeycard(stageTwoProgress, "stage2-rust");
+        completeArcadeStage();
+      },
+    });
+  } else if (id === "stage2-rust2") {
+    const module = await prepareScene(1.45);
+    if (!module || source !== currentSceneData) return false;
+    sceneData = module.createScene({
+      deferActivation: true,
+      entryState,
+      loot: stageTwoProgress.remoteRooms["stage2-rust2"],
+      // T must reach the marker thrown across the fissure, so R is the room's exit.
+      hasReturnMarker: () => false,
+      onRestart: restartSurveillance,
+      onKeycardCollected: () => {
+        collectStageTwoKeycard(stageTwoProgress, "stage2-rust2");
         completeArcadeStage();
       },
     });
@@ -3856,6 +3883,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
       "stage2-infiltration": 1.2,
       "stage2-armory": 1.3,
       "stage2-rust": 1.4,
+      "stage2-rust2": 1.45,
       "stage2-reactor": 1.5,
       museum: 99,
     };
@@ -4047,7 +4075,7 @@ async function enterSceneById(id: number) {
     hasCrowbar = false;
     bayBossDefeated = false;
     healthPackCollectedScene13 = false;
-  } else if (id === 1.3 || id === 1.4 || id === 1.5 || id === 5 || id === 6) {
+  } else if (id === 1.3 || id === 1.4 || id === 1.45 || id === 1.5 || id === 5 || id === 6) {
     stageTwoProgress.checkpoint = "surveillance";
     stageTwoProgress.guardDown = true;
   }
@@ -4080,6 +4108,10 @@ async function enterSceneById(id: number) {
       case 1.4:
         if (!(await loadCameraVisit("stage2-rust", undefined, true)))
           throw new Error("The rust chamber did not activate");
+        break;
+      case 1.45:
+        if (!(await loadCameraVisit("stage2-rust2", undefined, true)))
+          throw new Error("Rust chamber 2 did not activate");
         break;
       case 1.5:
         if (!(await loadCameraVisit("stage2-reactor", undefined, true)))

@@ -28,7 +28,7 @@ export function teleportPlayer(player: Player, position: { x: number; y: number;
   player.body.interpolatedPosition.copy(player.body.position);
 }
 
-const TELEPORT_THROW = { holdSeconds: 0.3, chargeSeconds: 0.7, minSpeed: 8, maxSpeed: 22, gravity: 16, maxFlight: 5 };
+export const TELEPORT_THROW = { holdSeconds: 0.3, chargeSeconds: 0.7, minSpeed: 8, maxSpeed: 22, gravity: 16, maxFlight: 5 };
 
 export interface TeleportationDeviceState {
   collected: boolean;
@@ -50,6 +50,8 @@ export interface TeleportationDeviceContext {
   onTeleport: (sceneId: string, position: { x: number; y: number; z: number }, rotation: number) => void;
   showMessage: (message: string) => void;
   canPlace?: (sceneId: string, position: { x: number; y: number; z: number }) => string | null;
+  /** Scenes can veto a landing and reflect the crystal instead (launcher pads). */
+  getBounceImpulse?: (point: THREE.Vector3) => THREE.Vector3 | null;
   placementMessage?: (sceneId: string, position: { x: number; y: number; z: number }) => string;
   returnError?: (state: TeleportationDeviceState) => string | null;
   /** A fixed return destination that T uses regardless of any placed marker. */
@@ -185,6 +187,12 @@ export class TeleportationDeviceController {
         return !material.transparent || material.opacity > 0.5;
       });
       if (hit) {
+        const bounce = ctx.getBounceImpulse?.(hit.point);
+        if (bounce) {
+          flight.mesh.position.copy(hit.point).addScaledVector(move.clone().normalize(), 0.06);
+          flight.velocity.copy(bounce);
+          return;
+        }
         const normal = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : new THREE.Vector3(0, 1, 0);
         if (normal.dot(move) > 0) normal.negate();
         if (normal.y > 0.6) { this.landThrow(hit.point); return; }
