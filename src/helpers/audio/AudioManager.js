@@ -1,8 +1,14 @@
-import * as THREE from 'three';
-import { BufferedMusic, supportsBufferedMusic, resumeMusicContext, createMusicMuffleFilter } from './bufferedMusic.js';
-import { cachedAssetUrl } from '../../core/assetCache.js';
+import * as THREE from "three";
+import {
+  BufferedMusic,
+  supportsBufferedMusic,
+  resumeMusicContext,
+  createMusicMuffleFilter,
+} from "./bufferedMusic.js";
+import { cachedAssetUrl } from "../../core/assetCache.js";
 
-const clamp = (value, minimum, maximum) => Math.min(Math.max(value, minimum), maximum);
+const clamp = (value, minimum, maximum) =>
+  Math.min(Math.max(value, minimum), maximum);
 const volumes = { bgm: 1, sfx: 1 };
 /** The Sound slider still spans 0-100%, but a fully raised effects slider plays at 30% of full scale. */
 export const SFX_MAX_GAIN = 0.3;
@@ -16,9 +22,10 @@ const preparedAudio = new Map();
 /** @typedef {{ audio: MusicAudio, settings: BgmSettings }} BgmTrack */
 
 export function preloadAudio(source) {
-  if (!source || preparedAudio.has(source) || typeof Audio === 'undefined') return;
+  if (!source || preparedAudio.has(source) || typeof Audio === "undefined")
+    return;
   const audio = new Audio(cachedAssetUrl(source));
-  audio.preload = 'auto';
+  audio.preload = "auto";
   audio.load();
   preparedAudio.set(source, audio);
 }
@@ -26,34 +33,56 @@ export function preloadAudio(source) {
 /** @type {Set<(settings: { bgm: number, sfx: number, paused: boolean }) => void>} */
 const settingsListeners = new Set();
 try {
-  const saved = JSON.parse(localStorage.getItem('brondons-revenge-audio') || '{}');
-  for (const channel of ['bgm', 'sfx']) {
-    if (typeof saved?.[channel] === 'number' && Number.isFinite(saved[channel])) volumes[channel] = clamp(saved[channel], 0, 1);
+  const saved = JSON.parse(
+    localStorage.getItem("brondons-revenge-audio") || "{}",
+  );
+  for (const channel of ["bgm", "sfx"]) {
+    if (typeof saved?.[channel] === "number" && Number.isFinite(saved[channel]))
+      volumes[channel] = clamp(saved[channel], 0, 1);
   }
-} catch { /* Storage is optional; session volume controls still work. */ }
+} catch {
+  /* Storage is optional; session volume controls still work. */
+}
 
-const mutedEmbed = typeof window !== 'undefined' && window.parent !== window
-  && new URLSearchParams(window.location?.search ?? '').get('muted') === '1';
-if (mutedEmbed) { volumes.bgm = 0; volumes.sfx = 0; }
+const mutedEmbed =
+  typeof window !== "undefined" &&
+  window.parent !== window &&
+  new URLSearchParams(window.location?.search ?? "").get("muted") === "1";
+if (mutedEmbed) {
+  volumes.bgm = 0;
+  volumes.sfx = 0;
+}
 
-export function getAudioSettings() { return { ...volumes, paused: menuPaused }; }
+export function getAudioSettings() {
+  return { ...volumes, paused: menuPaused };
+}
 /** Effective gain for every sound effect: the player's slider scaled by the global effects ceiling. */
-export function getSfxGain() { return volumes.sfx * SFX_MAX_GAIN; }
+export function getSfxGain() {
+  return volumes.sfx * SFX_MAX_GAIN;
+}
 function notifyAudioSettings() {
   for (const manager of managers) manager.update();
   for (const listener of settingsListeners) listener(getAudioSettings());
 }
 /** @param {'bgm' | 'sfx'} channel @param {number} value */
 export function setAudioVolume(channel, value) {
-  if (!Number.isFinite(value) || (channel !== 'bgm' && channel !== 'sfx')) return;
+  if (!Number.isFinite(value) || (channel !== "bgm" && channel !== "sfx"))
+    return;
   volumes[channel] = clamp(value, 0, 1);
-  try { localStorage.setItem('brondons-revenge-audio', JSON.stringify(volumes)); } catch { /* Session-only settings. */ }
+  try {
+    localStorage.setItem("brondons-revenge-audio", JSON.stringify(volumes));
+  } catch {
+    /* Session-only settings. */
+  }
   notifyAudioSettings();
 }
 /** @param {(settings: { bgm: number, sfx: number, paused: boolean }) => void} listener */
 export function subscribeAudioSettings(listener) {
-  settingsListeners.add(listener); listener(getAudioSettings());
-  return () => { settingsListeners.delete(listener); };
+  settingsListeners.add(listener);
+  listener(getAudioSettings());
+  return () => {
+    settingsListeners.delete(listener);
+  };
 }
 /** @param {boolean} paused */
 export function setAudioMenuPaused(paused) {
@@ -86,7 +115,13 @@ export class AudioManager {
     this.menuSuspended = new Set();
     managers.add(this);
     this.unlockAudio = this.unlockAudio.bind(this);
-    for (const type of ['pointerdown', 'mousedown', 'touchstart', 'keydown', 'click']) {
+    for (const type of [
+      "pointerdown",
+      "mousedown",
+      "touchstart",
+      "keydown",
+      "click",
+    ]) {
       window.addEventListener(type, this.unlockAudio, { passive: true });
     }
   }
@@ -94,20 +129,22 @@ export class AudioManager {
   resolveSource(path) {
     const source = this.getFile(path)?.content;
     if (source instanceof Blob) {
-      if (!this.objectUrls.has(path)) this.objectUrls.set(path, URL.createObjectURL(source));
+      if (!this.objectUrls.has(path))
+        this.objectUrls.set(path, URL.createObjectURL(source));
       return this.objectUrls.get(path);
     }
-    return typeof source === 'string' && source ? source : null;
+    return typeof source === "string" && source ? source : null;
   }
 
   createAudio(path, { loop = false } = {}) {
     const source = this.resolveSource(path);
     if (!source) throw new Error(`Audio file not found: ${path}`);
-    const audio = preparedAudio.get(source) || new Audio(cachedAssetUrl(source));
+    const audio =
+      preparedAudio.get(source) || new Audio(cachedAssetUrl(source));
     const prepared = preparedAudio.delete(source);
     audio.loop = loop;
     // Force a full buffer up front so the first play() call is instant once the user unlocks audio.
-    audio.preload = 'auto';
+    audio.preload = "auto";
     if (!prepared) audio.load();
     return audio;
   }
@@ -117,10 +154,13 @@ export class AudioManager {
     if (!source) throw new Error(`Audio file not found: ${path}`);
     if (!supportsBufferedMusic(source)) {
       const audio = new Audio(cachedAssetUrl(source));
-      audio.loop = loop; audio.preload = 'auto'; audio.load();
-      if (typeof window.AudioContext === 'function') {
+      audio.loop = loop;
+      audio.preload = "auto";
+      audio.load();
+      if (typeof window.AudioContext === "function") {
         const filter = createMusicMuffleFilter(audio);
-        filter.setMuffled(this.bgmMuffled); this.bgmFilters.set(audio, filter);
+        filter.setMuffled(this.bgmMuffled);
+        this.bgmFilters.set(audio, filter);
       }
       return audio;
     }
@@ -133,7 +173,10 @@ export class AudioManager {
   setBgmMuffled(value) {
     if (this.bgmMuffled === value) return;
     this.bgmMuffled = value;
-    for (const audio of [this.bgm?.audio, ...(this.bgmFade?.outgoing.map(entry => entry.track.audio) ?? [])]) {
+    for (const audio of [
+      this.bgm?.audio,
+      ...(this.bgmFade?.outgoing.map((entry) => entry.track.audio) ?? []),
+    ]) {
       if (audio instanceof BufferedMusic) audio.setMuffled(value);
       else if (audio) this.bgmFilters.get(audio)?.setMuffled(value);
     }
@@ -154,23 +197,40 @@ export class AudioManager {
     this.stopBgm();
     if (!settings?.path) return;
     const audio = this.createBgmAudio(settings.path, settings.loop !== false);
-    audio.volume = clamp(settings.volume ?? 0.7, 0, 1) * volumes.bgm * (this.bgmMuffled ? MUFFLED_BGM_GAIN : 1);
+    audio.volume =
+      clamp(settings.volume ?? 0.7, 0, 1) *
+      volumes.bgm *
+      (this.bgmMuffled ? MUFFLED_BGM_GAIN : 1);
     this.bgm = { audio, settings: { ...settings } };
     if (settings.autoplay) this.requestAutoplay(audio);
   }
 
   /** @param {BgmSettings} settings */
   crossfadeBgm(settings, duration = 3) {
-    if (!Number.isFinite(duration) || duration <= 0) throw new RangeError('BGM crossfade duration must be positive and finite');
-    if (!settings?.path) throw new Error('BGM crossfade requires an audio path');
-    if (!this.bgm) { this.setBgm(settings); return; }
+    if (!Number.isFinite(duration) || duration <= 0)
+      throw new RangeError(
+        "BGM crossfade duration must be positive and finite",
+      );
+    if (!settings?.path)
+      throw new Error("BGM crossfade requires an audio path");
+    if (!this.bgm) {
+      this.setBgm(settings);
+      return;
+    }
     if (this.bgm.settings.path === settings.path) return;
     const audio = this.createBgmAudio(settings.path, settings.loop !== false);
-    const progress = this.bgmFade ? this.bgmFade.elapsed / this.bgmFade.duration : 1;
-    const angle = progress * Math.PI / 2;
+    const progress = this.bgmFade
+      ? this.bgmFade.elapsed / this.bgmFade.duration
+      : 1;
+    const angle = (progress * Math.PI) / 2;
     const outgoing = this.bgmFade
-      ? [...this.bgmFade.outgoing.map(entry => ({ track: entry.track, gain: entry.gain * Math.cos(angle) })),
-        { track: this.bgm, gain: Math.sin(angle) }]
+      ? [
+          ...this.bgmFade.outgoing.map((entry) => ({
+            track: entry.track,
+            gain: entry.gain * Math.cos(angle),
+          })),
+          { track: this.bgm, gain: Math.sin(angle) },
+        ]
       : [{ track: this.bgm, gain: 1 }];
     this.bgmFade = { outgoing, elapsed: 0, duration };
     this.bgm = { audio, settings: { ...settings } };
@@ -181,7 +241,9 @@ export class AudioManager {
 
   finishBgmFade() {
     if (!this.bgmFade) return;
-    for (const { track: { audio } } of this.bgmFade.outgoing) {
+    for (const {
+      track: { audio },
+    } of this.bgmFade.outgoing) {
       this.cancelledPlayback.add(audio);
       this.autoplayQueue.delete(audio);
       this.menuSuspended.delete(audio);
@@ -194,11 +256,15 @@ export class AudioManager {
 
   playBgm() {
     if (this.bgm) this.requestAutoplay(this.bgm.audio);
-    for (const entry of this.bgmFade?.outgoing ?? []) this.requestAutoplay(entry.track.audio);
+    for (const entry of this.bgmFade?.outgoing ?? [])
+      this.requestAutoplay(entry.track.audio);
   }
 
   pauseBgm() {
-    for (const audio of [this.bgm?.audio, ...(this.bgmFade?.outgoing.map(entry => entry.track.audio) ?? [])]) {
+    for (const audio of [
+      this.bgm?.audio,
+      ...(this.bgmFade?.outgoing.map((entry) => entry.track.audio) ?? []),
+    ]) {
       if (!audio) continue;
       this.cancelledPlayback.add(audio);
       this.autoplayQueue.delete(audio);
@@ -218,10 +284,17 @@ export class AudioManager {
 
   registerEmitter(emitter) {
     this.removeEmitter(emitter.id);
-    const audio = this.createAudio(emitter.path, { loop: emitter.loop !== false });
+    const audio = this.createAudio(emitter.path, {
+      loop: emitter.loop !== false,
+    });
     const entry = { data: structuredClone(emitter), audio };
     this.emitters.set(emitter.id, entry);
-    this.applySpatialVolume({ audio, position: emitter.position, volume: emitter.volume ?? 1, radius: emitter.radius ?? 12 });
+    this.applySpatialVolume({
+      audio,
+      position: emitter.position,
+      volume: emitter.volume ?? 1,
+      radius: emitter.radius ?? 12,
+    });
     if (emitter.autoplay !== false) this.requestAutoplay(audio);
     return entry;
   }
@@ -274,11 +347,16 @@ export class AudioManager {
     entry.audio.currentTime = 0;
   }
 
-  playSfx(path, { position = null, volume = 1, radius = 12, loop = false } = {}) {
+  playSfx(
+    path,
+    { position = null, volume = 1, radius = 12, loop = false } = {},
+  ) {
     const audio = this.createAudio(path, { loop });
     const entry = { audio, position, volume, radius };
     this.activeSfx.add(entry);
-    audio.addEventListener('ended', () => this.activeSfx.delete(entry), { once: true });
+    audio.addEventListener("ended", () => this.activeSfx.delete(entry), {
+      once: true,
+    });
     this.applySpatialVolume(entry);
     this.playAudio(audio);
     return audio;
@@ -287,10 +365,17 @@ export class AudioManager {
   setMenuPaused(paused) {
     if (!this.pauseWithMenu) return;
     if (paused) {
-      const audioNodes = [this.bgm?.audio, ...(this.bgmFade?.outgoing.map(entry => entry.track.audio) ?? []), ...[...this.emitters.values()].map(entry => entry.audio),
-        ...[...this.activeSfx].map(entry => entry.audio)];
+      const audioNodes = [
+        this.bgm?.audio,
+        ...(this.bgmFade?.outgoing.map((entry) => entry.track.audio) ?? []),
+        ...[...this.emitters.values()].map((entry) => entry.audio),
+        ...[...this.activeSfx].map((entry) => entry.audio),
+      ];
       for (const audio of audioNodes) {
-        if (audio && !audio.paused && !audio.ended) { this.menuSuspended.add(audio); audio.pause(); }
+        if (audio && !audio.paused && !audio.ended) {
+          this.menuSuspended.add(audio);
+          audio.pause();
+        }
       }
     } else {
       for (const audio of this.menuSuspended) this.requestAutoplay(audio);
@@ -300,27 +385,49 @@ export class AudioManager {
   }
 
   update(deltaTime = 0) {
-    if (!Number.isFinite(deltaTime) || deltaTime < 0) throw new RangeError('Audio timing must be finite and nonnegative');
-    if (this.bgmFade && (!menuPaused || !this.pauseWithMenu) && !this.bgm.audio.paused
-      && !this.autoplayQueue.has(this.bgm.audio)) {
-      this.bgmFade.elapsed = Math.min(this.bgmFade.duration, this.bgmFade.elapsed + deltaTime);
+    if (!Number.isFinite(deltaTime) || deltaTime < 0)
+      throw new RangeError("Audio timing must be finite and nonnegative");
+    if (
+      this.bgmFade &&
+      (!menuPaused || !this.pauseWithMenu) &&
+      !this.bgm.audio.paused &&
+      !this.autoplayQueue.has(this.bgm.audio)
+    ) {
+      this.bgmFade.elapsed = Math.min(
+        this.bgmFade.duration,
+        this.bgmFade.elapsed + deltaTime,
+      );
       if (this.bgmFade.elapsed >= this.bgmFade.duration) this.finishBgmFade();
     }
-    const progress = this.bgmFade ? this.bgmFade.elapsed / this.bgmFade.duration : 1;
-    const angle = progress * Math.PI / 2;
+    const progress = this.bgmFade
+      ? this.bgmFade.elapsed / this.bgmFade.duration
+      : 1;
+    const angle = (progress * Math.PI) / 2;
     const bgmVolume = volumes.bgm * (this.bgmMuffled ? MUFFLED_BGM_GAIN : 1);
-    if (this.bgm) this.bgm.audio.volume = clamp(this.bgm.settings.volume ?? 0.7, 0, 1) * bgmVolume * Math.sin(angle);
+    if (this.bgm)
+      this.bgm.audio.volume =
+        clamp(this.bgm.settings.volume ?? 0.7, 0, 1) *
+        bgmVolume *
+        Math.sin(angle);
     if (this.bgmFade) {
-      for (const { track: { audio, settings }, gain } of this.bgmFade.outgoing) {
-        audio.volume = clamp(settings.volume ?? 0.7, 0, 1) * bgmVolume * gain * Math.cos(angle);
+      for (const {
+        track: { audio, settings },
+        gain,
+      } of this.bgmFade.outgoing) {
+        audio.volume =
+          clamp(settings.volume ?? 0.7, 0, 1) *
+          bgmVolume *
+          gain *
+          Math.cos(angle);
       }
     }
-    for (const entry of this.emitters.values()) this.applySpatialVolume({
-      audio: entry.audio,
-      position: entry.data.position,
-      volume: entry.data.volume ?? 1,
-      radius: entry.data.radius ?? 12,
-    });
+    for (const entry of this.emitters.values())
+      this.applySpatialVolume({
+        audio: entry.audio,
+        position: entry.data.position,
+        volume: entry.data.volume ?? 1,
+        radius: entry.data.radius ?? 12,
+      });
     for (const entry of this.activeSfx) this.applySpatialVolume(entry);
   }
 
@@ -331,24 +438,43 @@ export class AudioManager {
     }
     const listenerPosition = new THREE.Vector3();
     this.camera.getWorldPosition(listenerPosition);
-    const distance = listenerPosition.distanceTo(new THREE.Vector3(...position));
-    audio.volume = clamp(volume * (1 - distance / Math.max(radius, 0.01)), 0, 1) * getSfxGain();
+    const distance = listenerPosition.distanceTo(
+      new THREE.Vector3(...position),
+    );
+    audio.volume =
+      clamp(volume * (1 - distance / Math.max(radius, 0.01)), 0, 1) *
+      getSfxGain();
   }
 
   playAudio(audio) {
     this.cancelledPlayback.delete(audio);
-    if (menuPaused && this.pauseWithMenu) { this.autoplayQueue.add(audio); return; }
-    audio.play().then(() => {
-      if (this.cancelledPlayback.has(audio)) { audio.pause(); return; }
-      this.autoplayQueue.delete(audio);
-      if (menuPaused && this.pauseWithMenu && !audio.paused && !audio.ended) { this.menuSuspended.add(audio); audio.pause(); }
-    }).catch(error => {
-      if (this.cancelledPlayback.has(audio)) return;
-      if (error?.name === 'NotAllowedError') { this.autoplayQueue.add(audio); return; }
-      if (error?.name === 'AbortError' && audio.paused) return;
-      this.autoplayQueue.delete(audio);
-      console.warn('[Audio] Playback failed:', audio.src, error);
-    });
+    if (menuPaused && this.pauseWithMenu) {
+      this.autoplayQueue.add(audio);
+      return;
+    }
+    audio
+      .play()
+      .then(() => {
+        if (this.cancelledPlayback.has(audio)) {
+          audio.pause();
+          return;
+        }
+        this.autoplayQueue.delete(audio);
+        if (menuPaused && this.pauseWithMenu && !audio.paused && !audio.ended) {
+          this.menuSuspended.add(audio);
+          audio.pause();
+        }
+      })
+      .catch((error) => {
+        if (this.cancelledPlayback.has(audio)) return;
+        if (error?.name === "NotAllowedError") {
+          this.autoplayQueue.add(audio);
+          return;
+        }
+        if (error?.name === "AbortError" && audio.paused) return;
+        this.autoplayQueue.delete(audio);
+        console.warn("[Audio] Playback failed:", audio.src, error);
+      });
   }
 
   requestAutoplay(audio) {
@@ -360,9 +486,13 @@ export class AudioManager {
 
   unlockAudio() {
     this.audioUnlocked = true;
-    void resumeMusicContext().then(() => {
-      for (const audio of this.autoplayQueue) this.playAudio(audio);
-    }).catch(error => console.warn('[Audio] Music context could not resume:', error));
+    void resumeMusicContext()
+      .then(() => {
+        for (const audio of this.autoplayQueue) this.playAudio(audio);
+      })
+      .catch((error) =>
+        console.warn("[Audio] Music context could not resume:", error),
+      );
   }
 
   dispose() {
@@ -370,10 +500,19 @@ export class AudioManager {
     this.menuSuspended.clear();
     this.stopBgm();
     this.clearEmitters();
-    for (const entry of this.activeSfx) { this.cancelledPlayback.add(entry.audio); entry.audio.pause(); }
+    for (const entry of this.activeSfx) {
+      this.cancelledPlayback.add(entry.audio);
+      entry.audio.pause();
+    }
     this.activeSfx.clear();
     this.autoplayQueue.clear();
-    for (const type of ['pointerdown', 'mousedown', 'touchstart', 'keydown', 'click']) {
+    for (const type of [
+      "pointerdown",
+      "mousedown",
+      "touchstart",
+      "keydown",
+      "click",
+    ]) {
       window.removeEventListener(type, this.unlockAudio);
     }
     for (const url of this.objectUrls.values()) URL.revokeObjectURL(url);

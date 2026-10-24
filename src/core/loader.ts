@@ -1,43 +1,66 @@
-import * as THREE from 'three';
-import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
-import { clone as cloneRig } from 'three/addons/utils/SkeletonUtils.js';
-import playerModelUrl from '../assets/models/Don.glb';
-import mcModelUrl from '../assets/models/MC.glb';
-import subjectModelUrl from '../assets/models/Subject.glb';
-import brendanModelUrl from '../assets/models/DonfromStreets.glb';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import dinoModelUrl from '../assets/models/Dino/dino.glb';
-import sharkModelUrl from '../assets/models/Dino/Shark.glb';
-import bossModelUrl from '../assets/models/bayboss.glb';
-import mothershipModelUrl from '../assets/models/mothership.glb';
-import gundamModelUrl from '../assets/models/gundam.glb';
-import vergilsChairUrl from '../assets/models/vergils chair.glb';
-import { assetUrl, cachedAssetUrl, fetchAsset, type PreloadTask } from './assetCache.js';
-import playerCelUniforms from '../shaders/frag/playerCelUniforms.frag.glsl?raw';
-import playerCelFragment from '../shaders/frag/playerCel.frag.glsl?raw';
+import * as THREE from "three";
+import { GLTFLoader, type GLTF } from "three/addons/loaders/GLTFLoader.js";
+import { clone as cloneRig } from "three/addons/utils/SkeletonUtils.js";
+import playerModelUrl from "../assets/models/Don.glb";
+import mcModelUrl from "../assets/models/MC.glb";
+import subjectModelUrl from "../assets/models/Subject.glb";
+import brendanModelUrl from "../assets/models/DonfromStreets.glb";
+import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
+import dinoModelUrl from "../assets/models/Dino/dino.glb";
+import sharkModelUrl from "../assets/models/Dino/Shark.glb";
+import bossModelUrl from "../assets/models/bayboss.glb";
+import mothershipModelUrl from "../assets/models/mothership.glb";
+import gundamModelUrl from "../assets/models/gundam.glb";
+import vergilsChairUrl from "../assets/models/vergils chair.glb";
+import {
+  assetUrl,
+  cachedAssetUrl,
+  fetchAsset,
+  type PreloadTask,
+} from "./assetCache.js";
+import playerCelUniforms from "../shaders/frag/playerCelUniforms.frag.glsl?raw";
+import playerCelFragment from "../shaders/frag/playerCel.frag.glsl?raw";
 
 const gltfLoader = new GLTFLoader();
 const playerLoader = new GLTFLoader();
 THREE.Cache.enabled = true;
 const playerTemplates = new WeakMap<GLTFLoader, Promise<GLTF>>();
 const modelTemplates = new Map<string, Promise<GLTF>>();
-export const TOOL_MODEL_NAMES = ['Enemy_Trilobite', 'Enemy_QuadShell', 'Enemy_EyeDrone', 'Gun_Pistol', 'Gun_Revolver',
-  'Gun_Rifle', 'Prop_Chest', 'Prop_Desk_Small', 'Prop_Chair', 'Prop_KeyCard'] as const;
-type ToolModelName = typeof TOOL_MODEL_NAMES[number];
+export const TOOL_MODEL_NAMES = [
+  "Enemy_Trilobite",
+  "Enemy_QuadShell",
+  "Enemy_EyeDrone",
+  "Gun_Pistol",
+  "Gun_Revolver",
+  "Gun_Rifle",
+  "Prop_Chest",
+  "Prop_Desk_Small",
+  "Prop_Chair",
+  "Prop_KeyCard",
+] as const;
+type ToolModelName = (typeof TOOL_MODEL_NAMES)[number];
 const toolTemplates = new Map<ToolModelName, Promise<GLTF>>();
 
 export function yieldToMainThread(): Promise<void> {
-  const scheduler = (globalThis as typeof globalThis & { scheduler?: { yield: () => Promise<void> } }).scheduler;
-  return scheduler?.yield ? scheduler.yield() : new Promise(resolve => setTimeout(resolve, 0));
+  const scheduler = (
+    globalThis as typeof globalThis & {
+      scheduler?: { yield: () => Promise<void> };
+    }
+  ).scheduler;
+  return scheduler?.yield
+    ? scheduler.yield()
+    : new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function modelTemplate(url: string) {
   let pending = modelTemplates.get(url);
   if (!pending) {
-    pending = assetUrl(url).then(source => gltfLoader.loadAsync(source)).catch(error => {
-      modelTemplates.delete(url);
-      throw error;
-    });
+    pending = assetUrl(url)
+      .then((source) => gltfLoader.loadAsync(source))
+      .catch((error) => {
+        modelTemplates.delete(url);
+        throw error;
+      });
     modelTemplates.set(url, pending);
   }
   return pending;
@@ -55,7 +78,10 @@ function cloneModel(template: GLTF): GLTF {
         const value = Reflect.get(source, property);
         if (!(value instanceof THREE.Texture)) continue;
         let texture = textures.get(value);
-        if (!texture) { texture = value.clone(); textures.set(value, texture); }
+        if (!texture) {
+          texture = value.clone();
+          textures.set(value, texture);
+        }
         Reflect.set(copy, property, texture);
       }
       materials.set(source, copy);
@@ -63,8 +89,13 @@ function cloneModel(template: GLTF): GLTF {
     return copy;
   };
   const scene = cloneRig(template.scene) as THREE.Group;
-  scene.traverse(node => {
-    if (!(node instanceof THREE.Mesh || node instanceof THREE.LineSegments || node instanceof THREE.Points)) return;
+  scene.traverse((node) => {
+    if (!(
+      node instanceof THREE.Mesh ||
+      node instanceof THREE.LineSegments ||
+      node instanceof THREE.Points
+    ))
+      return;
     const original = node.geometry;
     let geometry = geometries.get(original);
     if (!geometry) {
@@ -73,78 +104,136 @@ function cloneModel(template: GLTF): GLTF {
       geometry = copy;
     }
     node.geometry = geometry;
-    node.material = Array.isArray(node.material) ? node.material.map(copyMaterial) : copyMaterial(node.material);
+    node.material = Array.isArray(node.material)
+      ? node.material.map(copyMaterial)
+      : copyMaterial(node.material);
   });
-  return { ...template, scene, scenes: [scene], animations: template.animations.slice() };
+  return {
+    ...template,
+    scene,
+    scenes: [scene],
+    animations: template.animations.slice(),
+  };
 }
 
 export async function preloadBossModels() {
-  await Promise.all([modelTemplate(bossModelUrl), modelTemplate(subjectModelUrl), toolTemplate('Enemy_EyeDrone')]);
+  await Promise.all([
+    modelTemplate(bossModelUrl),
+    modelTemplate(subjectModelUrl),
+    toolTemplate("Enemy_EyeDrone"),
+  ]);
 }
 
-export async function loadBossModel() { return cloneModel(await modelTemplate(bossModelUrl)); }
+export async function loadBossModel() {
+  return cloneModel(await modelTemplate(bossModelUrl));
+}
 export async function loadBoyModel() {
   const gltf = await loadSubjectModel();
   const palette = {
-    boots: new THREE.Color(0x202630), shorts: new THREE.Color(0x66513d), shirt: new THREE.Color(0x528ba8),
-    skin: new THREE.Color(0xb47d58), hair: new THREE.Color(0x33251e),
+    boots: new THREE.Color(0x202630),
+    shorts: new THREE.Color(0x66513d),
+    shirt: new THREE.Color(0x528ba8),
+    skin: new THREE.Color(0xb47d58),
+    hair: new THREE.Color(0x33251e),
   };
-  const bounds = new THREE.Box3().setFromObject(gltf.scene), height = bounds.getSize(new THREE.Vector3()).y;
-  if (!Number.isFinite(height) || height <= 0) throw new Error('Brendan model has invalid body bounds');
+  const bounds = new THREE.Box3().setFromObject(gltf.scene),
+    height = bounds.getSize(new THREE.Vector3()).y;
+  if (!Number.isFinite(height) || height <= 0)
+    throw new Error("Brendan model has invalid body bounds");
   const color = new THREE.Color();
   const removedMaps = new Set<THREE.Texture>();
-  gltf.scene.traverse(node => {
+  gltf.scene.traverse((node) => {
     if (!(node instanceof THREE.Mesh)) return;
-    for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
+    for (const material of Array.isArray(node.material)
+      ? node.material
+      : [node.material]) {
       if (!(material instanceof THREE.MeshStandardMaterial)) continue;
-      material.roughness = 0.88; material.metalness = 0;
-      if (material.name === 'SuitBase' || material.name === 'SubjectSkin') {
-        const positions = node.geometry.getAttribute('position');
+      material.roughness = 0.88;
+      material.metalness = 0;
+      if (material.name === "SuitBase" || material.name === "SubjectSkin") {
+        const positions = node.geometry.getAttribute("position");
         if (!positions) return;
         const colors = new Float32Array(positions.count * 3);
         for (let index = 0; index < positions.count; index++) {
           const y = (positions.getY(index) - bounds.min.y) / height;
-          const bareArm = Math.abs(positions.getX(index)) > height * 0.19 && y > 0.58;
-          const exposedSkin = bareArm || material.name === 'SubjectSkin' && y > 0.8;
-          color.copy(material.name === 'SubjectSkin' && y < 0.075 ? palette.boots
-            : exposedSkin ? palette.skin : y > 0.53 ? palette.shirt : y > 0.31 ? palette.shorts : palette.skin);
+          const bareArm =
+            Math.abs(positions.getX(index)) > height * 0.19 && y > 0.58;
+          const exposedSkin =
+            bareArm || (material.name === "SubjectSkin" && y > 0.8);
+          color.copy(
+            material.name === "SubjectSkin" && y < 0.075
+              ? palette.boots
+              : exposedSkin
+                ? palette.skin
+                : y > 0.53
+                  ? palette.shirt
+                  : y > 0.31
+                    ? palette.shorts
+                    : palette.skin,
+          );
           color.toArray(colors, index * 3);
         }
-        node.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-        material.color.set(0xffffff); material.vertexColors = true;
-      } else if (material.name === 'SoldierSkin' || material.name === 'SuitGloves') material.color.copy(palette.skin);
-      else if (material.name === 'SoldierHair') material.color.copy(palette.hair);
-      else if (material.name === 'SuitBoots') material.color.copy(palette.boots);
-      else if (material.name === 'SoldierGlasses') material.visible = false;
-      if (material.name === 'SuitBase' || material.name === 'SuitGloves') {
+        node.geometry.setAttribute(
+          "color",
+          new THREE.BufferAttribute(colors, 3),
+        );
+        material.color.set(0xffffff);
+        material.vertexColors = true;
+      } else if (
+        material.name === "SoldierSkin" ||
+        material.name === "SuitGloves"
+      )
+        material.color.copy(palette.skin);
+      else if (material.name === "SoldierHair")
+        material.color.copy(palette.hair);
+      else if (material.name === "SuitBoots")
+        material.color.copy(palette.boots);
+      else if (material.name === "SoldierGlasses") material.visible = false;
+      if (material.name === "SuitBase" || material.name === "SuitGloves") {
         if (material.map) removedMaps.add(material.map);
         material.map = null;
       }
     }
   });
-  gltf.scene.traverse(node => {
+  gltf.scene.traverse((node) => {
     if (!(node instanceof THREE.Mesh)) return;
-    for (const material of Array.isArray(node.material) ? node.material : [node.material])
-      for (const value of Object.values(material)) if (value instanceof THREE.Texture) removedMaps.delete(value);
+    for (const material of Array.isArray(node.material)
+      ? node.material
+      : [node.material])
+      for (const value of Object.values(material))
+        if (value instanceof THREE.Texture) removedMaps.delete(value);
   });
-  removedMaps.forEach(texture => texture.dispose());
+  removedMaps.forEach((texture) => texture.dispose());
   return gltf;
 }
-export async function loadMCModel() { return cloneModel(await modelTemplate(mcModelUrl)); }
+export async function loadMCModel() {
+  return cloneModel(await modelTemplate(mcModelUrl));
+}
 export async function loadBrendanModel() {
   const model = cloneModel(await modelTemplate(brendanModelUrl));
   applyPlayerCelShading(model.scene);
   return model;
 }
-export async function loadSubjectModel() { return cloneModel(await modelTemplate(subjectModelUrl)); }
-export async function loadGundamModel() { return cloneModel(await modelTemplate(gundamModelUrl)); }
+export async function loadSubjectModel() {
+  return cloneModel(await modelTemplate(subjectModelUrl));
+}
+export async function loadGundamModel() {
+  return cloneModel(await modelTemplate(gundamModelUrl));
+}
 /** The authored backrest sits on -Z, the opposite of Prop_Chair, so callers add half a turn. */
-export async function loadVergilsChair() { return cloneModel(await modelTemplate(vergilsChairUrl)); }
-export async function preloadToolModel(name: ToolModelName) { await toolTemplate(name); }
+export async function loadVergilsChair() {
+  return cloneModel(await modelTemplate(vergilsChairUrl));
+}
+export async function preloadToolModel(name: ToolModelName) {
+  await toolTemplate(name);
+}
 
 const playerCelShading = new WeakMap<THREE.Object3D, { value: number }>();
 
-export function setPlayerCellShadingEnabled(scene: THREE.Object3D, enabled: boolean) {
+export function setPlayerCellShadingEnabled(
+  scene: THREE.Object3D,
+  enabled: boolean,
+) {
   const uniform = playerCelShading.get(scene);
   if (uniform) uniform.value = enabled ? 1 : 0;
 }
@@ -153,21 +242,36 @@ function applyPlayerCelShading(scene: THREE.Object3D) {
   const enabled = { value: 1 };
   playerCelShading.set(scene, enabled);
   const materials = new Set<THREE.MeshStandardMaterial>();
-  scene.traverse(node => {
+  scene.traverse((node) => {
     if (!(node instanceof THREE.Mesh)) return;
-    for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
-      if (!(material instanceof THREE.MeshStandardMaterial) || materials.has(material)) continue;
+    for (const material of Array.isArray(node.material)
+      ? node.material
+      : [node.material]) {
+      if (
+        !(material instanceof THREE.MeshStandardMaterial) ||
+        materials.has(material)
+      )
+        continue;
       materials.add(material);
-      const baseColor = material.emissive.getHex() !== 0 ? material.emissive.clone() : material.color.clone();
+      const baseColor =
+        material.emissive.getHex() !== 0
+          ? material.emissive.clone()
+          : material.color.clone();
       const unshaded = /faceskin|eyewhites/i.test(material.name);
-      material.customProgramCacheKey = () => 'brondon-two-tone-cel-v2';
-      material.onBeforeCompile = shader => {
+      material.customProgramCacheKey = () => "brondon-two-tone-cel-v2";
+      material.onBeforeCompile = (shader) => {
         shader.uniforms.uBrondonColor = { value: baseColor };
         shader.uniforms.uBrondonUnshaded = { value: unshaded ? 1 : 0 };
         shader.uniforms.uCellShadingEnabled = enabled;
         shader.fragmentShader = shader.fragmentShader
-          .replace('#include <common>', `#include <common>\n${playerCelUniforms}`)
-          .replace('#include <opaque_fragment>', `${playerCelFragment}\n#include <opaque_fragment>`);
+          .replace(
+            "#include <common>",
+            `#include <common>\n${playerCelUniforms}`,
+          )
+          .replace(
+            "#include <opaque_fragment>",
+            `${playerCelFragment}\n#include <opaque_fragment>`,
+          );
       };
     }
   });
@@ -177,25 +281,32 @@ function applyPlayerCelShading(scene: THREE.Object3D) {
 export async function loadPlayerModel(loader = playerLoader) {
   let pending = playerTemplates.get(loader);
   if (!pending) {
-    const loading = loader === playerLoader ? assetUrl(playerModelUrl).then(source => loader.loadAsync(source))
-      : loader.loadAsync(playerModelUrl);
-    pending = loading.then(template => {
-      template.scene.updateMatrixWorld(true);
-      template.scene.traverse(node => {
-        if (node instanceof THREE.SkinnedMesh) node.skeleton.update();
+    const loading =
+      loader === playerLoader
+        ? assetUrl(playerModelUrl).then((source) => loader.loadAsync(source))
+        : loader.loadAsync(playerModelUrl);
+    pending = loading
+      .then((template) => {
+        template.scene.updateMatrixWorld(true);
+        template.scene.traverse((node) => {
+          if (node instanceof THREE.SkinnedMesh) node.skeleton.update();
+        });
+        const height = new THREE.Box3()
+          .setFromObject(template.scene)
+          .getSize(new THREE.Vector3()).y;
+        if (!Number.isFinite(height) || height <= 0)
+          throw new Error("MC character has invalid bounds");
+        template.scene.scale.multiplyScalar(1.83 / height);
+        const scene = new THREE.Group();
+        scene.name = "MC Player";
+        scene.add(template.scene);
+        scene.updateMatrixWorld(true);
+        return { ...template, scene, scenes: [scene] };
+      })
+      .catch((error) => {
+        playerTemplates.delete(loader);
+        throw error;
       });
-      const height = new THREE.Box3().setFromObject(template.scene).getSize(new THREE.Vector3()).y;
-      if (!Number.isFinite(height) || height <= 0) throw new Error('MC character has invalid bounds');
-      template.scene.scale.multiplyScalar(1.83 / height);
-      const scene = new THREE.Group();
-      scene.name = 'MC Player';
-      scene.add(template.scene);
-      scene.updateMatrixWorld(true);
-      return { ...template, scene, scenes: [scene] };
-    }).catch(error => {
-      playerTemplates.delete(loader);
-      throw error;
-    });
     playerTemplates.set(loader, pending);
   }
   const template = await pending;
@@ -206,29 +317,49 @@ export async function loadPlayerModel(loader = playerLoader) {
 }
 
 // Only bundle the tools used by gameplay, including their external dependencies.
-const toolAssets = import.meta.glob<string>([
-  '../assets/models/Tools/Enemy_Trilobite.{gltf,bin}',
-  '../assets/models/Tools/Enemy_QuadShell.{gltf,bin}',
-  '../assets/models/Tools/Enemy_EyeDrone.{gltf,bin}',
-  '../assets/models/Tools/Gun_Pistol.{gltf,bin}',
-  '../assets/models/Tools/Gun_Revolver.{gltf,bin}',
-  '../assets/models/Tools/Gun_Rifle.{gltf,bin}',
-  '../assets/models/Tools/Prop_Chest.{gltf,bin}',
-  '../assets/models/Tools/Prop_Desk_Small.{gltf,bin}',
-  '../assets/models/Tools/Prop_Chair.{gltf,bin}',
-  '../assets/models/Tools/Prop_KeyCard.{gltf,bin}',
-  '../assets/textures/T_Enemies{,_Large}_{Normal,BaseColor,BaseColor_png,ORM}.png',
-  '../assets/textures/T_Guns_Batch{1,2}_{Normal,BaseColor,ORM}.png',
-  '../assets/textures/T_Props_Batch{1,2}_{Normal,BaseColor,ORM}.png',
-  '../assets/textures/T_Trim_03_{Normal,Cables,ORM,BaseColor}.png',
-  '../assets/textures/T_Trim_01_{Normal,BaseColor_Red,ORM}.png',
-], { eager: true, query: '?url', import: 'default' });
-export const MODEL_ASSET_URLS = [playerModelUrl, mcModelUrl, subjectModelUrl, brendanModelUrl, dinoModelUrl, sharkModelUrl,
-  bossModelUrl, mothershipModelUrl, ...Object.values(toolAssets)];
-const toolUrls = new Map(Object.entries(toolAssets).map(([path, url]) => [path.split('/').pop()!, url]));
-gltfLoader.manager.setURLModifier(url => {
-  const filename = decodeURIComponent(url).split(/[?#]/, 1)[0].split(/[\\/]/).pop();
-  return filename ? toolUrls.get(filename) ?? url : url;
+const toolAssets = import.meta.glob<string>(
+  [
+    "../assets/models/Tools/Enemy_Trilobite.{gltf,bin}",
+    "../assets/models/Tools/Enemy_QuadShell.{gltf,bin}",
+    "../assets/models/Tools/Enemy_EyeDrone.{gltf,bin}",
+    "../assets/models/Tools/Gun_Pistol.{gltf,bin}",
+    "../assets/models/Tools/Gun_Revolver.{gltf,bin}",
+    "../assets/models/Tools/Gun_Rifle.{gltf,bin}",
+    "../assets/models/Tools/Prop_Chest.{gltf,bin}",
+    "../assets/models/Tools/Prop_Desk_Small.{gltf,bin}",
+    "../assets/models/Tools/Prop_Chair.{gltf,bin}",
+    "../assets/models/Tools/Prop_KeyCard.{gltf,bin}",
+    "../assets/textures/T_Enemies{,_Large}_{Normal,BaseColor,BaseColor_png,ORM}.png",
+    "../assets/textures/T_Guns_Batch{1,2}_{Normal,BaseColor,ORM}.png",
+    "../assets/textures/T_Props_Batch{1,2}_{Normal,BaseColor,ORM}.png",
+    "../assets/textures/T_Trim_03_{Normal,Cables,ORM,BaseColor}.png",
+    "../assets/textures/T_Trim_01_{Normal,BaseColor_Red,ORM}.png",
+  ],
+  { eager: true, query: "?url", import: "default" },
+);
+export const MODEL_ASSET_URLS = [
+  playerModelUrl,
+  mcModelUrl,
+  subjectModelUrl,
+  brendanModelUrl,
+  dinoModelUrl,
+  sharkModelUrl,
+  bossModelUrl,
+  mothershipModelUrl,
+  ...Object.values(toolAssets),
+];
+const toolUrls = new Map(
+  Object.entries(toolAssets).map(([path, url]) => [
+    path.split("/").pop()!,
+    url,
+  ]),
+);
+gltfLoader.manager.setURLModifier((url) => {
+  const filename = decodeURIComponent(url)
+    .split(/[?#]/, 1)[0]
+    .split(/[\\/]/)
+    .pop();
+  return filename ? (toolUrls.get(filename) ?? url) : url;
 });
 
 async function fetchToolModel(name: ToolModelName) {
@@ -238,18 +369,21 @@ async function fetchToolModel(name: ToolModelName) {
   if (!response.ok) throw new Error(`Loading ${name}: HTTP ${response.status}`);
   const json = await response.json();
   for (const entry of [...(json.buffers ?? []), ...(json.images ?? [])]) {
-    if (!entry.uri || entry.uri.startsWith('data:')) continue;
-    const resolved = toolUrls.get(decodeURIComponent(entry.uri).split('/').pop()!);
-    if (!resolved) throw new Error(`Missing dependency for ${name}: ${entry.uri}`);
+    if (!entry.uri || entry.uri.startsWith("data:")) continue;
+    const resolved = toolUrls.get(
+      decodeURIComponent(entry.uri).split("/").pop()!,
+    );
+    if (!resolved)
+      throw new Error(`Missing dependency for ${name}: ${entry.uri}`);
     entry.uri = await assetUrl(resolved);
   }
-  return gltfLoader.parseAsync(JSON.stringify(json), '');
+  return gltfLoader.parseAsync(JSON.stringify(json), "");
 }
 
 function toolTemplate(name: ToolModelName) {
   let pending = toolTemplates.get(name);
   if (!pending) {
-    pending = fetchToolModel(name).catch(error => {
+    pending = fetchToolModel(name).catch((error) => {
       toolTemplates.delete(name);
       throw error;
     });
@@ -259,13 +393,18 @@ function toolTemplate(name: ToolModelName) {
 }
 
 /** Resolve glTF dependencies through Vite in both dev and hashed production builds. */
-export async function loadToolModel(name: ToolModelName) { return cloneModel(await toolTemplate(name)); }
+export async function loadToolModel(name: ToolModelName) {
+  return cloneModel(await toolTemplate(name));
+}
 
 /** Load the rig and animation together so cloned dinosaurs can share the source asset. */
 export async function loadDinoModel() {
   const gltf = cloneModel(await modelTemplate(dinoModelUrl));
-  gltf.scene.traverse(node => {
-    if (node instanceof THREE.Mesh) { node.castShadow = true; node.receiveShadow = true; }
+  gltf.scene.traverse((node) => {
+    if (node instanceof THREE.Mesh) {
+      node.castShadow = true;
+      node.receiveShadow = true;
+    }
   });
   return { scene: gltf.scene, animations: gltf.animations };
 }
@@ -273,32 +412,59 @@ export async function loadDinoModel() {
 /** Load the rigged river shark together with its authored swim animation. */
 export async function loadSharkModel() {
   const gltf = cloneModel(await modelTemplate(sharkModelUrl));
-  gltf.scene.traverse(node => {
-    if (node instanceof THREE.Mesh) { node.castShadow = true; node.receiveShadow = true; }
+  gltf.scene.traverse((node) => {
+    if (node instanceof THREE.Mesh) {
+      node.castShadow = true;
+      node.receiveShadow = true;
+    }
   });
   return { scene: gltf.scene, animations: gltf.animations };
 }
 
 export async function preloadJungleModels() {
-  await Promise.all([modelTemplate(dinoModelUrl), modelTemplate(sharkModelUrl)]);
+  await Promise.all([
+    modelTemplate(dinoModelUrl),
+    modelTemplate(sharkModelUrl),
+  ]);
 }
 
 export function modelPreloadTasks(): PreloadTask[] {
-  const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
-  const lowMemory = memory !== undefined && memory <= 4 || window.matchMedia('(pointer: coarse)').matches;
-  const models = lowMemory ? [subjectModelUrl, mothershipModelUrl]
-    : [mcModelUrl, subjectModelUrl, dinoModelUrl, sharkModelUrl, bossModelUrl, mothershipModelUrl];
-  const tools: readonly ToolModelName[] = lowMemory ? ['Enemy_Trilobite', 'Enemy_EyeDrone', 'Gun_Revolver'] : TOOL_MODEL_NAMES;
+  const memory = (navigator as Navigator & { deviceMemory?: number })
+    .deviceMemory;
+  const lowMemory =
+    (memory !== undefined && memory <= 4) ||
+    window.matchMedia("(pointer: coarse)").matches;
+  const models = lowMemory
+    ? [subjectModelUrl, mothershipModelUrl]
+    : [
+        mcModelUrl,
+        subjectModelUrl,
+        dinoModelUrl,
+        sharkModelUrl,
+        bossModelUrl,
+        mothershipModelUrl,
+      ];
+  const tools: readonly ToolModelName[] = lowMemory
+    ? ["Enemy_Trilobite", "Enemy_EyeDrone", "Gun_Revolver"]
+    : TOOL_MODEL_NAMES;
   return [
-    { label: 'Preparing character animations', run: () => loadPlayerModel() },
-    ...models.map(url => ({ label: 'Preparing reusable models', run: () => modelTemplate(url) })),
-    ...tools.map(name => ({ label: 'Preparing equipment and enemies', run: () => toolTemplate(name) })),
+    { label: "Preparing character animations", run: () => loadPlayerModel() },
+    ...models.map((url) => ({
+      label: "Preparing reusable models",
+      run: () => modelTemplate(url),
+    })),
+    ...tools.map((name) => ({
+      label: "Preparing equipment and enemies",
+      run: () => toolTemplate(name),
+    })),
   ];
 }
 
 // Set up Draco decoder for compressed models
 const dracoLoader = new DRACOLoader();
-dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
+dracoLoader.setDecoderPath(
+  "https://www.gstatic.com/draco/versioned/decoders/1.5.7/",
+);
 gltfLoader.setDRACOLoader(dracoLoader);
 
 /**
@@ -310,10 +476,13 @@ gltfLoader.setDRACOLoader(dracoLoader);
  *   scene.add(model);
  */
 export function loadModel(path: string): Promise<THREE.Group> {
-  return modelTemplate(path).then(template => {
+  return modelTemplate(path).then((template) => {
     const model = cloneModel(template).scene;
-    model.traverse(child => {
-      if (child instanceof THREE.Mesh) { child.castShadow = true; child.receiveShadow = true; }
+    model.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
     });
     return model;
   });
@@ -323,11 +492,16 @@ export function loadModel(path: string): Promise<THREE.Group> {
  * Load a GLTF with full data (animations, scenes, etc).
  * Use this when you need access to gltf.animations or multiple scenes.
  */
-export function loadGLTF(path: string): Promise<THREE.Group & { animations: THREE.AnimationClip[] }> {
-  return modelTemplate(path).then(template => {
+export function loadGLTF(
+  path: string,
+): Promise<THREE.Group & { animations: THREE.AnimationClip[] }> {
+  return modelTemplate(path).then((template) => {
     const gltf = cloneModel(template);
-    gltf.scene.traverse(child => {
-      if (child instanceof THREE.Mesh) { child.castShadow = true; child.receiveShadow = true; }
+    gltf.scene.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
     });
     return Object.assign(gltf.scene, { animations: gltf.animations });
   });
@@ -350,7 +524,7 @@ export function loadTexture(path: string): Promise<THREE.Texture> {
       (error) => {
         console.error(`Failed to load texture: ${path}`, error);
         reject(error);
-      }
+      },
     );
   });
 }

@@ -1,119 +1,284 @@
-import assert from 'node:assert/strict';
-import { before, after, test } from 'node:test';
-import { readFile, access } from 'node:fs/promises';
-import { createServer } from 'vite';
+import assert from "node:assert/strict";
+import { before, after, test } from "node:test";
+import { readFile, access } from "node:fs/promises";
+import { createServer } from "vite";
 
-let server, THREE, createPlayer, createScenePhysics, createWeaponWheel, weaponWheelIndex;
-let TeleportationDeviceController, teleportPlayer, hologramTransitionAt, TELEPORT_TRANSFER_DURATION;
+let server,
+  THREE,
+  createPlayer,
+  createScenePhysics,
+  createWeaponWheel,
+  weaponWheelIndex;
+let TeleportationDeviceController,
+  teleportPlayer,
+  createCameraVisitUI,
+  hologramTransitionAt,
+  TELEPORT_TRANSFER_DURATION;
 let GogglesController;
 before(async () => {
-  server = await createServer({ server: { middlewareMode: true, watch: null, ws: false },
-    appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] } });
-  THREE = await server.ssrLoadModule('three');
-  ({ createPlayer } = await server.ssrLoadModule('/scripts/player/player.ts'));
-  ({ createScenePhysics } = await server.ssrLoadModule('/helpers/physics/scenePhysics.ts'));
-  ({ createWeaponWheel, weaponWheelIndex } = await server.ssrLoadModule('/scripts/weapons/weaponWheel.ts'));
-  ({ GogglesController } = await server.ssrLoadModule('/scripts/player/goggles.ts'));
-  ({ TeleportationDeviceController, teleportPlayer } = await server.ssrLoadModule('/scripts/global/teleportationDevice.ts'));
-  ({ hologramTransitionAt, TELEPORT_TRANSFER_DURATION } = await server.ssrLoadModule('/scripts/player/characterManager.ts'));
+  server = await createServer({
+    server: { middlewareMode: true, watch: null, ws: false },
+    appType: "custom",
+    optimizeDeps: { noDiscovery: true, include: [] },
+    plugins: [
+      {
+        name: "equipment-test-deps",
+        resolveId: (id) =>
+          id === "virtual:equipment-test-deps" ? "\0equipment-test-deps" : null,
+        load: (id) =>
+          id === "\0equipment-test-deps"
+            ? "export * as THREE from 'three';"
+            : null,
+      },
+    ],
+  });
+  ({ THREE } = await server.ssrLoadModule("virtual:equipment-test-deps"));
+  ({ createPlayer } = await server.ssrLoadModule("/scripts/player/player.ts"));
+  ({ createScenePhysics } = await server.ssrLoadModule(
+    "/helpers/physics/scenePhysics.ts",
+  ));
+  ({ createWeaponWheel, weaponWheelIndex } = await server.ssrLoadModule(
+    "/scripts/weapons/weaponWheel.ts",
+  ));
+  ({ GogglesController } = await server.ssrLoadModule(
+    "/scripts/player/goggles.ts",
+  ));
+  ({ TeleportationDeviceController, teleportPlayer } =
+    await server.ssrLoadModule("/scripts/global/teleportationDevice.ts"));
+  ({ createCameraVisitUI } = await server.ssrLoadModule(
+    "/scripts/global/cameraVisit.ts",
+  ));
+  ({ hologramTransitionAt, TELEPORT_TRANSFER_DURATION } =
+    await server.ssrLoadModule("/scripts/player/characterManager.ts"));
 });
 after(async () => server?.close());
 
 // Minimal DOM fixture: no browser, WebGL context, or downloaded assets.
 function dom(t) {
-  const saved = Object.fromEntries(['window', 'document', 'HTMLElement'].map(key => [key, globalThis[key]]));
+  const saved = Object.fromEntries(
+    ["window", "document", "HTMLElement"].map((key) => [key, globalThis[key]]),
+  );
   class Element extends EventTarget {
-    constructor(tag = 'div') {
-      super(); this.tag = tag; this.children = []; this.attributes = {}; this.dataset = {}; this.style = {}; this.textContent = '';
+    constructor(tag = "div") {
+      super();
+      this.tag = tag;
+      this.children = [];
+      this.attributes = {};
+      this.dataset = {};
+      this.style = {};
+      this.textContent = "";
       this.classes = new Set();
       this.classList = {
-        add: (...names) => names.forEach(name => this.classes.add(name)),
-        remove: (...names) => names.forEach(name => this.classes.delete(name)),
-        contains: name => this.classes.has(name),
-        toggle: (name, force = !this.classes.has(name)) => { if (force) this.classes.add(name); else this.classes.delete(name); return force; },
+        add: (...names) => names.forEach((name) => this.classes.add(name)),
+        remove: (...names) =>
+          names.forEach((name) => this.classes.delete(name)),
+        contains: (name) => this.classes.has(name),
+        toggle: (name, force = !this.classes.has(name)) => {
+          if (force) this.classes.add(name);
+          else this.classes.delete(name);
+          return force;
+        },
       };
     }
-    set className(value) { this.classes = new Set(value.split(/\s+/)); }
-    get className() { return [...this.classes].join(' '); }
-    setAttribute(key, value) { this.attributes[key] = String(value); if (key === 'class') this.className = value; }
-    getAttribute(key) { return this.attributes[key] ?? null; }
-    appendChild(child) { child.remove(); child.parent = this; this.children.push(child); return child; }
-    remove() { if (this.parent) this.parent.children = this.parent.children.filter(child => child !== this); this.parent = null; }
-    matches(selector) { return selector[0] === '.' ? this.classList.contains(selector.slice(1)) : this.tag === selector; }
-    closest(selectors) { return selectors.split(',').some(selector => this.matches(selector.trim())) ? this : this.parent?.closest(selectors) ?? null; }
-    querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; }
-    querySelectorAll(selector) { return this.children.flatMap(child => [...(child.matches(selector) ? [child] : []), ...child.querySelectorAll(selector)]); }
-    getBoundingClientRect() { return { left: 450, top: 170, width: 380, height: 380 }; }
+    set className(value) {
+      this.classes = new Set(value.split(/\s+/));
+    }
+    get className() {
+      return [...this.classes].join(" ");
+    }
+    setAttribute(key, value) {
+      this.attributes[key] = String(value);
+      if (key === "class") this.className = value;
+    }
+    getAttribute(key) {
+      return this.attributes[key] ?? null;
+    }
+    appendChild(child) {
+      child.remove();
+      child.parent = this;
+      this.children.push(child);
+      return child;
+    }
+    append(...children) {
+      children.forEach((child) => this.appendChild(child));
+    }
+    remove() {
+      if (this.parent)
+        this.parent.children = this.parent.children.filter(
+          (child) => child !== this,
+        );
+      this.parent = null;
+    }
+    matches(selector) {
+      return selector[0] === "."
+        ? this.classList.contains(selector.slice(1))
+        : this.tag === selector;
+    }
+    closest(selectors) {
+      return selectors
+        .split(",")
+        .some((selector) => this.matches(selector.trim()))
+        ? this
+        : (this.parent?.closest(selectors) ?? null);
+    }
+    querySelector(selector) {
+      return this.querySelectorAll(selector)[0] ?? null;
+    }
+    querySelectorAll(selector) {
+      return this.children.flatMap((child) => [
+        ...(child.matches(selector) ? [child] : []),
+        ...child.querySelectorAll(selector),
+      ]);
+    }
+    getBoundingClientRect() {
+      return { left: 450, top: 170, width: 380, height: 380 };
+    }
     requestPointerLock() {}
     set innerHTML(html) {
       this.children = [];
       const stack = [this];
-      for (const match of html.matchAll(/<\/?([a-z][\w-]*)\b([^>]*?)\/?\s*>/gi)) {
-        if (match[0].startsWith('</')) { stack.pop(); continue; }
+      for (const match of html.matchAll(
+        /<\/?([a-z][\w-]*)\b([^>]*?)\/?\s*>/gi,
+      )) {
+        if (match[0].startsWith("</")) {
+          stack.pop();
+          continue;
+        }
         const child = new Element(match[1]);
-        for (const attr of match[2].matchAll(/([\w-]+)="([^"]*)"/g)) child.setAttribute(attr[1], attr[2]);
+        for (const attr of match[2].matchAll(/([\w-]+)="([^"]*)"/g))
+          child.setAttribute(attr[1], attr[2]);
         stack.at(-1).appendChild(child);
-        if (!match[0].endsWith('/>') && !['br', 'input'].includes(match[1])) stack.push(child);
+        if (!match[0].endsWith("/>") && !["br", "input"].includes(match[1]))
+          stack.push(child);
       }
     }
   }
   globalThis.HTMLElement = Element;
-  globalThis.window = Object.assign(new EventTarget(), { innerWidth: 1280, innerHeight: 720 });
-  globalThis.document = Object.assign(new EventTarget(), { body: new Element('body'), hidden: false, pointerLockElement: null,
-    createElement: tag => new Element(tag), getElementById: () => null });
+  globalThis.window = Object.assign(new EventTarget(), {
+    innerWidth: 1280,
+    innerHeight: 720,
+  });
+  globalThis.document = Object.assign(new EventTarget(), {
+    body: new Element("body"),
+    hidden: false,
+    pointerLockElement: null,
+    createElement: (tag) => new Element(tag),
+    getElementById: () => null,
+  });
   const cleanups = [];
-  t.cleanup = fn => cleanups.push(fn);
-  t.after(() => { for (const fn of cleanups.reverse()) fn(); Object.assign(globalThis, saved); });
+  t.cleanup = (fn) => cleanups.push(fn);
+  t.after(() => {
+    for (const fn of cleanups.reverse()) fn();
+    Object.assign(globalThis, saved);
+  });
   return { Element };
 }
 function input(type, properties = {}) {
   const event = new Event(type, { cancelable: true });
-  for (const [name, value] of Object.entries(properties)) Object.defineProperty(event, name, { value });
-  window.dispatchEvent(event); return event;
+  for (const [name, value] of Object.entries(properties))
+    Object.defineProperty(event, name, { value });
+  window.dispatchEvent(event);
+  return event;
 }
-const key = (code, type = 'keydown', properties = {}) => input(type, { code, repeat: false, ...properties });
+const key = (code, type = "keydown", properties = {}) =>
+  input(type, { code, repeat: false, ...properties });
+const tap = (code) => {
+  key(code);
+  key(code, "keyup");
+};
 function wheelFixture(t) {
   dom(t);
-  let collected = ['unarmed', 'pistol'], selected = 'unarmed', paused = false, blocked = false;
-  const pauses = [], selections = [];
+  let collected = ["unarmed", "pistol"],
+    selected = "unarmed",
+    paused = false,
+    blocked = false;
+  const pauses = [],
+    selections = [];
   const wheel = createWeaponWheel({
-    getEntries: () => collected.map(id => ({ id, label: id })), getCurrentId: () => selected,
+    getEntries: () => collected.map((id) => ({ id, label: id })),
+    getCurrentId: () => selected,
     isBlocked: () => blocked,
-    setPaused(value) { paused = value; pauses.push(value); document.body.classList.toggle('quick-menu-open', value); },
-    onSelect(id) { assert.equal(paused, false); selected = id; selections.push(id); },
+    setPaused(value) {
+      paused = value;
+      pauses.push(value);
+      document.body.classList.toggle("quick-menu-open", value);
+    },
+    onSelect(id) {
+      assert.equal(paused, false);
+      selected = id;
+      selections.push(id);
+    },
   });
   t.cleanup(() => wheel.dispose());
-  return { wheel, pauses, selections, root: document.body.children[0],
-    setCollected: value => { collected = value; }, block: value => { blocked = value; }, isPaused: () => paused };
+  return {
+    wheel,
+    pauses,
+    selections,
+    root: document.body.children[0],
+    setCollected: (value) => {
+      collected = value;
+    },
+    block: (value) => {
+      blocked = value;
+    },
+    isPaused: () => paused,
+  };
 }
 
-test('goggles toggle ASCII presentation without modifying scene targets', t => {
+test("goggles toggle ASCII presentation without modifying scene targets", (t) => {
   dom(t);
-  let enabled = true, health = 100, highlighted = 0;
-  const ascii = [], equipped = [];
+  let enabled = true,
+    health = 100,
+    highlighted = 0;
+  const ascii = [],
+    equipped = [];
   const goggles = new GogglesController(() => ({
     player: { isEnabled: () => enabled, getHealth: () => health },
-    scene: { setGogglesActive() { highlighted++; } },
-    setCharacterEquipped: active => equipped.push(active), onToggle: active => ascii.push(active),
+    scene: {
+      setGogglesActive() {
+        highlighted++;
+      },
+    },
+    setCharacterEquipped: (active) => equipped.push(active),
+    onToggle: (active) => ascii.push(active),
   }));
   t.cleanup(() => goggles.dispose());
-  key('KeyN'); assert.equal(goggles.isEquipped(), false);
-  goggles.collect(); assert.deepEqual(ascii, [true]); assert.equal(equipped.at(-1), true);
-  key('KeyN'); assert.deepEqual(ascii, [true, false]); assert.equal(goggles.isEquipped(), false);
-  key('KeyN'); assert.equal(goggles.isEquipped(), true);
-  enabled = false; goggles.update(); assert.equal(ascii.at(-1), false);
-  enabled = true; goggles.update(); assert.equal(ascii.at(-1), true);
-  health = 0; goggles.update(); assert.equal(ascii.at(-1), false);
-  assert.equal(highlighted, 0, 'goggles must never reveal or boost breakable targets');
+  key("KeyN");
+  assert.equal(goggles.isEquipped(), false);
+  goggles.collect();
+  assert.deepEqual(ascii, [true]);
+  assert.equal(equipped.at(-1), true);
+  key("KeyN");
+  assert.deepEqual(ascii, [true, false]);
+  assert.equal(goggles.isEquipped(), false);
+  key("KeyN");
+  assert.equal(goggles.isEquipped(), true);
+  enabled = false;
+  goggles.update();
+  assert.equal(ascii.at(-1), false);
+  enabled = true;
+  goggles.update();
+  assert.equal(ascii.at(-1), true);
+  health = 0;
+  goggles.update();
+  assert.equal(ascii.at(-1), false);
+  assert.equal(
+    highlighted,
+    0,
+    "goggles must never reveal or boost breakable targets",
+  );
 });
 
-test('radial selection maps collected counts, segment boundaries, and the neutral center', () => {
+test("radial selection maps collected counts, segment boundaries, and the neutral center", () => {
   for (let count = 1; count <= 4; count++) {
     assert.equal(weaponWheelIndex(0, 0, count), -1);
     assert.equal(weaponWheelIndex(0, -31, count), -1);
     for (let i = 0; i < count; i++) {
-      const angle = i * Math.PI * 2 / count;
-      assert.equal(weaponWheelIndex(Math.sin(angle) * 112, -Math.cos(angle) * 112, count), i);
+      const angle = (i * Math.PI * 2) / count;
+      assert.equal(
+        weaponWheelIndex(Math.sin(angle) * 112, -Math.cos(angle) * 112, count),
+        i,
+      );
     }
   }
   assert.equal(weaponWheelIndex(500, 0, 4), 1);
@@ -122,234 +287,674 @@ test('radial selection maps collected counts, segment boundaries, and the neutra
   assert.equal(weaponWheelIndex(NaN, 0, 4), -1);
 });
 
-test('hold Tab pauses, cursor draws a center line, release equips only collected weapons', t => {
+test("hold Tab pauses, cursor draws a center line, release equips only collected weapons", (t) => {
   const f = wheelFixture(t);
-  assert.equal(key('Tab').defaultPrevented, true); assert.equal(f.isPaused(), true);
-  key('Tab', 'keydown', { repeat: true }); assert.deepEqual(f.pauses, [true]);
-  assert.equal(f.root.querySelector('.ww-nodes').children.length, 2);
-  input('mousemove', { clientX: 640, clientY: 460 });
-  const line = f.root.querySelector('.ww-line');
-  assert.equal(line.classList.contains('active'), true); assert.ok(Number(line.getAttribute('y2')) > 0);
-  assert.deepEqual(f.selections, [], 'Hover never equips before release');
-  key('Tab', 'keyup'); assert.deepEqual(f.selections, ['pistol']); assert.equal(f.isPaused(), false);
-  f.setCollected(['unarmed', 'pistol', 'crowbar', 'lightsaber']);
-  key('Tab'); assert.equal(f.root.querySelector('.ww-nodes').children.length, 4);
-  input('mousemove', { clientX: 540, clientY: 360 }); key('Tab', 'keyup');
-  assert.deepEqual(f.selections, ['pistol', 'lightsaber']);
-  key('Tab'); input('mousemove', { clientX: 640, clientY: 260 }); key('Tab', 'keyup');
-  assert.equal(f.selections.at(-1), 'unarmed', 'An explicit unarmed slot holsters');
+  assert.equal(key("Tab").defaultPrevented, true);
+  assert.equal(f.isPaused(), true);
+  key("Tab", "keydown", { repeat: true });
+  assert.deepEqual(f.pauses, [true]);
+  assert.equal(f.root.querySelector(".ww-nodes").children.length, 2);
+  input("mousemove", { clientX: 640, clientY: 460 });
+  const line = f.root.querySelector(".ww-line");
+  assert.equal(line.classList.contains("active"), true);
+  assert.ok(Number(line.getAttribute("y2")) > 0);
+  assert.deepEqual(f.selections, [], "Hover never equips before release");
+  key("Tab", "keyup");
+  assert.deepEqual(f.selections, ["pistol"]);
+  assert.equal(f.isPaused(), false);
+  f.setCollected(["unarmed", "pistol", "crowbar", "bloomstick"]);
+  key("Tab");
+  assert.equal(f.root.querySelector(".ww-nodes").children.length, 4);
+  input("mousemove", { clientX: 540, clientY: 360 });
+  key("Tab", "keyup");
+  assert.deepEqual(f.selections, ["pistol", "bloomstick"]);
+  key("Tab");
+  input("mousemove", { clientX: 640, clientY: 260 });
+  key("Tab", "keyup");
+  assert.equal(
+    f.selections.at(-1),
+    "unarmed",
+    "An explicit unarmed slot holsters",
+  );
 });
 
-test('locked mouse drives a virtual cursor and captures combat, movement, teleport, and camera input', t => {
-  const f = wheelFixture(t); document.pointerLockElement = document.body;
+test("locked mouse drives a virtual cursor and captures combat, movement, teleport, and camera input", (t) => {
+  const f = wheelFixture(t);
+  document.pointerLockElement = document.body;
   let leaked = 0;
-  for (const type of ['keydown', 'keyup', 'mousedown', 'mousemove']) window.addEventListener(type, () => leaked++);
-  key('Tab'); input('mousemove', { movementX: 0, movementY: 100 });
-  key('KeyT'); key('KeyQ'); key('KeyW'); input('mousedown', { button: 0 }); key('KeyW', 'keyup');
-  assert.equal(leaked, 0); assert.equal(f.isPaused(), true);
-  assert.equal(document.pointerLockElement, document.body, 'Opening must preserve pointer lock');
-  key('Tab', 'keyup'); assert.deepEqual(f.selections, ['pistol']); assert.equal(leaked, 0);
-  key('KeyW'); assert.equal(leaked, 1, 'Gameplay input is released after the wheel closes');
+  for (const type of ["keydown", "keyup", "mousedown", "mousemove"])
+    window.addEventListener(type, () => leaked++);
+  key("Tab");
+  input("mousemove", { movementX: 0, movementY: 100 });
+  key("KeyT");
+  key("KeyQ");
+  key("KeyW");
+  input("mousedown", { button: 0 });
+  key("KeyW", "keyup");
+  assert.equal(leaked, 0);
+  assert.equal(f.isPaused(), true);
+  assert.equal(
+    document.pointerLockElement,
+    document.body,
+    "Opening must preserve pointer lock",
+  );
+  key("Tab", "keyup");
+  assert.deepEqual(f.selections, ["pistol"]);
+  assert.equal(leaked, 0);
+  key("KeyW");
+  assert.equal(leaked, 1, "Gameplay input is released after the wheel closes");
 });
 
-test('neutral release, Escape, blur, hidden tab, pointer unlock, and disposal cancel safely', t => {
+test("neutral release, Escape, blur, hidden tab, pointer unlock, and disposal cancel safely", (t) => {
   const f = wheelFixture(t);
-  key('Tab'); key('Tab', 'keyup'); assert.deepEqual(f.selections, []);
+  key("Tab");
+  key("Tab", "keyup");
+  assert.deepEqual(f.selections, []);
   for (const cancel of [
-    () => key('Escape'), () => window.dispatchEvent(new Event('blur')),
-    () => { document.hidden = true; document.dispatchEvent(new Event('visibilitychange')); document.hidden = false; },
-    () => { document.pointerLockElement = null; document.dispatchEvent(new Event('pointerlockchange')); },
+    () => key("Escape"),
+    () => window.dispatchEvent(new Event("blur")),
+    () => {
+      document.hidden = true;
+      document.dispatchEvent(new Event("visibilitychange"));
+      document.hidden = false;
+    },
+    () => {
+      document.pointerLockElement = null;
+      document.dispatchEvent(new Event("pointerlockchange"));
+    },
   ]) {
-    key('Tab'); input('mousemove', { clientX: 640, clientY: 460 }); cancel();
-    assert.equal(f.isPaused(), false); key('Tab', 'keyup'); assert.deepEqual(f.selections, []);
+    key("Tab");
+    input("mousemove", { clientX: 640, clientY: 460 });
+    cancel();
+    assert.equal(f.isPaused(), false);
+    key("Tab", "keyup");
+    assert.deepEqual(f.selections, []);
   }
-  key('Tab'); f.wheel.dispose(); assert.equal(f.isPaused(), false);
-  key('Tab'); assert.equal(f.wheel.isOpen(), false); assert.equal(document.body.children.length, 0);
-});
-
-test('blocked scenes and text fields retain Tab; arrow selection is keyboard-accessible', t => {
-  const f = wheelFixture(t); f.block(true);
-  assert.equal(key('Tab').defaultPrevented, false); assert.equal(f.wheel.isOpen(), false);
-  f.block(false);
-  assert.equal(key('Tab', 'keydown', { target: new HTMLElement('input') }).defaultPrevented, false);
+  key("Tab");
+  f.wheel.dispose();
+  assert.equal(f.isPaused(), false);
+  key("Tab");
   assert.equal(f.wheel.isOpen(), false);
-  key('Tab'); key('ArrowLeft'); key('Tab', 'keyup'); assert.deepEqual(f.selections, ['pistol']);
+  assert.equal(document.body.children.length, 0);
 });
 
-function teleportFixture(t) {
+test("blocked scenes and text fields retain Tab; arrow selection is keyboard-accessible", (t) => {
+  const f = wheelFixture(t);
+  f.block(true);
+  assert.equal(key("Tab").defaultPrevented, false);
+  assert.equal(f.wheel.isOpen(), false);
+  f.block(false);
+  assert.equal(
+    key("Tab", "keydown", { target: new HTMLElement("input") })
+      .defaultPrevented,
+    false,
+  );
+  assert.equal(f.wheel.isOpen(), false);
+  key("Tab");
+  key("ArrowLeft");
+  key("Tab", "keyup");
+  assert.deepEqual(f.selections, ["pistol"]);
+});
+
+function teleportFixture(t, overrides = {}) {
   dom(t);
-  const physics = createScenePhysics(), camera = new THREE.PerspectiveCamera();
-  const player = createPlayer({ camera, physicsWorld: physics.world, spawnPosition: { x: 2, y: 3.3, z: 4 } }); player.enable();
-  let scene = new THREE.Scene(), sceneId = 'scene5', blocked = false, boss = false;
-  const teleports = [], messages = [];
+  const physics = createScenePhysics(),
+    camera = new THREE.PerspectiveCamera();
+  const player = createPlayer({
+    camera,
+    physicsWorld: physics.world,
+    spawnPosition: { x: 2, y: 3.3, z: 4 },
+  });
+  player.enable();
+  let scene = new THREE.Scene(),
+    sceneId = "scene5",
+    blocked = false,
+    boss = false;
+  const teleports = [],
+    messages = [];
   const device = new TeleportationDeviceController(() => ({
-    currentSceneId: sceneId, isBossFight: () => boss, isInputBlocked: () => blocked,
-    getActiveScene: () => scene, getPlayerRadius: () => player.radius,
-    getPlayerPosition: () => ({ ...player.body.position }), getPlayerRotation: () => player.getState().yaw,
-    onTeleport: (id, position, rotation) => { teleports.push(id); teleportPlayer(player, position, rotation); },
-    showMessage: message => messages.push(message),
+    currentSceneId: sceneId,
+    isBossFight: () => boss,
+    isInputBlocked: () => blocked,
+    getActiveScene: () => scene,
+    getPlayerRadius: () => player.radius,
+    getPlayerPosition: () => ({ ...player.body.position }),
+    getPlayerRotation: () => player.getState().yaw,
+    onTeleport: (id, position, rotation) => {
+      teleports.push(id);
+      teleportPlayer(player, position, rotation);
+    },
+    showMessage: (message) => messages.push(message),
+    ...overrides,
   }));
-  t.cleanup(() => { device.dispose(); player.dispose(); physics.dispose(); });
-  return { device, player, teleports, messages, scene: () => scene,
-    changeScene(id) { sceneId = id; scene = new THREE.Scene(); device.update(0); },
-    block(value) { blocked = value; }, boss(value) { boss = value; } };
+  t.cleanup(() => {
+    device.dispose();
+    player.dispose();
+    physics.dispose();
+  });
+  return {
+    device,
+    player,
+    teleports,
+    messages,
+    scene: () => scene,
+    changeScene(id) {
+      sceneId = id;
+      scene = new THREE.Scene();
+      device.update(0);
+    },
+    block(value) {
+      blocked = value;
+    },
+    boss(value) {
+      boss = value;
+    },
+  };
 }
 
-test('Q places only after collection; purple markers work outside scene 4 without extra lights', t => {
+test("Q places only after collection; purple markers work outside scene 4 without extra lights", (t) => {
   const f = teleportFixture(t);
-  key('KeyQ'); assert.equal(f.device.isPlaced(), false);
-  f.device.collect(false); assert.equal(f.messages.length, 0);
-  f.player.setRotation(0.7); key('KeyQ');
-  const marker = f.scene().getObjectByName('TeleportAnchor'); assert.ok(marker);
-  assert.ok(Math.abs(marker.position.y - 3.06) < 1e-6, 'Marker follows the saved floor, not global y=0');
-  assert.equal(marker.getObjectsByProperty('isLight', true).length, 0);
-  const materials = [];
-  marker.traverse(node => { if (node.isMesh) materials.push(node.material); });
-  assert.ok(materials.every(material => material.isMeshBasicMaterial || material.emissive?.getHex() > 0));
-  const ring = marker.children[0]; assert.equal(ring.rotation.x, -Math.PI / 2);
-  const snapshot = f.device.getState(); snapshot.placementPosition.x = 999;
-  assert.equal(f.device.getState().placementPosition.x, 2, 'Saved coordinates cannot be mutated by a caller');
-  const oldScene = f.scene(); f.device.detachMarker(); assert.equal(marker.parent, null);
-  f.changeScene('scene6'); assert.equal(marker.parent, null);
-  f.changeScene('scene5'); assert.equal(marker.parent, f.scene()); assert.notEqual(f.scene(), oldScene);
-  f.player.setPosition(8, 6.3, 9); key('KeyQ'); assert.equal(f.scene().getObjectByName('TeleportAnchor'), marker);
-  assert.equal(f.scene().children.filter(node => node.name === 'TeleportAnchor').length, 1);
-  const dispose = t.mock.method(ring.geometry, 'dispose'); f.device.dispose();
-  assert.equal(dispose.mock.callCount(), 1); assert.equal(marker.parent, null);
-});
-
-test('a developer return marker can be placed in surveillance while visiting a camera minigame', t => {
-  const f = teleportFixture(t), position = { x: 28, y: 0.3, z: -46 };
-  assert.throws(() => f.device.setMarker('stage2-infiltration', position, Math.PI), /before collecting/);
+  tap("KeyQ");
+  assert.equal(f.device.isPlaced(), false);
   f.device.collect(false);
-  assert.throws(() => f.device.setMarker('', position, 0), /require a scene/);
-  assert.throws(() => f.device.setMarker('stage2-infiltration', { ...position, x: NaN }, 0), /finite/);
-  f.device.setMarker('stage2-infiltration', position, Math.PI);
+  assert.equal(f.messages.length, 0);
+  f.player.setRotation(0.7);
+  tap("KeyQ");
+  const marker = f.scene().getObjectByName("TeleportAnchor");
+  assert.ok(marker);
+  assert.ok(
+    Math.abs(marker.position.y - 3.06) < 1e-6,
+    "Marker follows the saved floor, not global y=0",
+  );
+  assert.equal(marker.getObjectsByProperty("isLight", true).length, 0);
+  const materials = [];
+  marker.traverse((node) => {
+    if (node.isMesh) materials.push(node.material);
+  });
+  assert.ok(
+    materials.every(
+      (material) =>
+        material.isMeshBasicMaterial || material.emissive?.getHex() > 0,
+    ),
+  );
+  const ring = marker.children[0];
+  assert.equal(ring.rotation.x, -Math.PI / 2);
+  const snapshot = f.device.getState();
+  snapshot.placementPosition.x = 999;
+  assert.equal(
+    f.device.getState().placementPosition.x,
+    2,
+    "Saved coordinates cannot be mutated by a caller",
+  );
+  const oldScene = f.scene();
+  f.device.detachMarker();
+  assert.equal(marker.parent, null);
+  f.changeScene("scene6");
+  assert.equal(marker.parent, null);
+  f.changeScene("scene5");
+  assert.equal(marker.parent, f.scene());
+  assert.notEqual(f.scene(), oldScene);
+  f.player.setPosition(8, 6.3, 9);
+  tap("KeyQ");
+  assert.equal(f.scene().getObjectByName("TeleportAnchor"), marker);
+  assert.equal(
+    f.scene().children.filter((node) => node.name === "TeleportAnchor").length,
+    1,
+  );
+  const dispose = t.mock.method(ring.geometry, "dispose");
+  f.device.dispose();
+  assert.equal(dispose.mock.callCount(), 1);
+  assert.equal(marker.parent, null);
+});
+
+test("a developer return marker can be placed in surveillance while visiting a camera minigame", (t) => {
+  const f = teleportFixture(t),
+    position = { x: 28, y: 0.3, z: -46 };
+  assert.throws(
+    () => f.device.setMarker("stage2-infiltration", position, Math.PI),
+    /before collecting/,
+  );
+  f.device.collect(false);
+  assert.throws(() => f.device.setMarker("", position, 0), /require a scene/);
+  assert.throws(
+    () => f.device.setMarker("stage2-infiltration", { ...position, x: NaN }, 0),
+    /finite/,
+  );
+  f.device.setMarker("stage2-infiltration", position, Math.PI);
   position.x = 999;
-  assert.deepEqual(f.device.getState(), { collected: true, placed: true, placementScene: 'stage2-infiltration',
-    placementPosition: { x: 28, y: 0.3, z: -46 }, placementRotation: Math.PI });
-  assert.equal(f.scene().getObjectByName('TeleportAnchor'), undefined, 'the marker belongs in surveillance, not this minigame');
-  key('KeyT'); assert.deepEqual(f.teleports, ['stage2-infiltration']);
+  assert.deepEqual(f.device.getState(), {
+    collected: true,
+    placed: true,
+    placementScene: "stage2-infiltration",
+    placementPosition: { x: 28, y: 0.3, z: -46 },
+    placementRotation: Math.PI,
+  });
+  assert.equal(
+    f.scene().getObjectByName("TeleportAnchor"),
+    undefined,
+    "the marker belongs in surveillance, not this minigame",
+  );
+  key("KeyT");
+  assert.deepEqual(f.teleports, ["stage2-infiltration"]);
   assert.equal(f.player.body.position.x, 28);
-  f.changeScene('stage2-infiltration');
-  assert.ok(f.scene().getObjectByName('TeleportAnchor'));
+  f.changeScene("stage2-infiltration");
+  assert.ok(f.scene().getObjectByName("TeleportAnchor"));
 });
 
-test('every developer camera visit seeds the same safe surveillance marker after activation', async () => {
-  const main = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8');
-  const visit = main.slice(main.indexOf('async function loadCameraVisit('), main.indexOf('async function loadBay13('));
-  assert.match(visit, /if \(developerVisit\) \{[\s\S]*?teleportDevice\.setMarker\('stage2-infiltration', \{ x: 28, y: sceneData\.player\.radius, z: -46 \}, Math\.PI\)/);
-  assert.ok(visit.indexOf('sceneData.activate()') < visit.indexOf('teleportDevice.setMarker'));
+test("every developer camera visit seeds the same safe surveillance marker after activation", async () => {
+  const main = await readFile(
+    new URL("../src/main.ts", import.meta.url),
+    "utf8",
+  );
+  const visit = main.slice(
+    main.indexOf("async function loadCameraVisit("),
+    main.indexOf("async function loadBay13("),
+  );
+  assert.match(
+    visit,
+    /if \(developerVisit\) \{[\s\S]*?teleportDevice\.setMarker\('stage2-infiltration', \{ x: 28, y: sceneData\.player\.radius, z: -46 \}, Math\.PI\)/,
+  );
+  assert.ok(
+    visit.indexOf("sceneData.activate()") <
+      visit.indexOf("teleportDevice.setMarker"),
+  );
 });
 
-test('T moves synchronously with no character model and clears motion without resetting health', t => {
-  const f = teleportFixture(t); f.device.collect(false); f.player.setRotation(0.7); key('KeyQ');
-  f.player.takeDamage(20); const health = f.player.getHealth(), shield = f.player.getShield();
-  f.player.setPosition(10, 8, 10); f.player.body.velocity.set(5, 2, 4); f.player.body.force.set(2, 3, 4);
-  key('KeyW'); key('Tab'); assert.deepEqual(f.teleports, [], 'Tab no longer teleports');
-  key('KeyT');
-  assert.deepEqual(f.teleports, ['scene5']);
-  assert.deepEqual([f.player.body.position.x, f.player.body.position.y, f.player.body.position.z], [2, 3.3, 4]);
-  assert.equal(f.player.body.velocity.length(), 0); assert.equal(f.player.body.force.length(), 0);
-  assert.equal(f.player.body.previousPosition.distanceTo(f.player.body.position), 0);
-  assert.equal(f.player.body.interpolatedPosition.distanceTo(f.player.body.position), 0);
-  assert.equal(f.player.getHealth(), health); assert.equal(f.player.getShield(), shield);
+test("T moves synchronously with no character model and clears motion without resetting health", (t) => {
+  const f = teleportFixture(t);
+  f.device.collect(false);
+  f.player.setRotation(0.7);
+  tap("KeyQ");
+  f.player.takeDamage(20);
+  const health = f.player.getHealth(),
+    shield = f.player.getShield();
+  f.player.setPosition(10, 8, 10);
+  f.player.body.velocity.set(5, 2, 4);
+  f.player.body.force.set(2, 3, 4);
+  key("KeyW");
+  key("Tab");
+  assert.deepEqual(f.teleports, [], "Tab no longer teleports");
+  key("KeyT");
+  assert.deepEqual(f.teleports, ["scene5"]);
+  assert.deepEqual(
+    [
+      f.player.body.position.x,
+      f.player.body.position.y,
+      f.player.body.position.z,
+    ],
+    [2, 3.3, 4],
+  );
+  assert.equal(f.player.body.velocity.length(), 0);
+  assert.equal(f.player.body.force.length(), 0);
+  assert.equal(
+    f.player.body.previousPosition.distanceTo(f.player.body.position),
+    0,
+  );
+  assert.equal(
+    f.player.body.interpolatedPosition.distanceTo(f.player.body.position),
+    0,
+  );
+  assert.equal(f.player.getHealth(), health);
+  assert.equal(f.player.getShield(), shield);
   assert.ok(Math.abs(f.player.getState().yaw - 0.7) < 1e-6);
-  assert.deepEqual(f.player.captureTransition({ x: 0, y: 0, z: 0 }).heldKeys, []);
+  assert.deepEqual(
+    f.player.captureTransition({ x: 0, y: 0, z: 0 }).heldKeys,
+    [],
+  );
   assert.equal(f.player.isEnabled(), true);
 });
 
-test('teleport blocks repeats, menus, cinematics, boss fights, and typing', t => {
-  const f = teleportFixture(t); f.device.collect(false); key('KeyQ');
-  key('KeyT', 'keydown', { repeat: true });
-  key('KeyT', 'keydown', { target: new HTMLElement('textarea') });
-  f.block(true); key('KeyT'); f.block(false);
-  document.body.classList.add('quick-menu-open'); key('KeyT'); document.body.classList.remove('quick-menu-open');
-  f.boss(true); key('KeyT'); key('KeyQ'); f.boss(false);
-  assert.deepEqual(f.teleports, []); assert.ok(f.messages.some(message => /boss fight/.test(message)));
-  f.changeScene('scene6'); key('KeyT'); assert.deepEqual(f.teleports, ['scene5']);
+test("teleport blocks repeats, menus, cinematics, boss fights, and typing", (t) => {
+  const f = teleportFixture(t);
+  f.device.collect(false);
+  tap("KeyQ");
+  key("KeyT", "keydown", { repeat: true });
+  key("KeyT", "keydown", { target: new HTMLElement("textarea") });
+  f.block(true);
+  key("KeyT");
+  f.block(false);
+  document.body.classList.add("quick-menu-open");
+  key("KeyT");
+  document.body.classList.remove("quick-menu-open");
+  f.boss(true);
+  key("KeyT");
+  tap("KeyQ");
+  f.boss(false);
+  assert.deepEqual(f.teleports, []);
+  assert.ok(f.messages.some((message) => /boss fight/.test(message)));
+  f.changeScene("scene6");
+  key("KeyT");
+  assert.deepEqual(f.teleports, ["scene5"]);
 });
 
-test('device hologram finishes in 180ms; cinematic transfers keep their original timing', () => {
+for (const linked of [false, true]) {
+  test(`minigame controls keep Q/T local and R returns with a compact label (linked: ${linked})`, async (t) => {
+    const f = teleportFixture(t);
+    f.device.collect(false);
+    tap("KeyQ");
+    let returns = 0;
+    const ui = createCameraVisitUI({
+      title: "Rust chamber 2",
+      player: f.player,
+      hasReturnMarker: () => linked,
+      onRestart: async () => {
+        returns++;
+        return true;
+      },
+    });
+    t.cleanup(() => ui.dispose());
+    ui.update();
+    const root = document.body.querySelector(".camera-visit-ui");
+    assert.ok(root.querySelector("p").classList.contains("hidden"));
+    assert.match(root.querySelector("button").textContent, /^R \/ Camera/);
+    key("KeyT");
+    assert.deepEqual(f.teleports, ["scene5"]);
+    assert.equal(returns, 0, "T never activates the room-return UI");
+    key("KeyR");
+    await Promise.resolve();
+    assert.equal(returns, 1);
+    key("KeyR");
+    assert.equal(
+      returns,
+      1,
+      "a held or duplicate return cannot start another transfer",
+    );
+  });
+}
+
+test("minigame controls block T to a different room and allow a replacement local marker", (t) => {
+  const f = teleportFixture(t, {
+    returnError: (state) =>
+      state.placementScene !== "scene5"
+        ? "Use R to return to the camera room."
+        : null,
+  });
+  f.device.collect(false);
+  f.device.setMarker("stage2-infiltration", { x: 28, y: 0.3, z: -46 }, 0);
+  key("KeyT");
+  assert.deepEqual(f.teleports, []);
+  assert.match(f.messages.at(-1), /Use R/);
+  tap("KeyQ");
+  key("KeyT");
+  assert.deepEqual(f.teleports, ["scene5"]);
+});
+
+test("minigame return errors are visible and R retries without leaving the player disabled", async (t) => {
+  const f = teleportFixture(t);
+  t.mock.method(console, "error", () => {});
+  let attempts = 0;
+  const ui = createCameraVisitUI({
+    title: "Rust chamber 2",
+    player: f.player,
+    hasReturnMarker: () => true,
+    onRestart: async () => ++attempts > 1,
+  });
+  t.cleanup(() => ui.dispose());
+  key("KeyR");
+  await Promise.resolve();
+  await Promise.resolve();
+  const help = document.body
+    .querySelector(".camera-visit-ui")
+    .querySelector("p");
+  assert.equal(help.classList.contains("hidden"), false);
+  assert.match(help.textContent, /could not be loaded/);
+  assert.equal(f.player.isEnabled(), true);
+  key("KeyR");
+  await Promise.resolve();
+  assert.equal(attempts, 2);
+});
+
+test("locked camera exits use E for a notice and R returns without placing a crystal", async (t) => {
+  const f = teleportFixture(t);
+  let returns = 0,
+    interactive = true;
+  const ui = createCameraVisitUI({
+    title: "Camera minigame",
+    player: f.player,
+    canInteract: () => interactive,
+    onRestart: async () => {
+      returns++;
+      return true;
+    },
+  });
+  t.cleanup(() => ui.dispose());
+  const door = new THREE.Group();
+  door.position.set(2, 3.3, 4);
+  const unregister = ui.registerLockedExit(door);
+  interactive = false;
+  assert.equal(key("KeyE").defaultPrevented, false);
+  interactive = true;
+  assert.equal(key("KeyE").defaultPrevented, true);
+  const help = document.body
+    .querySelector(".camera-visit-ui")
+    .querySelector("p");
+  assert.equal(
+    help.textContent,
+    "Locked. Press R to return to the camera room.",
+  );
+  assert.equal(returns, 0, "E never transfers out of a minigame");
+  assert.equal(f.device.isPlaced(), false);
+  unregister();
+  ui.update();
+  assert.equal(help.classList.contains("hidden"), true);
+  assert.equal(key("KeyE").defaultPrevented, false);
+  key("KeyR");
+  await Promise.resolve();
+  assert.equal(returns, 1);
+});
+
+test("crystal throw sweeps and rebounds from a surface consistently at 10 and 120 FPS", (t) => {
+  let now = 1000;
+  t.mock.method(performance, "now", () => now);
+  const landings = [];
+  let contacts = 0;
+  const f = teleportFixture(t, {
+    getAimDirection: () => new THREE.Vector3(1, -0.12, 0),
+    getBounceImpulse: (_point, normal, velocity) => {
+      assert.ok(normal.y > 0.6);
+      assert.ok(velocity.y < 0);
+      return ++contacts === 1 ? new THREE.Vector3(4, 7, 0) : null;
+    },
+  });
+  const floor = new THREE.Mesh(
+    new THREE.BoxGeometry(100, 0.2, 100),
+    new THREE.MeshStandardMaterial(),
+  );
+  floor.position.y = -0.1;
+  f.scene().add(floor);
+  t.cleanup(() => {
+    floor.geometry.dispose();
+    floor.material.dispose();
+  });
+  for (const fps of [10, 120]) {
+    contacts = 0;
+    f.device.reset();
+    f.device.collect(false);
+    key("KeyQ");
+    now += 1100;
+    key("KeyQ", "keyup");
+    assert.ok(f.scene().getObjectByName("ThrownTeleportCrystal"));
+    for (let frame = 0; frame < fps * 3; frame++) f.device.update(1 / fps);
+    assert.equal(contacts, 2, "one bounce followed by a real ground landing");
+    assert.equal(f.device.isPlaced(), true);
+    landings.push(f.device.getState().placementPosition);
+  }
+  assert.ok(Math.abs(landings[0].x - landings[1].x) < 1e-6);
+  assert.ok(Math.abs(landings[0].y - landings[1].y) < 1e-6);
+});
+
+test("crystal Q hold cannot place a late marker after changing rooms", (t) => {
+  const f = teleportFixture(t);
+  f.device.collect(false);
+  key("KeyQ");
+  f.changeScene("scene6");
+  key("KeyQ", "keyup");
+  assert.equal(f.device.isPlaced(), false);
+});
+
+test("device hologram finishes in 180ms; cinematic transfers keep their original timing", () => {
   assert.equal(TELEPORT_TRANSFER_DURATION, 0.18);
-  assert.equal(hologramTransitionAt(0, true, TELEPORT_TRANSFER_DURATION).opacity, 0);
+  assert.equal(
+    hologramTransitionAt(0, true, TELEPORT_TRANSFER_DURATION).opacity,
+    0,
+  );
   const middle = hologramTransitionAt(0.09, true, TELEPORT_TRANSFER_DURATION);
-  assert.ok(middle.opacity > 0 && middle.opacity < 1); assert.ok(middle.blend > 0);
-  const end = hologramTransitionAt(TELEPORT_TRANSFER_DURATION, true, TELEPORT_TRANSFER_DURATION);
-  assert.equal(end.opacity, 1); assert.equal(end.blend, 0);
+  assert.ok(middle.opacity > 0 && middle.opacity < 1);
+  assert.ok(middle.blend > 0);
+  const end = hologramTransitionAt(
+    TELEPORT_TRANSFER_DURATION,
+    true,
+    TELEPORT_TRANSFER_DURATION,
+  );
+  assert.equal(end.opacity, 1);
+  assert.equal(end.blend, 0);
   assert.equal(hologramTransitionAt(0.18, true).opacity, 0);
 });
 
-const source = path => readFile(new URL(`../src/${path}`, import.meta.url), 'utf8');
-test('production integration freezes the loop, grants developer gear, and retains a single Bay Warden scene', async () => {
-  const main = await source('main.ts');
-  const loop = main.slice(main.indexOf('function animate()'));
-  assert.match(loop, /if \(quickMenuOpen \|\| weaponWheelOpen \|\| teleportLoading \|\| document.hidden\)/);
-  assert.ok(loop.indexOf('return;') < loop.indexOf('advanceSceneActions('));
+const source = (path) =>
+  readFile(new URL(`../src/${path}`, import.meta.url), "utf8");
+test("production integration freezes the loop, grants developer gear, and retains a single Bay Warden scene", async () => {
+  const main = await source("main.ts");
+  const loop = main.slice(main.indexOf("function animate()"));
+  assert.match(
+    loop,
+    /if \(quickMenuOpen \|\| weaponWheelOpen \|\| teleportLoading \|\| document.hidden\)/,
+  );
+  assert.ok(loop.indexOf("return;") < loop.indexOf("advanceSceneActions("));
   assert.doesNotMatch(main, /npcManager|cctv\.roomIds|cctvTeleportTime/);
-  assert.ok(loop.indexOf('return;') < loop.indexOf('updatePhysics(delta'));
+  assert.ok(loop.indexOf("return;") < loop.indexOf("updatePhysics(delta"));
   assert.match(main, /teleportDevice\.collect\(false\)/);
   assert.match(main, /getEntries: weaponEntries/);
   assert.match(main, /if \(hasCrowbar\) entries.push/);
-  assert.match(main, /if \(hasLightsaber\) entries.push/);
-  const transfer = main.slice(main.indexOf('async function teleportToAnchor('), main.indexOf('function weaponEntries('));
-  assert.doesNotMatch(transfer, /cctvTeleportTarget|setTimeout|scheduleSceneAction|\.disable\(/);
-  assert.match(transfer, /teleportPlayer\(currentPlayer, position, rotation, state\)/);
+  assert.match(main, /if \(hasBloomstick\) entries.push/);
+  const transfer = main.slice(
+    main.indexOf("async function teleportToAnchor("),
+    main.indexOf("function weaponEntries("),
+  );
+  assert.doesNotMatch(
+    transfer,
+    /cctvTeleportTarget|setTimeout|scheduleSceneAction|\.disable\(/,
+  );
+  assert.match(
+    transfer,
+    /teleportPlayer\(currentPlayer, position, rotation, state\)/,
+  );
   assert.doesNotMatch(main, /scene13[-.]5/);
-  await assert.rejects(access(new URL('../src/scenes/level 1/scene13-5.ts', import.meta.url)), { code: 'ENOENT' });
-  assert.match(main, /13: \(\) => import\('\.\/scenes\/level 1\/scene13\.js'\)/);
-  assert.match(main, /1\.2: \(\) => import\('\.\/scenes\/level 1 stage 2\/scene\.js'\)/);
+  await assert.rejects(
+    access(new URL("../src/scenes/level 1/scene13-5.ts", import.meta.url)),
+    { code: "ENOENT" },
+  );
+  assert.match(
+    main,
+    /13: \(\) => import\('\.\/scenes\/level 1\/scene13\.js'\)/,
+  );
+  assert.match(
+    main,
+    /1\.2: \(\) => import\('\.\/scenes\/level 1 stage 2\/scene\.js'\)/,
+  );
   assert.match(main, /\[1\.2, 'Level 1 stage 2 - Surveillance route'\]/);
   assert.match(main, /onExitToBay13: state => loadBay13\(state, true\)/);
   for (const id of [2, 3, 4, 7, 8, 9, 10, 11, 12]) {
-    assert.doesNotMatch(main, new RegExp(`import\\(['"]\\./scenes/level 1/scene${id}\\.js['"]\\)`));
+    assert.doesNotMatch(
+      main,
+      new RegExp(`import\\(['"]\\./scenes/level 1/scene${id}\\.js['"]\\)`),
+    );
     assert.doesNotMatch(main, new RegExp(`\\bloadScene${id}\\b`));
   }
 });
 
-test('Stage Two has an easy connected vent route, moving sensors with safe windows, and room-bound return markers', async () => {
-  const layout = await server.ssrLoadModule('/scenes/level 1 stage 2/stageTwoLayout.ts');
-  for (let column = 1; column <= 7; column++) assert.notEqual(layout.VENT_MAZE[1][column], '#');
-  for (let row = 1; row <= 5; row++) assert.notEqual(layout.VENT_MAZE[row][7], '#');
-  assert.equal(layout.VENT_MAZE[5][7], 'E');
+test("Stage Two has an easy connected vent route, moving sensors with safe windows, and room-bound return markers", async () => {
+  const layout = await server.ssrLoadModule(
+    "/scenes/level 1 stage 2/stageTwoLayout.ts",
+  );
+  for (let column = 1; column <= 7; column++)
+    assert.notEqual(layout.VENT_MAZE[1][column], "#");
+  for (let row = 1; row <= 5; row++)
+    assert.notEqual(layout.VENT_MAZE[row][7], "#");
+  assert.equal(layout.VENT_MAZE[5][7], "E");
   assert.deepEqual(layout.ventPoint(7, 5).toArray(), [20, 4, -1.5]);
   assert.equal(layout.VENT_SENSORS.length, 2);
   assert.equal(layout.VENT_SAFE_CELLS.length, 3);
   for (let index = 0; index < layout.VENT_SENSORS.length; index++) {
-    const samples = Array.from({ length: 80 }, (_, frame) => layout.ventSensorState(index, frame / 10));
-    assert.equal(samples.filter(sample => !sample.active).length, 35, 'Each sensor allows a 3.5-second safe crossing');
-    assert.ok(samples[0].position.distanceTo(samples[10].position) > 0.1, 'Sensors move, not just change colour');
+    const samples = Array.from({ length: 80 }, (_, frame) =>
+      layout.ventSensorState(index, frame / 10),
+    );
+    assert.equal(
+      samples.filter((sample) => !sample.active).length,
+      35,
+      "Each sensor allows a 3.5-second safe crossing",
+    );
+    assert.ok(
+      samples[0].position.distanceTo(samples[10].position) > 0.1,
+      "Sensors move, not just change colour",
+    );
   }
   assert.equal(layout.isSurveillancePoint({ x: 20, y: 0.3, z: -4.8 }), true);
-  for (const point of [{ x: 6, y: 0.3, z: -8 }, { x: 20, y: 4.3, z: -1.5 }, { x: 23, y: 0.3, z: -12.2 }]) {
-    assert.equal(layout.isSurveillancePoint(point), false, 'Only a marker on the surveillance floor is a safe home link');
+  for (const point of [
+    { x: 6, y: 0.3, z: -8 },
+    { x: 20, y: 4.3, z: -1.5 },
+    { x: 23, y: 0.3, z: -12.2 },
+  ]) {
+    assert.equal(
+      layout.isSurveillancePoint(point),
+      false,
+      "Only a marker on the surveillance floor is a safe home link",
+    );
   }
-  const first = layout.createStageTwoProgress(), second = layout.createStageTwoProgress();
-  first.remoteRooms.scene5.cleared.add('crate');
-  assert.equal(second.remoteRooms.scene5.cleared.size, 0, 'A fresh run never inherits old camera loot');
+  const first = layout.createStageTwoProgress(),
+    second = layout.createStageTwoProgress();
+  first.remoteRooms.scene5.cleared.add("crate");
+  assert.equal(
+    second.remoteRooms.scene5.cleared.size,
+    0,
+    "A fresh run never inherits old camera loot",
+  );
 });
 
-test('gem collection preserves the shader light layout and no weapon consumes T/K/L', async () => {
-  const room = await source('scenes/legacy scenes/scene4.ts');
+test("gem collection preserves the shader light layout and no weapon consumes T/K/L", async () => {
+  const room = await source("scenes/legacy scenes/scene4.ts");
   assert.doesNotMatch(room, /teleportDeviceLight\.visible\s*=\s*false/);
-  assert.match(room, /teleportDevice\.visible = false;\s*teleportDeviceLight\.intensity = 0;/);
+  assert.match(
+    room,
+    /teleportDevice\.visible = false;\s*teleportDeviceLight\.intensity = 0;/,
+  );
   assert.doesNotMatch(room, /createPlacedMarker|placedMarkerLight/);
-  for (const path of ['scripts/weapons/crowbar.ts', 'scripts/weapons/pistol.ts', 'scripts/weapons/lightsaber.ts', 'scripts/player/touchControls.ts', 'scenes/level 3/scene17.ts']) {
+  for (const path of [
+    "scripts/weapons/crowbar.ts",
+    "scripts/weapons/pistol.ts",
+    "scripts/weapons/bloomstick.ts",
+    "scripts/player/touchControls.ts",
+    "scenes/level 3/scene17.ts",
+  ]) {
     assert.doesNotMatch(await source(path), /['"]Key[TKL]['"]/);
   }
 });
 
-for (const name of ['Don.glb', 'Subject.glb']) {
+for (const name of ["Don.glb", "Subject.glb"]) {
   test(`${name} retains the remote-main uncompressed geometry contract`, async () => {
-    const bytes = await readFile(new URL(`../src/assets/models/${name}`, import.meta.url));
-    assert.equal(bytes.toString('ascii', 0, 4), 'glTF');
-    const json = JSON.parse(bytes.toString('utf8', 20, 20 + bytes.readUInt32LE(12)));
-    assert.ok(json.meshes.length > 0); assert.ok(json.skins.length > 0);
-    assert.ok(!(json.extensionsRequired ?? []).includes('KHR_draco_mesh_compression'));
-    for (const mesh of json.meshes) for (const primitive of mesh.primitives) {
-      assert.equal(primitive.extensions?.KHR_draco_mesh_compression, undefined);
-      assert.equal(typeof primitive.attributes.POSITION, 'number');
-    }
-    assert.match(await source('core/loader.ts'), /import playerModelUrl from '\.\.\/assets\/models\/Don\.glb'/);
+    const bytes = await readFile(
+      new URL(`../src/assets/models/${name}`, import.meta.url),
+    );
+    assert.equal(bytes.toString("ascii", 0, 4), "glTF");
+    const json = JSON.parse(
+      bytes.toString("utf8", 20, 20 + bytes.readUInt32LE(12)),
+    );
+    assert.ok(json.meshes.length > 0);
+    assert.ok(json.skins.length > 0);
+    assert.ok(
+      !(json.extensionsRequired ?? []).includes("KHR_draco_mesh_compression"),
+    );
+    for (const mesh of json.meshes)
+      for (const primitive of mesh.primitives) {
+        assert.equal(
+          primitive.extensions?.KHR_draco_mesh_compression,
+          undefined,
+        );
+        assert.equal(typeof primitive.attributes.POSITION, "number");
+      }
+    assert.match(
+      await source("core/loader.ts"),
+      /import playerModelUrl from '\.\.\/assets\/models\/Don\.glb'/,
+    );
   });
 }

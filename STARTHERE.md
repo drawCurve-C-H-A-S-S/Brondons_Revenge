@@ -17,7 +17,7 @@ Everything flows from `main.ts`. If you need to add a new system (physics, audio
 
 ## How to create a new scene
 
-Create a `createScene()` factory in the appropriate folder under `src/scenes/`: `legacy scenes/` holds scenes 2–12, `level 1 stage 1/` and `level 1 stage 2/` hold the stealth and surveillance stages, `level 1 boss stage/` holds scenes 13–14, `level 2/` holds flight and crash scenes, and `level 3/` holds approach 17, facility 20 and final boss 21. Scene 1 (Main Menu) remains at the root. Use this minimal playable-scene pattern from a level folder (not the old `build()` / `Player` class APIs):
+Create a `createScene()` factory in the appropriate folder under `src/scenes/`: `legacy scenes/` holds unused original rooms (2–4 and 7–12), `level 1 stage 1/` and `level 1 stage 2/` hold the stealth and surveillance stages, including the active Stage Two `cargoHold.ts` and `targetRange.ts` minigames. `level 1 boss stage/` holds scenes 13–14, `level 2/` holds flight and crash scenes, and `level 3/` holds approach 17, facility 20 and final boss 21. Scene 1 (Main Menu) remains at the root. Use this minimal playable-scene pattern from a level folder (not the old `build()` / `Player` class APIs):
 
 ```typescript
 import * as THREE from 'three';

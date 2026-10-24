@@ -50,55 +50,387 @@
       role="status"
       aria-live="polite"
     ></div>
-    <section id="phase4-hud" class="hidden" aria-label="Bay Warden phase 4 thruster status"
-      style="position:fixed;left:50%;bottom:15vh;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:7px;pointer-events:none;z-index:6;">
-      <div id="phase4-heat-track" role="progressbar" aria-label="Thruster heat" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
-        style="width:min(240px,46vw);height:10px;border-radius:6px;background:rgba(6,20,30,.72);border:1px solid rgba(159,232,255,.55);overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.55);">
-        <div id="phase4-heat-fill" style="width:0%;height:100%;background:#7fe3ff;transition:width .08s linear,background .2s ease;"></div>
+    <section
+      id="phase4-hud"
+      class="hidden"
+      aria-label="Bay Warden phase 4 thruster status"
+      style="
+        position: fixed;
+        left: 50%;
+        bottom: 15vh;
+        transform: translateX(-50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 7px;
+        pointer-events: none;
+        z-index: 6;
+      "
+    >
+      <div
+        id="phase4-heat-track"
+        role="progressbar"
+        aria-label="Thruster heat"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow="0"
+        style="
+          width: min(240px, 46vw);
+          height: 10px;
+          border-radius: 6px;
+          background: rgba(6, 20, 30, 0.72);
+          border: 1px solid rgba(159, 232, 255, 0.55);
+          overflow: hidden;
+          box-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+        "
+      >
+        <div
+          id="phase4-heat-fill"
+          style="
+            width: 0%;
+            height: 100%;
+            background: #7fe3ff;
+            transition:
+              width 0.08s linear,
+              background 0.2s ease;
+          "
+        ></div>
       </div>
-      <div id="phase4-entangle-pips" aria-label="Net entanglement" style="display:flex;align-items:center;min-height:15px;"></div>
+      <div
+        id="phase4-entangle-pips"
+        aria-label="Net entanglement"
+        style="display: flex; align-items: center; min-height: 15px"
+      ></div>
     </section>
     <style>
-      body.p4-bars-right #boss-subtitles:not(.prime-line) { display:none !important; }
-      #boss-subtitles.prime-line { top:12px !important; left:12px !important; right:auto !important; bottom:auto !important; transform:none !important; width:auto !important; max-width:min(300px, 34vw) !important; padding:8px 12px !important; font:400 14px/1.25 var(--comic-body) !important; text-align:left !important; background:#f7fbff !important; color:#17191f !important; border:3px solid #17191f !important; border-radius:6px !important; box-shadow:4px 4px 0 #17191f !important; animation:primeSlide .35s ease-out; }
-      @keyframes primeSlide { from { transform:translateX(-30px); opacity:0; } to { transform:none; opacity:1; } }
-      #health-bar, #shield-bar { transition: transform .45s cubic-bezier(.3,.7,.3,1), left .45s ease, right .45s ease, opacity .45s ease; }
-      body.p4-bars-right #health-bar, body.p4-bars-right #shield-bar { left:auto !important; right:3vw !important; transform:none !important; opacity:1 !important; }
-      #phase4-push-prompt > div { background:#ffdb57 !important; border:3px solid #17191f !important; border-radius:6px !important; box-shadow:4px 4px 0 #17191f !important; padding:6px 14px !important; }
-      #phase4-push-prompt .p4-push-pips, #phase4-push-prompt .p4-push-count { display:none !important; }
-      #phase4-push-prompt .p4-push-label { font:400 13px/1 var(--comic-display) !important; color:#17191f !important; letter-spacing:.08em !important; }
-      #phase4-push-prompt .p4-push-key { font:400 26px/1 var(--comic-display) !important; color:#f34851 !important; }
-      #phase4-warning { font-family:var(--comic-display) !important; font-weight:400 !important; letter-spacing:.06em !important; background:#ffdb57 !important; color:#17191f !important; border:3px solid #17191f !important; box-shadow:5px 5px 0 #17191f !important; text-shadow:none !important; }
+      body.p4-bars-right #boss-subtitles:not(.prime-line) {
+        display: none !important;
+      }
+      #boss-subtitles.prime-line {
+        top: 12px !important;
+        left: 12px !important;
+        right: auto !important;
+        bottom: auto !important;
+        transform: none !important;
+        width: auto !important;
+        max-width: min(300px, 34vw) !important;
+        padding: 8px 12px !important;
+        font: 400 14px/1.25 var(--comic-body) !important;
+        text-align: left !important;
+        background: #f7fbff !important;
+        color: #17191f !important;
+        border: 3px solid #17191f !important;
+        border-radius: 6px !important;
+        box-shadow: 4px 4px 0 #17191f !important;
+        animation: primeSlide 0.35s ease-out;
+      }
+      @keyframes primeSlide {
+        from {
+          transform: translateX(-30px);
+          opacity: 0;
+        }
+        to {
+          transform: none;
+          opacity: 1;
+        }
+      }
+      #health-bar,
+      #shield-bar {
+        transition:
+          transform 0.45s cubic-bezier(0.3, 0.7, 0.3, 1),
+          left 0.45s ease,
+          right 0.45s ease,
+          opacity 0.45s ease;
+      }
+      body.p4-bars-right #health-bar,
+      body.p4-bars-right #shield-bar {
+        left: auto !important;
+        right: 3vw !important;
+        transform: none !important;
+        opacity: 1 !important;
+      }
+      #phase4-push-prompt > div {
+        background: #ffdb57 !important;
+        border: 3px solid #17191f !important;
+        border-radius: 6px !important;
+        box-shadow: 4px 4px 0 #17191f !important;
+        padding: 6px 14px !important;
+      }
+      #phase4-push-prompt .p4-push-pips,
+      #phase4-push-prompt .p4-push-count {
+        display: none !important;
+      }
+      #phase4-push-prompt .p4-push-label {
+        font: 400 13px/1 var(--comic-display) !important;
+        color: #17191f !important;
+        letter-spacing: 0.08em !important;
+      }
+      #phase4-push-prompt .p4-push-key {
+        font: 400 26px/1 var(--comic-display) !important;
+        color: #f34851 !important;
+      }
+      #phase4-warning {
+        font-family: var(--comic-display) !important;
+        font-weight: 400 !important;
+        letter-spacing: 0.06em !important;
+        background: #ffdb57 !important;
+        color: #17191f !important;
+        border: 3px solid #17191f !important;
+        box-shadow: 5px 5px 0 #17191f !important;
+        text-shadow: none !important;
+      }
     </style>
-    <section id="phase4-push-prompt" class="hidden" aria-label="Wall push-off prompt"
-      style="position:fixed;inset:0;pointer-events:none;z-index:6;">
-      <div id="phase4-push-left" class="hidden" style="position:absolute;left:4vw;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;gap:5px;padding:9px 13px;border-radius:12px;background:rgba(6,20,30,.72);border:1px solid rgba(255,90,60,.7);box-shadow:0 2px 14px rgba(0,0,0,.5);">
-        <span class="p4-push-label" style="font:600 10px/1 system-ui,sans-serif;letter-spacing:.14em;color:#ff9d84;">TAP</span>
-        <span class="p4-push-key" style="font:700 30px/1 system-ui,sans-serif;color:#ffd9cf;text-shadow:0 0 10px rgba(255,90,60,.85);">A</span>
-        <span class="p4-push-pips" style="display:flex;gap:4px;"></span>
-        <span class="p4-push-count" style="font:600 11px/1 system-ui,sans-serif;color:#ffb9a6;">0/3</span>
+    <section
+      id="phase4-push-prompt"
+      class="hidden"
+      aria-label="Wall push-off prompt"
+      style="position: fixed; inset: 0; pointer-events: none; z-index: 6"
+    >
+      <div
+        id="phase4-push-left"
+        class="hidden"
+        style="
+          position: absolute;
+          left: 4vw;
+          top: 50%;
+          transform: translateY(-50%);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 5px;
+          padding: 9px 13px;
+          border-radius: 12px;
+          background: rgba(6, 20, 30, 0.72);
+          border: 1px solid rgba(255, 90, 60, 0.7);
+          box-shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
+        "
+      >
+        <span
+          class="p4-push-label"
+          style="
+            font:
+              600 10px/1 system-ui,
+              sans-serif;
+            letter-spacing: 0.14em;
+            color: #ff9d84;
+          "
+          >TAP</span
+        >
+        <span
+          class="p4-push-key"
+          style="
+            font:
+              700 30px/1 system-ui,
+              sans-serif;
+            color: #ffd9cf;
+            text-shadow: 0 0 10px rgba(255, 90, 60, 0.85);
+          "
+          >A</span
+        >
+        <span class="p4-push-pips" style="display: flex; gap: 4px"></span>
+        <span
+          class="p4-push-count"
+          style="
+            font:
+              600 11px/1 system-ui,
+              sans-serif;
+            color: #ffb9a6;
+          "
+          >0/3</span
+        >
       </div>
-      <div id="phase4-push-right" class="hidden" style="position:absolute;right:4vw;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;gap:5px;padding:9px 13px;border-radius:12px;background:rgba(6,20,30,.72);border:1px solid rgba(255,90,60,.7);box-shadow:0 2px 14px rgba(0,0,0,.5);">
-        <span class="p4-push-label" style="font:600 10px/1 system-ui,sans-serif;letter-spacing:.14em;color:#ff9d84;">TAP</span>
-        <span class="p4-push-key" style="font:700 30px/1 system-ui,sans-serif;color:#ffd9cf;text-shadow:0 0 10px rgba(255,90,60,.85);">D</span>
-        <span class="p4-push-pips" style="display:flex;gap:4px;"></span>
-        <span class="p4-push-count" style="font:600 11px/1 system-ui,sans-serif;color:#ffb9a6;">0/3</span>
+      <div
+        id="phase4-push-right"
+        class="hidden"
+        style="
+          position: absolute;
+          right: 4vw;
+          top: 50%;
+          transform: translateY(-50%);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 5px;
+          padding: 9px 13px;
+          border-radius: 12px;
+          background: rgba(6, 20, 30, 0.72);
+          border: 1px solid rgba(255, 90, 60, 0.7);
+          box-shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
+        "
+      >
+        <span
+          class="p4-push-label"
+          style="
+            font:
+              600 10px/1 system-ui,
+              sans-serif;
+            letter-spacing: 0.14em;
+            color: #ff9d84;
+          "
+          >TAP</span
+        >
+        <span
+          class="p4-push-key"
+          style="
+            font:
+              700 30px/1 system-ui,
+              sans-serif;
+            color: #ffd9cf;
+            text-shadow: 0 0 10px rgba(255, 90, 60, 0.85);
+          "
+          >D</span
+        >
+        <span class="p4-push-pips" style="display: flex; gap: 4px"></span>
+        <span
+          class="p4-push-count"
+          style="
+            font:
+              600 11px/1 system-ui,
+              sans-serif;
+            color: #ffb9a6;
+          "
+          >0/3</span
+        >
       </div>
-      <div id="phase4-push-top" class="hidden" style="position:absolute;top:10vh;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:5px;padding:9px 13px;border-radius:12px;background:rgba(6,20,30,.72);border:1px solid rgba(255,90,60,.7);box-shadow:0 2px 14px rgba(0,0,0,.5);">
-        <span class="p4-push-label" style="font:600 10px/1 system-ui,sans-serif;letter-spacing:.14em;color:#ff9d84;">TAP</span>
-        <span class="p4-push-key" style="font:700 30px/1 system-ui,sans-serif;color:#ffd9cf;text-shadow:0 0 10px rgba(255,90,60,.85);">W</span>
-        <span class="p4-push-pips" style="display:flex;gap:4px;"></span>
-        <span class="p4-push-count" style="font:600 11px/1 system-ui,sans-serif;color:#ffb9a6;">0/3</span>
+      <div
+        id="phase4-push-top"
+        class="hidden"
+        style="
+          position: absolute;
+          top: 10vh;
+          left: 50%;
+          transform: translateX(-50%);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 5px;
+          padding: 9px 13px;
+          border-radius: 12px;
+          background: rgba(6, 20, 30, 0.72);
+          border: 1px solid rgba(255, 90, 60, 0.7);
+          box-shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
+        "
+      >
+        <span
+          class="p4-push-label"
+          style="
+            font:
+              600 10px/1 system-ui,
+              sans-serif;
+            letter-spacing: 0.14em;
+            color: #ff9d84;
+          "
+          >TAP</span
+        >
+        <span
+          class="p4-push-key"
+          style="
+            font:
+              700 30px/1 system-ui,
+              sans-serif;
+            color: #ffd9cf;
+            text-shadow: 0 0 10px rgba(255, 90, 60, 0.85);
+          "
+          >W</span
+        >
+        <span class="p4-push-pips" style="display: flex; gap: 4px"></span>
+        <span
+          class="p4-push-count"
+          style="
+            font:
+              600 11px/1 system-ui,
+              sans-serif;
+            color: #ffb9a6;
+          "
+          >0/3</span
+        >
       </div>
-      <div id="phase4-push-bottom" class="hidden" style="position:absolute;bottom:5vh;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:5px;padding:9px 13px;border-radius:12px;background:rgba(6,20,30,.72);border:1px solid rgba(255,90,60,.7);box-shadow:0 2px 14px rgba(0,0,0,.5);">
-        <span class="p4-push-label" style="font:600 10px/1 system-ui,sans-serif;letter-spacing:.14em;color:#ff9d84;">TAP</span>
-        <span class="p4-push-key" style="font:700 30px/1 system-ui,sans-serif;color:#ffd9cf;text-shadow:0 0 10px rgba(255,90,60,.85);">S</span>
-        <span class="p4-push-pips" style="display:flex;gap:4px;"></span>
-        <span class="p4-push-count" style="font:600 11px/1 system-ui,sans-serif;color:#ffb9a6;">0/3</span>
+      <div
+        id="phase4-push-bottom"
+        class="hidden"
+        style="
+          position: absolute;
+          bottom: 5vh;
+          left: 50%;
+          transform: translateX(-50%);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 5px;
+          padding: 9px 13px;
+          border-radius: 12px;
+          background: rgba(6, 20, 30, 0.72);
+          border: 1px solid rgba(255, 90, 60, 0.7);
+          box-shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
+        "
+      >
+        <span
+          class="p4-push-label"
+          style="
+            font:
+              600 10px/1 system-ui,
+              sans-serif;
+            letter-spacing: 0.14em;
+            color: #ff9d84;
+          "
+          >TAP</span
+        >
+        <span
+          class="p4-push-key"
+          style="
+            font:
+              700 30px/1 system-ui,
+              sans-serif;
+            color: #ffd9cf;
+            text-shadow: 0 0 10px rgba(255, 90, 60, 0.85);
+          "
+          >S</span
+        >
+        <span class="p4-push-pips" style="display: flex; gap: 4px"></span>
+        <span
+          class="p4-push-count"
+          style="
+            font:
+              600 11px/1 system-ui,
+              sans-serif;
+            color: #ffb9a6;
+          "
+          >0/3</span
+        >
       </div>
     </section>
-    <div id="phase4-warning" class="hidden" role="status" aria-live="assertive"
-      style="position:fixed;top:38%;left:50%;transform:translate(-50%,-50%);z-index:7;pointer-events:none;text-align:center;font:800 clamp(20px,4.4vw,46px)/1.15 system-ui,sans-serif;letter-spacing:.06em;color:#ff2a1a;text-shadow:0 0 18px rgba(255,32,32,.9),0 0 42px rgba(255,32,32,.55);background:rgba(20,0,0,.28);border:2px solid rgba(255,42,26,.55);border-radius:12px;padding:16px 26px;box-shadow:0 0 34px rgba(255,32,32,.35),inset 0 0 22px rgba(255,32,32,.18);">WARNING: SHIP ARTIFICIAL GRAVITY OFFLINE</div>
+    <div
+      id="phase4-warning"
+      class="hidden"
+      role="status"
+      aria-live="assertive"
+      style="
+        position: fixed;
+        top: 38%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 7;
+        pointer-events: none;
+        text-align: center;
+        font:
+          800 clamp(20px, 4.4vw, 46px)/1.15 system-ui,
+          sans-serif;
+        letter-spacing: 0.06em;
+        color: #ff2a1a;
+        text-shadow:
+          0 0 18px rgba(255, 32, 32, 0.9),
+          0 0 42px rgba(255, 32, 32, 0.55);
+        background: rgba(20, 0, 0, 0.28);
+        border: 2px solid rgba(255, 42, 26, 0.55);
+        border-radius: 12px;
+        padding: 16px 26px;
+        box-shadow:
+          0 0 34px rgba(255, 32, 32, 0.35),
+          inset 0 0 22px rgba(255, 32, 32, 0.18);
+      "
+    >
+      WARNING: SHIP ARTIFICIAL GRAVITY OFFLINE
+    </div>
     <section
       id="escape-qte"
       class="hidden"
@@ -106,12 +438,12 @@
       aria-live="assertive"
       aria-label="Timed escape action"
     >
-      <div class="escape-caption">PRESS THE DISPLAYED KEY</div>
+      <div class="escape-caption">PRESS THE DISPLAYED BUTTON</div>
       <kbd id="escape-key">Y</kbd>
       <div id="escape-timer-track"><div id="escape-timer-fill"></div></div>
       <div id="escape-action"></div>
       <div class="escape-hint">
-        Y: shoot · U: crowbar · I: dodge · O: saber spin · E: launch
+        Y: shoot · U: crowbar · I: dodge · O: bloomstick spin · E: launch
       </div>
     </section>
     <section
@@ -298,11 +630,16 @@
               Brondon &amp; DonfromStreets (Brendan)
               <p class="credit-detail">Husain</p>
               <p class="credit-note">
-                New GLB character models: Don.glb (Brondon) and DonfromStreets.glb (Brendan).
+                New GLB character models: Don.glb (Brondon) and
+                DonfromStreets.glb (Brendan).
               </p>
             </li>
             <li>
-              <a href="https://quaternius.com/packs/universalanimationlibrary.html" target="_blank" rel="noreferrer">
+              <a
+                href="https://quaternius.com/packs/universalanimationlibrary.html"
+                target="_blank"
+                rel="noreferrer"
+              >
                 Universal Animation Library (UAL) character models
               </a>
               <p class="credit-detail">
@@ -477,13 +814,55 @@
         <section class="credit-section">
           <h2 class="credit-role">Sound effects</h2>
           <p class="credit-detail">
-            Footsteps by <a href="https://pixabay.com/users/yarzur_ofc-49620193/" target="_blank" rel="noreferrer">Diego Nasc</a> from Pixabay<br />
-            Door opening and explosions by <a href="https://pixabay.com/users/dragon-studio-38165424/" target="_blank" rel="noreferrer">DRAGON-STUDIO</a> from Pixabay<br />
-            Keypad beep by <a href="https://pixabay.com/users/mr_berrydev-40649933/" target="_blank" rel="noreferrer">Mr_Berrydev</a> from Pixabay<br />
-            Sword slash by <a href="https://pixabay.com/users/daviddumaisaudio-41768500/" target="_blank" rel="noreferrer">David Dumais</a> from Pixabay<br />
-            Crowbar swing by <a href="https://pixabay.com/users/oxidvideos-37598254/" target="_blank" rel="noreferrer">Alex</a> from Pixabay<br />
-            Gunshot, red bombs, waterfall, spaceship door, robot clank, punch, toilet flush and Brendan's voice by
-            <a href="https://pixabay.com/users/freesound_community-46691455/" target="_blank" rel="noreferrer">freesound_community</a> from Pixabay
+            Footsteps by
+            <a
+              href="https://pixabay.com/users/yarzur_ofc-49620193/"
+              target="_blank"
+              rel="noreferrer"
+              >Diego Nasc</a
+            >
+            from Pixabay<br />
+            Door opening and explosions by
+            <a
+              href="https://pixabay.com/users/dragon-studio-38165424/"
+              target="_blank"
+              rel="noreferrer"
+              >DRAGON-STUDIO</a
+            >
+            from Pixabay<br />
+            Keypad beep by
+            <a
+              href="https://pixabay.com/users/mr_berrydev-40649933/"
+              target="_blank"
+              rel="noreferrer"
+              >Mr_Berrydev</a
+            >
+            from Pixabay<br />
+            Sword slash by
+            <a
+              href="https://pixabay.com/users/daviddumaisaudio-41768500/"
+              target="_blank"
+              rel="noreferrer"
+              >David Dumais</a
+            >
+            from Pixabay<br />
+            Crowbar swing by
+            <a
+              href="https://pixabay.com/users/oxidvideos-37598254/"
+              target="_blank"
+              rel="noreferrer"
+              >Alex</a
+            >
+            from Pixabay<br />
+            Gunshot, red bombs, waterfall, spaceship door, robot clank, punch,
+            toilet flush and Brendan's voice by
+            <a
+              href="https://pixabay.com/users/freesound_community-46691455/"
+              target="_blank"
+              rel="noreferrer"
+              >freesound_community</a
+            >
+            from Pixabay
           </p>
         </section>
         <section class="credit-section">
@@ -557,9 +936,19 @@
         </p>
       </div>
       <div id="mode-select" class="menu-actions hidden">
-        <button id="story-mode-btn" class="menu-btn" type="button">Story Mode</button>
-        <button id="arcade-mode-btn" class="menu-btn" type="button">Arcade Mode</button>
-        <button id="mode-back-btn" class="menu-btn menu-btn-quiet" type="button">Back</button>
+        <button id="story-mode-btn" class="menu-btn" type="button">
+          Story Mode
+        </button>
+        <button id="arcade-mode-btn" class="menu-btn" type="button">
+          Arcade Mode
+        </button>
+        <button
+          id="mode-back-btn"
+          class="menu-btn menu-btn-quiet"
+          type="button"
+        >
+          Back
+        </button>
       </div>
       <div id="character-select" class="hidden">
         <h2>Choose your character</h2>
@@ -573,32 +962,78 @@
             <span class="character-card-note">Street-smart wildcard</span>
           </button>
         </div>
-        <button id="character-back-btn" class="menu-btn menu-btn-quiet" type="button">Back</button>
+        <button
+          id="character-back-btn"
+          class="menu-btn menu-btn-quiet"
+          type="button"
+        >
+          Back
+        </button>
       </div>
       <div id="title-icon-bar">
-        <button id="options-btn" class="title-icon-btn" type="button" aria-label="Settings" title="Settings">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.5 7.5 0 0 0-1.7-1L15 3.3h-4l-.4 2.7a7.5 7.5 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1c.5.4 1.1.7 1.7 1l.4 2.7h4l.4-2.7c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.4zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg>
+        <button
+          id="options-btn"
+          class="title-icon-btn"
+          type="button"
+          aria-label="Settings"
+          title="Settings"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.5 7.5 0 0 0-1.7-1L15 3.3h-4l-.4 2.7a7.5 7.5 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1c.5.4 1.1.7 1.7 1l.4 2.7h4l.4-2.7c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.4zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"
+            />
+          </svg>
         </button>
-        <button id="view-credits-btn" class="title-icon-btn" type="button" aria-label="Credits" title="Credits">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.9 6.3 6.9.7-5.2 4.6 1.5 6.8L12 16.9 5.9 20.4l1.5-6.8L2.2 9l6.9-.7z"/></svg>
+        <button
+          id="view-credits-btn"
+          class="title-icon-btn"
+          type="button"
+          aria-label="Credits"
+          title="Credits"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 2l2.9 6.3 6.9.7-5.2 4.6 1.5 6.8L12 16.9 5.9 20.4l1.5-6.8L2.2 9l6.9-.7z"
+            />
+          </svg>
         </button>
-        <button id="disclaimer-btn" class="title-icon-btn" type="button" aria-label="Disclaimer" aria-expanded="false" title="Disclaimer">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L1 21h22zm1 15h-2v-2h2zm0-4h-2V9h2z"/></svg>
+        <button
+          id="disclaimer-btn"
+          class="title-icon-btn"
+          type="button"
+          aria-label="Disclaimer"
+          aria-expanded="false"
+          title="Disclaimer"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 2L1 21h22zm1 15h-2v-2h2zm0-4h-2V9h2z" />
+          </svg>
         </button>
-        <p id="disclaimer-text" class="hidden" role="note">Warning: this game is highly addictive.</p>
+        <p id="disclaimer-text" class="hidden" role="note">
+          Warning: this game is highly addictive.
+        </p>
       </div>
     </div>
 
     <!-- Arcade results -->
-    <div id="arcade-results" class="hidden" role="dialog" aria-labelledby="arcade-results-title">
+    <div
+      id="arcade-results"
+      class="hidden"
+      role="dialog"
+      aria-labelledby="arcade-results-title"
+    >
       <div class="arcade-results-card">
         <p class="arcade-results-eyebrow">Stage complete</p>
         <h2 id="arcade-results-title"></h2>
         <div class="arcade-grade" id="arcade-grade">S</div>
         <dl class="arcade-stats" id="arcade-stats"></dl>
         <div class="arcade-results-actions">
-          <button id="arcade-play-again" class="menu-btn" type="button">Play again</button>
-          <button id="arcade-return" class="menu-btn" type="button">Return to Brondon's Museum</button>
+          <button id="arcade-play-again" class="menu-btn" type="button">
+            Play again
+          </button>
+          <button id="arcade-return" class="menu-btn" type="button">
+            Return to Brondon's Museum
+          </button>
         </div>
       </div>
     </div>
@@ -622,39 +1057,87 @@
     <dialog id="pause-menu" aria-labelledby="pause-menu-title">
       <h1 id="pause-menu-title" class="hidden">Pause</h1>
       <section id="pause-home" class="pause-panel">
-        <button id="pause-resume" type="button" class="menu-button">Resume</button>
-        <button id="pause-restart-checkpoint" type="button" class="menu-button menu-tilt">
+        <button id="pause-resume" type="button" class="menu-button">
+          Resume
+        </button>
+        <button
+          id="pause-restart-checkpoint"
+          type="button"
+          class="menu-button menu-tilt"
+        >
           Restart at last checkpoint
         </button>
-        <button id="pause-main-menu" type="button" class="menu-button menu-tilt">
+        <button
+          id="pause-main-menu"
+          type="button"
+          class="menu-button menu-tilt"
+        >
           Main Menu
         </button>
-        <button id="pause-ship-map" type="button" class="menu-button menu-tilt hidden">
+        <button
+          id="pause-ship-map"
+          type="button"
+          class="menu-button menu-tilt hidden"
+        >
           View Ship Map
         </button>
-        <button id="pause-return-museum" type="button" class="menu-button menu-tilt hidden">
+        <button
+          id="pause-return-museum"
+          type="button"
+          class="menu-button menu-tilt hidden"
+        >
           Return to Museum
         </button>
-        <button id="pause-sound" type="button" class="menu-button menu-tilt">Sound</button>
-        <button id="pause-display" type="button" class="menu-button menu-tilt">Display</button>
-        <button id="pause-controls" type="button" class="menu-button menu-tilt">Controls</button>
-        <button id="pause-credits" type="button" class="menu-button menu-tilt">View Credits</button>
+        <button id="pause-sound" type="button" class="menu-button menu-tilt">
+          Sound
+        </button>
+        <button id="pause-display" type="button" class="menu-button menu-tilt">
+          Display
+        </button>
+        <button id="pause-controls" type="button" class="menu-button menu-tilt">
+          Controls
+        </button>
+        <button id="pause-credits" type="button" class="menu-button menu-tilt">
+          View Credits
+        </button>
         <label
-          id="pause-stealth-settings"
+          id="pause-prime-settings"
           class="hidden"
-          for="stealth-hints-toggle"
+          for="prime-hints-toggle"
         >
-          <span>Prime hints</span
-          ><input id="stealth-hints-toggle" type="checkbox" checked />
+          <span>Prime hints (all levels)</span
+          ><input id="prime-hints-toggle" type="checkbox" checked />
         </label>
-        <button id="pause-developer" type="button" class="menu-button menu-tilt">Developer Mode</button>
+        <button
+          id="pause-developer"
+          type="button"
+          class="menu-button menu-tilt"
+        >
+          Developer Mode
+        </button>
       </section>
-      <section id="pause-main-menu-panel" class="pause-panel hidden" aria-labelledby="main-menu-heading">
+      <section
+        id="pause-main-menu-panel"
+        class="pause-panel hidden"
+        aria-labelledby="main-menu-heading"
+      >
         <h2 id="main-menu-heading">Return to Main Menu?</h2>
-        <p>No progress will be saved. Returning to the Main Menu will discard your current progress.</p>
+        <p>
+          No progress will be saved. Returning to the Main Menu will discard
+          your current progress.
+        </p>
         <p id="main-menu-error" role="alert"></p>
-        <button id="pause-main-menu-confirm" type="button" class="menu-button">Return to Main Menu</button>
-        <button id="pause-main-menu-cancel" type="button" data-pause-back class="menu-button">Cancel</button>
+        <button id="pause-main-menu-confirm" type="button" class="menu-button">
+          Return to Main Menu
+        </button>
+        <button
+          id="pause-main-menu-cancel"
+          type="button"
+          data-pause-back
+          class="menu-button"
+        >
+          Cancel
+        </button>
       </section>
       <section
         id="pause-map-panel"
@@ -690,7 +1173,7 @@
               aria-controls="controller-controls-settings pause-controls-list"
               tabindex="-1"
             >
-              Controller
+              Connected controllers (0)
             </button>
           </div>
         </div>
@@ -701,11 +1184,13 @@
             role="region"
             aria-label="Controller settings"
           >
+            <label class="controller-device-label" for="controller-device">Controller to configure</label>
+            <select id="controller-device" aria-label="Controller to configure" disabled></select>
             <fieldset id="controller-type-options">
-              <legend>Choose your controller</legend>
+              <legend>Button-label layout</legend>
               <p>
-                Pick the type that matches your controller so its buttons and
-                prompts use the correct layout.
+                Detected automatically for each connected device. Override the
+                layout if your adapter reports the wrong controller type.
               </p>
               <div
                 class="controller-type-buttons"
@@ -736,15 +1221,25 @@
                 >
                   PlayStation
                 </button>
+                <button
+                  class="menu-button"
+                  type="button"
+                  data-controller-type="generic"
+                  aria-pressed="false"
+                >
+                  Other / Generic
+                </button>
               </div>
             </fieldset>
             <p id="controller-status" role="status" aria-live="polite">
-              Choose a controller type. Plug it in, then press a button to let the
-              browser detect it.
+              Plug in a controller, then press a button to let the browser
+              detect it. Keyboard and mouse are always supported.
             </p>
             <label id="controller-layout-options" class="hidden">
               <input id="controller-swap-ab" type="checkbox" />
-              <span id="controller-swap-label">Swap A/B for this controller</span>
+              <span id="controller-swap-label"
+                >Swap A/B for this controller</span
+              >
             </label>
             <div id="controller-setup" class="hidden">
               <p>
@@ -753,11 +1248,23 @@
                 buttons and unused extras are not required. Release all buttons
                 and center both sticks before starting.
               </p>
-              <p id="controller-setup-step" role="status" aria-live="polite"></p>
-              <button id="controller-setup-start" class="menu-button" type="button">
+              <p
+                id="controller-setup-step"
+                role="status"
+                aria-live="polite"
+              ></p>
+              <button
+                id="controller-setup-start"
+                class="menu-button"
+                type="button"
+              >
                 Calibrate game controls
               </button>
-              <button id="controller-setup-cancel" class="menu-button hidden" type="button">
+              <button
+                id="controller-setup-cancel"
+                class="menu-button hidden"
+                type="button"
+              >
                 Cancel calibration
               </button>
             </div>
@@ -848,23 +1355,30 @@
       </section>
       <section id="pause-developer-form" class="pause-panel hidden">
         <h1 class="menu-tilt" style="color: white">
-          Unlock scene selection and all controls for local playtesting.
+          Unlock scene selection for local playtesting. All controls are
+          already available in Controls.
         </h1>
-        <button id="developer-unlock" type="button" class="menu-button menu-tilt">Unlock</button>
+        <button
+          id="developer-unlock"
+          type="button"
+          class="menu-button menu-tilt"
+        >
+          Unlock
+        </button>
         <button type="button" data-pause-back class="menu-button">Back</button>
       </section>
       <p class="controller-menu-hint">
         Left stick / D-pad: choose · A: select · B: back · +: resume
       </p>
     </dialog>
-    <dialog
-      id="scene-quick-menu"
-      aria-labelledby="scene-menu-title"
-    >
+    <dialog id="scene-quick-menu" aria-labelledby="scene-menu-title">
       <button id="scene-quick-close" class="menu-button" type="button">
         Back <kbd>Esc</kbd>
       </button>
-      <div id="scene-quick-list" style="overflow-y: auto; display: flex; flex-direction: column;"></div>
+      <div
+        id="scene-quick-list"
+        style="overflow-y: auto; display: flex; flex-direction: column"
+      ></div>
       <p id="scene-menu-error" role="alert"></p>
       <footer class="scene-menu-footer">
         Arrow keys to select · Enter to load · Click a scene to jump
@@ -920,8 +1434,8 @@
           PISTOL
         </button>
         <button id="touch-crowbar" class="touch-btn" type="button">CROW</button>
-        <button id="touch-lightsaber" class="touch-btn hidden" type="button">
-          SABER
+        <button id="touch-bloomstick" class="touch-btn hidden" type="button">
+          BLOOMSTICK
         </button>
         <button id="touch-goggles" class="touch-btn" type="button">
           GOGGLES

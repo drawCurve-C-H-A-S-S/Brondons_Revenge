@@ -1,9 +1,9 @@
-import * as THREE from 'three';
-import starfieldVert from '../../shaders/vert/starfield.vert.glsl?raw';
-import starfieldFrag from '../../shaders/frag/starfield.frag.glsl?raw';
+import * as THREE from "three";
+import starfieldVert from "../../shaders/vert/starfield.vert.glsl?raw";
+import starfieldFrag from "../../shaders/frag/starfield.frag.glsl?raw";
 
 export interface StarfieldConfig {
-  scene: THREE.Scene;
+  scene: THREE.Scene | THREE.Group;
   renderer?: THREE.WebGLRenderer;
   nebulaOpacity?: number;
   starCount?: number;
@@ -20,6 +20,7 @@ export interface StarfieldConfig {
 export interface Starfield {
   nebulaCubes: THREE.Mesh[];
   starLayers: THREE.Points[];
+  setOpacity(opacity: number): void;
   setNebulaProgress(progress: number): void;
   update(time: number): void;
   dispose(): void;
@@ -41,9 +42,9 @@ export function createStarfield(config: StarfieldConfig): Starfield {
   } = config;
 
   const tintStops = [
-    [new THREE.Color(0.10, 0.09, 0.26), new THREE.Color(0.20, 0.10, 0.30)],
-    [new THREE.Color(0.26, 0.09, 0.13), new THREE.Color(0.30, 0.12, 0.12)],
-    [new THREE.Color(0.30, 0.18, 0.09), new THREE.Color(0.24, 0.10, 0.10)],
+    [new THREE.Color(0.1, 0.09, 0.26), new THREE.Color(0.2, 0.1, 0.3)],
+    [new THREE.Color(0.26, 0.09, 0.13), new THREE.Color(0.3, 0.12, 0.12)],
+    [new THREE.Color(0.3, 0.18, 0.09), new THREE.Color(0.24, 0.1, 0.1)],
   ];
   const tintA = new THREE.Vector3();
   const tintB = new THREE.Vector3();
@@ -62,16 +63,44 @@ export function createStarfield(config: StarfieldConfig): Starfield {
 
   // --- Nebula cubemaps ---
   const nebulaColors = [
-    { color: new THREE.Vector3(0.045, 0.055, 0.20), offset: new THREE.Vector3(0, 0, 0), opacity: 0.15, octaves: 2, blendColor: new THREE.Vector3(1.20, 0.60, 0.15) },
-    { color: new THREE.Vector3(0.035, 0.08, 0.24), offset: new THREE.Vector3(200, 150, 125), opacity: 0.2, octaves: 3, blendColor: new THREE.Vector3(0.22, 0.09, 0.42) },
-    { color: new THREE.Vector3(0.10, 0.07, 0.29), offset: new THREE.Vector3(300, 250, 200), opacity: 0.2, octaves: 3, blendColor: new THREE.Vector3(1.40, 0.70, 0.20) },
-    { color: new THREE.Vector3(0.0, 0.0, 0.0), offset: new THREE.Vector3(400, 350, 300), opacity: 0.2, invertAlpha: true, octaves: 3 },
+    {
+      color: new THREE.Vector3(0.045, 0.055, 0.2),
+      offset: new THREE.Vector3(0, 0, 0),
+      opacity: 0.15,
+      octaves: 2,
+      blendColor: new THREE.Vector3(1.2, 0.6, 0.15),
+    },
+    {
+      color: new THREE.Vector3(0.035, 0.08, 0.24),
+      offset: new THREE.Vector3(200, 150, 125),
+      opacity: 0.2,
+      octaves: 3,
+      blendColor: new THREE.Vector3(0.22, 0.09, 0.42),
+    },
+    {
+      color: new THREE.Vector3(0.1, 0.07, 0.29),
+      offset: new THREE.Vector3(300, 250, 200),
+      opacity: 0.2,
+      octaves: 3,
+      blendColor: new THREE.Vector3(1.4, 0.7, 0.2),
+    },
+    {
+      color: new THREE.Vector3(0.0, 0.0, 0.0),
+      offset: new THREE.Vector3(400, 350, 300),
+      opacity: 0.2,
+      invertAlpha: true,
+      octaves: 3,
+    },
   ];
   const bakedTargets: THREE.WebGLRenderTarget[] = [];
 
-  const texWidth = 2048, texHeight = 1024;
-  const bakeRenderer = renderer || new THREE.WebGLRenderer({ alpha: true, antialias: false });
+  const texWidth = 2048,
+    texHeight = 1024;
+  const bakeRenderer =
+    renderer || new THREE.WebGLRenderer({ alpha: true, antialias: false });
   if (!renderer) bakeRenderer.setSize(texWidth, texHeight);
+  const clearColor = bakeRenderer.getClearColor(new THREE.Color()).clone();
+  const clearAlpha = bakeRenderer.getClearAlpha();
 
   const bakeVertShader = `
     varying vec2 vUv;
@@ -208,7 +237,14 @@ export function createStarfield(config: StarfieldConfig): Starfield {
   `;
 
   for (let i = 0; i < nebulaColors.length; i++) {
-    const { color, offset, opacity = 0.3, invertAlpha = false, octaves = 8, blendColor } = nebulaColors[i];
+    const {
+      color,
+      offset,
+      opacity = 0.3,
+      invertAlpha = false,
+      octaves = 8,
+      blendColor,
+    } = nebulaColors[i];
     const hasBlend = blendColor !== undefined;
 
     const bakeUniforms = {
@@ -222,8 +258,8 @@ export function createStarfield(config: StarfieldConfig): Starfield {
       uDither: { value: false },
       uRidgeStrength: { value: i < 2 ? 0.08 : 0.0 },
       uWarpStrength: { value: 0.5 },
-      uThresholdLow: { value: i < 2 ? 0.45 : (i === 2 ? 0.35 : 0.7) },
-      uThresholdHigh: { value: i < 2 ? 0.6 : (i === 2 ? 0.55 : 0.78) },
+      uThresholdLow: { value: i < 2 ? 0.45 : i === 2 ? 0.35 : 0.7 },
+      uThresholdHigh: { value: i < 2 ? 0.6 : i === 2 ? 0.55 : 0.78 },
       uTint: { value: new THREE.Vector3(0, 0, 0) },
       uTint2: { value: new THREE.Vector3(0, 0, 0) },
       uTintMix: { value: 0.0 },
@@ -248,6 +284,8 @@ export function createStarfield(config: StarfieldConfig): Starfield {
       magFilter: THREE.LinearFilter,
       format: THREE.RGBAFormat,
       type: THREE.UnsignedByteType,
+      depthBuffer: false,
+      stencilBuffer: false,
     });
     renderTarget.texture.colorSpace = THREE.LinearSRGBColorSpace;
 
@@ -269,6 +307,7 @@ export function createStarfield(config: StarfieldConfig): Starfield {
     quad.geometry.dispose();
   }
 
+  bakeRenderer.setClearColor(clearColor, clearAlpha);
   if (!renderer) bakeRenderer.dispose();
 
   // --- Nebula shell: one BackSide sphere composites all baked layers in-shader ---
@@ -288,6 +327,7 @@ export function createStarfield(config: StarfieldConfig): Starfield {
     uniform mat3 uRot1;
     uniform mat3 uRot2;
     uniform mat3 uRot3;
+    uniform float uOpacity;
     varying vec3 vDir;
 
     vec4 sampleLayer(sampler2D tex, mat3 rot, vec3 dir) {
@@ -308,7 +348,7 @@ export function createStarfield(config: StarfieldConfig): Starfield {
       s = sampleLayer(tLayer2, uRot2, dir); accum += s.rgb * s.a * transmittance; transmittance *= 1.0 - s.a;
       s = sampleLayer(tLayer3, uRot3, dir); accum += s.rgb * s.a * transmittance; transmittance *= 1.0 - s.a;
       float alpha = 1.0 - transmittance;
-      gl_FragColor = vec4(alpha > 0.001 ? accum / alpha : vec3(0.0), alpha);
+      gl_FragColor = vec4(alpha > 0.001 ? accum / alpha : vec3(0.0), alpha * uOpacity);
     }
   `;
 
@@ -321,6 +361,7 @@ export function createStarfield(config: StarfieldConfig): Starfield {
     uRot1: { value: new THREE.Matrix3() },
     uRot2: { value: new THREE.Matrix3() },
     uRot3: { value: new THREE.Matrix3() },
+    uOpacity: { value: 1 },
   };
   const shellMaterial = new THREE.ShaderMaterial({
     uniforms: shellUniforms,
@@ -330,8 +371,11 @@ export function createStarfield(config: StarfieldConfig): Starfield {
     depthWrite: false,
     transparent: true,
   });
-  const shell = new THREE.Mesh(new THREE.SphereGeometry(350 * nebulaScale, 32, 16), shellMaterial);
-  shell.name = 'NebulaShell';
+  const shell = new THREE.Mesh(
+    new THREE.SphereGeometry(350 * nebulaScale, 32, 16),
+    shellMaterial,
+  );
+  shell.name = "NebulaShell";
   shell.frustumCulled = false;
   shell.renderOrder = 0;
   scene.add(shell);
@@ -402,9 +446,15 @@ export function createStarfield(config: StarfieldConfig): Starfield {
     }
   `;
 
-  const starLayers: THREE.Points[] = [];
+  const starLayers: THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial>[] =
+    [];
 
-  function makeStars(count: number, baseSize: number, brightness: number, renderOrder: number) {
+  function makeStars(
+    count: number,
+    baseSize: number,
+    brightness: number,
+    renderOrder: number,
+  ) {
     const positions = new Float32Array(count * 3);
     const colors = new Float32Array(count * 3);
     const sizes = new Float32Array(count);
@@ -437,10 +487,10 @@ export function createStarfield(config: StarfieldConfig): Starfield {
       shapes[i] = Math.floor(Math.random() * 4);
     }
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-    geometry.setAttribute('shape', new THREE.BufferAttribute(shapes, 1));
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    geometry.setAttribute("size", new THREE.BufferAttribute(sizes, 1));
+    geometry.setAttribute("shape", new THREE.BufferAttribute(shapes, 1));
     const material = new THREE.ShaderMaterial({
       vertexShader: starVertShader,
       fragmentShader: starFragShader,
@@ -455,7 +505,7 @@ export function createStarfield(config: StarfieldConfig): Starfield {
       depthWrite: false,
     });
     const stars = new THREE.Points(geometry, material);
-    stars.name = 'Starfield';
+    stars.name = "Starfield";
     stars.renderOrder = renderOrder;
     stars.material.fog = false;
     scene.add(stars);
@@ -467,10 +517,16 @@ export function createStarfield(config: StarfieldConfig): Starfield {
       glowSizes[i] = sizes[i] * 3.0;
     }
     const glowGeometry = new THREE.BufferGeometry();
-    glowGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    glowGeometry.setAttribute('color', new THREE.BufferAttribute(glowColors, 3));
-    glowGeometry.setAttribute('size', new THREE.BufferAttribute(glowSizes, 1));
-    glowGeometry.setAttribute('shape', new THREE.BufferAttribute(shapes, 1));
+    glowGeometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(positions, 3),
+    );
+    glowGeometry.setAttribute(
+      "color",
+      new THREE.BufferAttribute(glowColors, 3),
+    );
+    glowGeometry.setAttribute("size", new THREE.BufferAttribute(glowSizes, 1));
+    glowGeometry.setAttribute("shape", new THREE.BufferAttribute(shapes, 1));
     const glowMaterial = new THREE.ShaderMaterial({
       vertexShader: starVertShader,
       fragmentShader: starFragShader,
@@ -485,7 +541,7 @@ export function createStarfield(config: StarfieldConfig): Starfield {
       depthWrite: false,
     });
     const glow = new THREE.Points(glowGeometry, glowMaterial);
-    glow.name = 'StarGlow';
+    glow.name = "StarGlow";
     glow.renderOrder = renderOrder;
     glow.material.fog = false;
     scene.add(glow);
@@ -494,10 +550,24 @@ export function createStarfield(config: StarfieldConfig): Starfield {
 
   makeStars(starCount, 0.9, 0.6, -1);
   makeStars(Math.floor(starCount * 0.625), 1.8, 0.8, 2);
+  const layerOpacities: number[] = starLayers.map(
+    (layer) => layer.material.uniforms.uOpacity.value,
+  );
 
   return {
     nebulaCubes,
     starLayers,
+    setOpacity(opacity: number) {
+      if (!Number.isFinite(opacity))
+        throw new RangeError("Starfield opacity must be finite");
+      const fade = THREE.MathUtils.clamp(opacity, 0, 1);
+      shellUniforms.uOpacity.value = fade;
+      shell.visible = fade > 0;
+      starLayers.forEach((layer, index) => {
+        layer.visible = fade > 0;
+        layer.material.uniforms.uOpacity.value = layerOpacities[index] * fade;
+      });
+    },
     setNebulaProgress(progress: number) {
       setTint(progress);
     },
@@ -510,21 +580,25 @@ export function createStarfield(config: StarfieldConfig): Starfield {
           Math.cos(time * 0.005 + i * 0.9) * 0.015,
         );
         layerMatrix.makeRotationFromEuler(layerEuler);
-        (shellUniforms[`uRot${i}`].value as THREE.Matrix3).setFromMatrix4(layerMatrix).transpose();
+        (shellUniforms[`uRot${i}`].value as THREE.Matrix3)
+          .setFromMatrix4(layerMatrix)
+          .transpose();
       }
       for (const layer of starLayers) {
-        (layer.material as THREE.ShaderMaterial).uniforms.uTime.value = time;
+        layer.material.uniforms.uTime.value = time;
       }
     },
     dispose() {
       for (const cube of nebulaCubes) {
+        cube.removeFromParent();
         cube.geometry.dispose();
         (cube.material as THREE.ShaderMaterial).dispose();
       }
       for (const target of bakedTargets) target.dispose();
       for (const layer of starLayers) {
+        layer.removeFromParent();
         layer.geometry.dispose();
-        (layer.material as THREE.ShaderMaterial).dispose();
+        layer.material.dispose();
       }
     },
   };

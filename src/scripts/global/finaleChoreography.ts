@@ -1,44 +1,103 @@
-import type { MechPoseName } from '../npc/mechAnimation.js';
-import type { FinalePhase } from './finaleDirector.js';
+import type { MechPoseName } from "../npc/mechAnimation.js";
+import type { FinalePhase } from "./finaleDirector.js";
 
 export const FINALE_START_X = 14;
 export const RIFLE_SEQUENCE = Object.freeze({
-  sheath: 0.45, draw: 0.8, ready: 1.4, cameraEnd: 1.48, fire: 2.05, lastShot: 2.61,
-  return: 2.9, holstered: 3.5, swordDraw: 3.78, swordReady: 4.25,
+  sheath: 0.45,
+  draw: 0.8,
+  ready: 1.4,
+  cameraEnd: 1.48,
+  fire: 2.05,
+  lastShot: 2.61,
+  return: 2.9,
+  holstered: 3.5,
+  swordDraw: 3.78,
+  swordReady: 4.25,
 });
 export function sampleRifleSequence(time: number) {
   return {
     sheath: cinematicProgress(time, 0, RIFLE_SEQUENCE.sheath),
     draw: cinematicProgress(time, RIFLE_SEQUENCE.sheath, RIFLE_SEQUENCE.draw),
-    shoulderToAim: cinematicProgress(time, RIFLE_SEQUENCE.draw, RIFLE_SEQUENCE.ready),
-    returning: cinematicProgress(time, RIFLE_SEQUENCE.return, RIFLE_SEQUENCE.holstered),
-    swordReturn: cinematicProgress(time, RIFLE_SEQUENCE.swordDraw, RIFLE_SEQUENCE.swordReady),
-    firing: time >= RIFLE_SEQUENCE.fire && time <= RIFLE_SEQUENCE.lastShot + 0.12,
+    shoulderToAim: cinematicProgress(
+      time,
+      RIFLE_SEQUENCE.draw,
+      RIFLE_SEQUENCE.ready,
+    ),
+    returning: cinematicProgress(
+      time,
+      RIFLE_SEQUENCE.return,
+      RIFLE_SEQUENCE.holstered,
+    ),
+    swordReturn: cinematicProgress(
+      time,
+      RIFLE_SEQUENCE.swordDraw,
+      RIFLE_SEQUENCE.swordReady,
+    ),
+    firing:
+      time >= RIFLE_SEQUENCE.fire && time <= RIFLE_SEQUENCE.lastShot + 0.12,
   };
 }
-export const HERO_ULTIMATE = Object.freeze({ cameraEnd: 1.45, release: 2.05, duration: 2.95, cooldown: 18 });
-export const ENEMY_VERDICT = Object.freeze({ cameraEnd: 1.5, release: 2.12, duration: 3.15 });
-export const ENEMY_ORBITAL_CUT = Object.freeze({ cameraEnd: 1.25, release: 1.9, cross: 2.4, duration: 3.5 });
+export const HERO_ULTIMATE = Object.freeze({
+  cameraEnd: 1.45,
+  release: 2.05,
+  duration: 2.95,
+  cooldown: 18,
+});
+export const ENEMY_VERDICT = Object.freeze({
+  cameraEnd: 1.5,
+  release: 2.12,
+  duration: 3.15,
+});
+export const ENEMY_ORBITAL_CUT = Object.freeze({
+  cameraEnd: 1.25,
+  release: 1.9,
+  cross: 2.4,
+  duration: 3.5,
+});
 export const ENEMY_ATTACK_LEAPS = Object.freeze({
   thrust: { takeoff: 0.12, land: 0.68, height: 3.4, distance: 12 },
   verdict: { takeoff: 0.08, land: 0.68, height: 3, distance: 12 },
 });
-export function sampleEnemyAttackLeap(move: keyof typeof ENEMY_ATTACK_LEAPS, time: number) {
+export function sampleEnemyAttackLeap(
+  move: keyof typeof ENEMY_ATTACK_LEAPS,
+  time: number,
+) {
   const leap = ENEMY_ATTACK_LEAPS[move];
-  const progress = Math.max(0, Math.min(1, (time - leap.takeoff) / (leap.land - leap.takeoff)));
+  const progress = Math.max(
+    0,
+    Math.min(1, (time - leap.takeoff) / (leap.land - leap.takeoff)),
+  );
   return {
     progress: cinematicProgress(time, leap.takeoff, leap.land),
-    lift: progress === 0 || progress === 1 ? 0 : Math.sin(progress * Math.PI) * leap.height,
+    lift:
+      progress === 0 || progress === 1
+        ? 0
+        : Math.sin(progress * Math.PI) * leap.height,
   };
 }
-export const MECH_DODGE = Object.freeze({ duration: 0.48, distance: 14, crossDuration: 0.6, crossRange: 19, clearance: 9 });
-export function sampleDodgeArc(time: number, duration: number, crossing: boolean, offset = { lane: 0, lift: 0, roll: 0 }) {
+export const MECH_DODGE = Object.freeze({
+  duration: 0.48,
+  distance: 14,
+  crossDuration: 0.6,
+  crossRange: 19,
+  clearance: 9,
+});
+export function sampleDodgeArc(
+  time: number,
+  duration: number,
+  crossing: boolean,
+  offset = { lane: 0, lift: 0, roll: 0 },
+) {
   const progress = Math.max(0, Math.min(1, time / duration));
   const arc = Math.sin(progress * Math.PI);
-  const eased = cinematicProgress(time, 0, duration), carry = 1 - eased;
-  return { progress: eased, lane: (crossing ? arc * 7 : 0) + offset.lane * carry,
+  const eased = cinematicProgress(time, 0, duration),
+    carry = 1 - eased;
+  return {
+    progress: eased,
+    lane: (crossing ? arc * 7 : 0) + offset.lane * carry,
     lift: arc * (crossing ? 3.2 : 0.8) + offset.lift * carry,
-    roll: arc * (crossing ? 0.22 : 0.12) + offset.roll * carry };
+    roll: arc * (crossing ? 0.22 : 0.12) + offset.roll * carry,
+  };
 }
 export const MELEE_STRIKES = Object.freeze({
   slash: { duration: 1.533333, start: 0.34, end: 0.6 },
@@ -46,47 +105,89 @@ export const MELEE_STRIKES = Object.freeze({
   cleave: { duration: 2, start: 0.54, end: 0.82 },
   thrust: { duration: 1.566667, start: 0.24, end: 0.44 },
   reap: { duration: 1.566667, start: 0.17, end: 0.38 },
-  orbitalCut: { duration: ENEMY_ORBITAL_CUT.duration, start: ENEMY_ORBITAL_CUT.release, end: 2.65 },
+  orbitalCut: {
+    duration: ENEMY_ORBITAL_CUT.duration,
+    start: ENEMY_ORBITAL_CUT.release,
+    end: 2.65,
+  },
   regularCombo: { duration: 3, start: 0.17, end: 1.73 },
   heavyCombo: { duration: 4.333333, start: 0.34, end: 2.85 },
 });
 export type MeleeStrike = keyof typeof MELEE_STRIKES;
-export const SWORD_COMBO_WINDOWS: Partial<Record<MeleeStrike, readonly { start: number; end: number }[]>> = {
-  regularCombo: [{ start: 0.17, end: 0.35 }, { start: 0.62, end: 0.87 }, { start: 1.4, end: 1.73 }],
-  heavyCombo: [{ start: 0.34, end: 0.64 }, { start: 0.99, end: 1.33 }, { start: 1.64, end: 2.01 }, { start: 2.44, end: 2.85 }],
+export const SWORD_COMBO_WINDOWS: Partial<
+  Record<MeleeStrike, readonly { start: number; end: number }[]>
+> = {
+  regularCombo: [
+    { start: 0.17, end: 0.35 },
+    { start: 0.62, end: 0.87 },
+    { start: 1.4, end: 1.73 },
+  ],
+  heavyCombo: [
+    { start: 0.34, end: 0.64 },
+    { start: 0.99, end: 1.33 },
+    { start: 1.64, end: 2.01 },
+    { start: 2.44, end: 2.85 },
+  ],
 };
-export function swordHitWindows(move: MeleeStrike) { return SWORD_COMBO_WINDOWS[move] ?? [MELEE_STRIKES[move]]; }
-export type PlayerSwordStrike = Exclude<MeleeStrike, 'orbitalCut'>;
+export function swordHitWindows(move: MeleeStrike) {
+  return SWORD_COMBO_WINDOWS[move] ?? [MELEE_STRIKES[move]];
+}
+export type PlayerSwordStrike = Exclude<MeleeStrike, "orbitalCut">;
 export const SWORD_ATTACK_CLIPS = {
-  slash: 'Sword_Attack', sideSlash: 'Sword_Regular_A_WithRecovery', cleave: 'Sword_Regular_C',
-  thrust: 'Sword_Dash', reap: 'Sword_Regular_B_WithRecovery', orbitalCut: 'Sword_Regular_B_WithRecovery',
-  regularCombo: 'Sword_Regular_Combo', heavyCombo: 'Sword_Heavy_Combo',
+  slash: "Sword_Attack",
+  sideSlash: "Sword_Regular_A_WithRecovery",
+  cleave: "Sword_Regular_C",
+  thrust: "Sword_Dash",
+  reap: "Sword_Regular_B_WithRecovery",
+  orbitalCut: "Sword_Regular_B_WithRecovery",
+  regularCombo: "Sword_Regular_Combo",
+  heavyCombo: "Sword_Heavy_Combo",
 } as const satisfies Record<MeleeStrike, string>;
 export const SWORD_ATTACK_LABELS: Record<PlayerSwordStrike, string> = {
-  slash: 'CLASSIC CUT', sideSlash: 'LEFT CUT', reap: 'RIGHT CUT', thrust: 'SWORD LUNGE',
-  cleave: 'FINISHING CUT', regularCombo: 'REGULAR COMBO', heavyCombo: 'HEAVY COMBO',
+  slash: "CLASSIC CUT",
+  sideSlash: "LEFT CUT",
+  reap: "RIGHT CUT",
+  thrust: "SWORD LUNGE",
+  cleave: "FINISHING CUT",
+  regularCombo: "REGULAR COMBO",
+  heavyCombo: "HEAVY COMBO",
 };
-export function directionalSwordAttack(horizontal: number, vertical: number, combo: number): PlayerSwordStrike {
+export function directionalSwordAttack(
+  horizontal: number,
+  vertical: number,
+  combo: number,
+): PlayerSwordStrike {
   const x = Math.abs(horizontal) >= 0.35 ? Math.sign(horizontal) : 0;
   const y = Math.abs(vertical) >= 0.35 ? Math.sign(vertical) : 0;
-  if (x < 0 && y > 0) return 'regularCombo';
-  if (x > 0 && y > 0) return 'heavyCombo';
-  if (x < 0 && y < 0) return 'slash';
-  if (x > 0 && y < 0) return 'cleave';
-  if (y > 0) return 'thrust';
-  if (y < 0) return 'cleave';
-  if (x < 0) return 'sideSlash';
-  if (x > 0) return 'reap';
-  return combo === 2 ? 'cleave' : combo === 1 ? 'sideSlash' : 'slash';
+  if (x < 0 && y > 0) return "regularCombo";
+  if (horizontal >= 0.6 && vertical >= 0.6) return "heavyCombo";
+  if (x < 0 && y < 0) return "slash";
+  if (x > 0 && y < 0) return "cleave";
+  if (y > 0) return "thrust";
+  if (y < 0) return "cleave";
+  if (x < 0) return "sideSlash";
+  if (x > 0) return "reap";
+  return combo === 2 ? "cleave" : combo === 1 ? "sideSlash" : "slash";
 }
 
-export function swordClipTime(time: number, clipDuration: number, source: { duration: number; start: number; end: number },
-  target: { duration: number; start: number; end: number }) {
+export function swordClipTime(
+  time: number,
+  clipDuration: number,
+  source: { duration: number; start: number; end: number },
+  target: { duration: number; start: number; end: number },
+) {
   const t = Math.max(0, Math.min(target.duration, time));
-  const sourceTime = t < target.start ? source.start * t / target.start
-    : t < target.end ? source.start + (source.end - source.start) * (t - target.start) / (target.end - target.start)
-      : source.end + (source.duration - source.end) * (t - target.end) / (target.duration - target.end);
-  return sourceTime / source.duration * clipDuration;
+  const sourceTime =
+    t < target.start
+      ? (source.start * t) / target.start
+      : t < target.end
+        ? source.start +
+          ((source.end - source.start) * (t - target.start)) /
+            (target.end - target.start)
+        : source.end +
+          ((source.duration - source.end) * (t - target.end)) /
+            (target.duration - target.end);
+  return (sourceTime / source.duration) * clipDuration;
 }
 export const PHYSICAL_STRIKES = {
   jab: { duration: 0.72, start: 0.22, end: 0.4, damage: 34 },
@@ -105,15 +206,32 @@ export function isMeleeStrike(move: string): move is MeleeStrike {
 }
 
 /** Fit an authored clip's anticipation/contact/recovery to the simulation's damage window. */
-export function authoredStrikeTime(time: number, duration: number, strike: { duration: number; start: number; end: number }) {
+export function authoredStrikeTime(
+  time: number,
+  duration: number,
+  strike: { duration: number; start: number; end: number },
+) {
   const t = Math.max(0, Math.min(strike.duration, time));
-  if (t < strike.start) return duration * 0.3 * cinematicProgress(t, 0, strike.start);
-  if (t < strike.end) return duration * (0.3 + 0.35 * cinematicProgress(t, strike.start, strike.end));
-  return duration * (0.65 + 0.35 * cinematicProgress(t, strike.end, strike.duration));
+  if (t < strike.start)
+    return duration * 0.3 * cinematicProgress(t, 0, strike.start);
+  if (t < strike.end)
+    return (
+      duration * (0.3 + 0.35 * cinematicProgress(t, strike.start, strike.end))
+    );
+  return (
+    duration * (0.65 + 0.35 * cinematicProgress(t, strike.end, strike.duration))
+  );
 }
 
-const pointMix = (a: CinematicPoint, b: CinematicPoint, p: number): CinematicPoint =>
-  [a[0] + (b[0] - a[0]) * p, a[1] + (b[1] - a[1]) * p, a[2] + (b[2] - a[2]) * p];
+const pointMix = (
+  a: CinematicPoint,
+  b: CinematicPoint,
+  p: number,
+): CinematicPoint => [
+  a[0] + (b[0] - a[0]) * p,
+  a[1] + (b[1] - a[1]) * p,
+  a[2] + (b[2] - a[2]) * p,
+];
 const normalized = (point: CinematicPoint): CinematicPoint => {
   const length = Math.hypot(...point);
   return [point[0] / length, point[1] / length, point[2] / length];
@@ -127,40 +245,81 @@ export function sampleMeleeBlade(move: MeleeStrike, time: number) {
   const recover = cinematicProgress(time, strike.end + 0.1, strike.duration);
   const rest: CinematicPoint = [-2.6, 8.6, 1.8];
   let grip: CinematicPoint, direction: CinematicPoint;
-  if (move === 'slash' || move === 'cleave') {
+  if (move === "slash" || move === "cleave") {
     const angle = -0.3 + swing * 2.65;
-    grip = pointMix(pointMix(rest, [-2, move === 'cleave' ? 14.8 : 14, 1.4], wind), [-2, 7.8, 4], swing);
+    grip = pointMix(
+      pointMix(rest, [-2, move === "cleave" ? 14.8 : 14, 1.4], wind),
+      [-2, 7.8, 4],
+      swing,
+    );
     direction = [0.025, Math.cos(angle), Math.sin(angle)];
-  } else if (move === 'thrust') {
-    grip = pointMix(pointMix(rest, [-2.6, 10.4, -0.9], wind), [-0.8, 10.1, 5.2], swing);
+  } else if (move === "thrust") {
+    grip = pointMix(
+      pointMix(rest, [-2.6, 10.4, -0.9], wind),
+      [-0.8, 10.1, 5.2],
+      swing,
+    );
     direction = [0.025, -0.035, 1];
-  } else if (move === 'orbitalCut') {
+  } else if (move === "orbitalCut") {
     const angle = -1.75 + swing * Math.PI * 1.65;
-    grip = pointMix(pointMix(rest, [-2.4, 13.6, 0.6], wind), [1.8, 9.2, 3.6], swing);
+    grip = pointMix(
+      pointMix(rest, [-2.4, 13.6, 0.6], wind),
+      [1.8, 9.2, 3.6],
+      swing,
+    );
     direction = [Math.sin(angle), 0.18 - swing * 0.3, Math.cos(angle)];
   } else {
-    const reverse = move === 'reap';
+    const reverse = move === "reap";
     const angle = reverse ? 1.15 - swing * 2.8 : -1.2 + swing * 2.4;
-    grip = pointMix(pointMix(rest, reverse ? [3, 12, 1] : [-3.4, 10.1, 2], wind),
-      reverse ? [-3.1, 6.8, 3.4] : [2.2, 9.8, 2.8], swing);
-    direction = [Math.sin(angle), reverse ? 0.25 - swing * 0.58 : 0.035, Math.cos(angle)];
+    grip = pointMix(
+      pointMix(rest, reverse ? [3, 12, 1] : [-3.4, 10.1, 2], wind),
+      reverse ? [-3.1, 6.8, 3.4] : [2.2, 9.8, 2.8],
+      swing,
+    );
+    direction = [
+      Math.sin(angle),
+      reverse ? 0.25 - swing * 0.58 : 0.035,
+      Math.cos(angle),
+    ];
   }
   grip = pointMix(grip, rest, recover);
   direction = normalized(pointMix(direction, [-0.12, 0.86, 0.58], recover));
-  const base = grip.map((value, axis) => value + direction[axis] * 0.9) as CinematicPoint;
-  const tip = grip.map((value, axis) => value + direction[axis] * 12.7) as CinematicPoint;
-  return { grip, direction, base, tip, active: time >= strike.start && time <= strike.end, swing };
+  const base = grip.map(
+    (value, axis) => value + direction[axis] * 0.9,
+  ) as CinematicPoint;
+  const tip = grip.map(
+    (value, axis) => value + direction[axis] * 12.7,
+  ) as CinematicPoint;
+  return {
+    grip,
+    direction,
+    base,
+    tip,
+    active: time >= strike.start && time <= strike.end,
+    swing,
+  };
 }
 
 export function sampleUltimateBlade(time: number) {
   const strike = MELEE_STRIKES.cleave;
   const poised = strike.start - 0.06;
   const releasePose = strike.start + (strike.end - strike.start) * 0.62;
-  const bladeTime = time < HERO_ULTIMATE.cameraEnd
-    ? poised * cinematicProgress(time, 0, HERO_ULTIMATE.cameraEnd)
-    : poised + (releasePose - poised) * cinematicProgress(time, HERO_ULTIMATE.cameraEnd, HERO_ULTIMATE.release);
-  return sampleMeleeBlade('cleave', time > HERO_ULTIMATE.release
-    ? releasePose + (time - HERO_ULTIMATE.release) * 0.8 : bladeTime);
+  const bladeTime =
+    time < HERO_ULTIMATE.cameraEnd
+      ? poised * cinematicProgress(time, 0, HERO_ULTIMATE.cameraEnd)
+      : poised +
+        (releasePose - poised) *
+          cinematicProgress(
+            time,
+            HERO_ULTIMATE.cameraEnd,
+            HERO_ULTIMATE.release,
+          );
+  return sampleMeleeBlade(
+    "cleave",
+    time > HERO_ULTIMATE.release
+      ? releasePose + (time - HERO_ULTIMATE.release) * 0.8
+      : bladeTime,
+  );
 }
 export const FINALE_REVEAL = Object.freeze({
   studentStart: 9,
@@ -176,66 +335,136 @@ export const FINALE_REVEAL = Object.freeze({
   challengeEnd: 70,
   end: 72.2,
 });
-export const STUDENT_TIMELINE = Object.freeze(Array.from({ length: 5 }, (_, index) => ({
-  reveal: {
-    start: FINALE_REVEAL.studentStart + index * FINALE_REVEAL.studentDuration,
-    end: FINALE_REVEAL.studentStart + (index + 1) * FINALE_REVEAL.studentDuration,
-  },
-  boarding: { start: 5.4 + index * 2.3, end: 5.4 + (index + 1) * 2.3 },
-})));
+export const STUDENT_TIMELINE = Object.freeze(
+  Array.from({ length: 5 }, (_, index) => ({
+    reveal: {
+      start: FINALE_REVEAL.studentStart + index * FINALE_REVEAL.studentDuration,
+      end:
+        FINALE_REVEAL.studentStart +
+        (index + 1) * FINALE_REVEAL.studentDuration,
+    },
+    boarding: { start: 5.4 + index * 2.3, end: 5.4 + (index + 1) * 2.3 },
+  })),
+);
 export const HERO_TRANSFORM = Object.freeze({
-  launch: 1.1, arrival: 6.2, disassemble: 6.4, materialize: 6.7, pilotMerge: 8.1,
-  assembled: 11.8, sword: 12.2, lock: 14.2,
+  launch: 1.1,
+  arrival: 6.2,
+  disassemble: 6.4,
+  materialize: 6.7,
+  pilotMerge: 8.1,
+  assembled: 11.8,
+  sword: 12.2,
+  lock: 14.2,
 });
 export const PLANET_RUPTURE = Object.freeze({
-  facilityCut: 0.85, coreTransfer: 1.15, coreGone: 2.35,
-  jump: 0.85, land: 1.75, raise: 1.9, materialize: 2.45, release: 3.8, apex: 5.2,
-  slam: 5.2, escape: 5.85, wide: 7.6, impact: 8.65, burst: 10.25,
-  forest: 11, scorch: 12.1, forestEnd: 15.8, cockpit: 15.8, resolve: 19,
-  returnToDuel: 21.8, orbit: 24.2,
+  facilityCut: 0.85,
+  coreTransfer: 1.15,
+  coreGone: 2.35,
+  jump: 0.85,
+  land: 1.75,
+  raise: 1.9,
+  materialize: 2.45,
+  release: 3.8,
+  apex: 5.2,
+  slam: 5.2,
+  escape: 5.85,
+  wide: 7.6,
+  impact: 8.65,
+  forest: 9,
+  scorch: 10.1,
+  forestEnd: 13.8,
+  burning: 13.8,
+  burst: 16.6,
+  stardustEnd: 20.8,
+  cockpit: 20.8,
+  resolve: 24,
+  returnToDuel: 26.8,
+  orbit: 29.2,
 });
 export const FINISHER_EXECUTION = Object.freeze({
-  dash: 0.4, vanish: 1.05, gone: 1.22, appear: 1.7, materialized: 2,
-  cuts: 2.5, lastCut: 5.25, collapse: 5.8, slashes: 40,
+  dash: 0.4,
+  vanish: 1.05,
+  gone: 1.22,
+  appear: 1.7,
+  materialized: 2,
+  cuts: 2.5,
+  lastCut: 5.25,
+  collapse: 5.8,
+  slashes: 40,
 });
-export const DONUS_RETURN = Object.freeze({ dance: 4.1, appear: 9.2, arrival: 15.2 });
+export const DONUS_RETURN = Object.freeze({
+  dance: 4.1,
+  appear: 9.2,
+  arrival: 15.2,
+});
 export const SPECIAL_MOVE_NAMES = {
-  missiles: 'STARFALL SALVO', overdrive: 'LAST LIGHT', verdict: 'FINAL VERDICT', orbitalCut: 'ECLIPSE REND',
+  missiles: "STARFALL SALVO",
+  overdrive: "LAST LIGHT",
+  verdict: "FINAL VERDICT",
+  orbitalCut: "ECLIPSE REND",
 } as const;
-export function isNamedSpecialMove(move: string): move is keyof typeof SPECIAL_MOVE_NAMES {
+export function isNamedSpecialMove(
+  move: string,
+): move is keyof typeof SPECIAL_MOVE_NAMES {
   return Object.prototype.hasOwnProperty.call(SPECIAL_MOVE_NAMES, move);
 }
 export interface FinisherBeat {
-  id: string; duration: number; action: number;
-  shot: 'evade' | 'parry' | 'countershot' | 'clash' | 'armCut' | 'ascend' | 'reactor' | 'finalCut';
+  id: string;
+  duration: number;
+  action: number;
+  shot:
+    | "evade"
+    | "parry"
+    | "countershot"
+    | "clash"
+    | "armCut"
+    | "ascend"
+    | "reactor"
+    | "finalCut";
 }
 const rifleDuration = 4.25;
 export const FINISHER_RIFLE = Object.freeze({
   duration: rifleDuration,
-  fire: RIFLE_SEQUENCE.fire / RIFLE_SEQUENCE.swordReady * rifleDuration,
-  lastShot: RIFLE_SEQUENCE.lastShot / RIFLE_SEQUENCE.swordReady * rifleDuration,
-  spacing: 0.14 / RIFLE_SEQUENCE.swordReady * rifleDuration,
+  fire: (RIFLE_SEQUENCE.fire / RIFLE_SEQUENCE.swordReady) * rifleDuration,
+  lastShot:
+    (RIFLE_SEQUENCE.lastShot / RIFLE_SEQUENCE.swordReady) * rifleDuration,
+  spacing: (0.14 / RIFLE_SEQUENCE.swordReady) * rifleDuration,
 });
 export const FINISHER_BEATS: readonly FinisherBeat[] = Object.freeze([
-  { id: 'evade', duration: 2.8, action: 0.9, shot: 'evade' },
-  { id: 'parry', duration: 2.2, action: 0.9, shot: 'parry' },
-  { id: 'countershot', duration: rifleDuration, action: FINISHER_RIFLE.fire, shot: 'countershot' },
-  { id: 'clash', duration: 4.4, action: 0.85, shot: 'clash' },
-  { id: 'arm-cut', duration: 2.2, action: 0.9, shot: 'armCut' },
-  { id: 'ascend', duration: 2.2, action: 1.1, shot: 'ascend' },
-  { id: 'reactor', duration: 3.1, action: 2.3, shot: 'reactor' },
-  { id: 'final-cut', duration: 7.4, action: FINISHER_EXECUTION.dash, shot: 'finalCut' },
+  { id: "evade", duration: 2.8, action: 0.9, shot: "evade" },
+  { id: "parry", duration: 2.2, action: 0.9, shot: "parry" },
+  {
+    id: "countershot",
+    duration: rifleDuration,
+    action: FINISHER_RIFLE.fire,
+    shot: "countershot",
+  },
+  { id: "clash", duration: 4.4, action: 0.85, shot: "clash" },
+  { id: "arm-cut", duration: 2.2, action: 0.9, shot: "armCut" },
+  { id: "ascend", duration: 2.2, action: 1.1, shot: "ascend" },
+  { id: "reactor", duration: 3.1, action: 2.3, shot: "reactor" },
+  {
+    id: "final-cut",
+    duration: 7.4,
+    action: FINISHER_EXECUTION.dash,
+    shot: "finalCut",
+  },
 ]);
 export const FINISHER_TIMELINE = FINISHER_BEATS.map((beat, index) => {
-  const start = FINISHER_BEATS.slice(0, index).reduce((sum, previous) => sum + finisherBeatDuration(previous), 0);
+  const start = FINISHER_BEATS.slice(0, index).reduce(
+    (sum, previous) => sum + finisherBeatDuration(previous),
+    0,
+  );
   return { beat, start, end: start + finisherBeatDuration(beat) };
 });
-export const FINISHER_DURATION = FINISHER_TIMELINE[FINISHER_TIMELINE.length - 1].end;
+export const FINISHER_DURATION =
+  FINISHER_TIMELINE[FINISHER_TIMELINE.length - 1].end;
 
 export function finisherAtTime(elapsed: number) {
-  if (!Number.isFinite(elapsed) || elapsed < 0) throw new RangeError('Finisher time must be finite and nonnegative');
+  if (!Number.isFinite(elapsed) || elapsed < 0)
+    throw new RangeError("Finisher time must be finite and nonnegative");
   const time = Math.min(elapsed, FINISHER_DURATION);
-  const found = FINISHER_TIMELINE.findIndex(shot => time < shot.end);
+  const found = FINISHER_TIMELINE.findIndex((shot) => time < shot.end);
   const index = found < 0 ? FINISHER_TIMELINE.length - 1 : found;
   const shot = FINISHER_TIMELINE[index];
   return { beat: shot.beat, index, clock: time - shot.start };
@@ -244,26 +473,74 @@ export function finisherAtTime(elapsed: number) {
 export function samplePlanetAftermath(time: number) {
   return {
     forest: time >= PLANET_RUPTURE.forest && time < PLANET_RUPTURE.forestEnd,
-    cockpit: time >= PLANET_RUPTURE.cockpit && time < PLANET_RUPTURE.returnToDuel,
-    burn: cinematicProgress(time, PLANET_RUPTURE.scorch, PLANET_RUPTURE.forestEnd - 0.7),
-    kneel: cinematicProgress(time, PLANET_RUPTURE.forest + 0.1, PLANET_RUPTURE.scorch - 0.15),
-    death: cinematicProgress(time, PLANET_RUPTURE.scorch + 0.25, PLANET_RUPTURE.forestEnd - 0.55),
-    grief: cinematicProgress(time, PLANET_RUPTURE.cockpit, PLANET_RUPTURE.resolve),
-    resolve: cinematicProgress(time, PLANET_RUPTURE.resolve, PLANET_RUPTURE.returnToDuel),
-    orbit: cinematicProgress(time, PLANET_RUPTURE.returnToDuel, PLANET_RUPTURE.orbit + 0.4),
+    cockpit:
+      time >= PLANET_RUPTURE.cockpit && time < PLANET_RUPTURE.returnToDuel,
+    burn: cinematicProgress(
+      time,
+      PLANET_RUPTURE.scorch,
+      PLANET_RUPTURE.forestEnd - 0.7,
+    ),
+    kneel: cinematicProgress(
+      time,
+      PLANET_RUPTURE.forest + 0.1,
+      PLANET_RUPTURE.scorch - 0.15,
+    ),
+    death: cinematicProgress(
+      time,
+      PLANET_RUPTURE.scorch + 0.25,
+      PLANET_RUPTURE.forestEnd - 0.55,
+    ),
+    grief: cinematicProgress(
+      time,
+      PLANET_RUPTURE.cockpit,
+      PLANET_RUPTURE.resolve,
+    ),
+    resolve: cinematicProgress(
+      time,
+      PLANET_RUPTURE.resolve,
+      PLANET_RUPTURE.returnToDuel,
+    ),
+    orbit: cinematicProgress(
+      time,
+      PLANET_RUPTURE.returnToDuel,
+      PLANET_RUPTURE.orbit + 0.4,
+    ),
   };
 }
 
 export function samplePlanetSurface(time: number) {
-  const dissolve = cinematicProgress(time, PLANET_RUPTURE.impact, PLANET_RUPTURE.burst - 0.25);
-  return { dissolve, crustVisible: dissolve < 1, fireVisible: time >= PLANET_RUPTURE.impact && time < PLANET_RUPTURE.forest };
+  const dissolve = cinematicProgress(
+    time,
+    PLANET_RUPTURE.impact,
+    PLANET_RUPTURE.burning,
+  );
+  const dispersal = cinematicProgress(
+    time,
+    PLANET_RUPTURE.burst,
+    PLANET_RUPTURE.burst + 1.3,
+  );
+  return {
+    dissolve,
+    dispersal,
+    crustVisible: dissolve < 1,
+    fireVisible: time >= PLANET_RUPTURE.impact && dispersal < 1,
+    dustVisible:
+      time >= PLANET_RUPTURE.burst && time < PLANET_RUPTURE.stardustEnd,
+  };
 }
 
 export function sampleRooftopNight(phase: FinalePhase, time: number) {
-  if (phase === 'loading' || phase === 'error' || phase === 'reveal' || phase === 'enemyTransform') return 0;
-  if (phase === 'heroTransform') return cinematicProgress(time, HERO_TRANSFORM.assembled, 17) * 0.55;
-  if (phase === 'versus') return 0.55 + cinematicProgress(time, 0, 4.6) * 0.3;
-  if (phase === 'ground') return 0.85 + cinematicProgress(time, 0, 8) * 0.15;
+  if (
+    phase === "loading" ||
+    phase === "error" ||
+    phase === "reveal" ||
+    phase === "enemyTransform"
+  )
+    return 0;
+  if (phase === "heroTransform")
+    return cinematicProgress(time, HERO_TRANSFORM.assembled, 17) * 0.55;
+  if (phase === "versus") return 0.55 + cinematicProgress(time, 0, 4.6) * 0.3;
+  if (phase === "ground") return 0.85 + cinematicProgress(time, 0, 8) * 0.15;
   return 1;
 }
 
@@ -273,8 +550,10 @@ export function cinematicProgress(time: number, start: number, end: number) {
   return p * p * p * (p * (p * 6 - 15) + 10);
 }
 
-export function activeStudent(time: number, sequence: 'reveal' | 'boarding') {
-  return STUDENT_TIMELINE.findIndex(timing => time >= timing[sequence].start && time < timing[sequence].end);
+export function activeStudent(time: number, sequence: "reveal" | "boarding") {
+  return STUDENT_TIMELINE.findIndex(
+    (timing) => time >= timing[sequence].start && time < timing[sequence].end,
+  );
 }
 
 export function sampleStudentBoarding(index: number, time: number) {
@@ -286,8 +565,12 @@ export function sampleStudentBoarding(index: number, time: number) {
   return {
     active: time >= start && time < end,
     visible: time < start + 2.05,
-    ascent, merge, scale: 1 - merge * 0.98,
-    beam: cinematicProgress(time, start, start + 0.25) * (1 - cinematicProgress(time, start + 1.95, end)),
+    ascent,
+    merge,
+    scale: 1 - merge * 0.98,
+    beam:
+      cinematicProgress(time, start, start + 0.25) *
+      (1 - cinematicProgress(time, start + 1.95, end)),
   };
 }
 
@@ -300,31 +583,73 @@ export function finisherActionTime(beat: FinisherBeat) {
 }
 
 export function sampleMothershipArrival(time: number) {
-  if (!Number.isFinite(time) || time < 0) throw new RangeError('Mothership time must be finite and nonnegative');
-  const p = clamp((time - DONUS_RETURN.appear) / (DONUS_RETURN.arrival - DONUS_RETURN.appear));
+  if (!Number.isFinite(time) || time < 0)
+    throw new RangeError("Mothership time must be finite and nonnegative");
+  const p = clamp(
+    (time - DONUS_RETURN.appear) / (DONUS_RETURN.arrival - DONUS_RETURN.appear),
+  );
   const travel = 1 - (1 - p) ** 3;
-  const a: CinematicPoint = [175, 48, -155], b: CinematicPoint = [120, 24, -40];
-  const c: CinematicPoint = [90, 9, -12], d: CinematicPoint = [40, 9, -12];
-  const ab = pointMix(a, b, travel), bc = pointMix(b, c, travel), cd = pointMix(c, d, travel);
-  const abc = pointMix(ab, bc, travel), bcd = pointMix(bc, cd, travel);
+  const a: CinematicPoint = [175, 48, -155],
+    b: CinematicPoint = [120, 24, -40];
+  const c: CinematicPoint = [90, 9, -12],
+    d: CinematicPoint = [40, 9, -12];
+  const ab = pointMix(a, b, travel),
+    bc = pointMix(b, c, travel),
+    cd = pointMix(c, d, travel);
+  const abc = pointMix(ab, bc, travel),
+    bcd = pointMix(bc, cd, travel);
   const position = pointMix(abc, bcd, travel);
-  const direction = normalized([bcd[0] - abc[0], bcd[1] - abc[1], bcd[2] - abc[2]]);
-  const settled = cinematicProgress(time, DONUS_RETURN.arrival - 1, DONUS_RETURN.arrival);
+  const direction = normalized([
+    bcd[0] - abc[0],
+    bcd[1] - abc[1],
+    bcd[2] - abc[2],
+  ]);
+  const settled = cinematicProgress(
+    time,
+    DONUS_RETURN.arrival - 1,
+    DONUS_RETURN.arrival,
+  );
   position[1] += Math.sin((time - DONUS_RETURN.arrival) * 0.6) * 0.28 * settled;
   return { position, direction, roll: -Math.sin(p * Math.PI) * 0.12 };
 }
 
-export function samplePlanetBreaker(time: number, origin: CinematicPoint, impact: CinematicPoint) {
-  const apex: CinematicPoint = [origin[0] - 12, origin[1] + 260, origin[2] - 28];
+export function samplePlanetBreaker(
+  time: number,
+  origin: CinematicPoint,
+  impact: CinematicPoint,
+) {
+  const apex: CinematicPoint = [
+    origin[0] - 12,
+    origin[1] + 260,
+    origin[2] - 28,
+  ];
   if (time <= PLANET_RUPTURE.release) return [...origin] as CinematicPoint;
-  if (time < PLANET_RUPTURE.apex) return pointMix(origin, apex,
-    1 - (1 - clamp((time - PLANET_RUPTURE.release) / (PLANET_RUPTURE.apex - PLANET_RUPTURE.release))) ** 2);
-  const fall = clamp((time - PLANET_RUPTURE.slam) / (PLANET_RUPTURE.impact - PLANET_RUPTURE.slam));
+  if (time < PLANET_RUPTURE.apex)
+    return pointMix(
+      origin,
+      apex,
+      1 -
+        (1 -
+          clamp(
+            (time - PLANET_RUPTURE.release) /
+              (PLANET_RUPTURE.apex - PLANET_RUPTURE.release),
+          )) **
+          2,
+    );
+  const fall = clamp(
+    (time - PLANET_RUPTURE.slam) /
+      (PLANET_RUPTURE.impact - PLANET_RUPTURE.slam),
+  );
   return pointMix(apex, impact, fall * fall);
 }
 
-interface MotionKey { at: number; point: CinematicPoint; stop?: boolean; }
-const shotTime = (index: number, offset = 0) => FINISHER_TIMELINE[index].start + offset;
+interface MotionKey {
+  at: number;
+  point: CinematicPoint;
+  stop?: boolean;
+}
+const shotTime = (index: number, offset = 0) =>
+  FINISHER_TIMELINE[index].start + offset;
 const heroMotion: MotionKey[] = [
   { at: 0, point: [-14, 0, 0] },
   { at: 0.44, point: [-14.3, -0.15, 0.7] },
@@ -372,15 +697,31 @@ const enemyMotion: MotionKey[] = [
 ];
 
 // Time-scaled Hermite tangents carry momentum through the editorial cuts.
-function sampleMotion(keys: readonly MotionKey[], time: number): CinematicPoint {
-  const index = keys.findIndex(key => time < key.at);
+function sampleMotion(
+  keys: readonly MotionKey[],
+  time: number,
+): CinematicPoint {
+  const index = keys.findIndex((key) => time < key.at);
   if (index <= 0) return [...keys[index === 0 ? 0 : keys.length - 1].point];
-  const a = keys[index - 1], b = keys[index], before = keys[Math.max(0, index - 2)], after = keys[Math.min(keys.length - 1, index + 1)];
-  const span = b.at - a.at, p = (time - a.at) / span, p2 = p * p, p3 = p2 * p;
-  const tangent = (from: MotionKey, to: MotionKey, axis: number) => (to.point[axis] - from.point[axis]) / (to.at - from.at);
-  const axis = (i: number) => (2 * p3 - 3 * p2 + 1) * a.point[i] + (-2 * p3 + 3 * p2) * b.point[i]
-    + (p3 - 2 * p2 + p) * span * (index === 1 || a.stop ? 0 : tangent(before, b, i))
-    + (p3 - p2) * span * (index === keys.length - 1 || b.stop ? 0 : tangent(a, after, i));
+  const a = keys[index - 1],
+    b = keys[index],
+    before = keys[Math.max(0, index - 2)],
+    after = keys[Math.min(keys.length - 1, index + 1)];
+  const span = b.at - a.at,
+    p = (time - a.at) / span,
+    p2 = p * p,
+    p3 = p2 * p;
+  const tangent = (from: MotionKey, to: MotionKey, axis: number) =>
+    (to.point[axis] - from.point[axis]) / (to.at - from.at);
+  const axis = (i: number) =>
+    (2 * p3 - 3 * p2 + 1) * a.point[i] +
+    (-2 * p3 + 3 * p2) * b.point[i] +
+    (p3 - 2 * p2 + p) *
+      span *
+      (index === 1 || a.stop ? 0 : tangent(before, b, i)) +
+    (p3 - p2) *
+      span *
+      (index === keys.length - 1 || b.stop ? 0 : tangent(a, after, i));
   return [axis(0), axis(1), axis(2)];
 }
 
@@ -390,106 +731,228 @@ export function sampleFinisherSequence(elapsed: number) {
 }
 
 export function sampleFinisher(beat: FinisherBeat, clock: number) {
-  if (!Number.isFinite(clock) || clock < 0) throw new RangeError('Finisher shot time must be finite and nonnegative');
-  const duration = finisherBeatDuration(beat), action = finisherActionTime(beat);
+  if (!Number.isFinite(clock) || clock < 0)
+    throw new RangeError("Finisher shot time must be finite and nonnegative");
+  const duration = finisherBeatDuration(beat),
+    action = finisherActionTime(beat);
   const p = cinematicProgress(clock, 0, duration);
   const strike = cinematicProgress(clock, action - 0.18, action + 0.3);
-  let heroPose: MechPoseName = 'idle', enemyPose: MechPoseName = 'idle';
-  let heroRoll = 0, enemyRoll = 0, enemyPitch = 0;
-  let heroYaw = 0, enemyYaw = 0, speed = 0;
-  let heroPoseProgress = 0, enemyPoseProgress = 0;
-  let heroDissolve = 0, heroCharge = 0, barrage = 0, bladeLock = 0;
+  let heroPose: MechPoseName = "idle",
+    enemyPose: MechPoseName = "idle";
+  let heroRoll = 0,
+    enemyRoll = 0,
+    enemyPitch = 0;
+  let heroYaw = 0,
+    enemyYaw = 0,
+    speed = 0;
+  let heroPoseProgress = 0,
+    enemyPoseProgress = 0;
+  let heroDissolve = 0,
+    heroCharge = 0,
+    barrage = 0,
+    bladeLock = 0;
   let heroVisible = true;
-  const shot = FINISHER_TIMELINE.find(entry => entry.beat.id === beat.id);
+  const shot = FINISHER_TIMELINE.find((entry) => entry.beat.id === beat.id);
   if (!shot) throw new RangeError(`Unknown finisher shot: ${beat.id}`);
   let hero = sampleMotion(heroMotion, shot.start + clock);
   let enemy = sampleMotion(enemyMotion, shot.start + clock);
-  const strikeProgress = (move: MeleeStrike) => swordClipTime(clock, MELEE_STRIKES[move].duration,
-    MELEE_STRIKES[move], { duration, start: action - 0.16, end: action + 0.16 }) / MELEE_STRIKES[move].duration;
-  const contactWeight = (start: number, end: number) => cinematicProgress(clock, start, action - 0.04)
-    * (1 - cinematicProgress(clock, action + 0.16, end));
+  const strikeProgress = (move: MeleeStrike) =>
+    swordClipTime(clock, MELEE_STRIKES[move].duration, MELEE_STRIKES[move], {
+      duration,
+      start: action - 0.16,
+      end: action + 0.16,
+    }) / MELEE_STRIKES[move].duration;
+  const contactWeight = (start: number, end: number) =>
+    cinematicProgress(clock, start, action - 0.04) *
+    (1 - cinematicProgress(clock, action + 0.16, end));
 
-  if (beat.shot === 'evade') {
-    heroPose = 'evade'; enemyPose = 'verdict';
+  if (beat.shot === "evade") {
+    heroPose = "evade";
+    enemyPose = "verdict";
     heroRoll = -Math.sin(p * Math.PI) * 0.085;
     heroPoseProgress = 0.15 + p * 0.65;
     enemyPoseProgress = cinematicProgress(clock, 0, action + 0.15);
     speed = Math.sin(p * Math.PI) * 0.12;
-  } else if (beat.shot === 'parry') {
-    heroPose = 'clash'; enemyPose = clock < action + 0.5 ? 'reap' : 'stagger';
+  } else if (beat.shot === "parry") {
+    heroPose = "clash";
+    enemyPose = clock < action + 0.5 ? "reap" : "stagger";
     heroPoseProgress = p;
-    enemyPoseProgress = enemyPose === 'reap' ? strikeProgress('reap') : cinematicProgress(clock, action + 0.5, duration);
+    enemyPoseProgress =
+      enemyPose === "reap"
+        ? strikeProgress("reap")
+        : cinematicProgress(clock, action + 0.5, duration);
     bladeLock = contactWeight(0.4, 1.55);
     heroRoll = -Math.sin(p * Math.PI) * 0.035;
     enemyRoll = Math.sin(strike * Math.PI) * 0.07;
-  } else if (beat.shot === 'countershot') {
-    heroPose = 'missiles'; enemyPose = clock >= FINISHER_RIFLE.fire + 0.22 ? 'stagger' : 'clash';
+  } else if (beat.shot === "countershot") {
+    heroPose = "missiles";
+    enemyPose = clock >= FINISHER_RIFLE.fire + 0.22 ? "stagger" : "clash";
     heroPoseProgress = clamp(clock / duration);
-    enemyPoseProgress = cinematicProgress(clock, FINISHER_RIFLE.fire + 0.22, duration);
-    const recoil = cinematicProgress(clock, FINISHER_RIFLE.fire + 0.22, FINISHER_RIFLE.lastShot + 0.35)
-      * (1 - cinematicProgress(clock, FINISHER_RIFLE.lastShot + 0.35, duration));
+    enemyPoseProgress = cinematicProgress(
+      clock,
+      FINISHER_RIFLE.fire + 0.22,
+      duration,
+    );
+    const recoil =
+      cinematicProgress(
+        clock,
+        FINISHER_RIFLE.fire + 0.22,
+        FINISHER_RIFLE.lastShot + 0.35,
+      ) *
+      (1 - cinematicProgress(clock, FINISHER_RIFLE.lastShot + 0.35, duration));
     enemyRoll = recoil * 0.055;
-  } else if (beat.shot === 'clash') {
-    heroPose = clock < 0.5 ? 'thrust' : 'clash';
-    enemyPose = clock < 0.5 ? 'sideSlash' : clock < 3.65 ? 'clash' : 'stagger';
-    heroPoseProgress = heroPose === 'thrust' ? strikeProgress('thrust') : p;
-    enemyPoseProgress = enemyPose === 'sideSlash' ? strikeProgress('sideSlash') : p;
-    bladeLock = cinematicProgress(clock, 0.45, 0.81) * (1 - cinematicProgress(clock, 3.2, 3.65));
-    heroRoll = -bladeLock * 0.025; enemyRoll = bladeLock * 0.035;
+  } else if (beat.shot === "clash") {
+    heroPose = clock < 0.5 ? "thrust" : "clash";
+    enemyPose = clock < 0.5 ? "sideSlash" : clock < 3.65 ? "clash" : "stagger";
+    heroPoseProgress = heroPose === "thrust" ? strikeProgress("thrust") : p;
+    enemyPoseProgress =
+      enemyPose === "sideSlash" ? strikeProgress("sideSlash") : p;
+    bladeLock =
+      cinematicProgress(clock, 0.45, 0.81) *
+      (1 - cinematicProgress(clock, 3.2, 3.65));
+    heroRoll = -bladeLock * 0.025;
+    enemyRoll = bladeLock * 0.035;
     speed = (1 - cinematicProgress(clock, 0.2, 0.7)) * 0.18;
-  } else if (beat.shot === 'armCut') {
-    heroPose = 'sideSlash'; enemyPose = clock < action + 0.05 ? 'clash' : 'stagger';
-    heroPoseProgress = strikeProgress('sideSlash');
+  } else if (beat.shot === "armCut") {
+    heroPose = "sideSlash";
+    enemyPose = clock < action + 0.05 ? "clash" : "stagger";
+    heroPoseProgress = strikeProgress("sideSlash");
     enemyPoseProgress = cinematicProgress(clock, action, duration);
     enemyRoll = Math.sin(strike * Math.PI) * 0.09;
-  } else if (beat.shot === 'ascend') {
-    heroPose = 'boost'; enemyPose = 'stagger';
-    heroPoseProgress = 0.15 + p * 0.7; enemyPoseProgress = 0.55 + p * 0.45;
+  } else if (beat.shot === "ascend") {
+    heroPose = "boost";
+    enemyPose = "stagger";
+    heroPoseProgress = 0.15 + p * 0.7;
+    enemyPoseProgress = 0.55 + p * 0.45;
     heroRoll = -Math.sin(p * Math.PI) * 0.055;
     speed = Math.sin(p * Math.PI) * 0.2;
-  } else if (beat.shot === 'reactor') {
-    heroPose = 'skyCharge'; enemyPose = 'verdict';
-    heroPoseProgress = p; enemyPoseProgress = p * 0.65;
+  } else if (beat.shot === "reactor") {
+    heroPose = "skyCharge";
+    enemyPose = "verdict";
+    heroPoseProgress = p;
+    enemyPoseProgress = p * 0.65;
     heroCharge = cinematicProgress(clock, 0, duration - 0.15);
-  } else if (beat.shot === 'finalCut') {
+  } else if (beat.shot === "finalCut") {
     const timing = FINISHER_EXECUTION;
     const charge = cinematicProgress(clock, timing.dash, timing.vanish);
     const arrival = cinematicProgress(clock, timing.appear, timing.cuts);
     const counter = cinematicProgress(clock, timing.dash + 0.35, timing.gone);
     const recover = cinematicProgress(clock, timing.appear, timing.cuts);
-    hero = clock < timing.appear ? pointMix([-9, 16, -2], [-5, 4, -1], charge ** 1.7)
-      : pointMix([18.5, 0.3, 1.2], [19, 0, 1], arrival);
-    enemy = [6 - counter * 2.2 * (1 - recover), -Math.sin(counter * Math.PI) * 0.45, 0];
-    heroPose = clock < timing.dash ? 'skyCharge' : clock < timing.appear ? 'boost'
-      : clock < timing.materialized + 0.15 ? 'reap' : 'afterCut';
-    heroPoseProgress = clock < timing.dash ? 0.88 + cinematicProgress(clock, 0, timing.dash) * 0.12
-      : clock < timing.appear ? 0.2 + charge * 0.55
-        : clock < timing.materialized + 0.15 ? 0.68 + cinematicProgress(clock, timing.appear, timing.materialized + 0.15) * 0.3
-          : cinematicProgress(clock, timing.materialized, timing.lastCut);
-    heroDissolve = clock < timing.appear ? cinematicProgress(clock, timing.vanish, timing.gone)
-      : 1 - cinematicProgress(clock, timing.appear, timing.materialized);
+    hero =
+      clock < timing.appear
+        ? pointMix([-9, 16, -2], [-5, 4, -1], charge ** 1.7)
+        : pointMix([18.5, 0.3, 1.2], [19, 0, 1], arrival);
+    enemy = [
+      6 - counter * 2.2 * (1 - recover),
+      -Math.sin(counter * Math.PI) * 0.45,
+      0,
+    ];
+    heroPose =
+      clock < timing.dash
+        ? "skyCharge"
+        : clock < timing.appear
+          ? "boost"
+          : clock < timing.materialized + 0.15
+            ? "reap"
+            : "afterCut";
+    heroPoseProgress =
+      clock < timing.dash
+        ? 0.88 + cinematicProgress(clock, 0, timing.dash) * 0.12
+        : clock < timing.appear
+          ? 0.2 + charge * 0.55
+          : clock < timing.materialized + 0.15
+            ? 0.68 +
+              cinematicProgress(
+                clock,
+                timing.appear,
+                timing.materialized + 0.15,
+              ) *
+                0.3
+            : cinematicProgress(clock, timing.materialized, timing.lastCut);
+    heroDissolve =
+      clock < timing.appear
+        ? cinematicProgress(clock, timing.vanish, timing.gone)
+        : 1 - cinematicProgress(clock, timing.appear, timing.materialized);
     heroVisible = clock < timing.gone || clock >= timing.appear;
     heroCharge = clock < timing.vanish ? 1 : 0;
     barrage = cinematicProgress(clock, timing.cuts, timing.lastCut);
-    heroRoll = clock < timing.appear ? -Math.sin(charge * Math.PI) * 0.18 : (1 - arrival) * 0.065;
-    heroYaw = clock >= timing.materialized ? cinematicProgress(clock, timing.materialized, timing.cuts) * 0.08 : 0;
+    heroRoll =
+      clock < timing.appear
+        ? -Math.sin(charge * Math.PI) * 0.18
+        : (1 - arrival) * 0.065;
+    heroYaw =
+      clock >= timing.materialized
+        ? cinematicProgress(clock, timing.materialized, timing.cuts) * 0.08
+        : 0;
     enemyYaw = recover * -0.5 * (1 - barrage);
-    speed = clock >= timing.dash && clock < timing.gone ? 0.18 + charge * 0.24
-      : clock >= timing.cuts && clock < timing.lastCut ? 0.16 + Math.sin(barrage * Math.PI) * 0.16 : 0;
-    enemyPose = clock >= timing.collapse ? 'defeat' : clock >= timing.cuts ? 'stagger'
-      : clock >= timing.dash && clock < timing.cuts - 0.25 ? 'thrust' : 'clash';
-    enemyPoseProgress = clock >= timing.collapse ? cinematicProgress(clock, timing.collapse, duration)
-      : clock >= timing.cuts ? 0.2 + barrage * 0.6
-        : Math.min(0.98, counter * 0.8 + recover * 0.18);
-    const hitPhase = ((Math.max(0, clock - timing.cuts) / (timing.lastCut - timing.cuts) * timing.slashes) % 1);
-    const hit = clock >= timing.cuts && clock < timing.lastCut ? Math.sin(hitPhase * Math.PI) ** 2 : 0;
-    const side = Math.floor(Math.max(0, clock - timing.cuts) / (timing.lastCut - timing.cuts) * timing.slashes) % 2 ? 1 : -1;
-    const recoil = clock >= timing.cuts && clock < timing.collapse ? Math.sin(barrage * Math.PI) * 0.055 : 0;
-    enemyRoll = recoil - cinematicProgress(clock, timing.collapse, duration) * 0.25;
-    enemy[0] += recoil * 2; enemy[1] += barrage * 0.8; enemy[2] += recoil * 3;
-    enemy[0] += hit * side * 0.32; enemy[1] -= hit * 0.18; enemy[2] += hit * side * 0.28;
-    enemyRoll += hit * side * 0.045; enemyPitch = -hit * 0.06;
+    speed =
+      clock >= timing.dash && clock < timing.gone
+        ? 0.18 + charge * 0.24
+        : clock >= timing.cuts && clock < timing.lastCut
+          ? 0.16 + Math.sin(barrage * Math.PI) * 0.16
+          : 0;
+    enemyPose =
+      clock >= timing.collapse
+        ? "defeat"
+        : clock >= timing.cuts
+          ? "stagger"
+          : clock >= timing.dash && clock < timing.cuts - 0.25
+            ? "thrust"
+            : "clash";
+    enemyPoseProgress =
+      clock >= timing.collapse
+        ? cinematicProgress(clock, timing.collapse, duration)
+        : clock >= timing.cuts
+          ? 0.2 + barrage * 0.6
+          : Math.min(0.98, counter * 0.8 + recover * 0.18);
+    const hitPhase =
+      ((Math.max(0, clock - timing.cuts) / (timing.lastCut - timing.cuts)) *
+        timing.slashes) %
+      1;
+    const hit =
+      clock >= timing.cuts && clock < timing.lastCut
+        ? Math.sin(hitPhase * Math.PI) ** 2
+        : 0;
+    const side =
+      Math.floor(
+        (Math.max(0, clock - timing.cuts) / (timing.lastCut - timing.cuts)) *
+          timing.slashes,
+      ) % 2
+        ? 1
+        : -1;
+    const recoil =
+      clock >= timing.cuts && clock < timing.collapse
+        ? Math.sin(barrage * Math.PI) * 0.055
+        : 0;
+    enemyRoll =
+      recoil - cinematicProgress(clock, timing.collapse, duration) * 0.25;
+    enemy[0] += recoil * 2;
+    enemy[1] += barrage * 0.8;
+    enemy[2] += recoil * 3;
+    enemy[0] += hit * side * 0.32;
+    enemy[1] -= hit * 0.18;
+    enemy[2] += hit * side * 0.28;
+    enemyRoll += hit * side * 0.045;
+    enemyPitch = -hit * 0.06;
   }
-  return { hero, enemy, heroPose, enemyPose, heroRoll, enemyRoll, enemyPitch, heroYaw, enemyYaw, heroPoseProgress, enemyPoseProgress,
-    heroDissolve, heroVisible, heroCharge, barrage, speed, bladeLock, progress: p };
+  return {
+    hero,
+    enemy,
+    heroPose,
+    enemyPose,
+    heroRoll,
+    enemyRoll,
+    enemyPitch,
+    heroYaw,
+    enemyYaw,
+    heroPoseProgress,
+    enemyPoseProgress,
+    heroDissolve,
+    heroVisible,
+    heroCharge,
+    barrage,
+    speed,
+    bladeLock,
+    progress: p,
+  };
 }

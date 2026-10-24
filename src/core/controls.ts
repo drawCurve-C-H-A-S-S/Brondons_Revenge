@@ -1,5 +1,5 @@
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 /**
  * Creates orbit controls for navigating the scene.
@@ -7,7 +7,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
  */
 export function createControls(
   camera: THREE.PerspectiveCamera,
-  domElement: HTMLElement
+  domElement: HTMLElement,
 ): OrbitControls {
   const controls = new OrbitControls(camera, domElement);
   controls.enableDamping = true;

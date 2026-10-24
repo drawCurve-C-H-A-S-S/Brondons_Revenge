@@ -1,6 +1,10 @@
-import * as THREE from 'three';
-import { loadBrendanModel, loadPlayerModel, setPlayerCellShadingEnabled } from '../../core/loader.js';
-import { createStarfield, type Starfield } from './starfield.js';
+import * as THREE from "three";
+import {
+  loadBrendanModel,
+  loadPlayerModel,
+  setPlayerCellShadingEnabled,
+} from "../../core/loader.js";
+import { createStarfield, type Starfield } from "./starfield.js";
 const starfieldVertShader = `
   varying vec3 vWorldPosition;
   void main() {
@@ -148,33 +152,56 @@ let postRenderHook: (() => void) | null = null;
 
 function applyStarfieldBackdrop(scene: THREE.Object3D) {
   const materialMap = new Map<THREE.Material, THREE.Material>();
-  const originalMaterials = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
+  const originalMaterials = new Map<
+    THREE.Mesh,
+    THREE.Material | THREE.Material[]
+  >();
 
-  scene.traverse(node => {
+  scene.traverse((node) => {
     if (!(node instanceof THREE.Mesh)) return;
-    
-    const meshMaterials = Array.isArray(node.material) ? node.material : [node.material];
+
+    const meshMaterials = Array.isArray(node.material)
+      ? node.material
+      : [node.material];
     const newMaterials: THREE.Material[] = [];
-    
+
     for (const material of meshMaterials) {
       if (materialMap.has(material)) {
         newMaterials.push(materialMap.get(material)!);
         continue;
       }
-      
-      if (/linework|outline/i.test(material.name) || material.name === 'eyewhites') {
+
+      if (
+        /linework|outline/i.test(material.name) ||
+        material.name === "eyewhites"
+      ) {
         materialMap.set(material, material);
         newMaterials.push(material);
         continue;
       }
-      
-      const isEyeWhite = material.name === 'eyewhites';
-      const isEyeBase = material.name === 'eyebase';
-      const isEyeDark = material.name === 'eyedark';
-      const isHair = material.name === 'hair' || material.name === 'hairsurface.001';
-      console.log('[CharacterPreview] Material:', material.name, 'isEyeWhite:', isEyeWhite, 'isEyeBase:', isEyeBase, 'isEyeDark:', isEyeDark, 'isHair:', isHair);
-      
-      const emissive = 'emissive' in material ? (material as any).emissive : new THREE.Color(0.35, 0.24, 0.42);
+
+      const isEyeWhite = material.name === "eyewhites";
+      const isEyeBase = material.name === "eyebase";
+      const isEyeDark = material.name === "eyedark";
+      const isHair =
+        material.name === "hair" || material.name === "hairsurface.001";
+      console.log(
+        "[CharacterPreview] Material:",
+        material.name,
+        "isEyeWhite:",
+        isEyeWhite,
+        "isEyeBase:",
+        isEyeBase,
+        "isEyeDark:",
+        isEyeDark,
+        "isHair:",
+        isHair,
+      );
+
+      const emissive =
+        "emissive" in material
+          ? (material as any).emissive
+          : new THREE.Color(0.35, 0.24, 0.42);
       const defaultColor = new THREE.Color(0.35, 0.24, 0.42);
       const tintedColor = emissive.clone().lerp(defaultColor, 0.85);
       const blendColor = tintedColor.clone().multiplyScalar(1.3);
@@ -193,7 +220,9 @@ function applyStarfieldBackdrop(scene: THREE.Object3D) {
         uWarpStrength: { value: 0.5 },
         uThresholdLow: { value: 0.2 },
         uThresholdHigh: { value: 0.4 },
-        uBackdrop: { value: previewRenderTarget ? previewRenderTarget.texture : null },
+        uBackdrop: {
+          value: previewRenderTarget ? previewRenderTarget.texture : null,
+        },
         uResolution: {
           value: previewRenderer
             ? previewRenderer.getDrawingBufferSize(new THREE.Vector2())
@@ -214,16 +243,19 @@ function applyStarfieldBackdrop(scene: THREE.Object3D) {
       materialMap.set(material, shaderMaterial);
       newMaterials.push(shaderMaterial);
     }
-    
+
     originalMaterials.set(node, node.material);
     node.material = newMaterials.length === 1 ? newMaterials[0] : newMaterials;
   });
-  
+
   return originalMaterials;
 }
 
-function restoreOriginalMaterials(scene: THREE.Object3D, originalMaterials: Map<THREE.Mesh, THREE.Material | THREE.Material[]>) {
-  scene.traverse(node => {
+function restoreOriginalMaterials(
+  scene: THREE.Object3D,
+  originalMaterials: Map<THREE.Mesh, THREE.Material | THREE.Material[]>,
+) {
+  scene.traverse((node) => {
     if (!(node instanceof THREE.Mesh)) return;
     const original = originalMaterials.get(node);
     if (original) {
@@ -233,9 +265,13 @@ function restoreOriginalMaterials(scene: THREE.Object3D, originalMaterials: Map<
 }
 
 export function startCharacterPreview(container: HTMLElement) {
-  console.log('[CharacterPreview] Starting preview', { container, width: container.clientWidth, height: container.clientHeight });
+  console.log("[CharacterPreview] Starting preview", {
+    container,
+    width: container.clientWidth,
+    height: container.clientHeight,
+  });
   stopCharacterPreview();
-  container.classList.add('active');
+  container.classList.add("active");
 
   const width = container.clientWidth || 140;
   const height = container.clientHeight || 140;
@@ -257,9 +293,12 @@ export function startCharacterPreview(container: HTMLElement) {
   const frustumHeight = 0.3;
   const frustumWidth = frustumHeight * aspect;
   const camera = new THREE.OrthographicCamera(
-    -frustumWidth / 2, frustumWidth / 2,
-    frustumHeight / 2, -frustumHeight / 2,
-    0.1, 50
+    -frustumWidth / 2,
+    frustumWidth / 2,
+    frustumHeight / 2,
+    -frustumHeight / 2,
+    0.1,
+    50,
   );
   camera.position.set(3.0, 1.9, 0.0);
   camera.lookAt(0, 1.5, 0);
@@ -291,68 +330,89 @@ export function startCharacterPreview(container: HTMLElement) {
   backdropCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   backdropMaterial = new THREE.ShaderMaterial({
     vertexShader:
-      'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+      "varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }",
     fragmentShader:
-      'uniform sampler2D tBackdrop; uniform bool uGradient; varying vec2 vUv; void main() { if (vUv.x > 0.65) discard; vec4 c = texture2D(tBackdrop, vUv); float dim = smoothstep(0.2, 0.65, vUv.x) * 0.35; if (uGradient) { vec3 grad = vUv.y < 0.5 ? mix(vec3(11.0, 14.0, 51.0) / 255.0, vec3(119.0, 75.0, 34.0) / 255.0, vUv.y * 2.0) : mix(vec3(119.0, 75.0, 34.0) / 255.0, vec3(255.0, 153.0, 26.0) / 255.0, (vUv.y - 0.5) * 2.0); gl_FragColor = vec4(c.rgb * (1.0 - dim) * c.a + grad * (1.0 - c.a), 1.0); } else { gl_FragColor = vec4(c.rgb * (1.0 - dim), c.a); } }',
+      "uniform sampler2D tBackdrop; uniform bool uGradient; varying vec2 vUv; void main() { if (vUv.x > 0.65) discard; vec4 c = texture2D(tBackdrop, vUv); float dim = smoothstep(0.2, 0.65, vUv.x) * 0.35; if (uGradient) { vec3 grad = vUv.y < 0.5 ? mix(vec3(11.0, 14.0, 51.0) / 255.0, vec3(119.0, 75.0, 34.0) / 255.0, vUv.y * 2.0) : mix(vec3(119.0, 75.0, 34.0) / 255.0, vec3(255.0, 153.0, 26.0) / 255.0, (vUv.y - 0.5) * 2.0); gl_FragColor = vec4(c.rgb * (1.0 - dim) * c.a + grad * (1.0 - c.a), 1.0); } else { gl_FragColor = vec4(c.rgb * (1.0 - dim), c.a); } }",
     uniforms: {
       tBackdrop: { value: previewRenderTarget.texture },
-      uGradient: { value: container.id !== 'scene-character-preview' },
+      uGradient: { value: container.id !== "scene-character-preview" },
     },
     depthTest: false,
     depthWrite: false,
   });
-  backdropScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), backdropMaterial));
+  backdropScene.add(
+    new THREE.Mesh(new THREE.PlaneGeometry(2, 2), backdropMaterial),
+  );
 
   const horizontalOffset = THREE.MathUtils.clamp(
-    0.13 * (width / height) / (16 / 9),
+    (0.13 * (width / height)) / (16 / 9),
     0.05,
     0.18,
   );
-  let variant: 'brondon' | 'brendan' = 'brondon', loadToken = 0;
+  let variant: "brondon" | "brendan" = "brondon",
+    loadToken = 0;
 
-  async function loadVariant(next: 'brondon' | 'brendan') {
+  async function loadVariant(next: "brondon" | "brendan") {
     const token = ++loadToken;
     try {
       let model: THREE.Object3D;
-      if (next === 'brondon') {
+      if (next === "brondon") {
         model = (await loadPlayerModel()).scene;
         setPlayerCellShadingEnabled(model, false);
       } else {
         // Brendan's asset is unscaled, so fit it to Brondon's height and stand it on the origin.
         const source = (await loadBrendanModel()).scene;
         const fit = new THREE.Box3().setFromObject(source);
-        source.scale.multiplyScalar(1.83 / Math.max(0.01, fit.getSize(new THREE.Vector3()).y));
+        source.scale.multiplyScalar(
+          1.83 / Math.max(0.01, fit.getSize(new THREE.Vector3()).y),
+        );
         fit.setFromObject(source);
         const center = fit.getCenter(new THREE.Vector3());
         source.position.set(-center.x, -fit.min.y, -center.z);
-        model = new THREE.Group(); model.add(source);
+        model = new THREE.Group();
+        model.add(source);
       }
       if (token !== loadToken || !previewScene) return;
       if (previewModel) previewScene.remove(previewModel);
       previewModel = model;
       model.position.set(1.8, 0.045, -horizontalOffset);
-      model.rotation.set(0, Math.PI, 0, 'YXZ');
+      model.rotation.set(0, Math.PI, 0, "YXZ");
       model.scale.x = -1;
       applyStarfieldBackdrop(model);
       previewScene.add(model);
     } catch (error) {
-      console.error('[CharacterPreview] Failed to load model:', error);
+      console.error("[CharacterPreview] Failed to load model:", error);
     }
   }
   void loadVariant(variant);
-  swapPreview = () => { variant = variant === 'brondon' ? 'brendan' : 'brondon'; void loadVariant(variant); };
-  window.addEventListener('keydown', onPreviewKey, true);
+  swapPreview = () => {
+    variant = variant === "brondon" ? "brendan" : "brondon";
+    void loadVariant(variant);
+  };
+  window.addEventListener("keydown", onPreviewKey, true);
 
   const startTime = performance.now() * 0.001;
   const render = () => {
-    if (!previewRenderer || !previewScene || !previewCamera || !previewStarfield || !starfieldScene || !starfieldCamera || !previewRenderTarget || !backdropScene || !backdropCamera) return;
+    if (
+      !previewRenderer ||
+      !previewScene ||
+      !previewCamera ||
+      !previewStarfield ||
+      !starfieldScene ||
+      !starfieldCamera ||
+      !previewRenderTarget ||
+      !backdropScene ||
+      !backdropCamera
+    )
+      return;
     previewRafId = requestAnimationFrame(render);
 
     const elapsed = performance.now() * 0.001 - startTime;
     previewStarfield.update(elapsed);
     const nebulaShell = previewStarfield.nebulaCubes[0];
     if (nebulaShell) nebulaShell.rotation.y = elapsed * 0.05;
-    for (const layer of previewStarfield.starLayers) layer.rotation.y = elapsed * 0.05;
+    for (const layer of previewStarfield.starLayers)
+      layer.rotation.y = elapsed * 0.05;
     previewRenderer.setRenderTarget(previewRenderTarget);
     previewRenderer.clear(true, true, false);
     previewRenderer.render(starfieldScene, starfieldCamera);
@@ -363,15 +423,21 @@ export function startCharacterPreview(container: HTMLElement) {
     postRenderHook?.();
   };
   render();
-  console.log('[CharacterPreview] Render loop started');
+  console.log("[CharacterPreview] Render loop started");
 }
 
 let swapPreview: (() => void) | null = null;
 function onPreviewKey(event: KeyboardEvent) {
   if (event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
-  if (event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
-  if (event.code === 'Digit2' || event.code === 'Numpad2') {
-    event.preventDefault(); event.stopImmediatePropagation(); swapPreview?.();
+  if (
+    event.target instanceof HTMLElement &&
+    event.target.closest('input, textarea, select, [contenteditable="true"]')
+  )
+    return;
+  if (event.code === "Digit2" || event.code === "Numpad2") {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    swapPreview?.();
   }
 }
 
@@ -384,7 +450,7 @@ export function getCharacterPreviewRenderer() {
 }
 
 export function stopCharacterPreview() {
-  window.removeEventListener('keydown', onPreviewKey, true);
+  window.removeEventListener("keydown", onPreviewKey, true);
   swapPreview = null;
   if (previewRafId) {
     cancelAnimationFrame(previewRafId);
@@ -419,6 +485,10 @@ export function stopCharacterPreview() {
   previewScene = null;
   previewCamera = null;
   previewModel = null;
-  document.getElementById('pause-character-preview')?.classList.remove('active');
-  document.getElementById('scene-character-preview')?.classList.remove('active');
+  document
+    .getElementById("pause-character-preview")
+    ?.classList.remove("active");
+  document
+    .getElementById("scene-character-preview")
+    ?.classList.remove("active");
 }

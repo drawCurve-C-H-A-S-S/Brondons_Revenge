@@ -1,13 +1,30 @@
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { SHIP_ROOMS, SHIP_ROOM_BY_ID, SHIP_DECKS, SHIP_CONNECTIONS, SHIP_VENT_PATHS, SHIP_VERTICAL_LINKS,
-  roomPoint, shipPlayerPoint, type ShipDeck, type ShipRoom, type ShipMapBlock } from '../scripts/global/shipLayout.js';
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import {
+  controllerMenuLabel,
+  controllerText,
+  isControllerActive,
+  type ControllerMapInput,
+} from "../scripts/player/gamepadInput.js";
+import {
+  SHIP_ROOMS,
+  SHIP_ROOM_BY_ID,
+  SHIP_DECKS,
+  SHIP_CONNECTIONS,
+  SHIP_VENT_PATHS,
+  SHIP_VERTICAL_LINKS,
+  roomPoint,
+  shipPlayerPoint,
+  type ShipDeck,
+  type ShipRoom,
+  type ShipMapBlock,
+} from "../scripts/global/shipLayout.js";
 
-type DeckFilter = ShipDeck | 'all';
+type DeckFilter = ShipDeck | "all";
 interface ShipMapJoin {
   from: { room: number; portal: string };
   to: { room: number; portal: string };
-  kind?: 'camera';
+  kind?: "camera" | "sealed";
   verticalOffset?: number;
   displayOffset?: { x: number; z: number };
 }
@@ -16,111 +33,221 @@ export interface ShipMapLayout {
   rooms: readonly ShipRoom[];
   connections: readonly (readonly [number, number])[];
   initialRoom: number;
-  playerPoint: (id: number, position: { x: number; y: number; z: number }) => THREE.Vector3 | null;
+  playerPoint: (
+    id: number,
+    position: { x: number; y: number; z: number },
+  ) => THREE.Vector3 | null;
   joins?: readonly ShipMapJoin[];
   ventPaths?: readonly (readonly THREE.Vector3[])[];
-  verticalLinks?: readonly { id: number; position: THREE.Vector3; upper: number; label: string }[];
+  verticalLinks?: readonly {
+    id: number;
+    position: THREE.Vector3;
+    upper: number;
+    label: string;
+  }[];
   cameraLinks?: readonly (readonly [number, number])[];
-  goals?: readonly { id: string; room: number; position: THREE.Vector3; label: string }[];
-  elevatorRoutes?: readonly { id: number; position: THREE.Vector3; width: number; depth: number; yaw?: number;
-    stops: readonly { height: number; label: string; locked?: boolean }[] }[];
+  goals?: readonly {
+    id: string;
+    room: number;
+    position: THREE.Vector3;
+    label: string;
+  }[];
+  elevatorRoutes?: readonly {
+    id: number;
+    position: THREE.Vector3;
+    width: number;
+    depth: number;
+    yaw?: number;
+    stops: readonly { height: number; label: string; locked?: boolean }[];
+  }[];
 }
 
 export const SHIP_MAP_LAYOUT: ShipMapLayout = {
-  name: 'Ship interior', rooms: SHIP_ROOMS, connections: SHIP_CONNECTIONS, initialRoom: 3,
-  playerPoint: shipPlayerPoint, ventPaths: SHIP_VENT_PATHS, verticalLinks: SHIP_VERTICAL_LINKS,
+  name: "Ship interior",
+  rooms: SHIP_ROOMS,
+  connections: SHIP_CONNECTIONS,
+  initialRoom: 3,
+  playerPoint: shipPlayerPoint,
+  ventPaths: SHIP_VENT_PATHS,
+  verticalLinks: SHIP_VERTICAL_LINKS,
 };
 
 // Narrative numbering stays independent of internal IDs and blueprint discovery order.
 const SHIP_STORY_ROOM_ORDER = [
-  21, 20, 25, 24, 22, 26, 23, 27, 28,
-  29, 30, 31, 32, 34, 35,
-  5, 6, 37, 36, 13, 14,
+  21, 20, 25, 24, 22, 26, 23, 27, 28, 29, 30, 31, 32, 34, 35, 5, 6, 37, 36, 13,
+  14, 38, 39, 40,
 ];
 
 export function createShipMapProgress() {
   type Section = { layout: ShipMapLayout; transform: THREE.Matrix4 };
-  const sections = new Map<string, Section>(), owners = new Map<number, Section>(), rooms = new Map<number, ShipRoom>();
+  const sections = new Map<string, Section>(),
+    owners = new Map<number, Section>(),
+    rooms = new Map<number, ShipRoom>();
   const up = new THREE.Vector3(0, 1, 0);
   let snapshot: ShipMapLayout | null = null;
   function horizontalBounds(source: Iterable<ShipRoom>) {
     const box = new THREE.Box3();
-    for (const room of source) for (const x of [-room.width / 2, room.width / 2]) for (const z of [-room.depth / 2, room.depth / 2])
-      box.expandByPoint(roomPoint(room, x, z));
+    for (const room of source)
+      for (const x of [-room.width / 2, room.width / 2])
+        for (const z of [-room.depth / 2, room.depth / 2])
+          box.expandByPoint(roomPoint(room, x, z));
     return box;
   }
   return {
     reveal(layout: ShipMapLayout) {
       if (sections.has(layout.name)) return;
-      if (!layout.rooms.length) throw new Error(`Cannot chart an empty map section: ${layout.name}`);
-      for (const room of layout.rooms) if (rooms.has(room.id)) throw new Error(`Duplicate charted room ${room.id} in ${layout.name}`);
-      let yaw = 0, joined = false;
+      if (!layout.rooms.length)
+        throw new Error(`Cannot chart an empty map section: ${layout.name}`);
+      for (const room of layout.rooms)
+        if (rooms.has(room.id))
+          throw new Error(
+            `Duplicate charted room ${room.id} in ${layout.name}`,
+          );
+      let yaw = 0,
+        joined = false;
       const offset = new THREE.Vector3();
-      const joins = [...(layout.joins ?? []), ...[...sections.values()].flatMap(section => section.layout.joins ?? [])];
+      const joins = [
+        ...(layout.joins ?? []),
+        ...[...sections.values()].flatMap(
+          (section) => section.layout.joins ?? [],
+        ),
+      ];
       for (const join of joins) {
-        const forward = rooms.has(join.from.room) && layout.rooms.some(room => room.id === join.to.room);
-        const reverse = rooms.has(join.to.room) && layout.rooms.some(room => room.id === join.from.room);
+        const forward =
+          rooms.has(join.from.room) &&
+          layout.rooms.some((room) => room.id === join.to.room);
+        const reverse =
+          rooms.has(join.to.room) &&
+          layout.rooms.some((room) => room.id === join.from.room);
         if (!forward && !reverse) continue;
-        const known = forward ? join.from : join.to, arriving = forward ? join.to : join.from;
-        const anchor = rooms.get(known.room)!, local = layout.rooms.find(room => room.id === arriving.room)!;
-        const exit = anchor.portals[known.portal], entry = local.portals[arriving.portal];
-        if (!exit || !entry) throw new Error(`Missing map portal joining ${known.room} to ${arriving.room}`);
+        const known = forward ? join.from : join.to,
+          arriving = forward ? join.to : join.from;
+        const anchor = rooms.get(known.room)!,
+          local = layout.rooms.find((room) => room.id === arriving.room)!;
+        const exit = anchor.portals[known.portal],
+          entry = local.portals[arriving.portal];
+        if (!exit || !entry)
+          throw new Error(
+            `Missing map portal joining ${known.room} to ${arriving.room}`,
+          );
         yaw = anchor.yaw + exit.yaw - local.yaw - entry.yaw + Math.PI;
-        offset.copy(roomPoint(anchor, exit.x, exit.z)).sub(roomPoint(local, entry.x, entry.z).applyAxisAngle(up, yaw));
+        offset
+          .copy(roomPoint(anchor, exit.x, exit.z))
+          .sub(roomPoint(local, entry.x, entry.z).applyAxisAngle(up, yaw));
         offset.y += (forward ? 1 : -1) * (join.verticalOffset ?? 0);
-        if (join.displayOffset) offset.add(new THREE.Vector3(join.displayOffset.x, 0, join.displayOffset.z)
-          .applyAxisAngle(up, anchor.yaw).multiplyScalar(forward ? 1 : -1));
-        joined = true; break;
+        if (join.displayOffset)
+          offset.add(
+            new THREE.Vector3(join.displayOffset.x, 0, join.displayOffset.z)
+              .applyAxisAngle(up, anchor.yaw)
+              .multiplyScalar(forward ? 1 : -1),
+          );
+        joined = true;
+        break;
       }
       // Unconnected blueprints stay separate instead of overlapping discovered rooms.
-      if (!joined && rooms.size) offset.x = horizontalBounds(rooms.values()).max.x + 24 - horizontalBounds(layout.rooms).min.x;
-      const transform = new THREE.Matrix4().makeRotationY(yaw).setPosition(offset);
+      if (!joined && rooms.size)
+        offset.x =
+          horizontalBounds(rooms.values()).max.x +
+          24 -
+          horizontalBounds(layout.rooms).min.x;
+      const transform = new THREE.Matrix4()
+        .makeRotationY(yaw)
+        .setPosition(offset);
       const section = { layout, transform };
       sections.set(layout.name, section);
       for (const room of layout.rooms) {
-        rooms.set(room.id, { ...room, position: room.position.clone().applyMatrix4(transform), yaw: room.yaw + yaw });
+        rooms.set(room.id, {
+          ...room,
+          position: room.position.clone().applyMatrix4(transform),
+          yaw: room.yaw + yaw,
+        });
         owners.set(room.id, section);
       }
       snapshot = null;
     },
     getLayout(): ShipMapLayout {
       if (snapshot) return snapshot;
-      const charted = [...sections.values()], connections = new Map<string, readonly [number, number]>();
+      const charted = [...sections.values()],
+        connections = new Map<string, readonly [number, number]>();
       const cameraLinks = new Map<string, readonly [number, number]>();
       const addConnection = (from: number, to: number, camera = false) => {
-        if (rooms.has(from) && rooms.has(to)) (camera ? cameraLinks : connections).set(`${Math.min(from, to)}:${Math.max(from, to)}`, [from, to]);
+        if (rooms.has(from) && rooms.has(to))
+          (camera ? cameraLinks : connections).set(
+            `${Math.min(from, to)}:${Math.max(from, to)}`,
+            [from, to],
+          );
       };
       for (const section of charted) {
-        section.layout.connections.forEach(([from, to]) => addConnection(from, to));
-        section.layout.joins?.forEach(join => addConnection(join.from.room, join.to.room, join.kind === 'camera'));
-        section.layout.cameraLinks?.forEach(([from, to]) => addConnection(from, to, true));
+        section.layout.connections.forEach(([from, to]) =>
+          addConnection(from, to),
+        );
+        section.layout.joins?.forEach((join) => {
+          if (join.kind !== "sealed")
+            addConnection(join.from.room, join.to.room, join.kind === "camera");
+        });
+        section.layout.cameraLinks?.forEach(([from, to]) =>
+          addConnection(from, to, true),
+        );
       }
       snapshot = {
-        name: 'Ship', rooms: [...rooms.values()], connections: [...connections.values()],
+        name: "Ship",
+        rooms: [...rooms.values()],
+        connections: [...connections.values()],
         cameraLinks: [...cameraLinks.values()],
         initialRoom: charted[charted.length - 1]?.layout.initialRoom ?? 0,
         playerPoint(id, position) {
           const section = owners.get(id);
           if (!section) return null;
-          return section.layout.playerPoint(id, position)?.clone().applyMatrix4(section.transform) ?? null;
+          return (
+            section.layout
+              .playerPoint(id, position)
+              ?.clone()
+              .applyMatrix4(section.transform) ?? null
+          );
         },
-        ventPaths: charted.flatMap(section => (section.layout.ventPaths ?? [])
-          .map(path => path.map(point => point.clone().applyMatrix4(section.transform)))),
-        verticalLinks: charted.flatMap(section => (section.layout.verticalLinks ?? []).map(link => ({
-          ...link, position: link.position.clone().applyMatrix4(section.transform), upper: link.upper + section.transform.elements[13],
-        }))),
-        goals: charted.flatMap(section => (section.layout.goals ?? []).map(goal => ({
-          ...goal, position: goal.position.clone().applyMatrix4(section.transform),
-        }))),
-        elevatorRoutes: charted.flatMap(section => (section.layout.elevatorRoutes ?? []).map(route => ({
-          ...route, position: route.position.clone().applyMatrix4(section.transform),
-          yaw: (route.yaw ?? 0) + Math.atan2(section.transform.elements[8], section.transform.elements[0]),
-          stops: route.stops.map(stop => ({ ...stop, height: stop.height + section.transform.elements[13] })),
-        }))),
+        ventPaths: charted.flatMap((section) =>
+          (section.layout.ventPaths ?? []).map((path) =>
+            path.map((point) => point.clone().applyMatrix4(section.transform)),
+          ),
+        ),
+        verticalLinks: charted.flatMap((section) =>
+          (section.layout.verticalLinks ?? []).map((link) => ({
+            ...link,
+            position: link.position.clone().applyMatrix4(section.transform),
+            upper: link.upper + section.transform.elements[13],
+          })),
+        ),
+        goals: charted.flatMap((section) =>
+          (section.layout.goals ?? []).map((goal) => ({
+            ...goal,
+            position: goal.position.clone().applyMatrix4(section.transform),
+          })),
+        ),
+        elevatorRoutes: charted.flatMap((section) =>
+          (section.layout.elevatorRoutes ?? []).map((route) => ({
+            ...route,
+            position: route.position.clone().applyMatrix4(section.transform),
+            yaw:
+              (route.yaw ?? 0) +
+              Math.atan2(
+                section.transform.elements[8],
+                section.transform.elements[0],
+              ),
+            stops: route.stops.map((stop) => ({
+              ...stop,
+              height: stop.height + section.transform.elements[13],
+            })),
+          })),
+        ),
       };
       return snapshot;
     },
-    reset() { sections.clear(); owners.clear(); rooms.clear(); snapshot = null; },
+    reset() {
+      sections.clear();
+      owners.clear();
+      rooms.clear();
+      snapshot = null;
+    },
   };
 }
 
@@ -128,27 +255,62 @@ export function getMapRoomContents(room: ShipRoom): readonly ShipMapBlock[] {
   if (room.locked) return [];
   if (room.mapContents) return room.mapContents;
   const contents: ShipMapBlock[] = [];
-  const add = (size: ShipMapBlock['size'], position: ShipMapBlock['position']) => contents.push({ size, position });
-  if (room.id === 2) for (const side of [-1, 1]) for (const position of [-10, -5, 0, 5, 10]) add([2, 0.75, 3], [side * 6.5, 0.4, position]);
-  if (room.id === 4) for (const side of [-1, 1]) for (const position of [-3, 0, 3]) add([1.4, 0.8, 1.7], [side * 3.5, 0.4, position]);
-  if ([5, 10, 11].includes(room.id)) for (const side of [-1, 1]) for (const position of [-2, 2]) add([1.5, 1.1, 1.5], [side * 2.5, 0.55, position]);
-  if (room.id === 7) for (const position of [-2, 2]) add([5, 0.75, 1.5], [-1, 0.38, position]);
-  if (room.id === 9) for (const side of [-1, 1]) add([2.8, 0.4, 21], [side * 7.8, 0.22, 0]);
-  if (room.id === 13) for (const side of [-1, 1]) for (const position of [-15, 15]) add([3, 2, 3], [side * 13, 1, position]);
+  const add = (
+    size: ShipMapBlock["size"],
+    position: ShipMapBlock["position"],
+  ) => contents.push({ size, position });
+  if (room.id === 2)
+    for (const side of [-1, 1])
+      for (const position of [-10, -5, 0, 5, 10])
+        add([2, 0.75, 3], [side * 6.5, 0.4, position]);
+  if (room.id === 4)
+    for (const side of [-1, 1])
+      for (const position of [-3, 0, 3])
+        add([1.4, 0.8, 1.7], [side * 3.5, 0.4, position]);
+  if ([5, 10, 11].includes(room.id))
+    for (const side of [-1, 1])
+      for (const position of [-2, 2])
+        add([1.5, 1.1, 1.5], [side * 2.5, 0.55, position]);
+  if (room.id === 7)
+    for (const position of [-2, 2]) add([5, 0.75, 1.5], [-1, 0.38, position]);
+  if (room.id === 9)
+    for (const side of [-1, 1]) add([2.8, 0.4, 21], [side * 7.8, 0.22, 0]);
+  if (room.id === 13)
+    for (const side of [-1, 1])
+      for (const position of [-15, 15])
+        add([3, 2, 3], [side * 13, 1, position]);
   if (room.id === 14) add([7, 0.7, 12], [0, 0.36, 21]);
   return contents;
 }
 
-export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, layout?: ShipMapLayout) {
+export function createShipMap(
+  renderer: THREE.WebGLRenderer,
+  root: HTMLElement,
+  layout?: ShipMapLayout,
+) {
   const sourceRooms = layout?.rooms ?? SHIP_ROOMS;
-  const additionalIds = sourceRooms.map(room => room.id).filter(id => !SHIP_STORY_ROOM_ORDER.includes(id)).sort((a, b) => a - b);
-  const roomNumbers = new Map([...SHIP_STORY_ROOM_ORDER, ...additionalIds].map((id, index) => [id, index + 1]));
-  const rooms = [...sourceRooms].sort((a, b) => roomNumbers.get(a.id)! - roomNumbers.get(b.id)!);
-  const roomById = layout ? new Map(rooms.map(room => [room.id, room])) : SHIP_ROOM_BY_ID;
-  const ventPaths = layout ? layout.ventPaths ?? [] : SHIP_VENT_PATHS;
-  const verticalLinks = layout ? layout.verticalLinks ?? [] : SHIP_VERTICAL_LINKS;
+  const additionalIds = sourceRooms
+    .map((room) => room.id)
+    .filter((id) => !SHIP_STORY_ROOM_ORDER.includes(id))
+    .sort((a, b) => a - b);
+  const roomNumbers = new Map(
+    [...SHIP_STORY_ROOM_ORDER, ...additionalIds].map((id, index) => [
+      id,
+      index + 1,
+    ]),
+  );
+  const rooms = [...sourceRooms].sort(
+    (a, b) => roomNumbers.get(a.id)! - roomNumbers.get(b.id)!,
+  );
+  const roomById = layout
+    ? new Map(rooms.map((room) => [room.id, room]))
+    : SHIP_ROOM_BY_ID;
+  const ventPaths = layout ? (layout.ventPaths ?? []) : SHIP_VENT_PATHS;
+  const verticalLinks = layout
+    ? (layout.verticalLinks ?? [])
+    : SHIP_VERTICAL_LINKS;
   const events = new AbortController();
-  root.dataset.mapLayout = layout?.name ?? 'Ship';
+  root.dataset.mapLayout = layout?.name ?? "Ship";
   root.innerHTML = `<div class="ship-map-toolbar">
     <div class="ship-map-decks" role="group" aria-label="Deck visibility"></div>
     <div class="ship-map-tools"><button type="button" class="menu-button" data-map-tool="current" title="Center on your position (F)">Locate</button>
@@ -160,55 +322,121 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
     <div class="ship-map-empty">Reach a ship section to start charting your map.</div>
     <div id="ship-map-help" class="ship-map-help"></div>
   </div>`;
-  const view = root.querySelector<HTMLElement>('.ship-map-canvas')!;
-  const labelLayer = root.querySelector<HTMLElement>('.ship-map-labels')!;
-  const roomInfo = root.querySelector<HTMLElement>('.ship-map-room-info')!;
-  const roomTitle = root.querySelector<HTMLElement>('.ship-map-room-info strong')!;
-  const roomDetail = root.querySelector<HTMLElement>('.ship-map-room-info span')!;
-  const compass = root.querySelector<HTMLElement>('.ship-map-compass')!;
-  root.querySelector<HTMLElement>('.ship-map-empty')!.hidden = rooms.length !== 0;
+  const view = root.querySelector<HTMLElement>(".ship-map-canvas")!;
+  const labelLayer = root.querySelector<HTMLElement>(".ship-map-labels")!;
+  const roomInfo = root.querySelector<HTMLElement>(".ship-map-room-info")!;
+  const roomTitle = root.querySelector<HTMLElement>(
+    ".ship-map-room-info strong",
+  )!;
+  const roomDetail = root.querySelector<HTMLElement>(
+    ".ship-map-room-info span",
+  )!;
+  const compass = root.querySelector<HTMLElement>(".ship-map-compass")!;
+  root.querySelector<HTMLElement>(".ship-map-empty")!.hidden =
+    rooms.length !== 0;
   roomInfo.hidden = rooms.length === 0;
-  root.querySelector<HTMLElement>('.ship-map-help')!.textContent = document.body.classList.contains('touch-device')
-    ? 'Drag to rotate / Pinch to zoom / Two fingers to pan'
-    : 'Drag to rotate / Scroll to zoom / Right-drag to pan';
-  const decks = root.querySelector<HTMLElement>('.ship-map-decks')!;
-  const availableDecks: ShipDeck[] = ['upper', 'main', 'lower'].filter((deck): deck is ShipDeck => rooms.some(room => room.deck === deck));
+  const help = root.querySelector<HTMLElement>(".ship-map-help")!;
+  function updateInputHelp() {
+    help.textContent = isControllerActive()
+      ? `${controllerText("Left stick: pan / Right stick: rotate / {zl}/{zr}: zoom / {l}/{r}: decks / {y}: locate / {x}: reset")} / D-pad: select / ${controllerMenuLabel("confirm")}: confirm / ${controllerMenuLabel("back")}: back`
+      : document.body.classList.contains("touch-device")
+        ? "Drag to rotate / Pinch to zoom / Two fingers to pan"
+        : "Drag to rotate / Scroll to zoom / Right-drag to pan";
+  }
+  updateInputHelp();
+  window.addEventListener("input-device-change", updateInputHelp, {
+    signal: events.signal,
+  });
+  const decks = root.querySelector<HTMLElement>(".ship-map-decks")!;
+  const deckOrder: ShipDeck[] = [
+    "students", "brendan", "branden", "upper", "main", "lower",
+  ];
+  const availableDecks = deckOrder.filter((deck) =>
+    rooms.some((room) => room.deck === deck),
+  );
   decks.hidden = availableDecks.length < 2;
-  for (const deck of ['all', ...availableDecks] as const) {
-    const button = document.createElement('button'); button.type = 'button'; button.className = 'menu-button'; button.dataset.deck = deck;
-    if (deck !== 'all') {
-      const swatch = document.createElement('span'); swatch.className = 'ship-map-swatch'; swatch.style.backgroundColor = SHIP_DECKS[deck].color;
+  for (const deck of ["all", ...availableDecks] as const) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "menu-button";
+    button.dataset.deck = deck;
+    if (deck !== "all") {
+      const swatch = document.createElement("span");
+      swatch.className = "ship-map-swatch";
+      swatch.style.backgroundColor = SHIP_DECKS[deck].color;
       button.append(swatch);
     }
-    button.append(document.createTextNode(deck === 'all' ? 'All decks' : `${SHIP_DECKS[deck].level} ${SHIP_DECKS[deck].name}`)); decks.append(button);
+    button.append(
+      document.createTextNode(
+        deck === "all"
+          ? "All decks"
+          : `${SHIP_DECKS[deck].level} ${SHIP_DECKS[deck].name}`,
+      ),
+    );
+    decks.append(button);
   }
   const scene = new THREE.Scene();
   const camera = new THREE.OrthographicCamera(-80, 80, 80, -80, 0.1, 1500);
   const controls = new OrbitControls(camera, view);
-  controls.enableDamping = true; controls.dampingFactor = 0.12; controls.rotateSpeed = 0.65;
-  controls.minZoom = 0.35; controls.maxZoom = 20; controls.zoomToCursor = true;
-  controls.minPolarAngle = 0.03; controls.maxPolarAngle = Math.PI * 0.49;
-  controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE; controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
-  controls.touches.ONE = THREE.TOUCH.ROTATE; controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.12;
+  controls.rotateSpeed = 0.65;
+  controls.minZoom = 0.35;
+  controls.maxZoom = 20;
+  controls.zoomToCursor = true;
+  controls.minPolarAngle = 0.03;
+  controls.maxPolarAngle = Math.PI * 0.49;
+  controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+  controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
+  controls.touches.ONE = THREE.TOUCH.ROTATE;
+  controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
   controls.listenToKeyEvents(view);
   controls.enabled = false;
+  const controllerOrbit = new THREE.Spherical(),
+    controllerOffset = new THREE.Vector3(),
+    controllerRight = new THREE.Vector3(),
+    controllerForward = new THREE.Vector3(),
+    controllerPan = new THREE.Vector3();
   const boxGeometry = new THREE.BoxGeometry(1, 1, 1);
   const edgeGeometry = new THREE.EdgesGeometry(boxGeometry);
-  const groups = new Map<number, THREE.Group>(), materials = new Map<number, THREE.ShaderMaterial>();
-  const labels = new Map<number, HTMLButtonElement>(), bounds = new Map<number, THREE.Box3>();
+  const groups = new Map<number, THREE.Group>(),
+    materials = new Map<number, THREE.ShaderMaterial>();
+  const labels = new Map<number, HTMLButtonElement>(),
+    bounds = new Map<number, THREE.Box3>();
   const outlineMaterials: THREE.LineBasicMaterial[] = [];
   const links: { object: THREE.Object3D; id: number }[] = [];
   const pickables: THREE.Mesh[] = [];
-  const raycaster = new THREE.Raycaster(), pointer = new THREE.Vector2(), projected = new THREE.Vector3();
-  const viewport = new THREE.Vector4(), scissor = new THREE.Vector4(), clearColor = new THREE.Color(), size = new THREE.Vector2();
-  let visible = false, filter: DeckFilter = 'all', current = 0, playerPosition: THREE.Vector3 | null = null;
-  let needsFit = true, dragging = false;
-  const pointerStarts = new Map<number, { position: THREE.Vector2; room?: number }>(), north = new THREE.Vector3();
+  const raycaster = new THREE.Raycaster(),
+    pointer = new THREE.Vector2(),
+    projected = new THREE.Vector3();
+  const viewport = new THREE.Vector4(),
+    scissor = new THREE.Vector4(),
+    clearColor = new THREE.Color(),
+    size = new THREE.Vector2();
+  let visible = false,
+    filter: DeckFilter = "all",
+    current = 0,
+    playerPosition: THREE.Vector3 | null = null;
+  let needsFit = true,
+    dragging = false;
+  const pointerStarts = new Map<
+      number,
+      { position: THREE.Vector2; room?: number }
+    >(),
+    north = new THREE.Vector3();
 
   function materialFor(room: ShipRoom) {
     return new THREE.ShaderMaterial({
-      uniforms: { uTint: { value: new THREE.Color(room.locked ? '#687485' : SHIP_DECKS[room.deck].color) }, uFloor: { value: room.position.y },
-        uSelected: { value: 0 }, uTime: { value: 0 } },
+      uniforms: {
+        uTint: {
+          value: new THREE.Color(
+            room.locked ? "#687485" : SHIP_DECKS[room.deck].color,
+          ),
+        },
+        uFloor: { value: room.position.y },
+        uSelected: { value: 0 },
+        uTime: { value: 0 },
+      },
       vertexShader: `varying vec3 mapWorld; varying vec3 mapNormal;
         void main() { mapWorld = (modelMatrix * vec4(position, 1.0)).xyz;
           mapNormal = normalize(mat3(modelMatrix) * normal);
@@ -229,276 +457,766 @@ export function createShipMap(renderer: THREE.WebGLRenderer, root: HTMLElement, 
       toneMapped: false,
     });
   }
-  function block(group: THREE.Group, material: THREE.Material, dimensions: [number, number, number], position: [number, number, number], outline?: THREE.LineBasicMaterial) {
-    const mesh = new THREE.Mesh(boxGeometry, material); mesh.scale.set(...dimensions); mesh.position.set(...position);
-    mesh.userData.roomId = group.userData.roomId; group.add(mesh); pickables.push(mesh);
-    if (outline) { const lines = new THREE.LineSegments(edgeGeometry, outline); mesh.add(lines); }
+  function block(
+    group: THREE.Group,
+    material: THREE.Material,
+    dimensions: [number, number, number],
+    position: [number, number, number],
+    outline?: THREE.LineBasicMaterial,
+  ) {
+    const mesh = new THREE.Mesh(boxGeometry, material);
+    mesh.scale.set(...dimensions);
+    mesh.position.set(...position);
+    mesh.userData.roomId = group.userData.roomId;
+    group.add(mesh);
+    pickables.push(mesh);
+    if (outline) {
+      const lines = new THREE.LineSegments(edgeGeometry, outline);
+      mesh.add(lines);
+    }
     return mesh;
   }
-  function addWalls(group: THREE.Group, room: ShipRoom, material: THREE.Material, outline: THREE.LineBasicMaterial) {
+  function addWalls(
+    group: THREE.Group,
+    room: ShipRoom,
+    material: THREE.Material,
+    outline: THREE.LineBasicMaterial,
+  ) {
     const gap = room.portalWidth ?? 3;
-    for (const side of [-1, 1]) for (const horizontal of [false, true]) {
-      const length = horizontal ? room.width : room.depth, fixed = side * (horizontal ? room.depth : room.width) * 0.5;
-      const doors = Object.values(room.portals).filter(portal => Math.abs((horizontal ? portal.z : portal.x) - fixed) < 0.01)
-        .map(portal => horizontal ? portal.x : portal.z).sort((first, second) => first - second);
-      let start = -length * 0.5;
-      for (const end of [...doors.map(center => center - gap / 2), length * 0.5]) {
-        if (end > start) block(group, material, horizontal ? [end - start, 1.35, 0.25] : [0.25, 1.35, end - start],
-          horizontal ? [(start + end) * 0.5, 0.72, fixed] : [fixed, 0.72, (start + end) * 0.5], outline);
-        start = end + gap;
+    for (const side of [-1, 1])
+      for (const horizontal of [false, true]) {
+        const length = horizontal ? room.width : room.depth,
+          fixed = side * (horizontal ? room.depth : room.width) * 0.5;
+        const doors = Object.values(room.portals)
+          .filter(
+            (portal) =>
+              !portal.locked &&
+              Math.abs((horizontal ? portal.z : portal.x) - fixed) < 0.01,
+          )
+          .map((portal) => (horizontal ? portal.x : portal.z))
+          .sort((first, second) => first - second);
+        let start = -length * 0.5;
+        for (const end of [
+          ...doors.map((center) => center - gap / 2),
+          length * 0.5,
+        ]) {
+          if (end > start)
+            block(
+              group,
+              material,
+              horizontal
+                ? [end - start, 1.35, 0.25]
+                : [0.25, 1.35, end - start],
+              horizontal
+                ? [(start + end) * 0.5, 0.72, fixed]
+                : [fixed, 0.72, (start + end) * 0.5],
+              outline,
+            );
+          start = end + gap;
+        }
       }
-    }
   }
   for (const room of rooms) {
-    const group = new THREE.Group(); group.userData.roomId = room.id; scene.add(group); groups.set(room.id, group);
-    const material = materialFor(room); materials.set(room.id, material);
-    const outline = new THREE.LineBasicMaterial({ color: SHIP_DECKS[room.deck].color, transparent: true, opacity: 0.65, toneMapped: false });
+    const group = new THREE.Group();
+    group.userData.roomId = room.id;
+    scene.add(group);
+    groups.set(room.id, group);
+    const material = materialFor(room);
+    materials.set(room.id, material);
+    const outline = new THREE.LineBasicMaterial({
+      color: SHIP_DECKS[room.deck].color,
+      transparent: true,
+      opacity: 0.65,
+      toneMapped: false,
+    });
     outlineMaterials.push(outline);
     if (room.id === 8 && ventPaths.length) {
-      for (const path of ventPaths) for (let index = 1; index < path.length; index++) {
-        const from = path[index - 1], to = path[index], midpoint = from.clone().add(to).multiplyScalar(0.5);
-        const mesh = block(group, material, [2.2, 0.45, from.distanceTo(to) + 1.8], [midpoint.x, midpoint.y, midpoint.z], outline);
-        mesh.rotation.y = Math.atan2(to.x - from.x, to.z - from.z);
-      }
+      for (const path of ventPaths)
+        for (let index = 1; index < path.length; index++) {
+          const from = path[index - 1],
+            to = path[index],
+            midpoint = from.clone().add(to).multiplyScalar(0.5);
+          const mesh = block(
+            group,
+            material,
+            [2.2, 0.45, from.distanceTo(to) + 1.8],
+            [midpoint.x, midpoint.y, midpoint.z],
+            outline,
+          );
+          mesh.rotation.y = Math.atan2(to.x - from.x, to.z - from.z);
+        }
     } else {
-      group.position.copy(room.position); group.rotation.y = room.yaw;
-      if (room.locked) block(group, material, [room.width, 3.2, room.depth], [0, 1.6, 0], outline);
+      group.position.copy(room.position);
+      group.rotation.y = room.yaw;
+      if (room.locked)
+        block(
+          group,
+          material,
+          [room.width, 3.2, room.depth],
+          [0, 1.6, 0],
+          outline,
+        );
       else {
-        block(group, material, [room.width, 0.22, room.depth], [0, -0.11, 0], outline);
+        block(
+          group,
+          material,
+          [room.width, 0.22, room.depth],
+          [0, -0.11, 0],
+          outline,
+        );
         addWalls(group, room, material, outline);
-        for (const item of getMapRoomContents(room)) block(group, material, item.size, item.position);
+        for (const item of getMapRoomContents(room))
+          block(group, material, item.size, item.position);
       }
     }
-    const label = document.createElement('button'); label.type = 'button'; label.className = 'ship-map-room-label menu-button';
+    const label = document.createElement("button");
+    label.type = "button";
+    label.className = "ship-map-room-label menu-button";
     const number = roomNumbers.get(room.id)!;
-    label.dataset.room = String(room.id); label.textContent = String(number).padStart(2, '0');
+    label.dataset.room = String(room.id);
+    label.textContent = String(number).padStart(2, "0");
     label.dataset.locked = String(!!room.locked);
-    label.title = `${room.name}${room.locked ? ' / Locked' : ''}`; label.setAttribute('aria-label', `${number}: ${room.name}, ${SHIP_DECKS[room.deck].name}${room.locked ? ', locked, interior unavailable' : ''}`);
-    label.style.setProperty('--room-color', SHIP_DECKS[room.deck].color); labelLayer.append(label); labels.set(room.id, label);
+    label.title = `${room.name}${room.locked ? " / Locked" : Object.values(room.portals).some((portal) => portal.locked) ? " / Locked door" : ""}`;
+    label.setAttribute(
+      "aria-label",
+      `${number}: ${room.name}, ${SHIP_DECKS[room.deck].name}${room.locked ? ", locked, interior unavailable" : ""}`,
+    );
+    label.style.setProperty("--room-color", SHIP_DECKS[room.deck].color);
+    labelLayer.append(label);
+    labels.set(room.id, label);
   }
   scene.updateMatrixWorld(true);
-  groups.forEach((group, id) => bounds.set(id, new THREE.Box3().setFromObject(group)));
-  const shaftMaterial = new THREE.LineDashedMaterial({ color: 0xd9e8df, dashSize: 1, gapSize: 0.7, transparent: true, opacity: 0.6, toneMapped: false });
+  groups.forEach((group, id) =>
+    bounds.set(id, new THREE.Box3().setFromObject(group)),
+  );
+  const shaftMaterial = new THREE.LineDashedMaterial({
+    color: 0xd9e8df,
+    dashSize: 1,
+    gapSize: 0.7,
+    transparent: true,
+    opacity: 0.6,
+    toneMapped: false,
+  });
   const shaftGeometries: THREE.BufferGeometry[] = [];
   for (const link of verticalLinks) {
-    const geometry = new THREE.BufferGeometry().setFromPoints([link.position, link.position.clone().setY(link.upper)]); shaftGeometries.push(geometry);
-    const line = new THREE.Line(geometry, shaftMaterial); line.computeLineDistances(); scene.add(line); links.push({ object: line, id: link.id });
+    const geometry = new THREE.BufferGeometry().setFromPoints([
+      link.position,
+      link.position.clone().setY(link.upper),
+    ]);
+    shaftGeometries.push(geometry);
+    const line = new THREE.Line(geometry, shaftMaterial);
+    line.computeLineDistances();
+    scene.add(line);
+    links.push({ object: line, id: link.id });
   }
-  const elevatorMaterial = new THREE.MeshBasicMaterial({ color: 0x6ad9e8, transparent: true, opacity: 0.11,
-    depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
-  const elevatorEdges = new THREE.LineBasicMaterial({ color: 0x6ad9e8, transparent: true, opacity: 0.8, toneMapped: false });
-  const elevatorOffline = new THREE.LineBasicMaterial({ color: 0xff785e, transparent: true, opacity: 0.65, toneMapped: false });
-  const elevatorLabels: { point: THREE.Vector3; label: HTMLElement; object: THREE.Object3D }[] = [];
+  const elevatorMaterial = new THREE.MeshBasicMaterial({
+    color: 0x6ad9e8,
+    transparent: true,
+    opacity: 0.11,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+  });
+  const elevatorEdges = new THREE.LineBasicMaterial({
+    color: 0x6ad9e8,
+    transparent: true,
+    opacity: 0.8,
+    toneMapped: false,
+  });
+  const elevatorOffline = new THREE.LineBasicMaterial({
+    color: 0xff785e,
+    transparent: true,
+    opacity: 0.65,
+    toneMapped: false,
+  });
+  const elevatorLabels: {
+    point: THREE.Vector3;
+    label: HTMLElement;
+    object: THREE.Object3D;
+  }[] = [];
   for (const route of layout?.elevatorRoutes ?? []) {
     if (route.stops.length < 2) continue;
-    const minY = Math.min(...route.stops.map(stop => stop.height)), maxY = Math.max(...route.stops.map(stop => stop.height));
-    const group = new THREE.Group(); group.name = 'HolographicElevatorRoute'; scene.add(group); links.push({ object: group, id: route.id });
-    const geometry = new THREE.BoxGeometry(route.width, maxY - minY + 2, route.depth); shaftGeometries.push(geometry);
+    const minY = Math.min(...route.stops.map((stop) => stop.height)),
+      maxY = Math.max(...route.stops.map((stop) => stop.height));
+    const group = new THREE.Group();
+    group.name = "HolographicElevatorRoute";
+    scene.add(group);
+    links.push({ object: group, id: route.id });
+    const geometry = new THREE.BoxGeometry(
+      route.width,
+      maxY - minY + 2,
+      route.depth,
+    );
+    shaftGeometries.push(geometry);
     const shaft = new THREE.Mesh(geometry, elevatorMaterial);
     shaft.rotation.y = route.yaw ?? 0;
-    shaft.position.set(route.position.x, (minY + maxY) / 2 + 1, route.position.z); group.add(shaft);
-    const edges = new THREE.EdgesGeometry(geometry); shaftGeometries.push(edges); shaft.add(new THREE.LineSegments(edges, elevatorEdges));
+    shaft.position.set(
+      route.position.x,
+      (minY + maxY) / 2 + 1,
+      route.position.z,
+    );
+    group.add(shaft);
+    const edges = new THREE.EdgesGeometry(geometry);
+    shaftGeometries.push(edges);
+    shaft.add(new THREE.LineSegments(edges, elevatorEdges));
     for (const stop of route.stops) {
-      const point = new THREE.Vector3(route.position.x, stop.height + 0.15, route.position.z);
-      const landingGeometry = new THREE.BoxGeometry(route.width + 1.2, 0.18, route.depth + 1.2); shaftGeometries.push(landingGeometry);
-      const landing = new THREE.Mesh(landingGeometry, elevatorMaterial); landing.position.copy(point); group.add(landing);
+      const point = new THREE.Vector3(
+        route.position.x,
+        stop.height + 0.15,
+        route.position.z,
+      );
+      const landingGeometry = new THREE.BoxGeometry(
+        route.width + 1.2,
+        0.18,
+        route.depth + 1.2,
+      );
+      shaftGeometries.push(landingGeometry);
+      const landing = new THREE.Mesh(landingGeometry, elevatorMaterial);
+      landing.position.copy(point);
+      group.add(landing);
       landing.rotation.y = route.yaw ?? 0;
-      const frame = new THREE.EdgesGeometry(landingGeometry); shaftGeometries.push(frame);
-      landing.add(new THREE.LineSegments(frame, stop.locked ? elevatorOffline : elevatorEdges));
-      const label = document.createElement('span'); label.className = 'ship-map-elevator-label'; label.textContent = stop.label;
-      label.dataset.locked = String(!!stop.locked); labelLayer.append(label); elevatorLabels.push({ point, label, object: group });
+      const frame = new THREE.EdgesGeometry(landingGeometry);
+      shaftGeometries.push(frame);
+      landing.add(
+        new THREE.LineSegments(
+          frame,
+          stop.locked ? elevatorOffline : elevatorEdges,
+        ),
+      );
+      const label = document.createElement("span");
+      label.className = "ship-map-elevator-label";
+      label.textContent = stop.label;
+      label.dataset.locked = String(!!stop.locked);
+      labelLayer.append(label);
+      elevatorLabels.push({ point, label, object: group });
     }
-    bounds.get(route.id)?.expandByPoint(new THREE.Vector3(route.position.x, minY, route.position.z));
+    bounds
+      .get(route.id)
+      ?.expandByPoint(
+        new THREE.Vector3(route.position.x, minY, route.position.z),
+      );
   }
-  const cameraLinkMaterial = new THREE.LineDashedMaterial({ color: 0xbd77ff, dashSize: 0.9, gapSize: 0.7, transparent: true, opacity: 0.8, toneMapped: false });
-  for (const [from, to] of layout?.cameraLinks ?? []) {
-    const source = roomById.get(from), destination = roomById.get(to);
-    if (!source || !destination) continue;
-    const geometry = new THREE.BufferGeometry().setFromPoints([source.position.clone().add(new THREE.Vector3(0, 2, 0)),
-      destination.position.clone().add(new THREE.Vector3(0, 2, 0))]); shaftGeometries.push(geometry);
-    const line = new THREE.Line(geometry, cameraLinkMaterial); line.computeLineDistances(); scene.add(line); links.push({ object: line, id: to });
-  }
-  const goalGeometry = new THREE.TorusGeometry(0.8, 0.12, 8, 24); goalGeometry.rotateX(-Math.PI / 2);
-  const goalMaterial = new THREE.MeshBasicMaterial({ color: 0xffcf40, depthTest: false, toneMapped: false });
-  const goals = (layout?.goals ?? []).map(goal => {
-    const mesh = new THREE.Mesh(goalGeometry, goalMaterial); mesh.position.copy(goal.position); mesh.renderOrder = 101; scene.add(mesh);
-    const label = document.createElement('button'); label.type = 'button'; label.className = 'ship-map-goal-label menu-button';
-    label.textContent = goal.label; label.dataset.room = String(goal.room); label.setAttribute('aria-label', `Target: ${goal.label}`);
-    labelLayer.append(label); return { goal, mesh, label };
+  const cameraLinkMaterial = new THREE.LineDashedMaterial({
+    color: 0xbd77ff,
+    dashSize: 0.9,
+    gapSize: 0.7,
+    transparent: true,
+    opacity: 0.8,
+    toneMapped: false,
   });
-  const marker = document.createElement('span'); marker.className = 'ship-map-player-marker'; marker.hidden = true;
-  marker.setAttribute('role', 'img'); marker.setAttribute('aria-label', 'Your current position'); labelLayer.append(marker);
+  for (const [from, to] of layout?.cameraLinks ?? []) {
+    const source = roomById.get(from),
+      destination = roomById.get(to);
+    if (!source || !destination) continue;
+    const geometry = new THREE.BufferGeometry().setFromPoints([
+      source.position.clone().add(new THREE.Vector3(0, 2, 0)),
+      destination.position.clone().add(new THREE.Vector3(0, 2, 0)),
+    ]);
+    shaftGeometries.push(geometry);
+    const line = new THREE.Line(geometry, cameraLinkMaterial);
+    line.computeLineDistances();
+    scene.add(line);
+    links.push({ object: line, id: to });
+  }
+  const goalGeometry = new THREE.TorusGeometry(0.8, 0.12, 8, 24);
+  goalGeometry.rotateX(-Math.PI / 2);
+  const goalMaterial = new THREE.MeshBasicMaterial({
+    color: 0xffcf40,
+    depthTest: false,
+    toneMapped: false,
+  });
+  const goals = (layout?.goals ?? []).map((goal) => {
+    const mesh = new THREE.Mesh(goalGeometry, goalMaterial);
+    mesh.position.copy(goal.position);
+    mesh.renderOrder = 101;
+    scene.add(mesh);
+    const label = document.createElement("button");
+    label.type = "button";
+    label.className = "ship-map-goal-label menu-button";
+    label.textContent = goal.label;
+    label.dataset.room = String(goal.room);
+    label.setAttribute("aria-label", `Target: ${goal.label}`);
+    labelLayer.append(label);
+    return { goal, mesh, label };
+  });
+  const marker = document.createElement("span");
+  marker.className = "ship-map-player-marker";
+  marker.hidden = true;
+  marker.setAttribute("role", "img");
+  marker.setAttribute("aria-label", "Your current position");
+  labelLayer.append(marker);
 
   function fit() {
-    const rect = view.getBoundingClientRect(); if (rect.width < 1 || rect.height < 1) return;
+    const rect = view.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return;
     const box = new THREE.Box3();
-    rooms.filter(room => filter === 'all' || room.deck === filter).forEach(room => box.union(bounds.get(room.id)!));
-    if (box.isEmpty()) { needsFit = false; return; }
-    controls.enableDamping = false; controls.update(); controls.enableDamping = true;
-    const center = box.getCenter(new THREE.Vector3()); controls.target.copy(center);
+    rooms
+      .filter((room) => filter === "all" || room.deck === filter)
+      .forEach((room) => box.union(bounds.get(room.id)!));
+    if (box.isEmpty()) {
+      needsFit = false;
+      return;
+    }
+    controls.enableDamping = false;
+    controls.update();
+    controls.enableDamping = true;
+    const center = box.getCenter(new THREE.Vector3());
+    controls.target.copy(center);
     camera.position.copy(center).add(new THREE.Vector3(65, 135, 105));
-    camera.lookAt(center); camera.updateMatrixWorld(true);
+    camera.lookAt(center);
+    camera.updateMatrixWorld(true);
     const projectedBounds = new THREE.Box3();
-    for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z])
-      projectedBounds.expandByPoint(new THREE.Vector3(x, y, z).applyMatrix4(camera.matrixWorldInverse));
-    const span = projectedBounds.getSize(new THREE.Vector3()), aspect = rect.width / rect.height;
+    for (const x of [box.min.x, box.max.x])
+      for (const y of [box.min.y, box.max.y])
+        for (const z of [box.min.z, box.max.z])
+          projectedBounds.expandByPoint(
+            new THREE.Vector3(x, y, z).applyMatrix4(camera.matrixWorldInverse),
+          );
+    const span = projectedBounds.getSize(new THREE.Vector3()),
+      aspect = rect.width / rect.height;
     const half = Math.max(span.y, span.x / aspect) * 0.58;
-    camera.left = -half * aspect; camera.right = half * aspect; camera.top = half; camera.bottom = -half;
-    camera.zoom = 1; camera.updateProjectionMatrix(); controls.update(); needsFit = false;
+    camera.left = -half * aspect;
+    camera.right = half * aspect;
+    camera.top = half;
+    camera.bottom = -half;
+    camera.zoom = 1;
+    camera.updateProjectionMatrix();
+    controls.update();
+    needsFit = false;
   }
   function setFilter(deck: DeckFilter) {
     const changed = filter !== deck;
     filter = deck;
-    rooms.forEach(room => { groups.get(room.id)!.visible = deck === 'all' || room.deck === deck; });
-    links.forEach(link => { link.object.visible = deck === 'all'; });
-    goals.forEach(({ goal, mesh }) => { mesh.visible = deck === 'all' || roomById.get(goal.room)?.deck === deck; });
-    decks.querySelectorAll<HTMLButtonElement>('button').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.deck === deck)));
+    rooms.forEach((room) => {
+      groups.get(room.id)!.visible = deck === "all" || room.deck === deck;
+    });
+    links.forEach((link) => {
+      link.object.visible = deck === "all";
+    });
+    goals.forEach(({ goal, mesh }) => {
+      mesh.visible = deck === "all" || roomById.get(goal.room)?.deck === deck;
+    });
+    decks
+      .querySelectorAll<HTMLButtonElement>("button")
+      .forEach((button) =>
+        button.setAttribute(
+          "aria-pressed",
+          String(button.dataset.deck === deck),
+        ),
+      );
     if (changed) needsFit = true;
   }
   function selectRoom(id: number) {
-    const room = roomById.get(id); if (!room) return;
-    if (filter !== 'all' && filter !== room.deck) setFilter(room.deck);
-    materials.forEach((material, roomId) => { material.uniforms.uSelected.value = Number(roomId === id); });
-    labels.forEach((label, roomId) => { label.setAttribute('aria-pressed', String(roomId === id)); label.dataset.current = String(roomId === current); });
+    const room = roomById.get(id);
+    if (!room) return;
+    if (filter !== "all" && filter !== room.deck) setFilter(room.deck);
+    materials.forEach((material, roomId) => {
+      material.uniforms.uSelected.value = Number(roomId === id);
+    });
+    labels.forEach((label, roomId) => {
+      label.setAttribute("aria-pressed", String(roomId === id));
+      label.dataset.current = String(roomId === current);
+    });
     roomTitle.textContent = room.name;
-    roomDetail.textContent = `${SHIP_DECKS[room.deck].name}${id === current ? ' / You are here' : ''}${room.locked ? ' / Locked / Interior unavailable' : ''}`;
+    roomDetail.textContent = `${SHIP_DECKS[room.deck].name}${id === current ? " / You are here" : ""}${room.locked ? " / Locked / Interior unavailable" : Object.values(room.portals).some((portal) => portal.locked) ? " / Locked door" : ""}`;
   }
   function locateCurrent() {
     if (!playerPosition) return;
     selectRoom(current);
     if (needsFit) fit();
     const offset = camera.position.clone().sub(controls.target);
-    controls.target.copy(playerPosition); camera.position.copy(playerPosition).add(offset);
+    controls.target.copy(playerPosition);
+    camera.position.copy(playerPosition).add(offset);
     controls.update();
   }
-  root.addEventListener('click', event => {
-    const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('button') : null; if (!button) return;
-    const deck = button.dataset.deck;
-    if (deck === 'all' || deck === 'upper' || deck === 'main' || deck === 'lower') setFilter(deck);
-    if (button.dataset.room && !dragging) selectRoom(Number(button.dataset.room));
-    if (button.dataset.mapTool === 'fit') { needsFit = true; }
-    if (button.dataset.mapTool === 'current') locateCurrent();
-  }, { signal: events.signal });
-  view.addEventListener('pointerdown', event => {
-    if (!pointerStarts.size) dragging = false;
-    const label = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-room]') : null;
-    pointerStarts.set(event.pointerId, { position: new THREE.Vector2(event.clientX, event.clientY),
-      room: label ? Number(label.dataset.room) : undefined });
-    if (pointerStarts.size > 1) dragging = true;
-  }, { signal: events.signal });
-  view.addEventListener('pointermove', event => {
-    const start = pointerStarts.get(event.pointerId);
-    if (start && start.position.distanceToSquared(new THREE.Vector2(event.clientX, event.clientY)) > 25) dragging = true;
-  }, { signal: events.signal });
-  view.addEventListener('pointerup', event => {
-    const start = pointerStarts.get(event.pointerId); pointerStarts.delete(event.pointerId);
-    if (!start || dragging || event.button !== 0) return;
-    if (start.room !== undefined) { selectRoom(start.room); return; }
-    const rect = view.getBoundingClientRect(); pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);
-    if (Math.abs(pointer.x) > 1 || Math.abs(pointer.y) > 1) return;
-    scene.updateMatrixWorld(true); camera.updateMatrixWorld(true);
-    raycaster.setFromCamera(pointer, camera);
-    const hit = raycaster.intersectObjects(pickables, false).find(hit => groups.get(hit.object.userData.roomId)?.visible);
-    if (hit) selectRoom(hit.object.userData.roomId);
-  }, { signal: events.signal });
-  view.addEventListener('pointercancel', event => { pointerStarts.delete(event.pointerId); dragging = true; }, { signal: events.signal });
-  view.addEventListener('lostpointercapture', event => { if (pointerStarts.delete(event.pointerId)) dragging = true; }, { signal: events.signal });
-  view.addEventListener('keydown', event => {
-    if (event.code === 'Equal' || event.code === 'Minus' || event.code === 'NumpadAdd' || event.code === 'NumpadSubtract') {
-      event.preventDefault(); camera.zoom = THREE.MathUtils.clamp(camera.zoom * (event.code === 'Equal' || event.code === 'NumpadAdd' ? 1.15 : 1 / 1.15), controls.minZoom, controls.maxZoom); camera.updateProjectionMatrix();
-    }
-    if (event.code === 'Home') { event.preventDefault(); needsFit = true; }
-    if (event.code === 'KeyF') { event.preventDefault(); locateCurrent(); }
-  }, { signal: events.signal });
+  root.addEventListener(
+    "click",
+    (event) => {
+      const button =
+        event.target instanceof Element
+          ? event.target.closest<HTMLButtonElement>("button")
+          : null;
+      if (!button) return;
+      const deck = button.dataset.deck === "all"
+        ? "all"
+        : availableDecks.find((value) => value === button.dataset.deck);
+      if (deck !== undefined) setFilter(deck);
+      if (button.dataset.room && !dragging)
+        selectRoom(Number(button.dataset.room));
+      if (button.dataset.mapTool === "fit") {
+        needsFit = true;
+      }
+      if (button.dataset.mapTool === "current") locateCurrent();
+    },
+    { signal: events.signal },
+  );
+  view.addEventListener(
+    "pointerdown",
+    (event) => {
+      if (!pointerStarts.size) dragging = false;
+      const label =
+        event.target instanceof Element
+          ? event.target.closest<HTMLButtonElement>("[data-room]")
+          : null;
+      pointerStarts.set(event.pointerId, {
+        position: new THREE.Vector2(event.clientX, event.clientY),
+        room: label ? Number(label.dataset.room) : undefined,
+      });
+      if (pointerStarts.size > 1) dragging = true;
+    },
+    { signal: events.signal },
+  );
+  view.addEventListener(
+    "pointermove",
+    (event) => {
+      const start = pointerStarts.get(event.pointerId);
+      if (
+        start &&
+        start.position.distanceToSquared(
+          new THREE.Vector2(event.clientX, event.clientY),
+        ) > 25
+      )
+        dragging = true;
+    },
+    { signal: events.signal },
+  );
+  view.addEventListener(
+    "pointerup",
+    (event) => {
+      const start = pointerStarts.get(event.pointerId);
+      pointerStarts.delete(event.pointerId);
+      if (!start || dragging || event.button !== 0) return;
+      if (start.room !== undefined) {
+        selectRoom(start.room);
+        return;
+      }
+      const rect = view.getBoundingClientRect();
+      pointer.set(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        (-(event.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      if (Math.abs(pointer.x) > 1 || Math.abs(pointer.y) > 1) return;
+      scene.updateMatrixWorld(true);
+      camera.updateMatrixWorld(true);
+      raycaster.setFromCamera(pointer, camera);
+      const hit = raycaster
+        .intersectObjects(pickables, false)
+        .find((hit) => groups.get(hit.object.userData.roomId)?.visible);
+      if (hit) selectRoom(hit.object.userData.roomId);
+    },
+    { signal: events.signal },
+  );
+  view.addEventListener(
+    "pointercancel",
+    (event) => {
+      pointerStarts.delete(event.pointerId);
+      dragging = true;
+    },
+    { signal: events.signal },
+  );
+  view.addEventListener(
+    "lostpointercapture",
+    (event) => {
+      if (pointerStarts.delete(event.pointerId)) dragging = true;
+    },
+    { signal: events.signal },
+  );
+  view.addEventListener(
+    "keydown",
+    (event) => {
+      if (
+        event.code === "Equal" ||
+        event.code === "Minus" ||
+        event.code === "NumpadAdd" ||
+        event.code === "NumpadSubtract"
+      ) {
+        event.preventDefault();
+        camera.zoom = THREE.MathUtils.clamp(
+          camera.zoom *
+            (event.code === "Equal" || event.code === "NumpadAdd"
+              ? 1.15
+              : 1 / 1.15),
+          controls.minZoom,
+          controls.maxZoom,
+        );
+        camera.updateProjectionMatrix();
+      }
+      if (event.code === "Home") {
+        event.preventDefault();
+        needsFit = true;
+      }
+      if (event.code === "KeyF") {
+        event.preventDefault();
+        locateCurrent();
+      }
+    },
+    { signal: events.signal },
+  );
   const observer = new ResizeObserver(() => {
     const rect = view.getBoundingClientRect();
     if (!visible || rect.width < 1 || rect.height < 1) return;
-    camera.left = -camera.top * rect.width / rect.height; camera.right = -camera.left; camera.updateProjectionMatrix();
-  }); observer.observe(view);
-  setFilter('all'); selectRoom(layout?.initialRoom ?? 3);
+    camera.left = (-camera.top * rect.width) / rect.height;
+    camera.right = -camera.left;
+    camera.updateProjectionMatrix();
+  });
+  observer.observe(view);
+  setFilter("all");
+  selectRoom(layout?.initialRoom ?? 3);
   return {
-    get visible() { return visible; },
-    open(sceneId: string, position?: { x: number; y: number; z: number }) {
-      visible = true; controls.enabled = true; current = Number(sceneId.replace('scene', ''));
-      playerPosition = position && roomById.has(current) ? (layout?.playerPoint ?? shipPlayerPoint)(current, position) : null;
-      selectRoom(roomById.has(current) ? current : layout?.initialRoom ?? 3);
-      marker.hidden = true;
-      dragging = false; pointerStarts.clear();
-      root.querySelector<HTMLButtonElement>('[data-map-tool="current"]')!.disabled = !playerPosition;
+    get visible() {
+      return visible;
     },
-    hide() { visible = false; marker.hidden = true; controls.enabled = false; pointerStarts.clear(); },
+    open(sceneId: string, position?: { x: number; y: number; z: number }) {
+      visible = true;
+      controls.enabled = true;
+      current = Number(sceneId.replace("scene", ""));
+      playerPosition =
+        position && roomById.has(current)
+          ? (layout?.playerPoint ?? shipPlayerPoint)(current, position)
+          : null;
+      selectRoom(roomById.has(current) ? current : (layout?.initialRoom ?? 3));
+      marker.hidden = true;
+      dragging = false;
+      pointerStarts.clear();
+      root.querySelector<HTMLButtonElement>(
+        '[data-map-tool="current"]',
+      )!.disabled = !playerPosition;
+    },
+    hide() {
+      visible = false;
+      marker.hidden = true;
+      controls.enabled = false;
+      pointerStarts.clear();
+    },
+    navigateWithController(input: ControllerMapInput, delta: number) {
+      if (!visible || !rooms.length) return;
+      if (input.deckStep) {
+        const filters: DeckFilter[] = ["all", ...availableDecks];
+        setFilter(
+          filters[
+            (filters.indexOf(filter) + input.deckStep + filters.length) %
+              filters.length
+          ],
+        );
+      }
+      if (input.reset) needsFit = true;
+      if (needsFit) fit();
+      if (input.locate) locateCurrent();
+      if (
+        !input.panX &&
+        !input.panY &&
+        !input.rotateX &&
+        !input.rotateY &&
+        !input.zoom
+      )
+        return;
+      controllerOffset.copy(camera.position).sub(controls.target);
+      controllerOrbit.setFromVector3(controllerOffset);
+      controllerOrbit.theta -= input.rotateX * delta * 1.8;
+      controllerOrbit.phi = THREE.MathUtils.clamp(
+        controllerOrbit.phi + input.rotateY * delta * 1.5,
+        controls.minPolarAngle,
+        controls.maxPolarAngle,
+      );
+      camera.position
+        .copy(controllerOffset.setFromSpherical(controllerOrbit))
+        .add(controls.target);
+      camera.lookAt(controls.target);
+      controllerRight
+        .set(1, 0, 0)
+        .applyQuaternion(camera.quaternion)
+        .setY(0)
+        .normalize();
+      controllerForward
+        .set(0, 0, -1)
+        .applyQuaternion(camera.quaternion)
+        .setY(0)
+        .normalize();
+      const panSpeed = ((camera.top - camera.bottom) / camera.zoom) * delta * 0.7;
+      controllerPan
+        .copy(controllerRight)
+        .multiplyScalar(input.panX * panSpeed)
+        .addScaledVector(controllerForward, -input.panY * panSpeed);
+      controls.target.add(controllerPan);
+      camera.position.add(controllerPan);
+      if (input.zoom) {
+        camera.zoom = THREE.MathUtils.clamp(
+          camera.zoom * Math.exp(input.zoom * delta * 1.6),
+          controls.minZoom,
+          controls.maxZoom,
+        );
+        camera.updateProjectionMatrix();
+      }
+      controls.update();
+    },
     render() {
       if (!visible) return;
-      controls.update(); if (needsFit) fit();
+      controls.update();
+      if (needsFit) fit();
       const now = performance.now();
-      const rect = view.getBoundingClientRect(), canvas = renderer.domElement.getBoundingClientRect();
+      const rect = view.getBoundingClientRect(),
+        canvas = renderer.domElement.getBoundingClientRect();
       if (rect.width < 1 || rect.height < 1) return;
       camera.updateMatrixWorld(true);
       north.set(0, 0, -1).transformDirection(camera.matrixWorldInverse);
-      compass.style.setProperty('--north-angle', `${Math.atan2(north.x, north.y)}rad`);
-      materials.forEach(material => { material.uniforms.uTime.value = now * 0.001; });
-      const spacing = rooms.length ? Number.parseFloat(getComputedStyle(labels.get(rooms[0].id)!).width) + 4 : 0;
+      compass.style.setProperty(
+        "--north-angle",
+        `${Math.atan2(north.x, north.y)}rad`,
+      );
+      materials.forEach((material) => {
+        material.uniforms.uTime.value = now * 0.001;
+      });
+      const spacing = rooms.length
+        ? Number.parseFloat(getComputedStyle(labels.get(rooms[0].id)!).width) +
+          4
+        : 0;
       const placed: { x: number; y: number }[] = [];
-      marker.hidden = playerPosition === null || (filter !== 'all' && roomById.get(current)?.deck !== filter);
+      marker.hidden =
+        playerPosition === null ||
+        (filter !== "all" && roomById.get(current)?.deck !== filter);
       if (playerPosition && !marker.hidden) {
         projected.copy(playerPosition).project(camera);
-        marker.hidden = Math.abs(projected.x) > 0.98 || Math.abs(projected.y) > 0.98 || Math.abs(projected.z) > 1;
+        marker.hidden =
+          Math.abs(projected.x) > 0.98 ||
+          Math.abs(projected.y) > 0.98 ||
+          Math.abs(projected.z) > 1;
         if (!marker.hidden) {
-          const point = { x: (projected.x + 1) * rect.width / 2, y: (1 - projected.y) * rect.height / 2 };
-          marker.style.left = `${point.x}px`; marker.style.top = `${point.y}px`; placed.push(point);
+          const point = {
+            x: ((projected.x + 1) * rect.width) / 2,
+            y: ((1 - projected.y) * rect.height) / 2,
+          };
+          marker.style.left = `${point.x}px`;
+          marker.style.top = `${point.y}px`;
+          placed.push(point);
         }
       }
-      rooms.forEach(room => {
-        const label = labels.get(room.id)!; projected.copy(room.position).add(new THREE.Vector3(0, 2, 0)).project(camera);
-        label.hidden = !groups.get(room.id)!.visible || Math.abs(projected.x) > 0.98 || Math.abs(projected.y) > 0.98 || Math.abs(projected.z) > 1;
+      rooms.forEach((room) => {
+        const label = labels.get(room.id)!;
+        projected
+          .copy(room.position)
+          .add(new THREE.Vector3(0, 2, 0))
+          .project(camera);
+        label.hidden =
+          !groups.get(room.id)!.visible ||
+          Math.abs(projected.x) > 0.98 ||
+          Math.abs(projected.y) > 0.98 ||
+          Math.abs(projected.z) > 1;
         if (label.hidden) return;
-        const origin = { x: (projected.x + 1) * rect.width / 2, y: (1 - projected.y) * rect.height / 2 };
+        const origin = {
+          x: ((projected.x + 1) * rect.width) / 2,
+          y: ((1 - projected.y) * rect.height) / 2,
+        };
         const step = spacing / 2;
         let point = origin;
-        placement: for (let ring = 0; ring <= 4; ring++) for (const offsetX of [0, -ring, ring]) for (const offsetY of [0, -ring, ring]) {
-          if (Math.max(Math.abs(offsetX), Math.abs(offsetY)) !== ring) continue;
-          const candidate = { x: origin.x + offsetX * step, y: origin.y + offsetY * step };
-          if (candidate.x < step || candidate.x > rect.width - step || candidate.y < step || candidate.y > rect.height - step) continue;
-          if (placed.every(other => Math.abs(other.x - candidate.x) >= spacing || Math.abs(other.y - candidate.y) >= spacing)) { point = candidate; break placement; }
-        }
-        placed.push(point); label.style.left = `${point.x}px`; label.style.top = `${point.y}px`;
-        label.style.setProperty('--leader-length', `${Math.max(0, Math.hypot(origin.x - point.x, origin.y - point.y) - step)}px`);
-        label.style.setProperty('--leader-angle', `${Math.atan2(origin.y - point.y, origin.x - point.x)}rad`);
-        label.style.setProperty('--leader-start', `${step}px`);
+        placement: for (let ring = 0; ring <= 4; ring++)
+          for (const offsetX of [0, -ring, ring])
+            for (const offsetY of [0, -ring, ring]) {
+              if (Math.max(Math.abs(offsetX), Math.abs(offsetY)) !== ring)
+                continue;
+              const candidate = {
+                x: origin.x + offsetX * step,
+                y: origin.y + offsetY * step,
+              };
+              if (
+                candidate.x < step ||
+                candidate.x > rect.width - step ||
+                candidate.y < step ||
+                candidate.y > rect.height - step
+              )
+                continue;
+              if (
+                placed.every(
+                  (other) =>
+                    Math.abs(other.x - candidate.x) >= spacing ||
+                    Math.abs(other.y - candidate.y) >= spacing,
+                )
+              ) {
+                point = candidate;
+                break placement;
+              }
+            }
+        placed.push(point);
+        label.style.left = `${point.x}px`;
+        label.style.top = `${point.y}px`;
+        label.style.setProperty(
+          "--leader-length",
+          `${Math.max(0, Math.hypot(origin.x - point.x, origin.y - point.y) - step)}px`,
+        );
+        label.style.setProperty(
+          "--leader-angle",
+          `${Math.atan2(origin.y - point.y, origin.x - point.x)}rad`,
+        );
+        label.style.setProperty("--leader-start", `${step}px`);
       });
       goals.forEach(({ goal, mesh, label }) => {
         projected.copy(goal.position).project(camera);
-        label.hidden = !mesh.visible || Math.abs(projected.x) > 0.98 || Math.abs(projected.y) > 0.98 || Math.abs(projected.z) > 1;
-        label.style.left = `${(projected.x + 1) * rect.width / 2}px`; label.style.top = `${(1 - projected.y) * rect.height / 2}px`;
+        label.hidden =
+          !mesh.visible ||
+          Math.abs(projected.x) > 0.98 ||
+          Math.abs(projected.y) > 0.98 ||
+          Math.abs(projected.z) > 1;
+        label.style.left = `${((projected.x + 1) * rect.width) / 2}px`;
+        label.style.top = `${((1 - projected.y) * rect.height) / 2}px`;
       });
       elevatorLabels.forEach(({ point, label, object }) => {
         projected.copy(point).project(camera);
-        label.hidden = !object.visible || Math.abs(projected.x) > 0.96 || Math.abs(projected.y) > 0.96 || Math.abs(projected.z) > 1;
-        label.style.left = `${(projected.x + 1) * rect.width / 2}px`; label.style.top = `${(1 - projected.y) * rect.height / 2}px`;
+        label.hidden =
+          !object.visible ||
+          Math.abs(projected.x) > 0.96 ||
+          Math.abs(projected.y) > 0.96 ||
+          Math.abs(projected.z) > 1;
+        label.style.left = `${((projected.x + 1) * rect.width) / 2}px`;
+        label.style.top = `${((1 - projected.y) * rect.height) / 2}px`;
       });
-      renderer.getViewport(viewport); renderer.getScissor(scissor); renderer.getClearColor(clearColor); renderer.getSize(size);
-      const target = renderer.getRenderTarget(), autoClear = renderer.autoClear, oldScissor = renderer.getScissorTest(), alpha = renderer.getClearAlpha();
+      renderer.getViewport(viewport);
+      renderer.getScissor(scissor);
+      renderer.getClearColor(clearColor);
+      renderer.getSize(size);
+      const target = renderer.getRenderTarget(),
+        autoClear = renderer.autoClear,
+        oldScissor = renderer.getScissorTest(),
+        alpha = renderer.getClearAlpha();
       try {
-        const scaleX = size.x / canvas.width, scaleY = size.y / canvas.height;
-        const left = (rect.left - canvas.left) * scaleX, bottom = (canvas.bottom - rect.bottom) * scaleY;
-        const width = rect.width * scaleX, height = rect.height * scaleY;
+        const scaleX = size.x / canvas.width,
+          scaleY = size.y / canvas.height;
+        const left = (rect.left - canvas.left) * scaleX,
+          bottom = (canvas.bottom - rect.bottom) * scaleY;
+        const width = rect.width * scaleX,
+          height = rect.height * scaleY;
         renderer.setRenderTarget(null);
         renderer.setViewport(left, bottom, width, height);
         renderer.setScissor(left, bottom, width, height);
-        renderer.setScissorTest(true); renderer.autoClear = false;
-        renderer.setClearColor(0xffffff, 0.4); renderer.clear(true, true, false);
+        renderer.setScissorTest(true);
+        renderer.autoClear = false;
+        renderer.setClearColor(0xffffff, 0.4);
+        renderer.clear(true, true, false);
         renderer.render(scene, camera);
       } finally {
-        renderer.setRenderTarget(target); renderer.setViewport(viewport); renderer.setScissor(scissor); renderer.setScissorTest(oldScissor);
-        renderer.setClearColor(clearColor, alpha); renderer.autoClear = autoClear;
+        renderer.setRenderTarget(target);
+        renderer.setViewport(viewport);
+        renderer.setScissor(scissor);
+        renderer.setScissorTest(oldScissor);
+        renderer.setClearColor(clearColor, alpha);
+        renderer.autoClear = autoClear;
       }
     },
     dispose() {
-      events.abort(); observer.disconnect(); controls.dispose(); boxGeometry.dispose(); edgeGeometry.dispose();
-      materials.forEach(material => material.dispose()); outlineMaterials.forEach(material => material.dispose());
-      shaftMaterial.dispose(); cameraLinkMaterial.dispose(); goalGeometry.dispose(); goalMaterial.dispose();
-      elevatorMaterial.dispose(); elevatorEdges.dispose(); elevatorOffline.dispose();
-      shaftGeometries.forEach(geometry => geometry.dispose()); root.replaceChildren();
+      events.abort();
+      observer.disconnect();
+      controls.dispose();
+      boxGeometry.dispose();
+      edgeGeometry.dispose();
+      materials.forEach((material) => material.dispose());
+      outlineMaterials.forEach((material) => material.dispose());
+      shaftMaterial.dispose();
+      cameraLinkMaterial.dispose();
+      goalGeometry.dispose();
+      goalMaterial.dispose();
+      elevatorMaterial.dispose();
+      elevatorEdges.dispose();
+      elevatorOffline.dispose();
+      shaftGeometries.forEach((geometry) => geometry.dispose());
+      root.replaceChildren();
     },
   };
 }

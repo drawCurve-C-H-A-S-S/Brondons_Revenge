@@ -1,4 +1,4 @@
-import type { Player } from './player.js';
+import type { Player } from "./player.js";
 
 interface GogglesContext {
   player: Player | null;
@@ -11,20 +11,47 @@ export class GogglesController {
   private collected = false;
   private equipped = false;
   private previousActive = false;
-  constructor(private context: () => GogglesContext) { window.addEventListener('keydown', this.onKeyDown); }
-  isCollected() { return this.collected; }
-  isEquipped() { return this.equipped; }
-  collect(equip = true) { this.collected = true; this.equipped = equip; this.update(); }
-  reset() { this.collected = this.equipped = false; this.update(); }
+  constructor(private context: () => GogglesContext) {
+    window.addEventListener("keydown", this.onKeyDown);
+  }
+  isCollected() {
+    return this.collected;
+  }
+  isEquipped() {
+    return this.equipped;
+  }
+  collect(equip = true) {
+    this.collected = true;
+    this.equipped = equip;
+    this.update();
+  }
+  reset() {
+    this.collected = this.equipped = false;
+    this.update();
+  }
   private onKeyDown = (event: KeyboardEvent) => {
-    if (event.code !== 'KeyN' || event.repeat || !this.collected || !this.context().player?.isEnabled()
-      || document.hidden || document.body.classList.contains('quick-menu-open')) return;
-    if (event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable="true"]')) return;
-    event.preventDefault(); this.equipped = !this.equipped; this.update();
+    if (
+      event.code !== "KeyN" ||
+      event.repeat ||
+      !this.collected ||
+      !this.context().player?.isEnabled() ||
+      document.hidden ||
+      document.body.classList.contains("quick-menu-open")
+    )
+      return;
+    if (
+      event.target instanceof HTMLElement &&
+      event.target.closest('input, textarea, [contenteditable="true"]')
+    )
+      return;
+    event.preventDefault();
+    this.equipped = !this.equipped;
+    this.update();
   };
   update() {
     const { player, setCharacterEquipped, onToggle } = this.context();
-    const active = this.equipped && !!player?.isEnabled() && player.getHealth() > 0;
+    const active =
+      this.equipped && !!player?.isEnabled() && player.getHealth() > 0;
     if (active !== this.previousActive) {
       this.previousActive = active;
       onToggle?.(active);
@@ -32,10 +59,10 @@ export class GogglesController {
     setCharacterEquipped(active);
   }
   dispose() {
-    window.removeEventListener('keydown', this.onKeyDown);
+    window.removeEventListener("keydown", this.onKeyDown);
     this.context().setCharacterEquipped(false);
     this.context().onToggle?.(false);
     this.previousActive = false;
-    document.getElementById('goggles-overlay')?.classList.add('hidden');
+    document.getElementById("goggles-overlay")?.classList.add("hidden");
   }
 }

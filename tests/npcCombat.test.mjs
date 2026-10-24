@@ -1,64 +1,111 @@
-import assert from 'node:assert/strict';
-import { after, before, test } from 'node:test';
-import { readFile } from 'node:fs/promises';
-import { createServer } from 'vite';
-import { mockCombatAnimationFetch } from './combatAnimationFixtures.mjs';
+import assert from "node:assert/strict";
+import { after, before, test } from "node:test";
+import { readFile } from "node:fs/promises";
+import { createServer } from "vite";
+import { mockCombatAnimationFetch } from "./combatAnimationFixtures.mjs";
 
-let server, THREE, GLTFLoader, OBJLoader, NPCEnemyManager, PistolController, traceShot, createScenePhysics, loadCharacter;
+let server,
+  THREE,
+  GLTFLoader,
+  OBJLoader,
+  NPCEnemyManager,
+  PistolController,
+  traceShot,
+  createScenePhysics,
+  loadCharacter;
 const factories = {};
 before(async () => {
   server = await createServer({
     server: { middlewareMode: true, watch: null, ws: false },
-    appType: 'custom', optimizeDeps: { noDiscovery: true, include: [] },
-    plugins: [{
-      name: 'combat-test-dependencies',
-      resolveId: id => id === 'virtual:combat-dependencies' ? '\0combat-dependencies' : null,
-      load: id => id === '\0combat-dependencies' ? `
+    appType: "custom",
+    optimizeDeps: { noDiscovery: true, include: [] },
+    plugins: [
+      {
+        name: "combat-test-dependencies",
+        resolveId: (id) =>
+          id === "virtual:combat-dependencies" ? "\0combat-dependencies" : null,
+        load: (id) =>
+          id === "\0combat-dependencies"
+            ? `
         export * as THREE from 'three';
         export { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         export { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
-      ` : null,
-    }],
+      `
+            : null,
+      },
+    ],
   });
   // Use the runner's module instance (Windows drive-letter casing can otherwise duplicate Three.js).
-  ({ THREE, GLTFLoader, OBJLoader } = await server.ssrLoadModule('virtual:combat-dependencies'));
-  ({ NPCEnemyManager } = await server.ssrLoadModule('/scripts/npc/npc-enemy-robots.ts'));
-  ({ PistolController, traceShot } = await server.ssrLoadModule('/scripts/weapons/pistol.ts'));
-  ({ createScenePhysics } = await server.ssrLoadModule('/helpers/physics/scenePhysics.ts'));
-  ({ loadCharacter } = await server.ssrLoadModule('/scripts/player/characterManager.ts'));
-  for (const id of ['scene2', 'scene3', 'scene4']) {
-    factories[id] = (await server.ssrLoadModule(`/scenes/legacy scenes/${id}.ts`)).createScene;
+  ({ THREE, GLTFLoader, OBJLoader } = await server.ssrLoadModule(
+    "virtual:combat-dependencies",
+  ));
+  ({ NPCEnemyManager } = await server.ssrLoadModule(
+    "/scripts/npc/npc-enemy-robots.ts",
+  ));
+  ({ PistolController, traceShot } = await server.ssrLoadModule(
+    "/scripts/weapons/pistol.ts",
+  ));
+  ({ createScenePhysics } = await server.ssrLoadModule(
+    "/helpers/physics/scenePhysics.ts",
+  ));
+  ({ loadCharacter } = await server.ssrLoadModule(
+    "/scripts/player/characterManager.ts",
+  ));
+  for (const id of ["scene2", "scene3", "scene4"]) {
+    factories[id] = (
+      await server.ssrLoadModule(`/scenes/legacy scenes/${id}.ts`)
+    ).createScene;
   }
 });
-after(async () => { await server?.close(); });
+after(async () => {
+  await server?.close();
+});
 
 function browser(t) {
-  const old = { window: globalThis.window, document: globalThis.document, HTMLElement: globalThis.HTMLElement,
-    ProgressEvent: globalThis.ProgressEvent };
+  const old = {
+    window: globalThis.window,
+    document: globalThis.document,
+    HTMLElement: globalThis.HTMLElement,
+    ProgressEvent: globalThis.ProgressEvent,
+  };
   class Element extends EventTarget {
     style = {};
     dataset = {};
-    textContent = '';
-    closest() { return null; }
+    textContent = "";
+    closest() {
+      return null;
+    }
     requestPointerLock() {}
     appendChild() {}
     remove() {}
   }
   globalThis.HTMLElement = Element;
   globalThis.ProgressEvent = class extends Event {};
-  globalThis.window = Object.assign(new EventTarget(), { innerWidth: 1280, innerHeight: 720 });
-  const elements = { crosshair: new Element(), 'weapon-status': new Element() };
-  const context = new Proxy({}, { get: (target, key) => target[key] ?? (() => {}) });
+  globalThis.window = Object.assign(new EventTarget(), {
+    innerWidth: 1280,
+    innerHeight: 720,
+  });
+  const elements = { crosshair: new Element(), "weapon-status": new Element() };
+  const context = new Proxy(
+    {},
+    { get: (target, key) => target[key] ?? (() => {}) },
+  );
   globalThis.document = Object.assign(new EventTarget(), {
-    pointerLockElement: null, body: new Element(),
-    createElement: () => Object.assign(new Element(), { getContext: () => context }),
-    getElementById: id => elements[id] ?? null,
+    pointerLockElement: null,
+    body: new Element(),
+    createElement: () =>
+      Object.assign(new Element(), { getContext: () => context }),
+    getElementById: (id) => elements[id] ?? null,
   });
   // Decorative textures/computers do not participate in scene collision tests.
-  t.mock.method(THREE.TextureLoader.prototype, 'load', () => new THREE.Texture());
-  t.mock.method(OBJLoader.prototype, 'load', () => {});
+  t.mock.method(
+    THREE.TextureLoader.prototype,
+    "load",
+    () => new THREE.Texture(),
+  );
+  t.mock.method(OBJLoader.prototype, "load", () => {});
   const cleanups = [];
-  t.cleanup = fn => cleanups.push(fn);
+  t.cleanup = (fn) => cleanups.push(fn);
   t.after(() => {
     for (const dispose of cleanups.reverse()) dispose();
     Object.assign(globalThis, old);
@@ -66,79 +113,146 @@ function browser(t) {
   return elements;
 }
 
-function key(code, type = 'keydown', extra = {}) {
+function key(code, type = "keydown", extra = {}) {
   const event = new Event(type, { cancelable: true });
-  Object.defineProperties(event, Object.fromEntries(Object.entries({ code, repeat: false, ...extra })
-    .map(([name, value]) => [name, { value }])));
+  Object.defineProperties(
+    event,
+    Object.fromEntries(
+      Object.entries({ code, repeat: false, ...extra }).map(([name, value]) => [
+        name,
+        { value },
+      ]),
+    ),
+  );
   window.dispatchEvent(event);
 }
 function click(extra = {}) {
-  const event = new Event('mousedown');
-  Object.defineProperties(event, Object.fromEntries(Object.entries({ button: 0, ...extra })
-    .map(([name, value]) => [name, { value }])));
+  const event = new Event("mousedown");
+  Object.defineProperties(
+    event,
+    Object.fromEntries(
+      Object.entries({ button: 0, ...extra }).map(([name, value]) => [
+        name,
+        { value },
+      ]),
+    ),
+  );
   document.dispatchEvent(event);
 }
 
-test('pistol reports physical impact once and never emits distraction for rejected shots', async t => {
+test("pistol reports physical impact once and never emits distraction for rejected shots", async (t) => {
   browser(t);
-  const physics = createScenePhysics(), scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
-  camera.position.set(0, 1.3, 0); camera.lookAt(0, 1.3, -5);
-  const wall = new THREE.Mesh(new THREE.BoxGeometry(5, 4, 0.2), new THREE.MeshBasicMaterial());
-  wall.position.set(0, 1.3, -4); scene.add(wall); physics.addBoxFromMesh(wall);
+  const physics = createScenePhysics(),
+    scene = new THREE.Scene(),
+    camera = new THREE.PerspectiveCamera();
+  camera.position.set(0, 1.3, 0);
+  camera.lookAt(0, 1.3, -5);
+  const wall = new THREE.Mesh(
+    new THREE.BoxGeometry(5, 4, 0.2),
+    new THREE.MeshBasicMaterial(),
+  );
+  wall.position.set(0, 1.3, -4);
+  scene.add(wall);
+  physics.addBoxFromMesh(wall);
   let enabled = true;
   const reports = [];
-  const player = { isEnabled: () => enabled, getState: () => ({ climbing: false, ventMode: false, boxHandling: false }) };
-  const pistol = new PistolController(() => ({ scene, camera, world: physics.world, player, character: null,
-    thirdPerson: false, targets: [], onShot: (point, origin) => reports.push({ point: point.clone(), origin: origin.clone() }) }),
-    async () => ({ scene: new THREE.Group() }));
-  t.cleanup(() => { pistol.dispose(); physics.dispose(); wall.geometry.dispose(); wall.material.dispose(); });
-  await pistol.ready; pistol.equip();
+  const player = {
+    isEnabled: () => enabled,
+    getState: () => ({ climbing: false, ventMode: false, boxHandling: false }),
+  };
+  const pistol = new PistolController(
+    () => ({
+      scene,
+      camera,
+      world: physics.world,
+      player,
+      character: null,
+      thirdPerson: false,
+      targets: [],
+      onShot: (point, origin) =>
+        reports.push({ point: point.clone(), origin: origin.clone() }),
+    }),
+    async () => ({ scene: new THREE.Group() }),
+  );
+  t.cleanup(() => {
+    pistol.dispose();
+    physics.dispose();
+    wall.geometry.dispose();
+    wall.material.dispose();
+  });
+  await pistol.ready;
+  pistol.equip();
   assert.equal(pistol.shoot(), true);
   assert.equal(reports.length, 1);
-  assert.ok(Math.abs(reports[0].point.z + 3.9) < 0.01, 'Noise is at the blocked physical impact, not beyond the wall');
+  assert.ok(
+    Math.abs(reports[0].point.z + 3.9) < 0.01,
+    "Noise is at the blocked physical impact, not beyond the wall",
+  );
   assert.ok(reports[0].origin.distanceTo(reports[0].point) > 3);
   assert.equal(pistol.shoot(), false);
-  assert.equal(reports.length, 1, 'Cooldown cannot generate a second noise');
-  pistol.update(0.3); enabled = false;
+  assert.equal(reports.length, 1, "Cooldown cannot generate a second noise");
+  pistol.update(0.3);
+  enabled = false;
   assert.equal(pistol.shoot(), false);
-  assert.equal(reports.length, 1, 'Cinematic or disabled players cannot create a distraction');
-  enabled = true; pistol.holster();
-  assert.equal(pistol.shoot(), false); assert.equal(reports.length, 1);
+  assert.equal(
+    reports.length,
+    1,
+    "Cinematic or disabled players cannot create a distraction",
+  );
+  enabled = true;
+  pistol.holster();
+  assert.equal(pistol.shoot(), false);
+  assert.equal(reports.length, 1);
 });
 
 async function toolModel(name) {
-  const base = new URL('../src/assets/models/Tools/', import.meta.url);
-  const json = JSON.parse(await readFile(new URL(`${name}.gltf`, base), 'utf8'));
+  const base = new URL("../src/assets/models/Tools/", import.meta.url);
+  const json = JSON.parse(
+    await readFile(new URL(`${name}.gltf`, base), "utf8"),
+  );
   for (const buffer of json.buffers) {
     const bytes = await readFile(new URL(buffer.uri, base));
-    buffer.uri = `data:application/octet-stream;base64,${bytes.toString('base64')}`;
+    buffer.uri = `data:application/octet-stream;base64,${bytes.toString("base64")}`;
   }
   // Preserve real geometry, skeleton, and animation tracks without a browser image decoder.
   delete json.materials;
   delete json.textures;
   delete json.images;
-  for (const mesh of json.meshes) for (const primitive of mesh.primitives) delete primitive.material;
-  return new GLTFLoader().parseAsync(JSON.stringify(json), '');
+  for (const mesh of json.meshes)
+    for (const primitive of mesh.primitives) delete primitive.material;
+  return new GLTFLoader().parseAsync(JSON.stringify(json), "");
 }
 
 async function subjectModel() {
-  const buffer = await readFile(new URL('../src/assets/models/Subject.glb', import.meta.url));
-  return new GLTFLoader().parseAsync(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength), '');
+  const buffer = await readFile(
+    new URL("../src/assets/models/Subject.glb", import.meta.url),
+  );
+  return new GLTFLoader().parseAsync(
+    buffer.buffer.slice(
+      buffer.byteOffset,
+      buffer.byteOffset + buffer.byteLength,
+    ),
+    "",
+  );
 }
 
-test('production Subject rig supplies the pistol clips and grip bones', async t => {
+test("production Subject rig supplies the pistol clips and grip bones", async (t) => {
   browser(t);
   const gltf = await subjectModel();
-  for (const name of ['Pistol_Aim_Neutral', 'Pistol_Idle_Loop', 'Pistol_Shoot']) {
-    assert.ok(gltf.animations.some(clip => clip.name === name));
+  for (const name of [
+    "Pistol_Aim_Neutral",
+    "Pistol_Idle_Loop",
+    "Pistol_Shoot",
+  ]) {
+    assert.ok(gltf.animations.some((clip) => clip.name === name));
   }
   const mixer = new THREE.AnimationMixer(gltf.scene);
-  const shoot = gltf.animations.find(clip => clip.name === 'Pistol_Shoot');
+  const shoot = gltf.animations.find((clip) => clip.name === "Pistol_Shoot");
   assert.ok(shoot);
   mixer.clipAction(shoot).play();
   mixer.update(0);
   gltf.scene.updateMatrixWorld(true);
-  for (const name of ['hand_r', 'index_01_r', 'middle_01_r', 'thumb_01_r']) {
+  for (const name of ["hand_r", "index_01_r", "middle_01_r", "thumb_01_r"]) {
     const bone = gltf.scene.getObjectByName(name);
     assert.ok(bone?.isBone, `${name} is present in the production rig`);
   }
@@ -147,7 +261,7 @@ test('production Subject rig supplies the pistol clips and grip bones', async t 
 
 async function characterFixture(t) {
   const gltf = await subjectModel();
-  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, "log", () => {});
   mockCombatAnimationFetch(t);
   const character = await loadCharacter({ loadAsync: async () => gltf });
   assert.ok(character);
@@ -155,22 +269,39 @@ async function characterFixture(t) {
   return character;
 }
 
-test('armed upper body holds and shoots while the real Subject legs keep walking', async t => {
+test("armed upper body holds and shoots while the real Subject legs keep walking", async (t) => {
   browser(t);
   const armed = await characterFixture(t);
   const unarmed = await characterFixture(t);
-  const state = { yaw: 0, pitch: 0, isOnGround: true, isMoving: true, jumping: false, velocityY: 0,
-    actionRequest: null, crouching: false, sprinting: false };
+  const state = {
+    yaw: 0,
+    pitch: 0,
+    isOnGround: true,
+    isMoving: true,
+    jumping: false,
+    velocityY: 0,
+    actionRequest: null,
+    crouching: false,
+    sprinting: false,
+  };
   armed.weapon.setEquipped(true);
   const update = (dt = 1 / 60) => {
-    for (const character of [armed, unarmed]) character.update(dt, { x: 0, y: 0.3, z: 0 }, state, true, 0.3);
+    for (const character of [armed, unarmed])
+      character.update(dt, { x: 0, y: 0.3, z: 0 }, state, true, 0.3);
   };
   for (let i = 0; i < 30; i++) update();
-  const leg = armed.model.getObjectByName('thigh_l');
-  const otherLeg = unarmed.model.getObjectByName('thigh_l');
-  const arm = armed.model.getObjectByName('upperarm_r');
-  assert.ok(leg.quaternion.angleTo(otherLeg.quaternion) < 1e-5, 'Arming must not alter the walking legs');
-  assert.ok(arm.quaternion.angleTo(unarmed.model.getObjectByName('upperarm_r').quaternion) > 0.1);
+  const leg = armed.model.getObjectByName("thigh_l");
+  const otherLeg = unarmed.model.getObjectByName("thigh_l");
+  const arm = armed.model.getObjectByName("upperarm_r");
+  assert.ok(
+    leg.quaternion.angleTo(otherLeg.quaternion) < 1e-5,
+    "Arming must not alter the walking legs",
+  );
+  assert.ok(
+    arm.quaternion.angleTo(
+      unarmed.model.getObjectByName("upperarm_r").quaternion,
+    ) > 0.1,
+  );
   const beforeLeg = leg.quaternion.clone();
   const beforeArm = arm.quaternion.clone();
   armed.weapon.shoot();
@@ -178,52 +309,114 @@ test('armed upper body holds and shoots while the real Subject legs keep walking
   for (let i = 0; i < 12; i++) {
     update();
     recoilMotion = Math.max(recoilMotion, beforeArm.angleTo(arm.quaternion));
-    assert.ok(leg.quaternion.angleTo(otherLeg.quaternion) < 1e-5, 'Shooting must preserve full walking motion');
+    assert.ok(
+      leg.quaternion.angleTo(otherLeg.quaternion) < 1e-5,
+      "Shooting must preserve full walking motion",
+    );
   }
-  assert.ok(beforeLeg.angleTo(leg.quaternion) > 0.01, 'Legs continue animating during firing');
-  assert.ok(recoilMotion > 0.01, 'The GLB shooting clip moves the upper body');
+  assert.ok(
+    beforeLeg.angleTo(leg.quaternion) > 0.01,
+    "Legs continue animating during firing",
+  );
+  assert.ok(recoilMotion > 0.01, "The GLB shooting clip moves the upper body");
   for (let i = 0; i < 120; i++) update();
-  assert.ok(arm.quaternion.angleTo(beforeArm) < 0.2, 'Shot returns to the equipped holding pose');
-  const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(armed.weapon.socket.getWorldQuaternion(new THREE.Quaternion()));
+  assert.ok(
+    arm.quaternion.angleTo(beforeArm) < 0.2,
+    "Shot returns to the equipped holding pose",
+  );
+  const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(
+    armed.weapon.socket.getWorldQuaternion(new THREE.Quaternion()),
+  );
   t.diagnostic(`Equipped barrel direction: ${direction.toArray()}`);
-  assert.ok(direction.z < -0.9, 'Calibrated hand grip points the barrel forward');
+  assert.ok(
+    direction.z < -0.9,
+    "Calibrated hand grip points the barrel forward",
+  );
   armed.weapon.setEquipped(false);
   update();
-  for (const name of ['spine_01', 'upperarm_r', 'hand_r', 'thigh_l']) {
-    assert.ok(armed.model.getObjectByName(name).quaternion.angleTo(unarmed.model.getObjectByName(name).quaternion) < 1e-5,
-      `Holstering restores normal ${name} animation`);
+  for (const name of ["spine_01", "upperarm_r", "hand_r", "thigh_l"]) {
+    assert.ok(
+      armed.model
+        .getObjectByName(name)
+        .quaternion.angleTo(unarmed.model.getObjectByName(name).quaternion) <
+        1e-5,
+      `Holstering restores normal ${name} animation`,
+    );
   }
 });
 
-test('pistol is fixed to the animated grip, survives view switches, and firing calls the GLB layer', async t => {
+test("pistol is fixed to the animated grip, survives view switches, and firing calls the GLB layer", async (t) => {
   browser(t);
   const character = await characterFixture(t);
-  const scene = new THREE.Scene(); scene.add(character.model);
+  const scene = new THREE.Scene();
+  scene.add(character.model);
   const camera = new THREE.PerspectiveCamera();
   camera.position.set(0, 1.6, 1.5);
   let thirdPerson = true;
-  const pistol = new PistolController(() => ({ scene, camera, world: null, player: { isEnabled: () => true, getState: () => ({ climbing: false, ventMode: false, boxHandling: false }) },
-    character: character.model, targets: [], thirdPerson, weaponAnimation: character.weapon }), () => toolModel('Gun_Pistol'));
+  const pistol = new PistolController(
+    () => ({
+      scene,
+      camera,
+      world: null,
+      player: {
+        isEnabled: () => true,
+        getState: () => ({
+          climbing: false,
+          ventMode: false,
+          boxHandling: false,
+        }),
+      },
+      character: character.model,
+      targets: [],
+      thirdPerson,
+      weaponAnimation: character.weapon,
+    }),
+    () => toolModel("Gun_Pistol"),
+  );
   t.cleanup(() => pistol.dispose());
-  const shot = t.mock.method(character.weapon, 'shoot');
+  const shot = t.mock.method(character.weapon, "shoot");
   await pistol.ready;
   document.pointerLockElement = document.body;
   pistol.equip();
-  character.update(1 / 60, { x: 0, y: 0.3, z: 0 }, { yaw: 0, pitch: 0, isOnGround: true, isMoving: false }, true, 0.3);
+  character.update(
+    1 / 60,
+    { x: 0, y: 0.3, z: 0 },
+    { yaw: 0, pitch: 0, isOnGround: true, isMoving: false },
+    true,
+    0.3,
+  );
   pistol.update(0);
   assert.equal(pistol.root.parent, character.weapon.socket);
   assert.ok(pistol.root.quaternion.angleTo(new THREE.Quaternion()) < 1e-6);
   const local = pistol.root.position.clone();
-  click(); click();
-  assert.equal(shot.mock.callCount(), 1, 'One animation per accepted shot, including misses');
-  character.update(0.1, { x: 0, y: 0.3, z: 0 }, { yaw: 0.5, pitch: 0, isOnGround: true, isMoving: true }, true, 0.3);
+  click();
+  click();
+  assert.equal(
+    shot.mock.callCount(),
+    1,
+    "One animation per accepted shot, including misses",
+  );
+  character.update(
+    0.1,
+    { x: 0, y: 0.3, z: 0 },
+    { yaw: 0.5, pitch: 0, isOnGround: true, isMoving: true },
+    true,
+    0.3,
+  );
   pistol.update(0.1);
-  assert.deepEqual(pistol.root.position, local, 'Recoil comes from the hand animation, not independent gun rotation');
-  thirdPerson = false; pistol.update(0);
+  assert.deepEqual(
+    pistol.root.position,
+    local,
+    "Recoil comes from the hand animation, not independent gun rotation",
+  );
+  thirdPerson = false;
+  pistol.update(0);
   assert.equal(pistol.root.parent, scene);
-  thirdPerson = true; pistol.update(0);
+  thirdPerson = true;
+  pistol.update(0);
   assert.equal(pistol.root.parent, character.weapon.socket);
-  pistol.holster(); pistol.update(0);
+  pistol.holster();
+  pistol.update(0);
   assert.equal(pistol.root.parent, null);
 });
 
@@ -232,38 +425,69 @@ function scene(t, id, options = {}) {
   data.id = id;
   data.disposals = 0;
   const dispose = data.dispose;
-  data.dispose = () => { data.disposals++; dispose(); };
+  data.dispose = () => {
+    data.disposals++;
+    dispose();
+  };
   t.cleanup(() => dispose());
   return data;
 }
 
-test('crosshair eligibility follows the loaded active gun and playable aiming state', async t => {
+test("crosshair eligibility follows the loaded active gun and playable aiming state", async (t) => {
   const elements = browser(t);
   const state = { climbing: false, ventMode: false, boxHandling: false };
   let enabled = true;
-  const context = { scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(), world: null,
-    player: { isEnabled: () => enabled, getState: () => state }, character: null, thirdPerson: true, targets: [] };
-  const pistol = new PistolController(() => context, async () => ({ scene: new THREE.Group() }));
+  const context = {
+    scene: new THREE.Scene(),
+    camera: new THREE.PerspectiveCamera(),
+    world: null,
+    player: { isEnabled: () => enabled, getState: () => state },
+    character: null,
+    thirdPerson: true,
+    targets: [],
+  };
+  const pistol = new PistolController(
+    () => context,
+    async () => ({ scene: new THREE.Group() }),
+  );
   t.cleanup(() => pistol.dispose());
-  assert.equal(elements.crosshair.style.display, 'none', 'starts hidden before the gun is equipped');
+  assert.equal(
+    elements.crosshair.style.display,
+    "none",
+    "starts hidden before the gun is equipped",
+  );
   assert.equal(pistol.isAiming(), false);
-  pistol.equip(); assert.equal(pistol.isAiming(), false, 'loading gun is not ready to aim');
-  await pistol.ready; assert.equal(pistol.isAiming(), true);
-  for (const blocked of ['climbing', 'ventMode', 'boxHandling']) {
-    state[blocked] = true; assert.equal(pistol.isAiming(), false, blocked); state[blocked] = false;
+  pistol.equip();
+  assert.equal(pistol.isAiming(), false, "loading gun is not ready to aim");
+  await pistol.ready;
+  assert.equal(pistol.isAiming(), true);
+  for (const blocked of ["climbing", "ventMode", "boxHandling"]) {
+    state[blocked] = true;
+    assert.equal(pistol.isAiming(), false, blocked);
+    state[blocked] = false;
   }
-  enabled = false; assert.equal(pistol.isAiming(), false);
-  enabled = true; context.thirdPerson = false; assert.equal(pistol.isAiming(), true, 'first-person gun can still aim');
-  elements.crosshair.style.display = ''; elements.crosshair.dataset.hit = 'true';
+  enabled = false;
+  assert.equal(pistol.isAiming(), false);
+  enabled = true;
+  context.thirdPerson = false;
+  assert.equal(pistol.isAiming(), true, "first-person gun can still aim");
+  elements.crosshair.style.display = "";
+  elements.crosshair.dataset.hit = "true";
   pistol.holster();
-  assert.equal(pistol.isAiming(), false, 'switching away from the gun removes eligibility');
-  assert.equal(elements.crosshair.style.display, 'none');
-  assert.equal(elements.crosshair.dataset.hit, 'false');
-  pistol.equip(); assert.equal(pistol.isAiming(), true);
-  pistol.holster(); assert.equal(pistol.isAiming(), false);
+  assert.equal(
+    pistol.isAiming(),
+    false,
+    "switching away from the gun removes eligibility",
+  );
+  assert.equal(elements.crosshair.style.display, "none");
+  assert.equal(elements.crosshair.dataset.hit, "false");
+  pistol.equip();
+  assert.equal(pistol.isAiming(), true);
+  pistol.holster();
+  assert.equal(pistol.isAiming(), false);
 });
 
-async function manager(t, load = () => toolModel('Enemy_Trilobite')) {
+async function manager(t, load = () => toolModel("Enemy_Trilobite")) {
   const npc = new NPCEnemyManager(load, () => 0);
   t.cleanup(() => npc.dispose());
   await npc.ready;
@@ -277,173 +501,214 @@ function tick(npc, data, count = 1, fps = 60, check) {
   }
 }
 function walk(npc, data, x, z, fps = 60) {
-  key('KeyW');
+  key("KeyW");
   let reached = false;
   for (let i = 0; i < fps * 15; i++) {
     const p = data.player.body.position;
-    if (Math.hypot(x - p.x, z - p.z) < 0.12) { reached = true; break; }
+    if (Math.hypot(x - p.x, z - p.z) < 0.12) {
+      reached = true;
+      break;
+    }
     data.player.setRotation(Math.atan2(p.x - x, p.z - z));
     tick(npc, data, 1, fps);
   }
-  key('KeyW', 'keyup');
-  assert.ok(reached, `Player blocked going to ${x},${z}: ${data.player.body.position.toString()}`);
+  key("KeyW", "keyup");
+  assert.ok(
+    reached,
+    `Player blocked going to ${x},${z}: ${data.player.body.position.toString()}`,
+  );
 }
-function enemyBody(data) { return data.physicsWorld.bodies.find(body => body.mass === 10); }
+function enemyBody(data) {
+  return data.physicsWorld.bodies.find((body) => body.mass === 10);
+}
 
-test('Trilobite loads late only in scene4, paces with real Walk, and never spawns in scene2/3', async t => {
+test("Trilobite loads late only in scene4, paces with real Walk, and never spawns in scene2/3", async (t) => {
   browser(t);
   let resolve;
-  const npc = new NPCEnemyManager(() => new Promise(done => { resolve = done; }));
+  const npc = new NPCEnemyManager(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
   t.cleanup(() => npc.dispose());
-  const s2 = scene(t, 'scene2');
-  npc.enterScene('scene2', s2);
-  const s3 = scene(t, 'scene3');
-  npc.enterScene('scene3', s3);
+  const s2 = scene(t, "scene2");
+  npc.enterScene("scene2", s2);
+  const s3 = scene(t, "scene3");
+  npc.enterScene("scene3", s3);
   assert.equal(enemyBody(s3), undefined);
-  const s4 = scene(t, 'scene4');
-  npc.enterScene('scene4', s4);
-  resolve(await toolModel('Enemy_Trilobite'));
+  const s4 = scene(t, "scene4");
+  npc.enterScene("scene4", s4);
+  resolve(await toolModel("Enemy_Trilobite"));
   await npc.ready;
-  assert.equal(npc.getStatus().state, 'PACING');
-  const model = s4.scene.getObjectByName('Trilobite');
-  const mesh = model.getObjectsByProperty('isSkinnedMesh', true)[0];
-  assert.ok(mesh, 'Use the actual rigged Trilobite');
-  const bone = mesh.skeleton.bones.map(node => node.quaternion.clone());
+  assert.equal(npc.getStatus().state, "PACING");
+  const model = s4.scene.getObjectByName("Trilobite");
+  const mesh = model.getObjectsByProperty("isSkinnedMesh", true)[0];
+  assert.ok(mesh, "Use the actual rigged Trilobite");
+  const bone = mesh.skeleton.bones.map((node) => node.quaternion.clone());
   tick(npc, s4, 30);
-  assert.equal(npc.getStatus().animation, 'Walk');
-  assert.ok(mesh.skeleton.bones.some((node, i) => node.quaternion.angleTo(bone[i]) > 0.01));
+  assert.equal(npc.getStatus().animation, "Walk");
+  assert.ok(
+    mesh.skeleton.bones.some(
+      (node, i) => node.quaternion.angleTo(bone[i]) > 0.01,
+    ),
+  );
   assert.ok(npc.getStatus().position.x > 0.3);
   tick(npc, s4, 300);
-  assert.equal(npc.getStatus().state, 'PACING');
+  assert.equal(npc.getStatus().state, "PACING");
   assert.ok(Math.abs(npc.getStatus().position.x) <= 2.1);
   assert.ok(Math.abs(npc.getStatus().position.y - 0.3) < 0.02);
   assert.equal(s2.disposals, 1);
   assert.equal(s3.disposals, 1);
-  npc.enterScene('scene3', scene(t, 'scene3'));
-  assert.equal(npc.getStatus().state, 'WAITING');
+  npc.enterScene("scene3", scene(t, "scene3"));
+  assert.equal(npc.getStatus().state, "WAITING");
   assert.equal(npc.getStatus().scene, null);
 });
 
-test('trigger aggro, randomized attacks, hit recovery, and death advance without freezing', async t => {
+test("trigger aggro, randomized attacks, hit recovery, and death advance without freezing", async (t) => {
   browser(t);
   const npc = await manager(t);
-  const s4 = scene(t, 'scene4');
-  npc.enterScene('scene4', s4);
+  const s4 = scene(t, "scene4");
+  npc.enterScene("scene4", s4);
   s4.player.setPosition(0, 0.3, -1.5);
   tick(npc, s4);
-  assert.equal(npc.getStatus().state, 'CHASING');
-  assert.equal(npc.getStatus().animation, 'Run');
+  assert.equal(npc.getStatus().state, "CHASING");
+  assert.equal(npc.getStatus().animation, "Run");
   const animations = new Set();
   tick(npc, s4, 240, 60, () => animations.add(npc.getStatus().animation));
-  assert.ok(animations.has('Attack'));
-  assert.equal(npc.getStatus().animation, 'Run');
+  assert.ok(animations.has("Attack"));
+  assert.equal(npc.getStatus().animation, "Run");
   assert.equal(npc.takeDamage(25), true);
-  assert.equal(npc.getStatus().animation, 'Hit');
+  assert.equal(npc.getStatus().animation, "Hit");
   let recovered = false;
-  tick(npc, s4, 60, 60, () => { recovered ||= npc.getStatus().animation === 'Run'; });
-  assert.ok(recovered, 'Hit returns to Run before the next random attack');
+  tick(npc, s4, 60, 60, () => {
+    recovered ||= npc.getStatus().animation === "Run";
+  });
+  assert.ok(recovered, "Hit returns to Run before the next random attack");
   assert.equal(npc.takeDamage(NaN), false);
   assert.equal(npc.getStatus().health, 75);
   assert.equal(npc.takeDamage(75), true);
-  assert.equal(npc.getStatus().state, 'DYING');
-  assert.equal(npc.getStatus().animation, 'TurnOff');
+  assert.equal(npc.getStatus().state, "DYING");
+  assert.equal(npc.getStatus().animation, "TurnOff");
   tick(npc, s4, 300);
-  assert.equal(npc.getStatus().state, 'DISAPPEARED');
+  assert.equal(npc.getStatus().state, "DISAPPEARED");
   assert.equal(enemyBody(s4), undefined);
   assert.equal(npc.getDamageTargets().length, 0);
-  npc.enterScene('scene3', scene(t, 'scene3'));
-  const returnVisit = scene(t, 'scene4');
-  npc.enterScene('scene4', returnVisit);
+  npc.enterScene("scene3", scene(t, "scene3"));
+  const returnVisit = scene(t, "scene4");
+  npc.enterScene("scene4", returnVisit);
   assert.equal(npc.getStatus().health, 100);
-  assert.equal(npc.getStatus().state, 'PACING');
+  assert.equal(npc.getStatus().state, "PACING");
 });
 
-for (const fps of [30, 60, 144]) for (const stairX of [-3, 3]) {
-  test(`same Trilobite follows real doors, stairs x=${stairX}, and upstairs board at ${fps} FPS`, async t => {
-    browser(t);
-    const npc = await manager(t);
-    const s4 = scene(t, 'scene4');
-    npc.enterScene('scene4', s4);
-    const body = enemyBody(s4);
-    const model = s4.scene.getObjectByName('Trilobite');
-    walk(npc, s4, 0, -1.5, fps);
-    assert.equal(npc.getStatus().state, 'CHASING');
-    npc.takeDamage(25);
-    let s3;
-    s4.setBackTrigger(state => {
-      s3 = scene(t, 'scene3', { entryState: state, entryDoor: 'back' });
-      npc.enterScene('scene3', s3);
+for (const fps of [30, 60, 144])
+  for (const stairX of [-3, 3]) {
+    test(`same Trilobite follows real doors, stairs x=${stairX}, and upstairs board at ${fps} FPS`, async (t) => {
+      browser(t);
+      const npc = await manager(t);
+      const s4 = scene(t, "scene4");
+      npc.enterScene("scene4", s4);
+      const body = enemyBody(s4);
+      const model = s4.scene.getObjectByName("Trilobite");
+      walk(npc, s4, 0, -1.5, fps);
+      assert.equal(npc.getStatus().state, "CHASING");
+      npc.takeDamage(25);
+      let s3;
+      s4.setBackTrigger((state) => {
+        s3 = scene(t, "scene3", { entryState: state, entryDoor: "back" });
+        npc.enterScene("scene3", s3);
+      });
+      s4.player.setRotation(0);
+      key("ShiftLeft");
+      key("KeyW");
+      for (let i = 0; i < fps * 3 && !s3; i++) tick(npc, s4, 1, fps);
+      assert.ok(s3, "Player must cross the actual scene4 exit");
+      assert.equal(
+        npc.getStatus().scene,
+        "scene4",
+        "NPC must finish its own route",
+      );
+      assert.equal(
+        s4.player.isEnabled(),
+        false,
+        "Old input owner removed immediately",
+      );
+      key("ShiftLeft", "keyup");
+      key("KeyW", "keyup");
+      tick(npc, s3, fps * 3, fps);
+      assert.equal(npc.getStatus().scene, "scene3");
+      assert.equal(enemyBody(s3), body);
+      assert.equal(s3.scene.getObjectByName("Trilobite"), model);
+      assert.equal(s4.disposals, 1);
+      let s2;
+      s3.setBackTrigger((state) => {
+        s2 = scene(t, "scene2", { entryState: state });
+        npc.enterScene("scene2", s2);
+      });
+      s3.player.setRotation(Math.PI);
+      key("KeyW");
+      for (let i = 0; i < fps * 7 && !s2; i++) tick(npc, s3, 1, fps);
+      assert.ok(s2, "Player must cross the actual scene3 exit");
+      key("KeyW", "keyup");
+      assert.equal(
+        s2.npcSafeZone.containsPoint(new THREE.Vector3(0, 0, -13.5)),
+        false,
+      );
+      walk(npc, s2, 0, 1.5, fps);
+      walk(npc, s2, stairX, 1.5, fps);
+      walk(npc, s2, stairX, 10.5, fps);
+      assert.ok(
+        s2.player.body.position.y > 5.1,
+        "Player uses real ramp support",
+      );
+      tick(npc, s2, fps * 6, fps);
+      assert.equal(npc.getStatus().scene, "scene2");
+      assert.equal(enemyBody(s2), body);
+      assert.equal(npc.getStatus().health, 75);
+      assert.ok(
+        Math.abs(npc.getStatus().position.y - 5.2) < 0.03,
+        `NPC must climb the ramp: ${npc.getStatus().position.toString()}`,
+      );
+      assert.equal(s3.disposals, 1);
+      walk(npc, s2, Math.sign(stairX) * 6, 10.5, fps);
+      walk(npc, s2, Math.sign(stairX) * 6, -12, fps);
+      walk(npc, s2, 0, -12, fps);
+      assert.equal(npc.getStatus().state, "CHASING");
+      walk(npc, s2, 0, -13.5, fps);
+      assert.ok(["DYING", "DISAPPEARED"].includes(npc.getStatus().state));
+      tick(npc, s2, fps * 3, fps);
+      assert.equal(npc.getStatus().state, "DISAPPEARED");
+      assert.equal(enemyBody(s2), undefined);
     });
-    s4.player.setRotation(0);
-    key('ShiftLeft'); key('KeyW');
-    for (let i = 0; i < fps * 3 && !s3; i++) tick(npc, s4, 1, fps);
-    assert.ok(s3, 'Player must cross the actual scene4 exit');
-    assert.equal(npc.getStatus().scene, 'scene4', 'NPC must finish its own route');
-    assert.equal(s4.player.isEnabled(), false, 'Old input owner removed immediately');
-    key('ShiftLeft', 'keyup'); key('KeyW', 'keyup');
-    tick(npc, s3, fps * 3, fps);
-    assert.equal(npc.getStatus().scene, 'scene3');
-    assert.equal(enemyBody(s3), body);
-    assert.equal(s3.scene.getObjectByName('Trilobite'), model);
-    assert.equal(s4.disposals, 1);
-    let s2;
-    s3.setBackTrigger(state => {
-      s2 = scene(t, 'scene2', { entryState: state });
-      npc.enterScene('scene2', s2);
-    });
-    s3.player.setRotation(Math.PI);
-    key('KeyW');
-    for (let i = 0; i < fps * 7 && !s2; i++) tick(npc, s3, 1, fps);
-    assert.ok(s2, 'Player must cross the actual scene3 exit');
-    key('KeyW', 'keyup');
-    assert.equal(s2.npcSafeZone.containsPoint(new THREE.Vector3(0, 0, -13.5)), false);
-    walk(npc, s2, 0, 1.5, fps);
-    walk(npc, s2, stairX, 1.5, fps);
-    walk(npc, s2, stairX, 10.5, fps);
-    assert.ok(s2.player.body.position.y > 5.1, 'Player uses real ramp support');
-    tick(npc, s2, fps * 6, fps);
-    assert.equal(npc.getStatus().scene, 'scene2');
-    assert.equal(enemyBody(s2), body);
-    assert.equal(npc.getStatus().health, 75);
-    assert.ok(Math.abs(npc.getStatus().position.y - 5.2) < 0.03,
-      `NPC must climb the ramp: ${npc.getStatus().position.toString()}`);
-    assert.equal(s3.disposals, 1);
-    walk(npc, s2, Math.sign(stairX) * 6, 10.5, fps);
-    walk(npc, s2, Math.sign(stairX) * 6, -12, fps);
-    walk(npc, s2, 0, -12, fps);
-    assert.equal(npc.getStatus().state, 'CHASING');
-    walk(npc, s2, 0, -13.5, fps);
-    assert.ok(['DYING', 'DISAPPEARED'].includes(npc.getStatus().state));
-    tick(npc, s2, fps * 3, fps);
-    assert.equal(npc.getStatus().state, 'DISAPPEARED');
-    assert.equal(enemyBody(s2), undefined);
-  });
-}
+  }
 
-test('queued room visits retain one pursuer and release all old worlds after escape', async t => {
+test("queued room visits retain one pursuer and release all old worlds after escape", async (t) => {
   browser(t);
   const npc = await manager(t);
-  const s4 = scene(t, 'scene4');
-  npc.enterScene('scene4', s4);
+  const s4 = scene(t, "scene4");
+  npc.enterScene("scene4", s4);
   s4.player.setPosition(0, 0.3, -1.5);
   tick(npc, s4);
   s4.player.setPosition(0, 0.3, -6.9);
-  const s3 = scene(t, 'scene3');
+  const s3 = scene(t, "scene3");
   s3.player.setPosition(0, 0.3, -9);
-  npc.enterScene('scene3', s3);
+  npc.enterScene("scene3", s3);
   s3.player.setPosition(0, 0.3, 10.9);
-  const s2 = scene(t, 'scene2');
+  const s2 = scene(t, "scene2");
   s2.player.setPosition(0, 0.3, 14);
-  npc.enterScene('scene2', s2);
-  assert.equal(npc.getStatus().scene, 'scene4');
+  npc.enterScene("scene2", s2);
+  assert.equal(npc.getStatus().scene, "scene4");
   tick(npc, s2, 600);
-  assert.equal(npc.getStatus().scene, 'scene2');
+  assert.equal(npc.getStatus().scene, "scene2");
   assert.equal(s4.disposals, 1);
   assert.equal(s3.disposals, 1);
-  assert.equal(s2.physicsWorld.bodies.filter(body => body.mass === 10).length, 1);
+  assert.equal(
+    s2.physicsWorld.bodies.filter((body) => body.mass === 10).length,
+    1,
+  );
   s2.player.setPosition(0, 5.2, -14);
   tick(npc, s2, 180);
-  assert.equal(npc.getStatus().state, 'DISAPPEARED');
+  assert.equal(npc.getStatus().state, "DISAPPEARED");
 });
 
 function shootingScene() {
@@ -451,73 +716,141 @@ function shootingScene() {
   const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 100);
   camera.position.set(0, 1, 0);
   const root = new THREE.Group();
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
-  root.add(mesh); root.position.set(0, 1, -5); scene.add(root);
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshBasicMaterial(),
+  );
+  root.add(mesh);
+  root.position.set(0, 1, -5);
+  scene.add(root);
   let health = 100;
-  const targets = [{ root, damage(amount) { health -= amount; return true; } }];
+  const targets = [
+    {
+      root,
+      damage(amount) {
+        health -= amount;
+        return true;
+      },
+    },
+  ];
   return { scene, camera, root, targets, health: () => health };
 }
 
-test('hitscan respects visible cover and static physics but never mutates environment', t => {
+test("hitscan respects visible cover and static physics but never mutates environment", (t) => {
   browser(t);
   const fixture = shootingScene();
   const physics = createScenePhysics();
   t.cleanup(() => physics.dispose());
-  const ray = new THREE.Ray(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, -1));
-  assert.equal(traceShot(fixture.scene, physics.world, ray, fixture.targets).target, fixture.targets[0]);
-  const wall = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 0.2), new THREE.MeshBasicMaterial());
+  const ray = new THREE.Ray(
+    new THREE.Vector3(0, 1, 0),
+    new THREE.Vector3(0, 0, -1),
+  );
+  assert.equal(
+    traceShot(fixture.scene, physics.world, ray, fixture.targets).target,
+    fixture.targets[0],
+  );
+  const wall = new THREE.Mesh(
+    new THREE.BoxGeometry(2, 2, 0.2),
+    new THREE.MeshBasicMaterial(),
+  );
   wall.position.set(0, 1, -2);
   fixture.scene.add(wall);
   wall.updateMatrixWorld(true);
   const snapshot = wall.toJSON();
-  assert.equal(traceShot(fixture.scene, physics.world, ray, fixture.targets).target, undefined);
+  assert.equal(
+    traceShot(fixture.scene, physics.world, ray, fixture.targets).target,
+    undefined,
+  );
   assert.deepEqual(wall.toJSON(), snapshot);
   wall.visible = false;
-  assert.ok(traceShot(fixture.scene, physics.world, ray, fixture.targets).target);
+  assert.ok(
+    traceShot(fixture.scene, physics.world, ray, fixture.targets).target,
+  );
   physics.addBox({ x: 2, y: 2, z: 0.2 }, wall.position);
-  assert.equal(traceShot(fixture.scene, physics.world, ray, fixture.targets).target, undefined);
-  assert.equal(fixture.health(), 100, 'Ray queries do not apply damage themselves');
+  assert.equal(
+    traceShot(fixture.scene, physics.world, ray, fixture.targets).target,
+    undefined,
+  );
+  assert.equal(
+    fixture.health(),
+    100,
+    "Ray queries do not apply damage themselves",
+  );
 });
 
-test('real pistol uses selector-driven equipping, fires NPC-only damage, obeys input gates, and persists across scenes', async t => {
+test("real pistol uses selector-driven equipping, fires NPC-only damage, obeys input gates, and persists across scenes", async (t) => {
   const elements = browser(t);
   const fixture = shootingScene();
   let enabled = true;
-  let context = { ...fixture, world: null, player: { isEnabled: () => enabled, getState: () => ({ climbing: false, ventMode: false, boxHandling: false }) }, character: null, thirdPerson: false };
-  const pistol = new PistolController(() => context, () => toolModel('Gun_Pistol'));
+  let context = {
+    ...fixture,
+    world: null,
+    player: {
+      isEnabled: () => enabled,
+      getState: () => ({
+        climbing: false,
+        ventMode: false,
+        boxHandling: false,
+      }),
+    },
+    character: null,
+    thirdPerson: false,
+  };
+  const pistol = new PistolController(
+    () => context,
+    () => toolModel("Gun_Pistol"),
+  );
   t.cleanup(() => pistol.dispose());
   await pistol.ready;
   document.pointerLockElement = document.body;
-  click(); assert.equal(fixture.health(), 100);
-  key('KeyK'); key('KeyK', 'keydown', { repeat: true });
-  assert.equal(pistol.isEquipped(), false, 'K is no longer a weapon shortcut');
-  pistol.equip(); pistol.update(0);
+  click();
+  assert.equal(fixture.health(), 100);
+  key("KeyK");
+  key("KeyK", "keydown", { repeat: true });
+  assert.equal(pistol.isEquipped(), false, "K is no longer a weapon shortcut");
+  pistol.equip();
+  pistol.update(0);
   assert.equal(pistol.root.visible, true);
   assert.equal(pistol.root.parent, fixture.scene);
-  assert.ok(pistol.root.getObjectsByProperty('isMesh', true).length > 1, 'Actual pistol mesh loaded');
-  click(); assert.equal(fixture.health(), 75);
-  assert.equal(elements.crosshair.dataset.hit, 'true');
-  click(); assert.equal(fixture.health(), 75, 'Cooldown');
-  pistol.update(0.1); pistol.update(0.1);
-  click(); assert.equal(fixture.health(), 50);
-  pistol.update(0.1); pistol.update(0.1);
+  assert.ok(
+    pistol.root.getObjectsByProperty("isMesh", true).length > 1,
+    "Actual pistol mesh loaded",
+  );
+  click();
+  assert.equal(fixture.health(), 75);
+  assert.equal(elements.crosshair.dataset.hit, "true");
+  click();
+  assert.equal(fixture.health(), 75, "Cooldown");
+  pistol.update(0.1);
+  pistol.update(0.1);
+  click();
+  assert.equal(fixture.health(), 50);
+  pistol.update(0.1);
+  pistol.update(0.1);
   document.pointerLockElement = null;
-  click(); assert.equal(fixture.health(), 50);
+  click();
+  assert.equal(fixture.health(), 50);
   document.pointerLockElement = document.body;
-  const button = new HTMLElement(); button.closest = () => button;
-  click({ target: button }); assert.equal(fixture.health(), 50);
+  const button = new HTMLElement();
+  button.closest = () => button;
+  click({ target: button });
+  assert.equal(fixture.health(), 50);
   enabled = false;
-  click(); assert.equal(fixture.health(), 50);
+  click();
+  assert.equal(fixture.health(), 50);
   enabled = true;
-  document.body.classList.add('quick-menu-open');
-  click(); assert.equal(fixture.health(), 50, 'Paused selector blocks attacks');
-  document.body.classList.remove('quick-menu-open');
+  document.body.classList.add("quick-menu-open");
+  click();
+  assert.equal(fixture.health(), 50, "Paused selector blocks attacks");
+  document.body.classList.remove("quick-menu-open");
   const next = new THREE.Scene();
   context = { ...context, scene: next, targets: [] };
   pistol.update(0);
   assert.equal(pistol.root.parent, next);
   assert.equal(pistol.root.visible, true);
-  pistol.holster(); pistol.update(0);
+  pistol.holster();
+  pistol.update(0);
   assert.equal(pistol.root.visible, false);
-  click(); assert.equal(fixture.health(), 50);
+  click();
+  assert.equal(fixture.health(), 50);
 });

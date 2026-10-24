@@ -1,6 +1,6 @@
-import * as THREE from 'three';
-import vertexShader from '../shaders/vert/retroConsole.vert.glsl?raw';
-import fragmentShader from '../shaders/frag/retroConsole.frag.glsl?raw';
+import * as THREE from "three";
+import vertexShader from "../shaders/vert/retroConsole.vert.glsl?raw";
+import fragmentShader from "../shaders/frag/retroConsole.frag.glsl?raw";
 
 export class RetroConsolePass {
   private readonly target = new THREE.WebGLRenderTarget(1, 1, {
@@ -48,7 +48,8 @@ export class RetroConsolePass {
     renderer.getDrawingBufferSize(this.resolution);
     const width = Math.max(1, Math.floor(this.resolution.x));
     const height = Math.max(1, Math.floor(this.resolution.y));
-    if (this.target.width !== width || this.target.height !== height) this.target.setSize(width, height);
+    if (this.target.width !== width || this.target.height !== height)
+      this.target.setSize(width, height);
 
     const previousTarget = renderer.getRenderTarget();
     const previousAutoClear = renderer.autoClear;
@@ -65,7 +66,8 @@ export class RetroConsolePass {
       renderer.setViewport(previousViewport);
       renderer.setScissor(previousScissor);
       renderer.setScissorTest(false);
-      this.material.uniforms.uStrength.value = THREE.MathUtils.clamp(strength, 0, 1) * 0.88;
+      this.material.uniforms.uStrength.value =
+        THREE.MathUtils.clamp(strength, 0, 1) * 0.88;
       draw(this.scene, this.camera);
     } finally {
       renderer.setRenderTarget(previousTarget);

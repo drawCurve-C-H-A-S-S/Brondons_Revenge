@@ -1,22 +1,28 @@
-import * as THREE from 'three';
-import type { ShipMapLayout } from '../../core/shipMap.js';
-import type { ShipMapBlock } from '../../scripts/global/shipLayout.js';
+import * as THREE from "three";
+import type { ShipMapLayout } from "../../core/shipMap.js";
+import { SHIP_DECKS, type ShipMapBlock } from "../../scripts/global/shipLayout.js";
 
-export type CameraRoomId = 'scene5' | 'scene6' | 'stage2-armory' | 'stage2-rust' | 'stage2-reactor';
-export type CameraFeedId = CameraRoomId | 'stage2-vents' | 'stage2-prison';
-export type KeycardRoomId = Exclude<CameraFeedId, 'stage2-prison'>;
-export type StageTwoCheckpoint = 'vent' | 'surveillance';
+export type CameraRoomId =
+  | "scene5"
+  | "scene6"
+  | "stage2-armory"
+  | "stage2-rust"
+  | "stage2-rust2"
+  | "stage2-reactor";
+export type CameraFeedId = CameraRoomId | "stage2-vents" | "stage2-prison";
+export type KeycardRoomId = Exclude<CameraFeedId, "stage2-prison">;
+export type StageTwoCheckpoint = "vent" | "surveillance";
 export interface CameraRoomProgress {
   cleared: Set<string>;
   rewardCollected: boolean;
-  bonusShield?: 'available' | 'collected';
+  bonusShield?: "available" | "collected";
 }
 export interface StageTwoProgress {
   checkpoint: StageTwoCheckpoint;
   ventCleared: boolean;
   crowbarCollected: boolean;
   guardDown: boolean;
-  lightsaberBeamCollected: boolean;
+  bloomstickCollected: boolean;
   elevatorUnlocked: boolean;
   airlockUnlocked: boolean;
   keycards: KeycardRoomId[];
@@ -25,18 +31,32 @@ export interface StageTwoProgress {
 }
 
 export const STAGE_TWO_MINIGAMES = [
-  { id: 'scene5', label: 'Cargo hold' },
-  { id: 'scene6', label: 'Target range' },
-  { id: 'stage2-armory', label: 'Saber Tennis' },
-  { id: 'stage2-rust', label: 'Rust chamber' },
-  { id: 'stage2-reactor', label: 'Reactor Sequencer' },
+  { id: "scene5", label: "Cargo hold" },
+  { id: "scene6", label: "Target range" },
+  { id: "stage2-armory", label: "Bloomstick Tennis" },
+  { id: "stage2-rust", label: "Rust chamber" },
+  { id: "stage2-rust2", label: "Rust chamber 2" },
+  { id: "stage2-reactor", label: "Reactor Sequencer" },
 ] as const;
-export const STAGE_TWO_KEYCARD_ROOMS = ['stage2-vents', ...STAGE_TWO_MINIGAMES.map(room => room.id)] as const;
+export const STAGE_TWO_CAMERA_ORDER: readonly CameraFeedId[] = [
+  "stage2-prison",
+  "scene5",
+  "stage2-armory",
+  "stage2-rust",
+  "stage2-vents",
+  "scene6",
+  "stage2-reactor",
+  "stage2-rust2",
+];
+export const STAGE_TWO_KEYCARD_ROOMS = [
+  "stage2-vents",
+  ...STAGE_TWO_MINIGAMES.map((room) => room.id),
+] as const;
 export const STAGE_TWO = {
   height: 3.8,
   ventHeight: 4,
   ventChest: { x: 44, z: -44 },
-  crowbarChest: { x: 23.5, z: -44.7 },
+  crowbarChest: { x: 28, z: -53 },
   camera: { minX: 19, maxX: 37, minZ: -64, maxZ: -42 },
   drop: { x: 28, z: -44 },
   guard: { x: 28, z: -61.8 },
@@ -46,156 +66,437 @@ export const STAGE_TWO = {
 } as const;
 
 export function createStageTwoProgress(): StageTwoProgress {
-  return { checkpoint: 'vent', ventCleared: false, crowbarCollected: false, guardDown: false,
-    lightsaberBeamCollected: false, elevatorUnlocked: false, airlockUnlocked: false, keycards: [], acceptedKeycard: null,
-    remoteRooms: { scene5: { cleared: new Set(), rewardCollected: false },
+  return {
+    checkpoint: "vent",
+    ventCleared: false,
+    crowbarCollected: false,
+    guardDown: false,
+    bloomstickCollected: false,
+    elevatorUnlocked: false,
+    airlockUnlocked: false,
+    keycards: [],
+    acceptedKeycard: null,
+    remoteRooms: {
+      scene5: { cleared: new Set(), rewardCollected: false },
       scene6: { cleared: new Set(), rewardCollected: false },
-      'stage2-armory': { cleared: new Set(), rewardCollected: false },
-      'stage2-rust': { cleared: new Set(), rewardCollected: false },
-      'stage2-reactor': { cleared: new Set(), rewardCollected: false },
-      'stage2-vents': { cleared: new Set(), rewardCollected: false } } };
+      "stage2-armory": { cleared: new Set(), rewardCollected: false },
+      "stage2-rust": { cleared: new Set(), rewardCollected: false },
+      "stage2-rust2": { cleared: new Set(), rewardCollected: false },
+      "stage2-reactor": { cleared: new Set(), rewardCollected: false },
+      "stage2-vents": { cleared: new Set(), rewardCollected: false },
+    },
+  };
 }
 
-export function collectStageTwoKeycard(progress: StageTwoProgress, id: KeycardRoomId) {
+export function collectStageTwoKeycard(
+  progress: StageTwoProgress,
+  id: KeycardRoomId,
+) {
   if (progress.remoteRooms[id].rewardCollected) return false;
   progress.remoteRooms[id].rewardCollected = true;
   progress.keycards.push(id);
-  if (STAGE_TWO_KEYCARD_ROOMS.every(id => progress.remoteRooms[id].rewardCollected)) progress.acceptedKeycard = id;
+  if (
+    STAGE_TWO_KEYCARD_ROOMS.every(
+      (id) => progress.remoteRooms[id].rewardCollected,
+    )
+  )
+    progress.acceptedKeycard = id;
   return true;
 }
 
-export function swipeStageTwoKeycard(progress: StageTwoProgress): 'missing' | 'rejected' | 'accepted' {
+export function swipeStageTwoKeycard(
+  progress: StageTwoProgress,
+): "missing" | "rejected" | "accepted" {
   const card = progress.keycards[progress.keycards.length - 1];
-  if (!card) return 'missing';
-  if (card !== progress.acceptedKeycard) return 'rejected';
+  if (!card) return "missing";
+  if (card !== progress.acceptedKeycard) return "rejected";
   progress.elevatorUnlocked = true;
-  return 'accepted';
+  return "accepted";
 }
 
 export const VENT_MAZE = [
-  '#################',
-  '#S..#.....#.....#',
-  '###.###.#.#.###.#',
-  '#.#.#...#.....#.#',
-  '#.#.#.###.#.#.###',
-  '#.#...#...#.#...#',
-  '#.#####.#######.#',
-  '#.....#...#...#.#',
-  '#.###.###.#.#.#.#',
-  '#...#.....#.#...#',
-  '###.#######.###.#',
-  '#...#.....#.#.#.#',
-  '#.###.###.#.#.#.#',
-  '#.#.....#...#.#.#',
-  '#.#####.#####.#.#',
-  '#.....#.#...#...#',
-  '#####.#.#.###.###',
-  '#.....#.#...#.#.#',
-  '#.#####.###.#.#.#',
-  '#.......#...#...#',
-  '#########.#####.#',
-  '#...#...#.....#.#',
-  '#.###.#.#.#.###.#',
-  '#.....#E..#.....#',
-  '#################',
+  "#################",
+  "#S..#.....#.....#",
+  "###.###.#.#.###.#",
+  "#.#.#...#.....#.#",
+  "#.#.#.###.#.#.###",
+  "#.#...#...#.#...#",
+  "#.#####.#######.#",
+  "#.....#...#...#.#",
+  "#.###.###.#.#.#.#",
+  "#...#.....#.#...#",
+  "###.#######.###.#",
+  "#...#.....#.#.#.#",
+  "#.###.###.#.#.#.#",
+  "#.#.....#...#.#.#",
+  "#.#####.#####.#.#",
+  "#.....#.#...#...#",
+  "#####.#.#.###.###",
+  "#.....#.#...#.#.#",
+  "#.#####.###.#.#.#",
+  "#.......#...#...#",
+  "#########.#####.#",
+  "#...#...#.....#.#",
+  "#.###.#.#.#.###.#",
+  "#.....#E..#.....#",
+  "#################",
 ] as const;
 export const VENT_CELL_SIZE = 2;
 export const VENT_ORIGIN = { x: 14, z: -90 };
 export const VENT_START = { column: 1, row: 1 } as const;
 export const VENT_EXIT = { column: 7, row: 23 } as const;
-export const VENT_BOUNDS = { minX: 13, maxX: 47, minZ: -91, maxZ: -41 } as const;
+export const VENT_BOUNDS = {
+  minX: 13,
+  maxX: 47,
+  minZ: -91,
+  maxZ: -41,
+} as const;
 export const VENT_CENTER = { x: 30, z: -66 } as const;
 export const VENT_SAFE_CELLS = [
-  VENT_START, { column: 7, row: 5 }, { column: 3, row: 11 },
-  { column: 5, row: 19 }, { column: 11, row: 11 }, { column: 13, row: 19 },
+  VENT_START,
+  { column: 7, row: 5 },
+  { column: 3, row: 11 },
+  { column: 5, row: 19 },
+  { column: 11, row: 11 },
+  { column: 13, row: 19 },
 ] as const;
 export const VENT_SENSORS = [
-  { id: 'vent-sensor-1', column: 7, row: 3, axis: 'z', phase: 0 },
-  { id: 'vent-sensor-2', column: 5, row: 7, axis: 'x', phase: 1.5 },
-  { id: 'vent-sensor-3', column: 5, row: 17, axis: 'x', phase: 3 },
-  { id: 'vent-sensor-4', column: 5, row: 11, axis: 'z', phase: 4.5 },
-  { id: 'vent-sensor-5', column: 15, row: 11, axis: 'x', phase: 2 },
-  { id: 'vent-sensor-6', column: 11, row: 22, axis: 'x', phase: 5 },
+  { id: "vent-sensor-1", column: 7, row: 3, axis: "z", phase: 0 },
+  { id: "vent-sensor-2", column: 5, row: 7, axis: "x", phase: 1.5 },
+  { id: "vent-sensor-3", column: 5, row: 17, axis: "x", phase: 3 },
+  { id: "vent-sensor-4", column: 5, row: 11, axis: "z", phase: 4.5 },
+  { id: "vent-sensor-5", column: 15, row: 11, axis: "x", phase: 2 },
+  { id: "vent-sensor-6", column: 11, row: 22, axis: "x", phase: 5 },
 ] as const;
 
-export function ventPoint(column: number, row: number, height: number = STAGE_TWO.ventHeight) {
-  return new THREE.Vector3(VENT_ORIGIN.x + column * VENT_CELL_SIZE, height, VENT_ORIGIN.z + row * VENT_CELL_SIZE);
+export function ventPoint(
+  column: number,
+  row: number,
+  height: number = STAGE_TWO.ventHeight,
+) {
+  return new THREE.Vector3(
+    VENT_ORIGIN.x + column * VENT_CELL_SIZE,
+    height,
+    VENT_ORIGIN.z + row * VENT_CELL_SIZE,
+  );
 }
 export function ventSensorState(index: number, time: number) {
   const sensor = VENT_SENSORS[index];
   if (!sensor) throw new Error(`Unknown vent sensor ${index}`);
   const phase = (time + sensor.phase) % 8;
-  const position = ventPoint(sensor.column, sensor.row, STAGE_TWO.ventHeight + 0.5);
-  position[sensor.axis] += Math.sin((time + sensor.phase) * Math.PI / 3.5) * 0.73;
+  const position = ventPoint(
+    sensor.column,
+    sensor.row,
+    STAGE_TWO.ventHeight + 0.5,
+  );
+  position[sensor.axis] +=
+    Math.sin(((time + sensor.phase) * Math.PI) / 3.5) * 0.73;
   return { position, active: phase < 4.5 };
 }
-export function isSurveillancePoint(point: { x: number; y: number; z: number }) {
+export function isSurveillancePoint(point: {
+  x: number;
+  y: number;
+  z: number;
+}) {
   const room = STAGE_TWO.camera;
-  return point.x > room.minX + 0.4 && point.x < room.maxX - 0.4 && point.z > room.minZ + 0.4
-    && point.z < room.maxZ - 0.4 && point.y >= 0.2 && point.y < 1;
+  return (
+    point.x > room.minX + 0.4 &&
+    point.x < room.maxX - 0.4 &&
+    point.z > room.minZ + 0.4 &&
+    point.z < room.maxZ - 0.4 &&
+    point.y >= 0.2 &&
+    point.y < 1
+  );
 }
 
-const mazeBlocks: ShipMapBlock[] = VENT_MAZE.flatMap((line, row) => [...line].flatMap((cell, column): ShipMapBlock[] => {
-  const point = ventPoint(column, row);
-  return cell === '#' ? [{ size: [2, 1.3, 2], position: [point.x - VENT_CENTER.x, 0.65, point.z - VENT_CENTER.z] }] : [];
-}));
+const mazeBlocks: ShipMapBlock[] = VENT_MAZE.flatMap((line, row) =>
+  [...line].flatMap((cell, column): ShipMapBlock[] => {
+    const point = ventPoint(column, row);
+    return cell === "#"
+      ? [
+          {
+            size: [2, 1.3, 2],
+            position: [point.x - VENT_CENTER.x, 0.65, point.z - VENT_CENTER.z],
+          },
+        ]
+      : [];
+  }),
+);
 export const STAGE_TWO_MAP: ShipMapLayout = {
-  name: 'Stage Two vent and camera hub', initialRoom: 34,
+  name: "Stage Two vent and camera hub",
+  initialRoom: 34,
   joins: [
-    { from: { room: 31, portal: 'airlock' }, to: { room: 35, portal: 'airlock' } },
-    { from: { room: 32, portal: 'vent' }, to: { room: 34, portal: 'ladder' } },
+    {
+      from: { room: 31, portal: "airlock" },
+      to: { room: 35, portal: "airlock" },
+      kind: "sealed",
+    },
+    { from: { room: 32, portal: "vent" }, to: { room: 34, portal: "ladder" } },
   ],
   rooms: [
-    { id: 34, name: 'Sensor vent maze', deck: 'upper', width: 34, depth: 50,
-      position: new THREE.Vector3(VENT_CENTER.x, 18, VENT_CENTER.z), yaw: 0,
+    {
+      id: 34,
+      name: "Sensor vent maze",
+      deck: "upper",
+      width: 34,
+      depth: 50,
+      position: new THREE.Vector3(VENT_CENTER.x, 18, VENT_CENTER.z),
+      yaw: 0,
       portals: { ladder: { x: -14, z: -22, yaw: Math.PI } },
-      description: 'Maintenance maze / Green sensors are safe / Blue checkpoint pads', mapContents: mazeBlocks },
-    { id: 35, name: 'Surveillance minigame hub', deck: 'main', width: 18, depth: 22,
-      position: new THREE.Vector3(28, 0, -53), yaw: 0, portalWidth: 4,
-      description: 'Camera-only links to surveilled decks / Minigame keycards / Keycard elevator',
-      portals: { airlock: { x: -9, z: 7, yaw: Math.PI / 2 }, lift: { x: 0, z: -11, yaw: 0 }, 'feed-5': { x: 0, z: 0, yaw: 0 },
-        'feed-6': { x: 0, z: 0, yaw: 0 }, 'feed-37': { x: 0, z: 0, yaw: 0 }, 'feed-38': { x: 0, z: 0, yaw: 0 }, 'feed-39': { x: 0, z: 0, yaw: 0 } } },
-    { id: 36, name: 'Bay 13 service elevator', deck: 'main', width: 4, depth: 4.8,
-      position: new THREE.Vector3(28, 0, -66.4), yaw: 0, description: 'Swipe the last recovered keycard / Walk in and press the Bay 13 button',
-      portals: { camera: { x: 0, z: 2.4, yaw: Math.PI }, bay13: { x: 0, z: -2.4, yaw: 0 } } },
+      description:
+        "Maintenance maze / Green sensors are safe / Blue checkpoint pads",
+      mapContents: mazeBlocks,
+    },
+    {
+      id: 35,
+      name: "Surveillance minigame hub",
+      deck: "main",
+      width: 18,
+      depth: 22,
+      position: new THREE.Vector3(28, 0, -53),
+      yaw: 0,
+      portalWidth: 4,
+      description:
+        "Sealed hangar airlock / Camera-only deck transfers / Central crowbar chest / Keycard elevator",
+      portals: {
+        airlock: { x: -9, z: 7, yaw: Math.PI / 2, locked: true },
+        lift: { x: 0, z: -11, yaw: 0 },
+        "feed-5": { x: 0, z: 0, yaw: 0 },
+        "feed-6": { x: 0, z: 0, yaw: 0 },
+        "feed-37": { x: 0, z: 0, yaw: 0 },
+        "feed-38": { x: 0, z: 0, yaw: 0 },
+        "feed-39": { x: 0, z: 0, yaw: 0 },
+        "feed-40": { x: 0, z: 0, yaw: 0 },
+      },
+      mapContents: [
+        {
+          size: [1.2, 0.9, 0.8],
+          position: [
+            STAGE_TWO.crowbarChest.x - 28,
+            0.45,
+            STAGE_TWO.crowbarChest.z + 53,
+          ],
+        },
+        ...STAGE_TWO_CAMERA_ORDER.map((_, index): ShipMapBlock => ({
+          size: [3, 1.6, 0.22],
+          position: [
+            (index % 4 - 1.5) * 4.15,
+            index < 4 ? 2.85 : 1.05,
+            STAGE_TWO.cameraWall.z + 53,
+          ],
+        })),
+      ],
+    },
+    {
+      id: 36,
+      name: "Bay 13 service elevator",
+      deck: "main",
+      width: 4,
+      depth: 4.8,
+      position: new THREE.Vector3(28, 0, -66.4),
+      yaw: 0,
+      description:
+        "Swipe the last recovered keycard / Automatic boarding to Bay 13",
+      portals: {
+        camera: { x: 0, z: 2.4, yaw: Math.PI },
+        bay13: { x: 0, z: -2.4, yaw: 0 },
+      },
+    },
   ],
-  connections: [[34, 35], [35, 36]],
-  playerPoint: (id, point) => new THREE.Vector3(point.x, id === 34 ? 20.2 : 2.2, point.z),
-  verticalLinks: [{ id: 35, position: new THREE.Vector3(28, 0, -44), upper: 18, label: 'Surveillance vent drop' }],
-  goals: [{ id: 'service-elevator', room: 35, position: new THREE.Vector3(28, 1.5, -64), label: 'ELEVATOR' }],
-  elevatorRoutes: [{ id: 36, position: new THREE.Vector3(28, 0, -66.4), width: 4, depth: 4.8,
-    stops: [{ height: 0, label: 'CAMERA HUB' }, { height: -18, label: 'BAY 13' }, { height: -36, label: 'BAY 14 / OFFLINE', locked: true }] }],
+  connections: [
+    [34, 35],
+    [35, 36],
+  ],
+  playerPoint: (id, point) =>
+    new THREE.Vector3(point.x, id === 34 ? 20.2 : 2.2, point.z),
+  verticalLinks: [
+    {
+      id: 35,
+      position: new THREE.Vector3(28, 0, -44),
+      upper: 18,
+      label: "Surveillance vent drop",
+    },
+  ],
+  goals: [
+    {
+      id: "surveillance-return",
+      room: 35,
+      position: new THREE.Vector3(28, 1.5, -56),
+      label: "RETURN",
+    },
+    {
+      id: "service-elevator",
+      room: 35,
+      position: new THREE.Vector3(28, 1.5, -64),
+      label: "ELEVATOR",
+    },
+  ],
+  elevatorRoutes: [
+    {
+      id: 36,
+      position: new THREE.Vector3(28, 0, -66.4),
+      width: 4,
+      depth: 4.8,
+      stops: [
+        { height: 0, label: "CAMERA HUB" },
+        { height: -18, label: "BAY 13" },
+        { height: -36, label: "BAY 14 / OFFLINE", locked: true },
+      ],
+    },
+  ],
 };
 
-export function cameraVisitMap(id: 5 | 6 | 37 | 38 | 39): ShipMapLayout {
-  const name = id === 5 ? 'CCTV cargo hold' : id === 6 ? 'CCTV target range' : id === 38 ? 'Rust simulation chamber'
-    : id === 39 ? 'Reactor Sequencer' : 'Saber Batting Cage';
-  const altitude = id === 5 ? 36 : id === 6 ? -18 : id === 38 ? 72 : id === 39 ? 90 : 54;
-  return { name, initialRoom: id, connections: [], playerPoint: (_id, point) => new THREE.Vector3(point.x, altitude + 2.2, point.z),
-    joins: [{ from: { room: 35, portal: `feed-${id}` }, to: { room: id, portal: 'camera' },
-      kind: 'camera', verticalOffset: altitude, displayOffset: { x: id === 38 ? 70 : id === 39 ? -34 : 34, z: id === 5 ? -16 : id === 6 || id === 39 ? 0 : 16 } }],
-    rooms: [{ id, name, deck: id === 6 ? 'lower' : 'upper', width: id === 38 ? 34 : id === 37 ? 18 : id === 39 ? 16 : 10,
-      depth: id === 38 ? 34 : id === 37 ? 22 : id === 39 ? 14 : 10,
-      position: new THREE.Vector3(id === 38 ? 17 : 0, altitude, id === 38 ? 17 : 0), yaw: 0, portals: { camera: { x: 0, z: 0, yaw: Math.PI } },
-      description: 'Deck under surveillance / Camera teleport only / Collect a chest keycard / T to return' }] };
+export function cameraVisitMap(id: 5 | 6 | 37 | 38 | 39 | 40): ShipMapLayout {
+  const name =
+    id === 5
+      ? "CCTV cargo hold"
+      : id === 6
+        ? "CCTV target range"
+        : id === 38
+          ? "Rust simulation chamber"
+          : id === 40
+            ? "Rust simulation chamber 2"
+            : id === 39
+              ? "Reactor Sequencer"
+              : "Bloomstick Tennis";
+  const deck = id === 5 || id === 6
+    ? "branden"
+    : id === 38 || id === 40 ? "brendan" : "students";
+  const altitude = SHIP_DECKS[deck].height;
+  return {
+    name,
+    initialRoom: id,
+    connections: [],
+    playerPoint: (_id, point) =>
+      new THREE.Vector3(point.x, altitude + 2.2, point.z),
+    joins: [
+      {
+        from: { room: 35, portal: `feed-${id}` },
+        to: { room: id, portal: "camera" },
+        kind: "camera",
+        verticalOffset: altitude,
+        displayOffset: {
+          x: id === 6 ? 70 : id === 40 ? 112 : id === 39 ? 77 : 50,
+          z: 16,
+        },
+      },
+    ],
+    rooms: [
+      {
+        id,
+        name,
+        deck,
+        width:
+          id === 40
+            ? 70
+            : id === 38
+              ? 34
+              : id === 37
+                ? 18
+                : id === 39
+                  ? 16
+                  : 10,
+        depth:
+          id === 40
+            ? 22
+            : id === 38
+              ? 34
+              : id === 37
+                ? 22
+                : id === 39
+                  ? 14
+                  : 10,
+        position: new THREE.Vector3(
+          id === 40 ? 29 : id === 38 ? 17 : 0,
+          altitude,
+          id === 40 ? 11 : id === 38 ? 17 : 0,
+        ),
+        yaw: 0,
+        portals: {
+          camera: { x: 0, z: 0, yaw: Math.PI },
+          exit: id === 40
+            ? { x: 35, z: -7, yaw: -Math.PI / 2, locked: true }
+            : id === 38
+              ? { x: 0, z: -17, yaw: 0, locked: true }
+              : {
+                  x: 0,
+                  z: id === 37 ? 11 : id === 39 ? 7 : -5,
+                  yaw: id === 37 || id === 39 ? Math.PI : 0,
+                  locked: true,
+                },
+        },
+        description:
+          `${SHIP_DECKS[deck].name} / Camera transfer only / Exit locked / R: return to camera room`,
+      },
+    ],
+  };
 }
 
 export const BAY_THIRTEEN_MAP: ShipMapLayout = {
-  name: 'Bay 13 arena', initialRoom: 13,
-  joins: [{ from: { room: 36, portal: 'bay13' }, to: { room: 13, portal: 'elevator' }, verticalOffset: -18 }],
-  rooms: [{ id: 13, name: 'Bay 13 / Bay Warden arena', deck: 'lower', width: 40, depth: 48,
-    position: new THREE.Vector3(0, -18, 0), yaw: 0, portals: { elevator: { x: 0, z: -24, yaw: 0 }, hangarLift: { x: 0, z: 0, yaw: 0 } },
-    description: 'Bay Warden boss / Central lift to the Bay 14 hangar' }],
-  connections: [], playerPoint: (_id, point) => new THREE.Vector3(point.x, -15.8, point.z),
-  elevatorRoutes: [{ id: 13, position: new THREE.Vector3(0, -18, 0), width: 4, depth: 4,
-    stops: [{ height: -18, label: 'BAY 13 ARENA' }, { height: -36, label: 'BAY 14 HANGAR' }] }],
+  name: "Bay 13 arena",
+  initialRoom: 13,
+  joins: [
+    {
+      from: { room: 36, portal: "bay13" },
+      to: { room: 13, portal: "elevator" },
+      verticalOffset: -18,
+    },
+  ],
+  rooms: [
+    {
+      id: 13,
+      name: "Bay 13 / Bay Warden arena",
+      deck: "lower",
+      width: 40,
+      depth: 48,
+      position: new THREE.Vector3(0, -18, 0),
+      yaw: 0,
+      portals: {
+        elevator: { x: 0, z: -24, yaw: 0 },
+        hangarLift: { x: 0, z: 0, yaw: 0 },
+      },
+      description: "Bay Warden boss / Central lift to the Bay 14 hangar",
+    },
+  ],
+  connections: [],
+  playerPoint: (_id, point) => new THREE.Vector3(point.x, -15.8, point.z),
+  elevatorRoutes: [
+    {
+      id: 13,
+      position: new THREE.Vector3(0, -18, 0),
+      width: 4,
+      depth: 4,
+      stops: [
+        { height: -18, label: "BAY 13 ARENA" },
+        { height: -36, label: "BAY 14 HANGAR" },
+      ],
+    },
+  ],
 };
 
 export const BAY_FOURTEEN_MAP: ShipMapLayout = {
-  name: 'Bay 14 escape hangar', initialRoom: 14,
-  joins: [{ from: { room: 13, portal: 'hangarLift' }, to: { room: 14, portal: 'arenaLift' }, verticalOffset: -18 }],
-  rooms: [{
-    id: 14, name: 'Bay 14 / Escape hangar', deck: 'lower', width: 36, depth: 72,
-    position: new THREE.Vector3(0, -36, 0), yaw: 0, portals: { arenaLift: { x: 0, z: -36, yaw: Math.PI } }, description: 'Reach the shuttle and escape the ship',
-  }], connections: [], playerPoint: (_id, point) => new THREE.Vector3(point.x, -33.8, point.z),
+  name: "Bay 14 escape hangar",
+  initialRoom: 14,
+  joins: [
+    {
+      from: { room: 13, portal: "hangarLift" },
+      to: { room: 14, portal: "arenaLift" },
+      verticalOffset: -18,
+    },
+  ],
+  rooms: [
+    {
+      id: 14,
+      name: "Bay 14 / Escape hangar",
+      deck: "lower",
+      width: 36,
+      depth: 72,
+      position: new THREE.Vector3(0, -36, 0),
+      yaw: 0,
+      portals: { arenaLift: { x: 0, z: -36, yaw: Math.PI } },
+      description: "Reach the shuttle and escape the ship",
+    },
+  ],
+  connections: [],
+  playerPoint: (_id, point) => new THREE.Vector3(point.x, -33.8, point.z),
 };

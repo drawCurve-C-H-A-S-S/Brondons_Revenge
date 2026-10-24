@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from "three";
 
 const vertexDeclarations = /* glsl */ `
   varying vec3 vStonePos;
@@ -49,21 +49,42 @@ const albedo = /* glsl */ `
  */
 export function applyStoneStatueShader(root: THREE.Object3D, scale = 1) {
   const materials: THREE.Material[] = [];
-  root.traverse(node => {
+  root.traverse((node) => {
     const mesh = node as THREE.Mesh;
     if (!mesh.isMesh) return;
-    const stone = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.88, metalness: 0 });
-    stone.onBeforeCompile = shader => {
+    const stone = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.88,
+      metalness: 0,
+    });
+    stone.onBeforeCompile = (shader) => {
       shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', `#include <common>\n${vertexDeclarations}`)
-        .replace('#include <begin_vertex>', `#include <begin_vertex>\nvStonePos = position * ${(1 / Math.max(0.0001, scale)).toFixed(4)};\nvStoneNormal = normal;`);
+        .replace(
+          "#include <common>",
+          `#include <common>\n${vertexDeclarations}`,
+        )
+        .replace(
+          "#include <begin_vertex>",
+          `#include <begin_vertex>\nvStonePos = position * ${(1 / Math.max(0.0001, scale)).toFixed(4)};\nvStoneNormal = normal;`,
+        );
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', `#include <common>\n${fragmentDeclarations}`)
-        .replace('#include <color_fragment>', `#include <color_fragment>\n${albedo}`)
-        .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\nroughnessFactor = clamp(0.92 - stoneFbm(vStonePos * 18.0) * 0.28, 0.5, 1.0);`);
+        .replace(
+          "#include <common>",
+          `#include <common>\n${fragmentDeclarations}`,
+        )
+        .replace(
+          "#include <color_fragment>",
+          `#include <color_fragment>\n${albedo}`,
+        )
+        .replace(
+          "#include <roughnessmap_fragment>",
+          `#include <roughnessmap_fragment>\nroughnessFactor = clamp(0.92 - stoneFbm(vStonePos * 18.0) * 0.28, 0.5, 1.0);`,
+        );
     };
-    stone.customProgramCacheKey = () => 'brondons-stone-statue';
-    mesh.material = stone; mesh.castShadow = mesh.receiveShadow = true; mesh.frustumCulled = false;
+    stone.customProgramCacheKey = () => "brondons-stone-statue";
+    mesh.material = stone;
+    mesh.castShadow = mesh.receiveShadow = true;
+    mesh.frustumCulled = false;
     materials.push(stone);
   });
   return materials;

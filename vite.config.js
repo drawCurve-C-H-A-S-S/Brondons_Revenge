@@ -1,47 +1,54 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from "vite";
 
 // Pre-bundle every Three.js entry up front. A dependency discovered late (for
 // example by a lazily imported scene) makes Vite re-optimize mid-session, and
 // the page then holds two copies of Three.js: GLTF meshes stop passing
 // `instanceof THREE.Mesh`, so custom shader materials are never applied.
 const THREE_ADDONS = [
-  'controls/OrbitControls',
-  'controls/TransformControls',
-  'environments/RoomEnvironment',
-  'libs/fflate.module',
-  'loaders/DRACOLoader',
-  'loaders/GLTFLoader',
-  'loaders/OBJLoader',
-  'math/Capsule',
-  'objects/Reflector',
-  'postprocessing/EffectComposer',
-  'postprocessing/OutputPass',
-  'postprocessing/Pass',
-  'postprocessing/RenderPass',
-  'postprocessing/UnrealBloomPass',
-  'renderers/CSS3DRenderer',
-  'utils/BufferGeometryUtils',
-  'utils/SkeletonUtils',
-].map(path => `three/addons/${path}.js`);
+  "controls/OrbitControls",
+  "controls/TransformControls",
+  "environments/RoomEnvironment",
+  "libs/fflate.module",
+  "loaders/DRACOLoader",
+  "loaders/GLTFLoader",
+  "loaders/OBJLoader",
+  "math/Capsule",
+  "objects/Reflector",
+  "postprocessing/EffectComposer",
+  "postprocessing/OutputPass",
+  "postprocessing/Pass",
+  "postprocessing/RenderPass",
+  "postprocessing/UnrealBloomPass",
+  "renderers/CSS3DRenderer",
+  "utils/BufferGeometryUtils",
+  "utils/SkeletonUtils",
+].map((path) => `three/addons/${path}.js`);
 
 export default defineConfig({
-  root: 'src',
-  base: './',
+  root: "src",
+  base: "./",
   // Test SSR servers disable optimization and must not overwrite the live game's metadata.
   cacheDir: process.env.NODE_TEST_CONTEXT
-    ? `node_modules/.vite-tests/${process.pid}` : 'node_modules/.vite-game',
-  assetsInclude: ['**/*.glb', '**/*.obj', '**/*.fbx', '**/*.gltf', '**/*.bin'],
+    ? `node_modules/.vite-tests/${process.pid}`
+    : "node_modules/.vite-game",
+  assetsInclude: ["**/*.glb", "**/*.obj", "**/*.fbx", "**/*.gltf", "**/*.bin"],
   resolve: {
-    dedupe: ['three'],
+    dedupe: ["three"],
   },
   optimizeDeps: {
     noDiscovery: true,
-    entries: ['index.html', 'computer-preview.html'],
-    include: ['three', ...THREE_ADDONS,
-      'cannon-es', 'pathfinding', 'three-bvh-csg', 'gifuct-js'],
+    entries: ["index.html", "computer-preview.html"],
+    include: [
+      "three",
+      ...THREE_ADDONS,
+      "cannon-es",
+      "pathfinding",
+      "three-bvh-csg",
+      "gifuct-js",
+    ],
   },
   build: {
-    outDir: '../dist',
+    outDir: "../dist",
     emptyOutDir: true,
     assetsInlineLimit: 0,
   },

@@ -1,29 +1,34 @@
 <!doctype html>
 <html lang="en">
-<meta charset="utf-8">
-<title>Cabin screen and prologue preview</title>
-<link rel="stylesheet" href="./styles/main.css">
-<body data-scene="scene1">
-<div id="menu-buttons">
-  <div class="menu-actions">
-    <button id="play-btn" class="menu-btn">PLAY</button>
-    <button id="quit-btn" class="menu-btn">DON'T PLAY</button>
-  </div>
-  <button class="scene-credits-btn" type="button">View Credits</button>
-</div>
-<script type="module">
-  import * as THREE from 'three';
-  import { createScene } from './scenes/scene1.ts';
-  const data = createScene(); await data.ready;
-  const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  data.camera.position.copy(data.lastSplinePoint); data.camera.lookAt(0, 0, 0);
-  document.body.prepend(renderer.domElement);
-  renderer.render(data.scene, data.camera);
-  window.computerPreview = { data, renderer, THREE };
-  document.body.dataset.ready = 'true';
-</script>
-</body>
+  <meta charset="utf-8" />
+  <title>Cabin screen and prologue preview</title>
+  <link rel="stylesheet" href="./styles/main.css" />
+  <body data-scene="scene1">
+    <div id="menu-buttons">
+      <div class="menu-actions">
+        <button id="play-btn" class="menu-btn">PLAY</button>
+        <button id="quit-btn" class="menu-btn">DON'T PLAY</button>
+      </div>
+      <button class="scene-credits-btn" type="button">View Credits</button>
+    </div>
+    <script type="module">
+      import * as THREE from "three";
+      import { createScene } from "./scenes/scene1.ts";
+      const data = createScene();
+      await data.ready;
+      const renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        preserveDrawingBuffer: true,
+      });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      data.camera.position.copy(data.lastSplinePoint);
+      data.camera.lookAt(0, 0, 0);
+      document.body.prepend(renderer.domElement);
+      renderer.render(data.scene, data.camera);
+      window.computerPreview = { data, renderer, THREE };
+      document.body.dataset.ready = "true";
+    </script>
+  </body>
 </html>

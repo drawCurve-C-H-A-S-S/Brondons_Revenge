@@ -1,27 +1,58 @@
-import * as CANNON from 'cannon-es';
+import * as CANNON from "cannon-es";
 
 const shapesFor = (options, scale = [1, 1, 1]) => {
   const radialScale = (scale[0] + scale[2]) / 2;
-  if (options.collider === 'sphere') {
-    const radius = (options.radius ?? 0.5) * ((scale[0] + scale[1] + scale[2]) / 3);
+  if (options.collider === "sphere") {
+    const radius =
+      (options.radius ?? 0.5) * ((scale[0] + scale[1] + scale[2]) / 3);
     return [{ shape: new CANNON.Sphere(radius) }];
   }
-  if (options.collider === 'cylinder') {
-    const radius = (options.radius ?? 0.5) * radialScale;
-    const height = (options.height ?? 1) * scale[1];
-    return [{ shape: new CANNON.Cylinder(radius, radius, height, options.segments ?? 8) }];
-  }
-  if (options.collider === 'capsule') {
+  if (options.collider === "cylinder") {
     const radius = (options.radius ?? 0.5) * radialScale;
     const height = (options.height ?? 1) * scale[1];
     return [
-      { shape: new CANNON.Cylinder(radius, radius, height, options.segments ?? 8) },
-      { shape: new CANNON.Sphere(radius), offset: new CANNON.Vec3(0, height / 2, 0) },
-      { shape: new CANNON.Sphere(radius), offset: new CANNON.Vec3(0, -height / 2, 0) },
+      {
+        shape: new CANNON.Cylinder(
+          radius,
+          radius,
+          height,
+          options.segments ?? 8,
+        ),
+      },
     ];
   }
-  const size = (options.size ?? [1, 1, 1]).map((value, index) => value * (scale[index] ?? 1));
-  return [{ shape: new CANNON.Box(new CANNON.Vec3(size[0] / 2, size[1] / 2, size[2] / 2)) }];
+  if (options.collider === "capsule") {
+    const radius = (options.radius ?? 0.5) * radialScale;
+    const height = (options.height ?? 1) * scale[1];
+    return [
+      {
+        shape: new CANNON.Cylinder(
+          radius,
+          radius,
+          height,
+          options.segments ?? 8,
+        ),
+      },
+      {
+        shape: new CANNON.Sphere(radius),
+        offset: new CANNON.Vec3(0, height / 2, 0),
+      },
+      {
+        shape: new CANNON.Sphere(radius),
+        offset: new CANNON.Vec3(0, -height / 2, 0),
+      },
+    ];
+  }
+  const size = (options.size ?? [1, 1, 1]).map(
+    (value, index) => value * (scale[index] ?? 1),
+  );
+  return [
+    {
+      shape: new CANNON.Box(
+        new CANNON.Vec3(size[0] / 2, size[1] / 2, size[2] / 2),
+      ),
+    },
+  ];
 };
 
 export class CannonAdapter {
@@ -33,13 +64,16 @@ export class CannonAdapter {
   addRigidBody(mesh, options = {}) {
     const body = new CANNON.Body({
       mass: options.mass ?? 0,
-      position: new CANNON.Vec3(...(options.position || mesh.position.toArray())),
-      material: new CANNON.Material(options.material || 'default'),
+      position: new CANNON.Vec3(
+        ...(options.position || mesh.position.toArray()),
+      ),
+      material: new CANNON.Material(options.material || "default"),
       linearDamping: options.linearDamping ?? 0.01,
       angularDamping: options.angularDamping ?? 0.01,
     });
     const scale = mesh.scale.toArray();
-    for (const { shape, offset } of shapesFor(options, scale)) body.addShape(shape, offset);
+    for (const { shape, offset } of shapesFor(options, scale))
+      body.addShape(shape, offset);
     for (const extra of options.extraColliders || []) {
       const localOffset = extra.position || [0, 0, 0];
       for (const { shape, offset } of shapesFor(extra, scale)) {
@@ -61,20 +95,22 @@ export class CannonAdapter {
 
   setVelocity(mesh, velocity) {
     const body = this.bodies.get(mesh);
-    if (!body) throw new Error('Cannot set velocity on a mesh without a rigid body.');
+    if (!body)
+      throw new Error("Cannot set velocity on a mesh without a rigid body.");
     body.velocity.set(...velocity);
     body.wakeUp();
   }
 
   getVelocity(mesh) {
     const body = this.bodies.get(mesh);
-    if (!body) throw new Error('Cannot read velocity from a mesh without a rigid body.');
+    if (!body)
+      throw new Error("Cannot read velocity from a mesh without a rigid body.");
     return body.velocity.toArray();
   }
 
   moveKinematic(mesh, position, quaternion = null) {
     const body = this.bodies.get(mesh);
-    if (!body) throw new Error('Cannot move a mesh without a rigid body.');
+    if (!body) throw new Error("Cannot move a mesh without a rigid body.");
     body.type = CANNON.Body.KINEMATIC;
     body.position.set(...position);
     if (quaternion) body.quaternion.set(...quaternion);
@@ -90,7 +126,8 @@ export class CannonAdapter {
 
   applyImpulse(mesh, impulse) {
     const body = this.bodies.get(mesh);
-    if (!body) throw new Error('Cannot apply impulse to a mesh without a rigid body.');
+    if (!body)
+      throw new Error("Cannot apply impulse to a mesh without a rigid body.");
     body.applyImpulse(new CANNON.Vec3(...impulse), body.position);
   }
 
@@ -109,7 +146,12 @@ export class CannonAdapter {
     const body = this.bodies.get(mesh);
     if (!body || body.type !== CANNON.Body.KINEMATIC) return;
     body.position.set(mesh.position.x, mesh.position.y, mesh.position.z);
-    body.quaternion.set(mesh.quaternion.x, mesh.quaternion.y, mesh.quaternion.z, mesh.quaternion.w);
+    body.quaternion.set(
+      mesh.quaternion.x,
+      mesh.quaternion.y,
+      mesh.quaternion.z,
+      mesh.quaternion.w,
+    );
     body.aabbNeedsUpdate = true;
   }
 
@@ -117,7 +159,12 @@ export class CannonAdapter {
     const body = this.bodies.get(mesh);
     if (!body || !body.userData?.previousType) return;
     body.position.set(mesh.position.x, mesh.position.y, mesh.position.z);
-    body.quaternion.set(mesh.quaternion.x, mesh.quaternion.y, mesh.quaternion.z, mesh.quaternion.w);
+    body.quaternion.set(
+      mesh.quaternion.x,
+      mesh.quaternion.y,
+      mesh.quaternion.z,
+      mesh.quaternion.w,
+    );
     body.type = body.userData.previousType;
     body.mass = body.userData.previousMass;
     body.velocity.set(0, 0, 0);
@@ -147,7 +194,12 @@ export class CannonAdapter {
 
   onCollision(mesh, callback) {
     const body = this.bodies.get(mesh);
-    if (!body) throw new Error('Cannot observe collisions for a mesh without a rigid body.');
-    body.addEventListener('collide', (event) => callback(mesh, event.body, event));
+    if (!body)
+      throw new Error(
+        "Cannot observe collisions for a mesh without a rigid body.",
+      );
+    body.addEventListener("collide", (event) =>
+      callback(mesh, event.body, event),
+    );
   }
 }

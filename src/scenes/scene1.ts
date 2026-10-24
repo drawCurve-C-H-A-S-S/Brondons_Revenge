@@ -2,15 +2,19 @@
  * Scene 1 - Main Menu with starfield and imported mothership.
  * Cutscene camera fly-through with the model's authored materials.
  */
-import * as THREE from 'three';
-import * as CANNON from 'cannon-es';
-import { loadModel } from '../core/loader.js';
-import { createMothership } from '../scripts/global/mothership.js';
-import { CutsceneManager } from '../helpers/animation/CutsceneManager.js';
-import { disposeRoom } from '../scripts/global/shipRoom.js';
-import { createStarfield } from '../scripts/global/starfield.js';
+import * as THREE from "three";
+import * as CANNON from "cannon-es";
+import { loadModel } from "../core/loader.js";
+import { createMothership } from "../scripts/global/mothership.js";
+import { CutsceneManager } from "../helpers/animation/CutsceneManager.js";
+import { disposeRoom } from "../scripts/global/shipRoom.js";
+import { createStarfield } from "../scripts/global/starfield.js";
 
-export function createScene({ audioManager, loadShip = loadModel, renderer }: {
+export function createScene({
+  audioManager,
+  loadShip = loadModel,
+  renderer,
+}: {
   audioManager?: unknown;
   loadShip?: typeof loadModel;
   renderer?: THREE.WebGLRenderer;
@@ -22,7 +26,8 @@ export function createScene({ audioManager, loadShip = loadModel, renderer }: {
   const starfield = createStarfield({ scene, renderer });
 
   // --- Mothership ---
-  const mothership = createMothership(loadShip), ship = mothership.root;
+  const mothership = createMothership(loadShip),
+    ship = mothership.root;
   let disposed = false;
 
   /* Original primitive spaceship (kept for reference).
@@ -167,15 +172,25 @@ export function createScene({ audioManager, loadShip = loadModel, renderer }: {
   scene.add(ambLight);
 
   // Camera
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+  const camera = new THREE.PerspectiveCamera(
+    75,
+    window.innerWidth / window.innerHeight,
+    0.1,
+    1000,
+  );
   camera.position.set(5, 4, 6);
   camera.lookAt(0, 0.5, 0);
-  let prevCameraPosition = camera.position.clone();
+  const prevCameraPosition = camera.position.clone();
 
   // --- Physics ---
-  const physicsWorld = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
+  const physicsWorld = new CANNON.World({
+    gravity: new CANNON.Vec3(0, -9.82, 0),
+  });
   physicsWorld.broadphase = new CANNON.SAPBroadphase(physicsWorld);
-  const groundBody = new CANNON.Body({ type: CANNON.Body.STATIC, shape: new CANNON.Plane() });
+  const groundBody = new CANNON.Body({
+    type: CANNON.Body.STATIC,
+    shape: new CANNON.Plane(),
+  });
   groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
   physicsWorld.addBody(groundBody);
 
@@ -220,13 +235,22 @@ export function createScene({ audioManager, loadShip = loadModel, renderer }: {
     new THREE.Vector3(27, 24, 50),
   ];
   const spline_camera_path = new THREE.CatmullRomCurve3(splinePoints);
-  cutsceneManager.registerSplineCurve('camera_path_1788121916257', spline_camera_path);
+  cutsceneManager.registerSplineCurve(
+    "camera_path_1788121916257",
+    spline_camera_path,
+  );
   cutsceneManager.registerCutscene({
-    id: 'cutscene_1788121916257',
-    name: 'Cutscene 1',
+    id: "cutscene_1788121916257",
+    name: "Cutscene 1",
     duration: 20,
     tracks: [
-      { target: 'camera', type: 'spline', path: 'camera_path_1788121916257', start: 0, end: 20 },
+      {
+        target: "camera",
+        type: "spline",
+        path: "camera_path_1788121916257",
+        start: 0,
+        end: 20,
+      },
     ],
   });
 

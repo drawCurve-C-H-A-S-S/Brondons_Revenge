@@ -1,6 +1,9 @@
 export class GpuTimer {
   private readonly gl: WebGL2RenderingContext | null;
-  private readonly ext: { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number } | null;
+  private readonly ext: {
+    TIME_ELAPSED_EXT: number;
+    GPU_DISJOINT_EXT: number;
+  } | null;
   private pending: WebGLQuery[] = [];
   private active: WebGLQuery | null = null;
   private history: number[] = [];
@@ -8,7 +11,9 @@ export class GpuTimer {
   constructor(context: unknown) {
     this.gl = context instanceof WebGL2RenderingContext ? context : null;
     this.ext = this.gl
-      ? (this.gl.getExtension('EXT_disjoint_timer_query_webgl2') as GpuTimer['ext'])
+      ? (this.gl.getExtension(
+          "EXT_disjoint_timer_query_webgl2",
+        ) as GpuTimer["ext"])
       : null;
   }
 
@@ -38,7 +43,9 @@ export class GpuTimer {
       const query = this.pending[0];
       if (!gl.getQueryParameter(query, gl.QUERY_RESULT_AVAILABLE)) break;
       const disjoint = gl.getParameter(this.ext.GPU_DISJOINT_EXT);
-      const nanoseconds = disjoint ? 0 : gl.getQueryParameter(query, gl.QUERY_RESULT);
+      const nanoseconds = disjoint
+        ? 0
+        : gl.getQueryParameter(query, gl.QUERY_RESULT);
       gl.deleteQuery(query);
       this.pending.shift();
       if (!disjoint) {

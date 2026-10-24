@@ -1,7 +1,7 @@
-import * as THREE from 'three';
-import { validateScene } from './sceneSchema.js';
+import * as THREE from "three";
+import { validateScene } from "./sceneSchema.js";
 
-const MANAGED_OBJECTS = 'managed-scene-objects';
+const MANAGED_OBJECTS = "managed-scene-objects";
 
 export class SceneManager {
   constructor(scene, { onSceneChanged } = {}) {
@@ -108,31 +108,47 @@ export class SceneManager {
   }
 
   updateCutscene(id, settings) {
-    const cutscene = this.sceneJSON?.cutscenes?.find((entry) => entry.id === id);
+    const cutscene = this.sceneJSON?.cutscenes?.find(
+      (entry) => entry.id === id,
+    );
     if (!cutscene) throw new Error(`Unknown cutscene: ${id}`);
     this.recordHistory();
     Object.assign(cutscene, structuredClone(settings));
   }
 
   removeCutscene(id) {
-    const index = this.sceneJSON?.cutscenes?.findIndex((entry) => entry.id === id) ?? -1;
+    const index =
+      this.sceneJSON?.cutscenes?.findIndex((entry) => entry.id === id) ?? -1;
     if (index < 0) return false;
     this.recordHistory();
     const [cutscene] = this.sceneJSON.cutscenes.splice(index, 1);
-    const linkedPaths = new Set((cutscene.tracks || []).map((track) => track.path).filter(Boolean));
-    this.sceneJSON.splines = (this.sceneJSON.splines || []).filter((spline) => !linkedPaths.has(spline.id));
+    const linkedPaths = new Set(
+      (cutscene.tracks || []).map((track) => track.path).filter(Boolean),
+    );
+    this.sceneJSON.splines = (this.sceneJSON.splines || []).filter(
+      (spline) => !linkedPaths.has(spline.id),
+    );
     return true;
   }
 
   addCutscene(cutscene, spline) {
     if (!this.editTransaction) this.recordHistory();
-    this.sceneJSON.splines = [...(this.sceneJSON.splines || []), structuredClone(spline)];
-    this.sceneJSON.cutscenes = [...(this.sceneJSON.cutscenes || []), structuredClone(cutscene)];
+    this.sceneJSON.splines = [
+      ...(this.sceneJSON.splines || []),
+      structuredClone(spline),
+    ];
+    this.sceneJSON.cutscenes = [
+      ...(this.sceneJSON.cutscenes || []),
+      structuredClone(cutscene),
+    ];
   }
 
   addTrigger(trigger) {
     if (!this.editTransaction) this.recordHistory();
-    this.sceneJSON.triggers = [...(this.sceneJSON.triggers || []), structuredClone(trigger)];
+    this.sceneJSON.triggers = [
+      ...(this.sceneJSON.triggers || []),
+      structuredClone(trigger),
+    ];
   }
 
   updateTrigger(id, settings) {
@@ -143,7 +159,8 @@ export class SceneManager {
   }
 
   removeTrigger(id) {
-    const index = this.sceneJSON?.triggers?.findIndex((entry) => entry.id === id) ?? -1;
+    const index =
+      this.sceneJSON?.triggers?.findIndex((entry) => entry.id === id) ?? -1;
     if (index < 0) return false;
     this.recordHistory();
     this.sceneJSON.triggers.splice(index, 1);
@@ -152,7 +169,10 @@ export class SceneManager {
 
   updateAudio(settings) {
     if (!this.editTransaction) this.recordHistory();
-    this.sceneJSON.audio = { ...(this.sceneJSON.audio || { bgm: null, emitters: [] }), ...structuredClone(settings) };
+    this.sceneJSON.audio = {
+      ...(this.sceneJSON.audio || { bgm: null, emitters: [] }),
+      ...structuredClone(settings),
+    };
   }
 
   addAudioEmitter(emitter) {
@@ -163,7 +183,9 @@ export class SceneManager {
   }
 
   updateAudioEmitter(id, settings) {
-    const emitter = this.sceneJSON?.audio?.emitters?.find((entry) => entry.id === id);
+    const emitter = this.sceneJSON?.audio?.emitters?.find(
+      (entry) => entry.id === id,
+    );
     if (!emitter) throw new Error(`Unknown audio emitter: ${id}`);
     if (!this.editTransaction) this.recordHistory();
     Object.assign(emitter, structuredClone(settings));
@@ -179,35 +201,60 @@ export class SceneManager {
   }
 
   updateObjectProperties(id, properties) {
-    const objectJSON = this.sceneJSON?.objects?.find((entry) => entry.id === id);
+    const objectJSON = this.sceneJSON?.objects?.find(
+      (entry) => entry.id === id,
+    );
     const mesh = this.getMesh(id);
     if (!objectJSON || !mesh) throw new Error(`Unknown scene object: ${id}`);
     if (!this.editTransaction) this.recordHistory();
     if (properties.material) {
-      objectJSON.material = { ...(objectJSON.material || {}), ...structuredClone(properties.material) };
-      if (properties.material.type && properties.material.type !== mesh.material.type) {
+      objectJSON.material = {
+        ...(objectJSON.material || {}),
+        ...structuredClone(properties.material),
+      };
+      if (
+        properties.material.type &&
+        properties.material.type !== mesh.material.type
+      ) {
         const previousMaterial = mesh.material;
         mesh.material = this.createMaterial(objectJSON.material);
         previousMaterial.dispose();
       }
-      if (properties.material.color) mesh.material.color.set(properties.material.color);
-      if (properties.material.roughness !== undefined) mesh.material.roughness = properties.material.roughness;
-      if (properties.material.metalness !== undefined) mesh.material.metalness = properties.material.metalness;
-      if (properties.material.emissive) mesh.material.emissive.set(properties.material.emissive);
-      if (properties.material.emissiveIntensity !== undefined) mesh.material.emissiveIntensity = properties.material.emissiveIntensity;
-      if (properties.material.opacity !== undefined) mesh.material.opacity = properties.material.opacity;
-      if (properties.material.transparent !== undefined) mesh.material.transparent = properties.material.transparent;
-      if (properties.material.wireframe !== undefined) mesh.material.wireframe = properties.material.wireframe;
-      if (properties.material.flatShading !== undefined) mesh.material.flatShading = properties.material.flatShading;
-      if (properties.material.vertexShader !== undefined) mesh.material.vertexShader = properties.material.vertexShader;
-      if (properties.material.fragmentShader !== undefined) mesh.material.fragmentShader = properties.material.fragmentShader;
+      if (properties.material.color)
+        mesh.material.color.set(properties.material.color);
+      if (properties.material.roughness !== undefined)
+        mesh.material.roughness = properties.material.roughness;
+      if (properties.material.metalness !== undefined)
+        mesh.material.metalness = properties.material.metalness;
+      if (properties.material.emissive)
+        mesh.material.emissive.set(properties.material.emissive);
+      if (properties.material.emissiveIntensity !== undefined)
+        mesh.material.emissiveIntensity = properties.material.emissiveIntensity;
+      if (properties.material.opacity !== undefined)
+        mesh.material.opacity = properties.material.opacity;
+      if (properties.material.transparent !== undefined)
+        mesh.material.transparent = properties.material.transparent;
+      if (properties.material.wireframe !== undefined)
+        mesh.material.wireframe = properties.material.wireframe;
+      if (properties.material.flatShading !== undefined)
+        mesh.material.flatShading = properties.material.flatShading;
+      if (properties.material.vertexShader !== undefined)
+        mesh.material.vertexShader = properties.material.vertexShader;
+      if (properties.material.fragmentShader !== undefined)
+        mesh.material.fragmentShader = properties.material.fragmentShader;
       mesh.material.needsUpdate = true;
     }
-    if (properties.physics) objectJSON.physics = { ...(objectJSON.physics || {}), ...structuredClone(properties.physics) };
+    if (properties.physics)
+      objectJSON.physics = {
+        ...(objectJSON.physics || {}),
+        ...structuredClone(properties.physics),
+      };
   }
 
   renameObject(id, name) {
-    const objectJSON = this.sceneJSON?.objects?.find((entry) => entry.id === id);
+    const objectJSON = this.sceneJSON?.objects?.find(
+      (entry) => entry.id === id,
+    );
     const mesh = this.getMesh(id);
     if (!objectJSON || !mesh) throw new Error(`Unknown scene object: ${id}`);
     this.recordHistory();
@@ -217,8 +264,17 @@ export class SceneManager {
 
   renameSceneItem(type, id, name) {
     const nextName = name.trim() || id;
-    if (type === 'object') return this.renameObject(id, nextName);
-    const collection = type === 'light' ? this.sceneJSON?.lights : type === 'camera' ? this.sceneJSON?.cameras : type === 'spline' ? this.sceneJSON?.splines : type === 'trigger' ? this.sceneJSON?.triggers : this.sceneJSON?.cutscenes;
+    if (type === "object") return this.renameObject(id, nextName);
+    const collection =
+      type === "light"
+        ? this.sceneJSON?.lights
+        : type === "camera"
+          ? this.sceneJSON?.cameras
+          : type === "spline"
+            ? this.sceneJSON?.splines
+            : type === "trigger"
+              ? this.sceneJSON?.triggers
+              : this.sceneJSON?.cutscenes;
     const item = collection?.find((entry) => entry.id === id);
     if (!item) throw new Error(`Unknown scene item: ${id}`);
     this.recordHistory();
@@ -230,11 +286,15 @@ export class SceneManager {
     const source = this.sceneJSON?.objects?.find((entry) => entry.id === id);
     if (!source) throw new Error(`Unknown scene object: ${id}`);
     this.recordHistory();
-    return this.addObject({ ...structuredClone(source), ...structuredClone(duplicate) });
+    return this.addObject({
+      ...structuredClone(source),
+      ...structuredClone(duplicate),
+    });
   }
 
   addObject(objectJSON) {
-    if (this.objectMeshes.has(objectJSON.id)) throw new Error(`Object already exists: ${objectJSON.id}`);
+    if (this.objectMeshes.has(objectJSON.id))
+      throw new Error(`Object already exists: ${objectJSON.id}`);
     if (!this.editTransaction) this.recordHistory();
     const mesh = this.createMesh(objectJSON);
     mesh.userData.sceneObjectId = objectJSON.id;
@@ -248,12 +308,18 @@ export class SceneManager {
 
   addLight(lightJSON) {
     if (!this.editTransaction) this.recordHistory();
-    this.sceneJSON.lights = [...(this.sceneJSON.lights || []), structuredClone(lightJSON)];
+    this.sceneJSON.lights = [
+      ...(this.sceneJSON.lights || []),
+      structuredClone(lightJSON),
+    ];
   }
 
   addCamera(cameraJSON) {
     if (!this.editTransaction) this.recordHistory();
-    this.sceneJSON.cameras = [...(this.sceneJSON.cameras || []), structuredClone(cameraJSON)];
+    this.sceneJSON.cameras = [
+      ...(this.sceneJSON.cameras || []),
+      structuredClone(cameraJSON),
+    ];
   }
 
   updateCameraById(id, cameraSettings) {
@@ -279,12 +345,15 @@ export class SceneManager {
     mesh.geometry?.dispose();
     mesh.material?.dispose();
     this.objectMeshes.delete(id);
-    this.sceneJSON.objects = this.sceneJSON.objects.filter((objectJSON) => objectJSON.id !== id);
+    this.sceneJSON.objects = this.sceneJSON.objects.filter(
+      (objectJSON) => objectJSON.id !== id,
+    );
     return true;
   }
 
   removeLight(id) {
-    const index = this.sceneJSON?.lights?.findIndex((entry) => entry.id === id) ?? -1;
+    const index =
+      this.sceneJSON?.lights?.findIndex((entry) => entry.id === id) ?? -1;
     if (index < 0) return false;
     this.recordHistory();
     this.sceneJSON.lights.splice(index, 1);
@@ -292,9 +361,13 @@ export class SceneManager {
   }
 
   updateCamera(cameraSettings) {
-    if (!this.sceneJSON?.camera) throw new Error('Scene camera is not defined.');
+    if (!this.sceneJSON?.camera)
+      throw new Error("Scene camera is not defined.");
     this.recordHistory();
-    this.sceneJSON.camera = { ...this.sceneJSON.camera, ...structuredClone(cameraSettings) };
+    this.sceneJSON.camera = {
+      ...this.sceneJSON.camera,
+      ...structuredClone(cameraSettings),
+    };
   }
 
   updateLight(id, lightSettings) {
@@ -347,23 +420,24 @@ export class SceneManager {
   }
 
   createMesh(objectJSON) {
-    const geometry = objectJSON.type === 'plane'
-      ? new THREE.PlaneGeometry(30, 30)
-      : objectJSON.type === 'sphere'
-        ? new THREE.SphereGeometry(0.7, 24, 16)
-        : objectJSON.type === 'cylinder'
-          ? new THREE.CylinderGeometry(0.6, 0.6, 1.4, 24)
-          : objectJSON.type === 'cone'
-            ? new THREE.ConeGeometry(0.7, 1.4, 24)
-            : objectJSON.type === 'torus'
-              ? new THREE.TorusGeometry(0.7, 0.22, 12, 32)
-              : new THREE.BoxGeometry(1, 1, 1);
+    const geometry =
+      objectJSON.type === "plane"
+        ? new THREE.PlaneGeometry(30, 30)
+        : objectJSON.type === "sphere"
+          ? new THREE.SphereGeometry(0.7, 24, 16)
+          : objectJSON.type === "cylinder"
+            ? new THREE.CylinderGeometry(0.6, 0.6, 1.4, 24)
+            : objectJSON.type === "cone"
+              ? new THREE.ConeGeometry(0.7, 1.4, 24)
+              : objectJSON.type === "torus"
+                ? new THREE.TorusGeometry(0.7, 0.22, 12, 32)
+                : new THREE.BoxGeometry(1, 1, 1);
     const material = this.createMaterial(objectJSON.material || {});
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.fromArray(objectJSON.position || [0, 0, 0]);
     mesh.rotation.set(...(objectJSON.rotation || [0, 0, 0]));
     mesh.scale.fromArray(objectJSON.scale || [1, 1, 1]);
-    mesh.castShadow = objectJSON.type !== 'plane';
+    mesh.castShadow = objectJSON.type !== "plane";
     mesh.receiveShadow = true;
     mesh.userData[MANAGED_OBJECTS] = true;
     return mesh;
@@ -371,17 +445,20 @@ export class SceneManager {
 
   createMaterial(materialJSON) {
     const options = {
-      color: materialJSON.color || '#ffffff',
+      color: materialJSON.color || "#ffffff",
       roughness: materialJSON.roughness ?? 0.5,
       metalness: materialJSON.metalness ?? 0,
-      emissive: materialJSON.emissive || '#000000',
+      emissive: materialJSON.emissive || "#000000",
       emissiveIntensity: materialJSON.emissiveIntensity ?? 1,
       opacity: materialJSON.opacity ?? 1,
       transparent: materialJSON.transparent ?? false,
       wireframe: materialJSON.wireframe ?? false,
       flatShading: materialJSON.flatShading ?? false,
     };
-    if (materialJSON.type === 'ShaderMaterial' || materialJSON.type === 'RawShaderMaterial') {
+    if (
+      materialJSON.type === "ShaderMaterial" ||
+      materialJSON.type === "RawShaderMaterial"
+    ) {
       return new THREE[materialJSON.type]({
         vertexShader: materialJSON.vertexShader || DEFAULT_VERTEX_SHADER,
         fragmentShader: materialJSON.fragmentShader || DEFAULT_FRAGMENT_SHADER,
@@ -390,7 +467,8 @@ export class SceneManager {
         wireframe: options.wireframe,
       });
     }
-    const MaterialClass = THREE[materialJSON.type] || THREE.MeshStandardMaterial;
+    const MaterialClass =
+      THREE[materialJSON.type] || THREE.MeshStandardMaterial;
     return new MaterialClass(options);
   }
 }

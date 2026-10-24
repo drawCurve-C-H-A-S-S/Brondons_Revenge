@@ -1,14 +1,28 @@
-import * as THREE from 'three';
-import vertexShader from '../../shaders/vert/jungleWater.vert.glsl?raw';
-import fragmentShader from '../../shaders/frag/jungleWater.frag.glsl?raw';
-import waterNoise from '../../shaders/waterNoise.glsl?raw';
+import * as THREE from "three";
+import vertexShader from "../../shaders/vert/jungleWater.vert.glsl?raw";
+import fragmentShader from "../../shaders/frag/jungleWater.frag.glsl?raw";
+import waterNoise from "../../shaders/waterNoise.glsl?raw";
 
 export const JUNGLE_WATER_COLORS = {
-  deep: 0x17443f, shallow: 0x4c9680, sky: 0x90afba, forest: 0x344d32, foam: 0xd9e7cd, sun: 0xffe8b9,
+  deep: 0x17443f,
+  shallow: 0x4c9680,
+  sky: 0x90afba,
+  forest: 0x344d32,
+  foam: 0xd9e7cd,
+  sun: 0xffe8b9,
 } as const;
 
 /** GPU-driven river surface; the owning scene disposes its geometry and material. */
-export function createJungleWater(scene: THREE.Scene, options: { x?: number; y: number; z: number; halfWidth: number; length: number }) {
+export function createJungleWater(
+  scene: THREE.Scene,
+  options: {
+    x?: number;
+    y: number;
+    z: number;
+    halfWidth: number;
+    length: number;
+  },
+) {
   const uniforms = {
     ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog),
     uTime: { value: 0 },
@@ -22,13 +36,29 @@ export function createJungleWater(scene: THREE.Scene, options: { x?: number; y: 
     uSunColor: { value: new THREE.Color(JUNGLE_WATER_COLORS.sun) },
     uSunDirection: { value: new THREE.Vector3(-40, 90, 30).normalize() },
     uObstacleCount: { value: 0 },
-    uObstacles: { value: Array.from({ length: 24 }, () => new THREE.Vector4()) },
+    uObstacles: {
+      value: Array.from({ length: 24 }, () => new THREE.Vector4()),
+    },
   };
   const material = new THREE.ShaderMaterial({
-    name: 'JungleRiverWater', uniforms, vertexShader, fragmentShader: fragmentShader.replace('#include <jungle_water_noise>', waterNoise),
-    fog: true, side: THREE.DoubleSide, depthWrite: true, toneMapped: true,
+    name: "JungleRiverWater",
+    uniforms,
+    vertexShader,
+    fragmentShader: fragmentShader.replace(
+      "#include <jungle_water_noise>",
+      waterNoise,
+    ),
+    fog: true,
+    side: THREE.DoubleSide,
+    depthWrite: true,
+    toneMapped: true,
   });
-  const geometry = new THREE.PlaneGeometry(options.length, options.halfWidth * 2, 256, 24);
+  const geometry = new THREE.PlaneGeometry(
+    options.length,
+    options.halfWidth * 2,
+    256,
+    24,
+  );
   geometry.rotateX(-Math.PI / 2);
   geometry.computeBoundingBox();
   geometry.boundingBox!.min.y -= 0.13;
@@ -36,24 +66,42 @@ export function createJungleWater(scene: THREE.Scene, options: { x?: number; y: 
   geometry.computeBoundingSphere();
   geometry.boundingSphere!.radius += 0.13;
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.name = 'JungleRiver'; mesh.position.set(options.x ?? 0, options.y, options.z); scene.add(mesh);
+  mesh.name = "JungleRiver";
+  mesh.position.set(options.x ?? 0, options.y, options.z);
+  scene.add(mesh);
 
   const obstacles: THREE.Mesh[] = [];
-  const bounds = new THREE.Box3(), center = new THREE.Vector3(), size = new THREE.Vector3();
+  const bounds = new THREE.Box3(),
+    center = new THREE.Vector3(),
+    size = new THREE.Vector3();
   function updateContacts() {
     let count = 0;
     for (const obstacle of obstacles) {
-      if (!obstacle.visible || count === uniforms.uObstacles.value.length) continue;
+      if (!obstacle.visible || count === uniforms.uObstacles.value.length)
+        continue;
       bounds.setFromObject(obstacle);
-      if (bounds.min.y > options.y + 0.12 || bounds.max.y < options.y - 0.12) continue;
-      bounds.getCenter(center); bounds.getSize(size);
+      if (bounds.min.y > options.y + 0.12 || bounds.max.y < options.y - 0.12)
+        continue;
+      bounds.getCenter(center);
+      bounds.getSize(size);
       let taper = 1;
       if (obstacle.geometry instanceof THREE.CylinderGeometry) {
         const { radiusTop, radiusBottom } = obstacle.geometry.parameters;
-        const height = THREE.MathUtils.clamp((options.y - bounds.min.y) / Math.max(size.y, 0.01), 0, 1);
-        taper = THREE.MathUtils.lerp(radiusBottom, radiusTop, height) / Math.max(radiusTop, radiusBottom, 0.01);
+        const height = THREE.MathUtils.clamp(
+          (options.y - bounds.min.y) / Math.max(size.y, 0.01),
+          0,
+          1,
+        );
+        taper =
+          THREE.MathUtils.lerp(radiusBottom, radiusTop, height) /
+          Math.max(radiusTop, radiusBottom, 0.01);
       }
-      uniforms.uObstacles.value[count++].set(center.x, center.z, size.x * taper / 2, size.z * taper / 2);
+      uniforms.uObstacles.value[count++].set(
+        center.x,
+        center.z,
+        (size.x * taper) / 2,
+        (size.z * taper) / 2,
+      );
     }
     uniforms.uObstacleCount.value = count;
   }
@@ -63,8 +111,12 @@ export function createJungleWater(scene: THREE.Scene, options: { x?: number; y: 
     setObstacles(root: THREE.Object3D | null) {
       obstacles.length = 0;
       root?.updateMatrixWorld(true);
-      root?.traverse(node => {
-        if (node instanceof THREE.Mesh && /^(PlatformDeck-|GroundPillar-|RockExitLanding$)/.test(node.name)) obstacles.push(node);
+      root?.traverse((node) => {
+        if (
+          node instanceof THREE.Mesh &&
+          /^(PlatformDeck-|GroundPillar-|RockExitLanding$)/.test(node.name)
+        )
+          obstacles.push(node);
       });
       updateContacts();
     },

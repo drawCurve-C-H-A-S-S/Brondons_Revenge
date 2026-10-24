@@ -1,6 +1,6 @@
 varying vec2 vUv;
 
-#ifdef SABER_TRAIL
+#ifdef BLOOMSTICK_TRAIL
 attribute float aFade;
 varying float vFade;
 #else
@@ -11,7 +11,7 @@ varying vec3 vView;
 void main() {
   vUv = uv;
   vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
-  #ifdef SABER_TRAIL
+  #ifdef BLOOMSTICK_TRAIL
   vFade = aFade;
   #else
   vNormal = normalize(normalMatrix * normal);

@@ -13,7 +13,7 @@ const SCRIPT_TEMPLATE = (className) => `export class ${className} {
 `;
 
 function slugify(name) {
-  return name.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
+  return name.replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase();
 }
 
 /**
@@ -33,26 +33,44 @@ export class SceneAssets {
 
   listScripts() {
     return [...this.files.values()]
-      .filter((file) => file.type === 'javascript' && file.path.startsWith('scripts/'))
+      .filter(
+        (file) =>
+          file.type === "javascript" && file.path.startsWith("scripts/"),
+      )
       .sort((a, b) => a.path.localeCompare(b.path));
   }
 
-  createScript(name = 'new-script') {
+  createScript(name = "new-script") {
     const path = `scripts/${slugify(name)}.js`;
     if (this.files.has(path)) throw new Error(`Script already exists: ${path}`);
-    const className = name.replace(/[^a-zA-Z0-9]/g, '') || 'GameScript';
-    const file = { path, type: 'javascript', content: SCRIPT_TEMPLATE(className), exportName: className };
+    const className = name.replace(/[^a-zA-Z0-9]/g, "") || "GameScript";
+    const file = {
+      path,
+      type: "javascript",
+      content: SCRIPT_TEMPLATE(className),
+      exportName: className,
+    };
     this.files.set(path, file);
     this.onChange?.();
     return file;
   }
 
-  createShaderFiles(name = 'custom-material') {
+  createShaderFiles(name = "custom-material") {
     const base = slugify(name);
     const vertexPath = `shaders/${base}.vert`;
     const fragmentPath = `shaders/${base}.frag`;
-    if (!this.files.has(vertexPath)) this.files.set(vertexPath, { path: vertexPath, type: 'shader', content: '' });
-    if (!this.files.has(fragmentPath)) this.files.set(fragmentPath, { path: fragmentPath, type: 'shader', content: '' });
+    if (!this.files.has(vertexPath))
+      this.files.set(vertexPath, {
+        path: vertexPath,
+        type: "shader",
+        content: "",
+      });
+    if (!this.files.has(fragmentPath))
+      this.files.set(fragmentPath, {
+        path: fragmentPath,
+        type: "shader",
+        content: "",
+      });
     this.onChange?.();
     return { vertexPath, fragmentPath };
   }
@@ -60,20 +78,33 @@ export class SceneAssets {
   listShaders() {
     const bases = new Map();
     for (const file of this.files.values()) {
-      if (file.type !== 'shader' || !file.path.endsWith('.vert')) continue;
-      const base = file.path.slice('shaders/'.length, -'.vert'.length);
-      bases.set(base, { name: base, vertexPath: file.path, fragmentPath: `shaders/${base}.frag` });
+      if (file.type !== "shader" || !file.path.endsWith(".vert")) continue;
+      const base = file.path.slice("shaders/".length, -".vert".length);
+      bases.set(base, {
+        name: base,
+        vertexPath: file.path,
+        fragmentPath: `shaders/${base}.frag`,
+      });
     }
     return [...bases.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  createUniqueShaderFiles(name = 'custom-material') {
+  createUniqueShaderFiles(name = "custom-material") {
     const base = slugify(name);
     const vertexPath = `shaders/${base}.vert`;
     const fragmentPath = `shaders/${base}.frag`;
-    if (this.files.has(vertexPath) || this.files.has(fragmentPath)) throw new Error(`Shader already exists: ${base}`);
-    this.files.set(vertexPath, { path: vertexPath, type: 'shader', content: '' });
-    this.files.set(fragmentPath, { path: fragmentPath, type: 'shader', content: '' });
+    if (this.files.has(vertexPath) || this.files.has(fragmentPath))
+      throw new Error(`Shader already exists: ${base}`);
+    this.files.set(vertexPath, {
+      path: vertexPath,
+      type: "shader",
+      content: "",
+    });
+    this.files.set(fragmentPath, {
+      path: fragmentPath,
+      type: "shader",
+      content: "",
+    });
     this.onChange?.();
     return { vertexPath, fragmentPath };
   }
@@ -82,7 +113,10 @@ export class SceneAssets {
     const base = slugify(newName);
     const newVertexPath = `shaders/${base}.vert`;
     const newFragmentPath = `shaders/${base}.frag`;
-    if (newVertexPath !== vertexPath && (this.files.has(newVertexPath) || this.files.has(newFragmentPath))) {
+    if (
+      newVertexPath !== vertexPath &&
+      (this.files.has(newVertexPath) || this.files.has(newFragmentPath))
+    ) {
       throw new Error(`Shader already exists: ${base}`);
     }
     const vertexFile = this.files.get(vertexPath);
@@ -102,14 +136,22 @@ export class SceneAssets {
   }
 
   listAudio(folder) {
-    return [...this.files.values()].filter((file) => file.type === 'audio' && file.path.startsWith(`audio/${folder}/`));
+    return [...this.files.values()].filter(
+      (file) =>
+        file.type === "audio" && file.path.startsWith(`audio/${folder}/`),
+    );
   }
 
   addImportedAudio(folder, fileList) {
     const added = [];
     for (const source of fileList) {
       const path = `audio/${folder}/${source.name}`;
-      const file = { path, type: 'audio', content: source, mimeType: source.type };
+      const file = {
+        path,
+        type: "audio",
+        content: source,
+        mimeType: source.type,
+      };
       this.files.set(path, file);
       added.push(file);
     }

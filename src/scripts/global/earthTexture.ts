@@ -1,6 +1,6 @@
-import * as THREE from 'three';
-import { gunzipSync } from 'three/addons/libs/fflate.module.js';
-import { fetchAsset } from '../../core/assetCache.js';
+import * as THREE from "three";
+import { gunzipSync } from "three/addons/libs/fflate.module.js";
+import { fetchAsset } from "../../core/assetCache.js";
 
 function hash(n: number): number {
   const x = Math.sin(n) * 43758.5453123;
@@ -8,9 +8,12 @@ function hash(n: number): number {
 }
 
 function noise2(x: number, y: number): number {
-  const ix = Math.floor(x), iy = Math.floor(y);
-  const fx = x - ix, fy = y - iy;
-  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  const ix = Math.floor(x),
+    iy = Math.floor(y);
+  const fx = x - ix,
+    fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx),
+    uy = fy * fy * (3 - 2 * fy);
   const a = hash(ix + iy * 157 + 113);
   const b = hash(ix + 1 + iy * 157 + 113);
   const c = hash(ix + (iy + 1) * 157 + 113);
@@ -19,7 +22,9 @@ function noise2(x: number, y: number): number {
 }
 
 function fbm(x: number, y: number): number {
-  let v = 0, a = 0.5, f = 1.7;
+  let v = 0,
+    a = 0.5,
+    f = 1.7;
   for (let i = 0; i < 6; i++) {
     v += a * noise2(x * f, y * f);
     a *= 0.5;
@@ -38,7 +43,11 @@ function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * Math.max(0, Math.min(1, t));
 }
 
-function lerpRGB(a: number[], b: number[], t: number): [number, number, number] {
+function lerpRGB(
+  a: number[],
+  b: number[],
+  t: number,
+): [number, number, number] {
   return [
     Math.round(lerp(a[0], b[0], t)),
     Math.round(lerp(a[1], b[1], t)),
@@ -78,9 +87,13 @@ export interface EarthTextures {
 
 let cachedTextures: EarthTextures | undefined;
 let preparation: Promise<void> | undefined;
-const EARTH_WIDTH = 2048, EARTH_HEIGHT = 1024;
+const EARTH_WIDTH = 2048,
+  EARTH_HEIGHT = 1024;
 
-export function createEarthTextures(width = EARTH_WIDTH, height = EARTH_HEIGHT): EarthTextures {
+export function createEarthTextures(
+  width = EARTH_WIDTH,
+  height = EARTH_HEIGHT,
+): EarthTextures {
   const generator = generateEarthTextures(width, height);
   let result = generator.next();
   while (!result.done) result = generator.next();
@@ -93,40 +106,61 @@ export function preloadEarthTextures(source: string): Promise<void> {
     preparation = (async () => {
       const response = await fetchAsset(source);
       const decoded = gunzipSync(new Uint8Array(await response.arrayBuffer()));
-      if (!(decoded.buffer instanceof ArrayBuffer)) throw new Error('Earth texture pixels must use an ArrayBuffer');
-      const pixels = new Uint8Array(decoded.buffer, decoded.byteOffset, decoded.byteLength);
+      if (!(decoded.buffer instanceof ArrayBuffer))
+        throw new Error("Earth texture pixels must use an ArrayBuffer");
+      const pixels = new Uint8Array(
+        decoded.buffer,
+        decoded.byteOffset,
+        decoded.byteLength,
+      );
       const size = EARTH_WIDTH * EARTH_HEIGHT * 4;
       if (pixels.byteLength !== size * 3)
-        throw new Error(`Earth texture data must contain ${size * 3} bytes (received ${pixels.byteLength})`);
+        throw new Error(
+          `Earth texture data must contain ${size * 3} bytes (received ${pixels.byteLength})`,
+        );
       cachedTextures = createTextureMaps(
-        pixels.subarray(0, size), pixels.subarray(size, size * 2), pixels.subarray(size * 2),
-        EARTH_WIDTH, EARTH_HEIGHT,
+        pixels.subarray(0, size),
+        pixels.subarray(size, size * 2),
+        pixels.subarray(size * 2),
+        EARTH_WIDTH,
+        EARTH_HEIGHT,
       );
-    })().catch(error => { preparation = undefined; throw error; });
+    })().catch((error) => {
+      preparation = undefined;
+      throw error;
+    });
   }
   return preparation;
 }
 
-function* generateEarthTextures(width: number, height: number): Generator<void, EarthTextures> {
+function* generateEarthTextures(
+  width: number,
+  height: number,
+): Generator<void, EarthTextures> {
   const cacheable = width === EARTH_WIDTH && height === EARTH_HEIGHT;
-  if (cacheable && cachedTextures) return {
-    colorTexture: cachedTextures.colorTexture.clone(),
-    roughnessTexture: cachedTextures.roughnessTexture.clone(),
-    cloudTexture: cachedTextures.cloudTexture.clone(),
-  };
+  if (cacheable && cachedTextures)
+    return {
+      colorTexture: cachedTextures.colorTexture.clone(),
+      roughnessTexture: cachedTextures.roughnessTexture.clone(),
+      cloudTexture: cachedTextures.cloudTexture.clone(),
+    };
   const size = width * height;
   const colorData = new Uint8Array(size * 4);
   const roughData = new Uint8Array(size * 4);
   const cloudData = new Uint8Array(size * 4);
-  const SX = 3.71, SY = 1.38;
+  const SX = 3.71,
+    SY = 1.38;
 
   for (let py = 0; py < height; py++) {
     for (let px = 0; px < width; px++) {
-      const u = px / width, v = py / height;
+      const u = px / width,
+        v = py / height;
       const lat = (0.5 - v) * Math.PI;
       const absLat = Math.abs(lat) / (Math.PI * 0.5);
-      const nx = (u + SX) * 2.6, ny = (v + SY) * 2.6;
-      const rawH = warpedFbm(nx, ny), h = rawH * 2 - 1;
+      const nx = (u + SX) * 2.6,
+        ny = (v + SY) * 2.6;
+      const rawH = warpedFbm(nx, ny),
+        h = rawH * 2 - 1;
       const moist = fbm(nx * 0.6 + 10.5, ny * 0.6 + 4.3) * 2 - 1;
       const temp = 1 - absLat - Math.max(0, h) * 0.35;
       const i = (py * width + px) * 4;
@@ -151,7 +185,8 @@ function* generateEarthTextures(width: number, height: number): Generator<void, 
         const isMountain = !isSnow && h > 0.5;
 
         if (isSnow) {
-          const t = smoothstep(0.82, 1.0, absLat) + smoothstep(0.55, 0.75, h) * 0.5;
+          const t =
+            smoothstep(0.82, 1.0, absLat) + smoothstep(0.55, 0.75, h) * 0.5;
           [r, g, b] = lerpRGB(C.snowLow, C.snowHigh, Math.min(1, t));
           roughness = 0.75;
         } else if (isTundra) {
@@ -196,9 +231,11 @@ function* generateEarthTextures(width: number, height: number): Generator<void, 
 
   for (let py = 0; py < height; py++) {
     for (let px = 0; px < width; px++) {
-      const u = px / width, v = py / height;
+      const u = px / width,
+        v = py / height;
       const absLat = Math.abs(0.5 - v) * 2;
-      const cx = u * 5.5 + 22, cy = v * 2.8 + 18;
+      const cx = u * 5.5 + 22,
+        cy = v * 2.8 + 18;
       const cloud = fbm(cx, cy);
       const latBias = 0.5 + 0.5 * Math.cos((absLat - 0.18) * Math.PI);
       const rawAlpha = (cloud * 1.8 - 0.6) * latBias;
@@ -209,18 +246,30 @@ function* generateEarthTextures(width: number, height: number): Generator<void, 
     if (py % 8 === 7) yield;
   }
 
-  const textures = createTextureMaps(colorData, roughData, cloudData, width, height);
+  const textures = createTextureMaps(
+    colorData,
+    roughData,
+    cloudData,
+    width,
+    height,
+  );
   // Reuse generated pixels, but keep texture ownership separate across scene disposal.
-  if (cacheable) cachedTextures = {
-    colorTexture: textures.colorTexture.clone(),
-    roughnessTexture: textures.roughnessTexture.clone(),
-    cloudTexture: textures.cloudTexture.clone(),
-  };
+  if (cacheable)
+    cachedTextures = {
+      colorTexture: textures.colorTexture.clone(),
+      roughnessTexture: textures.roughnessTexture.clone(),
+      cloudTexture: textures.cloudTexture.clone(),
+    };
   return textures;
 }
 
-function createTextureMaps(colorData: Uint8Array<ArrayBuffer>, roughData: Uint8Array<ArrayBuffer>, cloudData: Uint8Array<ArrayBuffer>,
-  width: number, height: number): EarthTextures {
+function createTextureMaps(
+  colorData: Uint8Array<ArrayBuffer>,
+  roughData: Uint8Array<ArrayBuffer>,
+  cloudData: Uint8Array<ArrayBuffer>,
+  width: number,
+  height: number,
+): EarthTextures {
   const colorTexture = new THREE.DataTexture(colorData, width, height);
   colorTexture.colorSpace = THREE.SRGBColorSpace;
   colorTexture.needsUpdate = true;
@@ -235,7 +284,7 @@ function createTextureMaps(colorData: Uint8Array<ArrayBuffer>, roughData: Uint8A
 export function createAtmosphereMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: { uOpacity: { value: 1 } },
-    vertexShader: /* glsl */`
+    vertexShader: /* glsl */ `
       varying vec3 vNormal;
       varying vec3 vViewDir;
       void main() {
@@ -245,7 +294,7 @@ export function createAtmosphereMaterial(): THREE.ShaderMaterial {
         gl_Position = projectionMatrix * mvPos;
       }
     `,
-    fragmentShader: /* glsl */`
+    fragmentShader: /* glsl */ `
       uniform float uOpacity;
       varying vec3 vNormal;
       varying vec3 vViewDir;
@@ -276,38 +325,51 @@ export function createEarthGroup(
   const surface = new THREE.Mesh(
     new THREE.SphereGeometry(radius, 80, 60),
     new THREE.MeshStandardMaterial({
-      map: textures.colorTexture, roughnessMap: textures.roughnessTexture, roughness: 1, metalness: 0,
+      map: textures.colorTexture,
+      roughnessMap: textures.roughnessTexture,
+      roughness: 1,
+      metalness: 0,
     }),
   );
-  surface.name = 'EarthSurface';
+  surface.name = "EarthSurface";
   group.add(surface);
   const clouds = new THREE.Mesh(
     new THREE.SphereGeometry(radius * 1.006, 64, 48),
     new THREE.MeshStandardMaterial({
-      map: textures.cloudTexture, transparent: true, depthWrite: false, roughness: 1, metalness: 0, opacity: 0.95,
+      map: textures.cloudTexture,
+      transparent: true,
+      depthWrite: false,
+      roughness: 1,
+      metalness: 0,
+      opacity: 0.95,
     }),
   );
-  clouds.name = 'EarthClouds';
+  clouds.name = "EarthClouds";
   group.add(clouds);
   const haze = new THREE.Mesh(
     new THREE.SphereGeometry(radius * 1.018, 64, 48),
     new THREE.MeshBasicMaterial({
-      color: 0x4da8e8, transparent: true, opacity: 0.09, side: THREE.BackSide, depthWrite: false,
+      color: 0x4da8e8,
+      transparent: true,
+      opacity: 0.09,
+      side: THREE.BackSide,
+      depthWrite: false,
     }),
   );
-  haze.name = 'EarthHaze';
+  haze.name = "EarthHaze";
   group.add(haze);
   const atmosphere = new THREE.Mesh(
-    new THREE.SphereGeometry(radius * 1.08, 64, 48), createAtmosphereMaterial(),
+    new THREE.SphereGeometry(radius * 1.08, 64, 48),
+    createAtmosphereMaterial(),
   );
-  atmosphere.name = 'EarthAtmosphere';
+  atmosphere.name = "EarthAtmosphere";
   group.add(atmosphere);
   return Object.assign(group, { surface, clouds, haze, atmosphere });
 }
 
 export function updateEarthGroup(group: THREE.Group, dt: number): void {
-  const surface = group.getObjectByName('EarthSurface');
-  const clouds = group.getObjectByName('EarthClouds');
+  const surface = group.getObjectByName("EarthSurface");
+  const clouds = group.getObjectByName("EarthClouds");
   if (surface) surface.rotation.y += dt * 0.018;
   if (clouds) clouds.rotation.y += dt * 0.022;
 }

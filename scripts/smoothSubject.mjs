@@ -3,53 +3,83 @@
  * Regenerates from Subject.glb.bak, never from a previously generated shell.
  * Usage: node scripts/smoothSubject.mjs
  */
-import { NodeIO } from '@gltf-transform/core';
-import * as THREE from 'three';
-import { edgeTable, triTable } from 'three/addons/objects/MarchingCubes.js';
-import { MeshBVH } from 'three-mesh-bvh';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { NodeIO } from "@gltf-transform/core";
+import * as THREE from "three";
+import { edgeTable, triTable } from "three/addons/objects/MarchingCubes.js";
+import { MeshBVH } from "three-mesh-bvh";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const THICKNESS = 0.003;
 const CELL = 0.004;
 const BAND = THICKNESS + CELL * 2;
-const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const SRC = path.join(ROOT, 'src', 'assets', 'models', 'Subject.glb');
-const BAK = SRC + '.bak';
-const OUT = SRC + '.tmp';
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
+const SRC = path.join(ROOT, "src", "assets", "models", "Subject.glb");
+const BAK = SRC + ".bak";
+const OUT = SRC + ".tmp";
 const io = new NodeIO();
 const doc = await io.read(fs.existsSync(BAK) ? BAK : SRC);
 const root = doc.getRoot();
-if (root.listMaterials().some(material => material.getName() === 'SubjectSkin')) {
-  throw new Error('The original Subject backup is missing. Restore the original model before generating its skin.');
+if (
+  root.listMaterials().some((material) => material.getName() === "SubjectSkin")
+) {
+  throw new Error(
+    "The original Subject backup is missing. Restore the original model before generating its skin.",
+  );
 }
 
-const nodes = root.listNodes().filter(node => node.getMesh());
+const nodes = root.listNodes().filter((node) => node.getMesh());
 if (nodes.length !== 1 || !nodes[0].getSkin()) {
-  throw new Error('Subject skin generation requires one mesh node with its original skeleton.');
+  throw new Error(
+    "Subject skin generation requires one mesh node with its original skeleton.",
+  );
 }
 const mesh = nodes[0].getMesh();
-const bodyMaterials = new Set(['SoldierSkin', 'SuitBase', 'SuitGloves', 'SuitBoots']);
-const primitives = mesh.listPrimitives().filter(primitive => bodyMaterials.has(primitive.getMaterial()?.getName()));
+const bodyMaterials = new Set([
+  "SoldierSkin",
+  "SuitBase",
+  "SuitGloves",
+  "SuitBoots",
+]);
+const primitives = mesh
+  .listPrimitives()
+  .filter((primitive) => bodyMaterials.has(primitive.getMaterial()?.getName()));
 if (primitives.length !== bodyMaterials.size) {
-  throw new Error('Subject must contain the original head, body, gloves and boots.');
+  throw new Error(
+    "Subject must contain the original head, body, gloves and boots.",
+  );
 }
 
-const positions = [], sourceJoints = [], sourceWeights = [], indices = [];
+const positions = [],
+  sourceJoints = [],
+  sourceWeights = [],
+  indices = [];
 for (const primitive of primitives) {
-  const position = primitive.getAttribute('POSITION');
-  const joints = primitive.getAttribute('JOINTS_0');
-  const weights = primitive.getAttribute('WEIGHTS_0');
-  if (primitive.getMode() !== 4 || !position || !joints || !weights
-    || position.getCount() !== joints.getCount() || position.getCount() !== weights.getCount()) {
-    throw new Error('Every body primitive must contain triangles and complete skin attributes.');
+  const position = primitive.getAttribute("POSITION");
+  const joints = primitive.getAttribute("JOINTS_0");
+  const weights = primitive.getAttribute("WEIGHTS_0");
+  if (
+    primitive.getMode() !== 4 ||
+    !position ||
+    !joints ||
+    !weights ||
+    position.getCount() !== joints.getCount() ||
+    position.getCount() !== weights.getCount()
+  ) {
+    throw new Error(
+      "Every body primitive must contain triangles and complete skin attributes.",
+    );
   }
-  if (primitive.listTargets().length || primitive.getAttribute('JOINTS_1')) {
-    throw new Error('Subject skin generation does not support morph targets or more than four influences.');
+  if (primitive.listTargets().length || primitive.getAttribute("JOINTS_1")) {
+    throw new Error(
+      "Subject skin generation does not support morph targets or more than four influences.",
+    );
   }
   const offset = positions.length / 3;
-  const vertex = [], joint = [], weight = [];
+  const vertex = [],
+    joint = [],
+    weight = [];
   for (let index = 0; index < position.getCount(); index++) {
     positions.push(...position.getElement(index, vertex));
     sourceJoints.push(...joints.getElement(index, joint));
@@ -57,16 +87,17 @@ for (const primitive of primitives) {
   }
   const sourceIndices = primitive.getIndices()?.getArray();
   const count = sourceIndices?.length ?? position.getCount();
-  if (count % 3 !== 0) throw new Error('Subject has an incomplete triangle.');
+  if (count % 3 !== 0) throw new Error("Subject has an incomplete triangle.");
   for (let index = 0; index < count; index++) {
     const sourceIndex = sourceIndices ? sourceIndices[index] : index;
-    if (sourceIndex >= position.getCount()) throw new Error('Subject has an invalid vertex index.');
+    if (sourceIndex >= position.getCount())
+      throw new Error("Subject has an invalid vertex index.");
     indices.push(offset + sourceIndex);
   }
 }
 
 const source = new THREE.BufferGeometry();
-source.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+source.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
 source.setIndex(indices);
 // BVH may reorder triangles, but does not change the vertices or skin attributes.
 const bvh = new MeshBVH(source);
@@ -82,7 +113,7 @@ const field = new Float32Array(plane * nz).fill(BAND);
 const triangle = new THREE.Triangle();
 const point = new THREE.Vector3();
 const closest = new THREE.Vector3();
-const sourcePosition = source.getAttribute('position');
+const sourcePosition = source.getAttribute("position");
 const sourceIndex = source.getIndex();
 function readTriangle(face) {
   const a = sourceIndex.getX(face * 3);
@@ -94,15 +125,32 @@ function readTriangle(face) {
   return [a, b, c];
 }
 
-console.log('Building a 3 mm outer skin; original geometry, skeleton and clips are unchanged.');
+console.log(
+  "Building a 3 mm outer skin; original geometry, skeleton and clips are unchanged.",
+);
 // Exact triangle distances in a narrow band retain the silhouette and finger gaps.
 for (let face = 0; face < sourceIndex.count / 3; face++) {
   readTriangle(face);
-  const min = triangle.a.clone().min(triangle.b).min(triangle.c).addScalar(-BAND).sub(origin).divideScalar(CELL);
-  const max = triangle.a.clone().max(triangle.b).max(triangle.c).addScalar(BAND).sub(origin).divideScalar(CELL);
-  const x0 = Math.max(0, Math.floor(min.x)), x1 = Math.min(nx - 1, Math.ceil(max.x));
-  const y0 = Math.max(0, Math.floor(min.y)), y1 = Math.min(ny - 1, Math.ceil(max.y));
-  const z0 = Math.max(0, Math.floor(min.z)), z1 = Math.min(nz - 1, Math.ceil(max.z));
+  const min = triangle.a
+    .clone()
+    .min(triangle.b)
+    .min(triangle.c)
+    .addScalar(-BAND)
+    .sub(origin)
+    .divideScalar(CELL);
+  const max = triangle.a
+    .clone()
+    .max(triangle.b)
+    .max(triangle.c)
+    .addScalar(BAND)
+    .sub(origin)
+    .divideScalar(CELL);
+  const x0 = Math.max(0, Math.floor(min.x)),
+    x1 = Math.min(nx - 1, Math.ceil(max.x));
+  const y0 = Math.max(0, Math.floor(min.y)),
+    y1 = Math.min(ny - 1, Math.ceil(max.y));
+  const z0 = Math.max(0, Math.floor(min.z)),
+    z1 = Math.min(nz - 1, Math.ceil(max.z));
   for (let z = z0; z <= z1; z++) {
     point.z = origin.z + z * CELL;
     for (let y = y0; y <= y1; y++) {
@@ -122,9 +170,16 @@ for (let face = 0; face < sourceIndex.count / 3; face++) {
 const ray = new THREE.Ray(new THREE.Vector3(), new THREE.Vector3(1, 0, 0));
 for (let z = 0; z < nz; z++) {
   for (let y = 0; y < ny; y++) {
-    ray.origin.set(origin.x, origin.y + y * CELL + 1e-8, origin.z + z * CELL + 2e-8);
-    const hits = bvh.raycast(ray, THREE.DoubleSide).sort((a, b) => a.distance - b.distance);
-    let cursor = 0, winding = 0;
+    ray.origin.set(
+      origin.x,
+      origin.y + y * CELL + 1e-8,
+      origin.z + z * CELL + 2e-8,
+    );
+    const hits = bvh
+      .raycast(ray, THREE.DoubleSide)
+      .sort((a, b) => a.distance - b.distance);
+    let cursor = 0,
+      winding = 0;
     for (let x = 0; x < nx; x++) {
       while (cursor < hits.length && hits[cursor].distance <= x * CELL) {
         const distance = hits[cursor].distance;
@@ -132,7 +187,10 @@ for (let z = 0; z < nz; z++) {
         do {
           crossing += hits[cursor].face.normal.x < 0 ? 1 : -1;
           cursor++;
-        } while (cursor < hits.length && Math.abs(hits[cursor].distance - distance) < 1e-7);
+        } while (
+          cursor < hits.length &&
+          Math.abs(hits[cursor].distance - distance) < 1e-7
+        );
         winding += Math.sign(crossing);
       }
       if (winding !== 0) {
@@ -144,13 +202,32 @@ for (let z = 0; z < nz; z++) {
 }
 
 const corners = [
-  [0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0],
-  [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1],
+  [0, 0, 0],
+  [1, 0, 0],
+  [1, 1, 0],
+  [0, 1, 0],
+  [0, 0, 1],
+  [1, 0, 1],
+  [1, 1, 1],
+  [0, 1, 1],
 ];
-const edges = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6],
-  [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
+const edges = [
+  [0, 1],
+  [1, 2],
+  [2, 3],
+  [3, 0],
+  [4, 5],
+  [5, 6],
+  [6, 7],
+  [7, 4],
+  [0, 4],
+  [1, 5],
+  [2, 6],
+  [3, 7],
+];
 const offsets = corners.map(([x, y, z]) => x + y * nx + z * plane);
-const skinPositions = [], skinIndices = [];
+const skinPositions = [],
+  skinIndices = [];
 const edgeVertices = new Map();
 const cubeEdges = new Uint32Array(12);
 for (let z = 0; z < nz - 1; z++) {
@@ -166,28 +243,37 @@ for (let z = 0; z < nz - 1; z++) {
       for (let edge = 0; edge < 12; edge++) {
         if (!(active & (1 << edge))) continue;
         const [a, b] = edges[edge];
-        const ca = corners[a], cb = corners[b];
+        const ca = corners[a],
+          cb = corners[b];
         const axis = ca.findIndex((value, index) => value !== cb[index]);
         const key = Math.min(base + offsets[a], base + offsets[b]) * 3 + axis;
         let vertex = edgeVertices.get(key);
         if (vertex === undefined) {
-          const va = field[base + offsets[a]], vb = field[base + offsets[b]];
+          const va = field[base + offsets[a]],
+            vb = field[base + offsets[b]];
           const t = (THICKNESS - va) / (vb - va);
           vertex = skinPositions.length / 3;
-          skinPositions.push(origin.x + (x + ca[0] + t * (cb[0] - ca[0])) * CELL,
+          skinPositions.push(
+            origin.x + (x + ca[0] + t * (cb[0] - ca[0])) * CELL,
             origin.y + (y + ca[1] + t * (cb[1] - ca[1])) * CELL,
-            origin.z + (z + ca[2] + t * (cb[2] - ca[2])) * CELL);
+            origin.z + (z + ca[2] + t * (cb[2] - ca[2])) * CELL,
+          );
           edgeVertices.set(key, vertex);
         }
         cubeEdges[edge] = vertex;
       }
       for (let entry = mask * 16; triTable[entry] !== -1; entry += 3) {
-        skinIndices.push(cubeEdges[triTable[entry]], cubeEdges[triTable[entry + 2]], cubeEdges[triTable[entry + 1]]);
+        skinIndices.push(
+          cubeEdges[triTable[entry]],
+          cubeEdges[triTable[entry + 2]],
+          cubeEdges[triTable[entry + 1]],
+        );
       }
     }
   }
 }
-if (!skinIndices.length) throw new Error('No outer skin surface could be generated.');
+if (!skinIndices.length)
+  throw new Error("No outer skin surface could be generated.");
 
 // Shared vertices and bounded, simultaneous smoothing avoid cracks and shrinkage.
 const vertexCount = skinPositions.length / 3;
@@ -214,7 +300,11 @@ for (const amount of [0.35, -0.36, 0.35, -0.36]) {
     point.divideScalar(adjacent.size);
     closest.fromArray(smoothed, vertex * 3).lerp(point, amount);
     point.fromArray(skinPositions, vertex * 3);
-    closest.sub(point).clampLength(0, THICKNESS / 3).add(point).toArray(next, vertex * 3);
+    closest
+      .sub(point)
+      .clampLength(0, THICKNESS / 3)
+      .add(point)
+      .toArray(next, vertex * 3);
   }
   smoothed = next;
 }
@@ -226,7 +316,8 @@ const barycentric = new THREE.Vector3();
 const hit = { point: new THREE.Vector3() };
 for (let vertex = 0; vertex < vertexCount; vertex++) {
   point.fromArray(smoothed, vertex * 3);
-  if (!bvh.closestPointToPoint(point, hit)) throw new Error('Unable to bind an outer-skin vertex.');
+  if (!bvh.closestPointToPoint(point, hit))
+    throw new Error("Unable to bind an outer-skin vertex.");
   const face = readTriangle(hit.faceIndex);
   triangle.getBarycoord(hit.point, barycentric);
   const influences = new Map();
@@ -235,13 +326,19 @@ for (let vertex = 0; vertex < vertexCount; vertex++) {
     for (let influence = 0; influence < 4; influence++) {
       const offset = face[corner] * 4 + influence;
       const joint = sourceJoints[offset];
-      influences.set(joint, (influences.get(joint) ?? 0) + sourceWeights[offset] * blend);
+      influences.set(
+        joint,
+        (influences.get(joint) ?? 0) + sourceWeights[offset] * blend,
+      );
     }
   }
-  const strongest = [...influences].filter(([, weight]) => weight > 0)
-    .sort((a, b) => b[1] - a[1]).slice(0, 4);
+  const strongest = [...influences]
+    .filter(([, weight]) => weight > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4);
   const total = strongest.reduce((sum, [, weight]) => sum + weight, 0);
-  if (!Number.isFinite(total) || total <= 0) throw new Error('Outer skin has an unweighted vertex.');
+  if (!Number.isFinite(total) || total <= 0)
+    throw new Error("Outer skin has an unweighted vertex.");
   strongest.forEach(([joint, weight], influence) => {
     skinJoints[vertex * 4 + influence] = joint;
     skinWeights[vertex * 4 + influence] = weight / total;
@@ -249,22 +346,36 @@ for (let vertex = 0; vertex < vertexCount; vertex++) {
 }
 
 const skin = new THREE.BufferGeometry();
-skin.setAttribute('position', new THREE.BufferAttribute(smoothed, 3));
+skin.setAttribute("position", new THREE.BufferAttribute(smoothed, 3));
 skin.setIndex(skinIndices);
 skin.computeVertexNormals();
-const skinMaterial = doc.createMaterial('SubjectSkin')
-  .setBaseColorFactor(primitives.find(primitive => primitive.getMaterial().getName() === 'SoldierSkin').getMaterial().getBaseColorFactor())
-  .setMetallicFactor(0).setRoughnessFactor(0.85);
+const skinMaterial = doc
+  .createMaterial("SubjectSkin")
+  .setBaseColorFactor(
+    primitives
+      .find((primitive) => primitive.getMaterial().getName() === "SoldierSkin")
+      .getMaterial()
+      .getBaseColorFactor(),
+  )
+  .setMetallicFactor(0)
+  .setRoughnessFactor(0.85);
 const buffer = root.listBuffers()[0];
-const accessor = (name, type, array) => doc.createAccessor(name, buffer).setType(type).setArray(array);
-mesh.addPrimitive(doc.createPrimitive()
-  .setAttribute('POSITION', accessor('skin position', 'VEC3', smoothed))
-  .setAttribute('NORMAL', accessor('skin normal', 'VEC3', skin.getAttribute('normal').array))
-  .setAttribute('JOINTS_0', accessor('skin joints', 'VEC4', skinJoints))
-  .setAttribute('WEIGHTS_0', accessor('skin weights', 'VEC4', skinWeights))
-  .setIndices(accessor('skin indices', 'SCALAR', skin.getIndex().array))
-  .setMaterial(skinMaterial)
-  .setExtras({ subjectOuterSkin: true, thickness: THICKNESS }));
+const accessor = (name, type, array) =>
+  doc.createAccessor(name, buffer).setType(type).setArray(array);
+mesh.addPrimitive(
+  doc
+    .createPrimitive()
+    .setAttribute("POSITION", accessor("skin position", "VEC3", smoothed))
+    .setAttribute(
+      "NORMAL",
+      accessor("skin normal", "VEC3", skin.getAttribute("normal").array),
+    )
+    .setAttribute("JOINTS_0", accessor("skin joints", "VEC4", skinJoints))
+    .setAttribute("WEIGHTS_0", accessor("skin weights", "VEC4", skinWeights))
+    .setIndices(accessor("skin indices", "SCALAR", skin.getIndex().array))
+    .setMaterial(skinMaterial)
+    .setExtras({ subjectOuterSkin: true, thickness: THICKNESS }),
+);
 
 // Keep the original primitives, hair, glasses, skeleton and animation data intact.
 if (!fs.existsSync(BAK)) fs.copyFileSync(SRC, BAK);
@@ -276,5 +387,7 @@ try {
 }
 source.dispose();
 skin.dispose();
-console.log(`Added ${vertexCount.toLocaleString()} skin vertices sharing the original skeleton.`);
+console.log(
+  `Added ${vertexCount.toLocaleString()} skin vertices sharing the original skeleton.`,
+);
 console.log(`Output: ${SRC}\nOriginal: ${BAK}`);

@@ -1,8 +1,15 @@
-import * as THREE from 'three';
-import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import * as THREE from "three";
+import { TransformControls } from "three/addons/controls/TransformControls.js";
 
 export class SplineEditor {
-  constructor({ scene, camera, domElement, orbitControls, onChange, onSelect } = {}) {
+  constructor({
+    scene,
+    camera,
+    domElement,
+    orbitControls,
+    onChange,
+    onSelect,
+  } = {}) {
     this.scene = scene;
     this.camera = camera;
     this.domElement = domElement;
@@ -18,12 +25,12 @@ export class SplineEditor {
     this.pointer = new THREE.Vector2();
     this.draggedPoint = null;
     this.transformControls = new TransformControls(camera, domElement);
-    this.transformControls.setMode('translate');
+    this.transformControls.setMode("translate");
     this.scene.add(this.transformControls.getHelper());
-    this.transformControls.addEventListener('dragging-changed', (event) => {
+    this.transformControls.addEventListener("dragging-changed", (event) => {
       this.orbitControls.enabled = !event.value;
     });
-    this.transformControls.addEventListener('objectChange', () => {
+    this.transformControls.addEventListener("objectChange", () => {
       const handle = this.transformControls.object;
       if (!handle) return;
       const index = handle.userData.pointIndex;
@@ -33,8 +40,10 @@ export class SplineEditor {
       this.updateLine();
       this.onChange?.(this.getPoints());
     });
-    this.domElement.addEventListener('pointerdown', (event) => this.beginDrag(event));
-    this.domElement.addEventListener('pointerup', () => this.endDrag());
+    this.domElement.addEventListener("pointerdown", (event) =>
+      this.beginDrag(event),
+    );
+    this.domElement.addEventListener("pointerup", () => this.endDrag());
   }
 
   load(points) {
@@ -76,7 +85,7 @@ export class SplineEditor {
   updateLine() {
     if (!this.curve) return;
     this.curve.updateArcLengths();
-    const existingLine = this.group.getObjectByName('spline-line');
+    const existingLine = this.group.getObjectByName("spline-line");
     if (existingLine) {
       existingLine.geometry.dispose();
       this.group.remove(existingLine);
@@ -85,7 +94,7 @@ export class SplineEditor {
       new THREE.BufferGeometry().setFromPoints(this.curve.getPoints(48)),
       new THREE.LineBasicMaterial({ color: 0xf2b880 }),
     );
-    line.name = 'spline-line';
+    line.name = "spline-line";
     this.group.add(line);
   }
 

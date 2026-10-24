@@ -1,31 +1,31 @@
 /// <reference types="vite/client" />
 
-declare module '*?raw' {
+declare module "*?raw" {
   const src: string;
   export default src;
 }
 
-declare module '*.glb' {
+declare module "*.glb" {
   const src: string;
   export default src;
 }
 
-declare module '*.obj' {
+declare module "*.obj" {
   const src: string;
   export default src;
 }
 
-declare module '*.fbx' {
+declare module "*.fbx" {
   const src: string;
   export default src;
 }
 
-declare module '*.gltf' {
+declare module "*.gltf" {
   const src: string;
   export default src;
 }
 
-declare module '*.bin' {
+declare module "*.bin" {
   const src: string;
   export default src;
 }

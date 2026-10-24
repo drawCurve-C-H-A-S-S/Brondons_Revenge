@@ -1,4 +1,4 @@
-import { fetchAsset } from '../../core/assetCache.js';
+import { fetchAsset } from "../../core/assetCache.js";
 
 export const MUSIC_LOOP_BLEND_SECONDS = 0.65;
 export const MUSIC_CACHE_BUDGET_BYTES = 128 * 1024 * 1024;
@@ -9,7 +9,10 @@ const unsupportedSources = new Set<string>();
 let context: AudioContext | null = null;
 
 export function supportsBufferedMusic(source?: string) {
-  return typeof window.AudioContext === 'function' && (!source || !unsupportedSources.has(source));
+  return (
+    typeof window.AudioContext === "function" &&
+    (!source || !unsupportedSources.has(source))
+  );
 }
 
 function musicContext() {
@@ -18,95 +21,179 @@ function musicContext() {
 }
 
 /** One Web Audio context for music, ambient loops and footsteps, so a single user gesture unlocks them all. */
-export function sharedAudioContext() { return musicContext(); }
+export function sharedAudioContext() {
+  return musicContext();
+}
 
 export function resumeMusicContext() {
-  return context && context.state !== 'running' ? context.resume() : Promise.resolve();
+  return context && context.state !== "running"
+    ? context.resume()
+    : Promise.resolve();
 }
 
 export function createMusicMuffleFilter(audio?: HTMLMediaElement) {
-  const audioContext = musicContext(), input = audioContext.createBiquadFilter();
-  input.type = 'lowpass'; input.Q.value = 0.7;
+  const audioContext = musicContext(),
+    input = audioContext.createBiquadFilter();
+  input.type = "lowpass";
+  input.Q.value = 0.7;
   input.frequency.value = Math.min(20000, audioContext.sampleRate / 2);
   const source = audio ? audioContext.createMediaElementSource(audio) : null;
-  if (source) { source.connect(input); input.connect(audioContext.destination); }
+  if (source) {
+    source.connect(input);
+    input.connect(audioContext.destination);
+  }
   return {
     input,
     setMuffled(value: boolean) {
-      input.frequency.setTargetAtTime(value ? 850 : Math.min(20000, audioContext.sampleRate / 2), audioContext.currentTime, 0.06);
+      input.frequency.setTargetAtTime(
+        value ? 850 : Math.min(20000, audioContext.sampleRate / 2),
+        audioContext.currentTime,
+        0.06,
+      );
     },
-    dispose() { source?.disconnect(); input.disconnect(); },
+    dispose() {
+      source?.disconnect();
+      input.disconnect();
+    },
   };
 }
 
-export function prepareMusicLoop(audioContext: BaseAudioContext, original: AudioBuffer, blendSeconds = MUSIC_LOOP_BLEND_SECONDS): PreparedMusic {
-  if (!Number.isFinite(blendSeconds) || blendSeconds <= 0) throw new RangeError('Loop blending requires a positive, finite duration');
-  const channels = Array.from({ length: original.numberOfChannels }, (_, channel) => original.getChannelData(channel));
-  const audible = (frame: number) => channels.some(channel => Math.abs(channel[frame]) > 0.0005);
-  let start = 0, end = original.length;
+export function prepareMusicLoop(
+  audioContext: BaseAudioContext,
+  original: AudioBuffer,
+  blendSeconds = MUSIC_LOOP_BLEND_SECONDS,
+): PreparedMusic {
+  if (!Number.isFinite(blendSeconds) || blendSeconds <= 0)
+    throw new RangeError("Loop blending requires a positive, finite duration");
+  const channels = Array.from(
+    { length: original.numberOfChannels },
+    (_, channel) => original.getChannelData(channel),
+  );
+  const audible = (frame: number) =>
+    channels.some((channel) => Math.abs(channel[frame]) > 0.0005);
+  let start = 0,
+    end = original.length;
   while (start < end && !audible(start)) start++;
   while (end > start && !audible(end - 1)) end--;
-  if (end === start) throw new Error('Cannot loop a silent music buffer');
+  if (end === start) throw new Error("Cannot loop a silent music buffer");
   const padding = Math.ceil(original.sampleRate * 0.002);
-  start = Math.max(0, start - padding); end = Math.min(original.length, end + padding);
+  start = Math.max(0, start - padding);
+  end = Math.min(original.length, end + padding);
   const length = end - start;
-  const blend = Math.min(Math.round(blendSeconds * original.sampleRate), Math.floor(length / 4));
-  if (blend < 2) throw new Error('Music buffer is too short for a seamless loop');
-  const buffer = audioContext.createBuffer(original.numberOfChannels, length, original.sampleRate);
+  const blend = Math.min(
+    Math.round(blendSeconds * original.sampleRate),
+    Math.floor(length / 4),
+  );
+  if (blend < 2)
+    throw new Error("Music buffer is too short for a seamless loop");
+  const buffer = audioContext.createBuffer(
+    original.numberOfChannels,
+    length,
+    original.sampleRate,
+  );
   for (let channel = 0; channel < channels.length; channel++) {
-    const source = channels[channel], output = buffer.getChannelData(channel);
+    const source = channels[channel],
+      output = buffer.getChannelData(channel);
     output.set(source.subarray(start, end));
     for (let frame = 0; frame < blend; frame++) {
-      const angle = frame / (blend - 1) * Math.PI / 2;
-      output[length - blend + frame] = source[end - blend + frame] * Math.cos(angle)
-        + source[start + frame] * Math.sin(angle);
+      const angle = ((frame / (blend - 1)) * Math.PI) / 2;
+      output[length - blend + frame] =
+        source[end - blend + frame] * Math.cos(angle) +
+        source[start + frame] * Math.sin(angle);
     }
   }
   // The first play keeps the opening; subsequent loops resume after the already blended opening.
   return { buffer, loopStart: blend / original.sampleRate };
 }
 
-function loadMusic(source: string, loop: boolean, blendSeconds = MUSIC_LOOP_BLEND_SECONDS) {
+function loadMusic(
+  source: string,
+  loop: boolean,
+  blendSeconds = MUSIC_LOOP_BLEND_SECONDS,
+) {
   const key = `${loop}:${blendSeconds}:${source}`;
   let pending = prepared.get(key);
-  if (pending) { prepared.delete(key); prepared.set(key, pending); return pending; }
+  if (pending) {
+    prepared.delete(key);
+    prepared.set(key, pending);
+    return pending;
+  }
   const audioContext = musicContext();
-  pending = fetchAsset(source).then(async response => {
-    if (!response.ok) throw new Error(`Music request failed (${response.status}): ${source}`);
-    const buffer = await audioContext.decodeAudioData(await response.arrayBuffer());
-    const music = loop ? prepareMusicLoop(audioContext, buffer, blendSeconds) : { buffer, loopStart: 0 };
-    preparedSizes.set(key, music.buffer.length * music.buffer.numberOfChannels * Float32Array.BYTES_PER_ELEMENT);
-    const memory = (globalThis.navigator as Navigator & { deviceMemory?: number } | undefined)?.deviceMemory;
-    const budget = memory !== undefined && memory <= 4 ? MUSIC_CACHE_BUDGET_BYTES / 2 : MUSIC_CACHE_BUDGET_BYTES;
-    let size = [...preparedSizes.values()].reduce((sum, bytes) => sum + bytes, 0);
-    for (const cachedKey of prepared.keys()) {
-      if (size <= budget) break;
-      if (cachedKey === key || !preparedSizes.has(cachedKey)) continue;
-      size -= preparedSizes.get(cachedKey)!;
-      prepared.delete(cachedKey); preparedSizes.delete(cachedKey);
-    }
-    return music;
-  }).catch(error => {
-    if (error instanceof Error && error.name === 'EncodingError' && !unsupportedSources.has(source)) {
-      unsupportedSources.add(source);
-      const message = 'The soundtrack could not be decoded. Use a browser with OGG Vorbis audio support.';
-      console.warn('[Audio]', message, source, error);
-      window.dispatchEvent(new CustomEvent('music-unavailable', { detail: { message } }));
-    }
-    throw error;
-  });
+  pending = fetchAsset(source)
+    .then(async (response) => {
+      if (!response.ok)
+        throw new Error(`Music request failed (${response.status}): ${source}`);
+      const buffer = await audioContext.decodeAudioData(
+        await response.arrayBuffer(),
+      );
+      const music = loop
+        ? prepareMusicLoop(audioContext, buffer, blendSeconds)
+        : { buffer, loopStart: 0 };
+      preparedSizes.set(
+        key,
+        music.buffer.length *
+          music.buffer.numberOfChannels *
+          Float32Array.BYTES_PER_ELEMENT,
+      );
+      const memory = (
+        globalThis.navigator as
+          (Navigator & { deviceMemory?: number }) | undefined
+      )?.deviceMemory;
+      const budget =
+        memory !== undefined && memory <= 4
+          ? MUSIC_CACHE_BUDGET_BYTES / 2
+          : MUSIC_CACHE_BUDGET_BYTES;
+      let size = [...preparedSizes.values()].reduce(
+        (sum, bytes) => sum + bytes,
+        0,
+      );
+      for (const cachedKey of prepared.keys()) {
+        if (size <= budget) break;
+        if (cachedKey === key || !preparedSizes.has(cachedKey)) continue;
+        size -= preparedSizes.get(cachedKey)!;
+        prepared.delete(cachedKey);
+        preparedSizes.delete(cachedKey);
+      }
+      return music;
+    })
+    .catch((error) => {
+      if (
+        error instanceof Error &&
+        error.name === "EncodingError" &&
+        !unsupportedSources.has(source)
+      ) {
+        unsupportedSources.add(source);
+        const message =
+          "The soundtrack could not be decoded. Use a browser with OGG Vorbis audio support.";
+        console.warn("[Audio]", message, source, error);
+        window.dispatchEvent(
+          new CustomEvent("music-unavailable", { detail: { message } }),
+        );
+      }
+      throw error;
+    });
   prepared.set(key, pending);
   void pending.catch(() => {
-    if (prepared.get(key) === pending) { prepared.delete(key); preparedSizes.delete(key); }
+    if (prepared.get(key) === pending) {
+      prepared.delete(key);
+      preparedSizes.delete(key);
+    }
   });
   return pending;
 }
 
-export async function preloadMusic(source: string, loop = true): Promise<'decoded' | 'browser-audio' | 'unsupported'> {
-  if (!supportsBufferedMusic(source)) return unsupportedSources.has(source) ? 'unsupported' : 'browser-audio';
-  try { await loadMusic(source, loop); return 'decoded'; }
-  catch (error) {
-    if (error instanceof Error && error.name === 'EncodingError') return 'unsupported';
+export async function preloadMusic(
+  source: string,
+  loop = true,
+): Promise<"decoded" | "browser-audio" | "unsupported"> {
+  if (!supportsBufferedMusic(source))
+    return unsupportedSources.has(source) ? "unsupported" : "browser-audio";
+  try {
+    await loadMusic(source, loop);
+    return "decoded";
+  } catch (error) {
+    if (error instanceof Error && error.name === "EncodingError")
+      return "unsupported";
     throw error;
   }
 }
@@ -126,48 +213,81 @@ export class BufferedMusic extends EventTarget {
   private generation = 0;
   private disposed = false;
 
-  constructor(readonly src: string, loop: boolean, blendSeconds = MUSIC_LOOP_BLEND_SECONDS) {
+  constructor(
+    readonly src: string,
+    loop: boolean,
+    blendSeconds = MUSIC_LOOP_BLEND_SECONDS,
+  ) {
     super();
     this.loop = loop;
     this.filter.input.connect(this.gain);
     this.gain.connect(this.context.destination);
-    this.ready = loadMusic(src, loop, blendSeconds).then(music => { this.prepared = music; });
-    void this.ready.catch(error => console.warn('[Audio] Music preparation failed:', src, error));
+    this.ready = loadMusic(src, loop, blendSeconds).then((music) => {
+      this.prepared = music;
+    });
+    void this.ready.catch((error) =>
+      console.warn("[Audio] Music preparation failed:", src, error),
+    );
   }
 
-  get volume() { return this.gain.gain.value; }
-  setMuffled(value: boolean) { this.filter.setMuffled(value); }
-  set volume(value: number) {
-    if (!Number.isFinite(value)) throw new RangeError('Music volume must be finite');
-    this.gain.gain.setTargetAtTime(Math.max(0, Math.min(1, value)), this.context.currentTime, 0.012);
+  get volume() {
+    return this.gain.gain.value;
   }
-  get duration() { return this.prepared?.buffer.duration ?? 0; }
+  setMuffled(value: boolean) {
+    this.filter.setMuffled(value);
+  }
+  set volume(value: number) {
+    if (!Number.isFinite(value))
+      throw new RangeError("Music volume must be finite");
+    this.gain.gain.setTargetAtTime(
+      Math.max(0, Math.min(1, value)),
+      this.context.currentTime,
+      0.012,
+    );
+  }
+  get duration() {
+    return this.prepared?.buffer.duration ?? 0;
+  }
   get currentTime() {
-    let time = this.offset + (this.source ? this.context.currentTime - this.startedAt : 0);
+    let time =
+      this.offset +
+      (this.source ? this.context.currentTime - this.startedAt : 0);
     if (this.loop && this.prepared && time >= this.duration) {
       const { loopStart } = this.prepared;
-      time = loopStart + (time - loopStart) % (this.duration - loopStart);
+      time = loopStart + ((time - loopStart) % (this.duration - loopStart));
     }
     return this.prepared ? Math.min(time, this.duration) : time;
   }
   set currentTime(value: number) {
-    if (!Number.isFinite(value) || value < 0) throw new RangeError('Music playback position must be finite and nonnegative');
+    if (!Number.isFinite(value) || value < 0)
+      throw new RangeError(
+        "Music playback position must be finite and nonnegative",
+      );
     const playing = !this.paused;
     this.pause();
     this.offset = this.prepared ? Math.min(value, this.duration) : value;
     this.ended = false;
-    if (playing) void this.play().catch(error => console.warn('[Audio] Music seek failed:', this.src, error));
+    if (playing)
+      void this.play().catch((error) =>
+        console.warn("[Audio] Music seek failed:", this.src, error),
+      );
   }
   async play() {
-    if (this.disposed) throw new DOMException('Music playback was disposed', 'AbortError');
-    if (this.context.state !== 'running') throw new DOMException('Music requires a user gesture', 'NotAllowedError');
+    if (this.disposed)
+      throw new DOMException("Music playback was disposed", "AbortError");
+    if (this.context.state !== "running")
+      throw new DOMException(
+        "Music requires a user gesture",
+        "NotAllowedError",
+      );
     if (this.source) return;
     const generation = this.generation;
     await this.ready;
-    if (this.disposed || generation !== this.generation) throw new DOMException('Music playback was cancelled', 'AbortError');
+    if (this.disposed || generation !== this.generation)
+      throw new DOMException("Music playback was cancelled", "AbortError");
     if (this.source) return;
     const music = this.prepared;
-    if (!music) throw new Error('Music has not been decoded');
+    if (!music) throw new Error("Music has not been decoded");
     if (this.ended || this.offset >= this.duration) this.offset = 0;
     const source = this.context.createBufferSource();
     source.buffer = music.buffer;
@@ -177,25 +297,37 @@ export class BufferedMusic extends EventTarget {
     source.connect(this.filter.input);
     source.onended = () => {
       if (this.source !== source) return;
-      source.disconnect(); this.source = null;
-      this.offset = this.duration; this.paused = true; this.ended = true;
-      this.dispatchEvent(new Event('ended'));
+      source.disconnect();
+      this.source = null;
+      this.offset = this.duration;
+      this.paused = true;
+      this.ended = true;
+      this.dispatchEvent(new Event("ended"));
     };
     this.source = source;
     this.startedAt = this.context.currentTime;
     source.start(0, this.offset);
-    this.paused = false; this.ended = false;
-    this.dispatchEvent(new Event('playing'));
+    this.paused = false;
+    this.ended = false;
+    this.dispatchEvent(new Event("playing"));
   }
   pause() {
     this.offset = this.currentTime;
     this.generation++;
     const source = this.source;
-    this.source = null; this.paused = true;
-    if (source) { source.onended = null; source.stop(); source.disconnect(); }
+    this.source = null;
+    this.paused = true;
+    if (source) {
+      source.onended = null;
+      source.stop();
+      source.disconnect();
+    }
   }
   dispose() {
     if (this.disposed) return;
-    this.pause(); this.disposed = true; this.filter.dispose(); this.gain.disconnect();
+    this.pause();
+    this.disposed = true;
+    this.filter.dispose();
+    this.gain.disconnect();
   }
 }
