@@ -17,7 +17,11 @@ import { preloadEarthTextures } from "../scripts/global/earthTexture.js";
 import earthTextureUrl from "../assets/planets/earth-maps.rgba.bin?url";
 import { preloadComicEffectArtwork } from "../scripts/global/comicEffects.js";
 import { preloadEscapeShipGeometry } from "../scripts/items/createEscapeShip.js";
-import { preloadJungleTextures } from "../scripts/level-3/jungleTextures.js";
+import {
+  preloadJungleTextures,
+  preloadPhotoBark,
+  PHOTO_BARK_URLS,
+} from "../scripts/level-3/jungleTextures.js";
 import shieldPowerupUrl from "../assets/power ups/Shield_powerup.png?url";
 import {
   COMBAT_ANIMATION_URLS,
@@ -31,6 +35,7 @@ export const GAME_ASSET_URLS = [
     ...Object.values(MUSIC_URLS),
     ...CORRIDOR_FOOTAGE,
     ...COMBAT_ANIMATION_URLS,
+    ...PHOTO_BARK_URLS,
     shieldPowerupUrl,
     earthTextureUrl,
   ]),
@@ -77,6 +82,7 @@ export async function preloadGameAssets(
       label: "Preparing jungle surface textures",
       run: async () => preloadJungleTextures(),
     },
+    { label: "Preparing photographed tree bark", run: preloadPhotoBark },
     ...musicTasks,
     ...setupTasks,
   ];

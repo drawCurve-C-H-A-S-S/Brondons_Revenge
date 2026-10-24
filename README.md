@@ -1302,6 +1302,16 @@ its normal opponent-tracking remains separate from the guard's torso/arm pose.
 
 ## Earth visuals
 
+The jungle vegetation includes the photographed bark, taller pines, proportional
+branching and revised needle/grass colours from main. Bark follows the same
+pre-baked, gzipped RGBA loading approach as Earth: **1024 x 1024 colour** and
+**512 x 512 normals**, cached once and shared by per-scene texture handles.
+Lossless row-delta filtering improves compression of the resized pixels.
+The base GPU pixel footprint is **5 MiB instead of 20 MiB**, with mipmaps and
+normal-map colour space preserved. Regenerate the packed asset with
+**`npm run textures:bark`**. Original photographs remain as build inputs; only
+the packed binary is imported into the game and its asset preload list.
+
 The shared [Earth renderer](./src/scripts/global/earthTexture.ts), brought over from the
 `earth` branch, generates **2048 x 1024** terrain, roughness and cloud maps.
 Generated pixels are cached between scenes, with separately owned texture handles

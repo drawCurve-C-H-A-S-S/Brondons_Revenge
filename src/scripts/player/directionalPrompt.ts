@@ -32,7 +32,10 @@ export function renderDirectionalPrompt(
       : code.replace(/^Key|^Digit/, ""),
   }));
   const signature = JSON.stringify([
-    controller, getControllerType(), context, prompts,
+    controller,
+    getControllerType(),
+    context,
+    prompts,
   ]);
   if (element.dataset.directionPrompt === signature && element.children.length)
     return;
@@ -50,7 +53,10 @@ export function renderDirectionalPrompt(
       return key;
     }
     key.setAttribute("role", "img");
-    const svg = createControllerIcon(label, stick || dpad ? direction : undefined);
+    const svg = createControllerIcon(
+      label,
+      stick || dpad ? direction : undefined,
+    );
     svg.classList.add("direction-prompt-icon");
     key.appendChild(svg);
     return key;

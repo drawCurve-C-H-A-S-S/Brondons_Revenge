@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { createJungleTextures } from "./jungleTextures.js";
+import { getPhotoBark, type createJungleTextures } from "./jungleTextures.js";
 
 export const CONIFER_PARTS = {
   trunk: 1,
@@ -15,11 +15,31 @@ export function createJungleFoliageMaterials(
   textures: ReturnType<typeof createJungleTextures>,
   wind: { value: number },
 ) {
-  const bark = new THREE.MeshStandardMaterial({
-    map: textures.bark,
-    roughness: 1,
-  });
-  const branches = bark.clone();
+  const photoBark = getPhotoBark();
+  // Trunk cylinders are one unit tall and stretched to the full tree height, so the
+  // bark needs far more vertical tiles than horizontal ones to keep plates believable.
+  const barkMaterial = (tilesX: number, tilesY: number) => {
+    if (!photoBark)
+      return new THREE.MeshStandardMaterial({
+        map: textures.bark,
+        roughness: 1,
+      });
+    const map = photoBark.diffuse.clone(),
+      normalMap = photoBark.normal.clone();
+    map.repeat.set(tilesX, tilesY);
+    normalMap.repeat.set(tilesX, tilesY);
+    map.needsUpdate = normalMap.needsUpdate = true;
+    return new THREE.MeshStandardMaterial({
+      map,
+      normalMap,
+      normalScale: new THREE.Vector2(0.9, 0.9),
+      roughness: 0.92,
+    });
+  };
+  textures.bark.repeat.set(2, 4);
+  const bark = barkMaterial(3, 22);
+  const branches = barkMaterial(1.5, 3);
+  const grove = barkMaterial(2, 8);
   const sprays = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     map: textures.pineBranch,
@@ -73,7 +93,7 @@ export function createJungleFoliageMaterials(
     };
     material.customProgramCacheKey = () => `jungle-${kind}-wind-v3`;
   }
-  return { bark, branches, canopy, sprays, grass };
+  return { bark, branches, grove, canopy, sprays, grass };
 }
 
 export function createJungleFoliageGeometry() {
@@ -82,7 +102,7 @@ export function createJungleFoliageGeometry() {
   const spray = new THREE.PlaneGeometry(1, 1);
   return {
     trunk: new THREE.CylinderGeometry(0.5, 1, 1, 7),
-    branch: new THREE.CylinderGeometry(0.12, 0.3, 1, 5),
+    branch: new THREE.CylinderGeometry(0.07, 0.18, 1, 5),
     spray,
     canopy: spray,
     tuft,
@@ -113,13 +133,13 @@ export function writeConifer(
   for (let whorl = 0; whorl < 9; whorl++) {
     const t = whorl / 8,
       y = height * (0.16 + 0.78 * t);
-    const reach = (3.8 - 2.7 * t) * (0.85 + random() * 0.3),
+    const reach = height * (0.19 - 0.135 * t) * (0.85 + random() * 0.3),
       arms = whorl < 6 ? 5 : 4;
     for (let arm = 0; arm < arms; arm++) {
       const angle = (arm * Math.PI * 2) / arms + random() * 0.6 + whorl * 0.5;
       const dx = Math.sin(angle),
         dz = Math.cos(angle),
-        length = reach * 0.75;
+        length = reach * 0.6;
       dummy.position.set(
         x + dx * length * 0.5,
         y - 0.15,
@@ -138,7 +158,7 @@ export function writeConifer(
           y + (random() - 0.5) * 0.35,
           z + dz * reach * 0.5,
         );
-        dummy.scale.set(reach * 1.8, 2.9 + (1 - t) * 1.6, 1);
+        dummy.scale.set(reach * 1.6, height * 0.1 + (1 - t) * 1.2, 1);
         dummy.rotation.set(
           0,
           angle + Math.PI / 2 + (card * Math.PI) / 3,
@@ -146,9 +166,9 @@ export function writeConifer(
         );
         dummy.updateMatrix();
         tint.setHSL(
-          0.3 + random() * 0.06,
-          0.45 + random() * 0.2,
-          0.3 + random() * 0.16,
+          0.29 + random() * 0.07,
+          0.4 + random() * 0.25,
+          0.2 + random() * 0.26,
         );
         write("spray", dummy.matrix, tint);
         if (card === 0) write("canopy", dummy.matrix, tint);
@@ -157,7 +177,7 @@ export function writeConifer(
   }
   for (let card = 0; card < 3; card++) {
     dummy.position.set(x, height * 0.95, z);
-    dummy.scale.set(2.3, 3.2, 1);
+    dummy.scale.set(height * 0.09, height * 0.13, 1);
     dummy.rotation.set(0, random() * Math.PI, 0);
     dummy.updateMatrix();
     write("spray", dummy.matrix, tint.setHSL(0.31, 0.5, 0.32));
@@ -180,7 +200,7 @@ export function writeGrassTuft(
   tint.setHSL(
     0.24 + random() * 0.09,
     0.3 + random() * 0.3,
-    0.5 + random() * 0.28,
+    0.62 + random() * 0.3,
   );
   write(dummy.matrix, tint);
 }

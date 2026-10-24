@@ -1,4 +1,7 @@
 import * as THREE from "three";
+import { gunzipSync } from "three/addons/libs/fflate.module.js";
+import { fetchAsset } from "../../core/assetCache.js";
+import photoBarkUrl from "../../assets/textures/pine-bark.rgba.bin?url";
 
 let prepared:
   | {
@@ -32,10 +35,12 @@ export function createJungleTextures() {
       return result;
     };
     const bark = texture((context) => {
-      context.fillStyle = "#695641";
+      context.fillStyle = "#4a3b2c";
       context.fillRect(0, 0, 256, 256);
-      for (let index = 0; index < 450; index++) {
-        context.fillStyle = index % 3 ? "#89735a" : "#3b392c";
+      for (let index = 0; index < 520; index++) {
+        context.fillStyle = ["#5f4c39", "#33291e", "#54432f", "#2a2118"][
+          index % 4
+        ];
         context.fillRect(
           random() * 256,
           random() * 256,
@@ -131,26 +136,43 @@ export function createJungleTextures() {
     const pineBranch = texture((context) => {
       context.clearRect(0, 0, 256, 256);
       const greens = [
-        "#2c6a31",
-        "#3a7d3a",
-        "#245628",
-        "#4a8f43",
-        "#57a04c",
         "#1d4a22",
+        "#256028",
+        "#2f6b33",
+        "#173a1c",
+        "#3a7d3c",
+        "#245628",
       ];
-      // dense needle mass first so the spray reads solid, not see-through
-      for (let index = 0; index < 420; index++) {
+      context.lineCap = "round";
+      // dark shadow needles underneath give the spray depth up close
+      for (let index = 0; index < 500; index++) {
+        const x = 8 + random() * 240,
+          dir = index % 2 ? 1 : -1;
+        const length = 14 + random() * 26,
+          sweep = (random() - 0.5) * 2.4;
+        context.strokeStyle = index % 3 ? "#14301a" : "#1d4423";
+        context.lineWidth = 2.4 + random() * 2;
+        context.beginPath();
+        context.moveTo(x, 128 + (random() - 0.5) * 8);
+        context.lineTo(
+          x + Math.sin(sweep) * length,
+          128 + dir * Math.cos(sweep) * length,
+        );
+        context.stroke();
+      }
+      // mid-green needle mass so the spray reads solid, not see-through
+      for (let index = 0; index < 380; index++) {
         const t = random(),
           x = 10 + t * 236;
-        const spread = (1 - t * 0.5) * 26;
+        const spread = (1 - t * 0.5) * 24;
         context.fillStyle = greens[index % 6];
-        context.globalAlpha = 0.85;
+        context.globalAlpha = 0.8;
         context.beginPath();
         context.ellipse(
           x + (random() - 0.5) * 14,
           128 + (random() - 0.5) * spread * 1.7,
-          3 + random() * 5,
-          2 + random() * 3,
+          2.5 + random() * 4,
+          1.8 + random() * 2.6,
           random() * Math.PI,
           0,
           Math.PI * 2,
@@ -158,33 +180,42 @@ export function createJungleTextures() {
         context.fill();
       }
       context.globalAlpha = 1;
-      // woody stem over the mass
-      context.lineCap = "round";
-      context.strokeStyle = "#5a4630";
-      context.lineWidth = 4;
+      // woody stem
+      context.strokeStyle = "#4a3b2c";
+      context.lineWidth = 3.5;
       context.beginPath();
       context.moveTo(4, 128);
       context.lineTo(252, 128);
       context.stroke();
-      context.strokeStyle = "#6d5638";
-      context.lineWidth = 2;
-      context.beginPath();
-      context.moveTo(4, 127);
-      context.lineTo(252, 127);
-      context.stroke();
-      // feathery needles fanning up and down, sweeping toward the tip
-      for (let index = 0; index < 950; index++) {
-        const t = index / 950,
-          x = 8 + t * 240 + (random() - 0.5) * 8;
+      // feathery needles at chaotic angles, sweeping mostly toward the tip
+      for (let index = 0; index < 900; index++) {
+        const t = index / 900,
+          x = 8 + t * 240 + (random() - 0.5) * 10;
         const dir = index % 2 ? 1 : -1;
-        const length = (30 - 16 * t) * (0.6 + random() * 0.7);
-        const sweep = 0.35 + random() * 0.75;
+        const length = (28 - 14 * t) * (0.5 + random() * 0.9);
+        const sweep = (random() - 0.35) * 1.9;
         context.strokeStyle = greens[index % 6];
-        context.lineWidth = 1.6 + random() * 1.5;
+        context.lineWidth = 1.4 + random() * 1.4;
         context.beginPath();
-        context.moveTo(x, 128 + (random() - 0.5) * 5);
+        context.moveTo(x, 128 + (random() - 0.5) * 6);
         context.lineTo(
-          x + Math.sin(sweep) * length * 0.8,
+          x + Math.sin(sweep) * length,
+          128 + dir * Math.cos(sweep) * length,
+        );
+        context.stroke();
+      }
+      // sparse sunlit tips
+      for (let index = 0; index < 120; index++) {
+        const x = 10 + random() * 236,
+          dir = index % 2 ? 1 : -1;
+        const length = 10 + random() * 16,
+          sweep = (random() - 0.3) * 1.4;
+        context.strokeStyle = index % 2 ? "#4c8f45" : "#5aa04e";
+        context.lineWidth = 1.2 + random();
+        context.beginPath();
+        context.moveTo(x, 128 + (random() - 0.5) * 4);
+        context.lineTo(
+          x + Math.sin(sweep) * length,
           128 + dir * Math.cos(sweep) * length,
         );
         context.stroke();
@@ -256,4 +287,72 @@ export function createJungleTextures() {
 
 export function preloadJungleTextures() {
   Object.values(createJungleTextures()).forEach((texture) => texture.dispose());
+}
+
+export const PHOTO_BARK_URLS = [photoBarkUrl];
+
+let photoBark:
+  { diffuse: THREE.DataTexture; normal: THREE.DataTexture } | undefined;
+let photoBarkPreparation: Promise<void> | undefined;
+
+export function preloadPhotoBark(source = photoBarkUrl): Promise<void> {
+  if (photoBark) return Promise.resolve();
+  if (!photoBarkPreparation)
+    photoBarkPreparation = (async () => {
+      const response = await fetchAsset(source);
+      const decoded = gunzipSync(new Uint8Array(await response.arrayBuffer()));
+      if (!(decoded.buffer instanceof ArrayBuffer))
+        throw new Error("Bark texture pixels must use an ArrayBuffer");
+      const pixels = new Uint8Array(
+        decoded.buffer,
+        decoded.byteOffset,
+        decoded.byteLength,
+      );
+      const diffuseSize = 1024 * 1024 * 4;
+      const normalSize = 512 * 512 * 4;
+      if (pixels.byteLength !== diffuseSize + normalSize)
+        throw new Error(
+          `Bark texture data must contain ${diffuseSize + normalSize} bytes (received ${pixels.byteLength})`,
+        );
+      // Restore each row's RGBA pixels before uploading the cached maps.
+      let offset = 0;
+      for (const width of [1024, 512]) {
+        const rowBytes = width * 4;
+        for (let row = 0; row < width; row++) {
+          const start = offset + row * rowBytes;
+          for (let index = start + 4; index < start + rowBytes; index++)
+            pixels[index] += pixels[index - 4];
+        }
+        offset += width * rowBytes;
+      }
+      const diffuse = new THREE.DataTexture(
+        pixels.subarray(0, diffuseSize),
+        1024,
+        1024,
+      );
+      const normal = new THREE.DataTexture(
+        pixels.subarray(diffuseSize),
+        512,
+        512,
+      );
+      diffuse.colorSpace = THREE.SRGBColorSpace;
+      for (const map of [diffuse, normal]) {
+        map.wrapS = map.wrapT = THREE.RepeatWrapping;
+        map.anisotropy = 8;
+        map.flipY = true;
+        map.generateMipmaps = true;
+        map.minFilter = THREE.LinearMipmapLinearFilter;
+        map.magFilter = THREE.LinearFilter;
+        map.needsUpdate = true;
+      }
+      photoBark = { diffuse, normal };
+    })().catch((error) => {
+      photoBarkPreparation = undefined;
+      throw error;
+    });
+  return photoBarkPreparation;
+}
+
+export function getPhotoBark() {
+  return photoBark;
 }

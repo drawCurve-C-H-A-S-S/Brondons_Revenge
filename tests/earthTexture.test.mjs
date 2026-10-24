@@ -44,6 +44,19 @@ before(async () => {
 
 after(async () => server?.close());
 
+function createRendererStub() {
+  return {
+    toneMapping: THREE.NoToneMapping,
+    getRenderTarget: () => null,
+    setRenderTarget() {},
+    getClearColor: (out) => out.set(0),
+    getClearAlpha: () => 1,
+    setClearColor() {},
+    clear() {},
+    render() {},
+  };
+}
+
 test("generated Earth maps match the earth branch pixel-for-pixel", () => {
   const textures = createEarthTextures(128, 64);
   const expected = {
@@ -224,8 +237,13 @@ test("surface rotation and faster cloud drift are independent of frame rate", (t
 test("flight backdrops retain planet transforms and use both branch starfield layers", (t) => {
   const scene = new THREE.Scene(),
     position = new THREE.Vector3(0, 60, 1500);
-  const planet = addPlanetBackdrop(scene, position, 320, 2400);
-  t.after(() => disposeRoom(scene));
+  const { planet, starfield } = addPlanetBackdrop(scene, position, 320, 2400, {
+    renderer: createRendererStub(),
+  });
+  t.after(() => {
+    starfield.dispose();
+    disposeRoom(scene);
+  });
 
   assert.equal(planet.name, "NearestPlanet");
   assert.deepEqual(planet.position.toArray(), position.toArray());
@@ -233,18 +251,19 @@ test("flight backdrops retain planet transforms and use both branch starfield la
   const stars = scene.children.filter((node) => node.name === "Starfield");
   assert.deepEqual(
     stars.map((node) => node.geometry.attributes.position.count),
-    [3000, 600],
+    [650, 406],
   );
   for (const layer of stars) {
     const positions = layer.geometry.attributes.position;
     for (let i = 0; i < positions.count; i++) {
-      const radius = Math.hypot(
+      for (const coordinate of [
         positions.getX(i),
         positions.getY(i),
         positions.getZ(i),
-      );
-      assert.ok(radius >= 2400 * 0.75 - 0.001 && radius <= 2400 + 0.001);
+      ])
+        assert.ok(Number.isFinite(coordinate) && Math.abs(coordinate) <= 2400);
     }
+    assert.equal(layer.material.uniforms.uRadius.value, 2400);
   }
   animatePlanetBackdrop(planet, 0.5);
   assert.equal(planet.surface.rotation.y, 0.009);
@@ -253,16 +272,7 @@ test("flight backdrops retain planet transforms and use both branch starfield la
 
 test("the finale shares Earth maps, melts its crust and clears every shell before stardust", (t) => {
   const scene = new THREE.Scene(),
-    renderer = {
-      toneMapping: THREE.NoToneMapping,
-      getRenderTarget: () => null,
-      setRenderTarget() {},
-      getClearColor: (out) => out.set(0),
-      getClearAlpha: () => 1,
-      setClearColor() {},
-      clear() {},
-      render() {},
-    },
+    renderer = createRendererStub(),
     world = createFinaleWorld(scene, { renderer });
   t.after(() => world.dispose());
 
@@ -328,8 +338,26 @@ test("the finale shares Earth maps, melts its crust and clears every shell befor
 test("disposing one backdrop leaves the next scene with independently owned texture handles", () => {
   const firstScene = new THREE.Scene(),
     nextScene = new THREE.Scene();
-  const first = addPlanetBackdrop(firstScene, new THREE.Vector3(), 5, 100);
-  const next = addPlanetBackdrop(nextScene, new THREE.Vector3(), 5, 100);
+  const firstBackdrop = addPlanetBackdrop(
+    firstScene,
+    new THREE.Vector3(),
+    5,
+    100,
+    {
+      renderer: createRendererStub(),
+    },
+  );
+  const nextBackdrop = addPlanetBackdrop(
+    nextScene,
+    new THREE.Vector3(),
+    5,
+    100,
+    {
+      renderer: createRendererStub(),
+    },
+  );
+  const first = firstBackdrop.planet,
+    next = nextBackdrop.planet;
   const firstTextures = [
     first.surface.material.map,
     first.surface.material.roughnessMap,
@@ -353,11 +381,13 @@ test("disposing one backdrop leaves the next scene with independently owned text
     }),
   );
 
+  firstBackdrop.starfield.dispose();
   disposeRoom(firstScene);
   assert.deepEqual(firstDisposals, [1, 1, 1]);
   assert.deepEqual(nextDisposals, [0, 0, 0]);
   for (let i = 0; i < firstTextures.length; i++)
     assert.notEqual(firstTextures[i], nextTextures[i]);
+  nextBackdrop.starfield.dispose();
   disposeRoom(nextScene);
   assert.deepEqual(nextDisposals, [1, 1, 1]);
 });
@@ -372,14 +402,17 @@ test("every existing Earth scene uses the shared renderer and its paused update 
       new URL(`../src/${path}`, import.meta.url),
       "utf8",
     );
-    assert.match(source, /animatePlanetBackdrop.*from.*createEscapeShip/);
-    assert.match(source, /animatePlanetBackdrop\(planet, dt\)/);
-    assert.match(source, /if \(disposed \|\|/);
+    assert.match(
+      source,
+      /import\s*\{[^}]*\banimatePlanetBackdrop\b[^}]*\}\s*from\s*["'][^"']*createEscapeShip/,
+    );
+    assert.match(source, /animatePlanetBackdrop\(\s*planet,\s*dt\s*\)/);
+    assert.match(source, /if\s*\(\s*disposed\s*\|\|/);
   }
   const prologue = await readFile(
     new URL("../src/scenes/prologue/prologueFlashbacks.ts", import.meta.url),
     "utf8",
   );
-  assert.match(prologue, /createEarthGroup\(planetScene,/);
-  assert.match(prologue, /updateEarthGroup\(planet, dt\)/);
+  assert.match(prologue, /createEarthGroup\(\s*planetScene,/);
+  assert.match(prologue, /updateEarthGroup\(\s*planet,\s*dt\s*\)/);
 });

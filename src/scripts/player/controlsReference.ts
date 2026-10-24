@@ -92,7 +92,11 @@ const bindings = [
       ["Change deck", "Click a deck filter", "{l} / {r}"],
       ["Locate Brondon", "F", "{y}"],
       ["Reset view", "Home", "{x}"],
-      ["Choose / confirm map button", "Tab / Enter / click", "D-pad / {confirm}"],
+      [
+        "Choose / confirm map button",
+        "Tab / Enter / click",
+        "D-pad / {confirm}",
+      ],
     ],
   },
   {

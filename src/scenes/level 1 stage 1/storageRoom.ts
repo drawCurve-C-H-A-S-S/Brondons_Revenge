@@ -113,7 +113,10 @@ export const DECK_ONE_MAP: ShipMapLayout = {
       portals: {
         passage: { x: -36, z: -2.5, yaw: Math.PI / 2 },
         airlock: {
-          x: 36, z: HANGAR_LAYOUT.exit.z, yaw: -Math.PI / 2, locked: true,
+          x: 36,
+          z: HANGAR_LAYOUT.exit.z,
+          yaw: -Math.PI / 2,
+          locked: true,
         },
       },
       mapContents: HANGAR_LAYOUT.containers.flatMap((cargo): ShipMapBlock[] => {
@@ -129,7 +132,9 @@ export const DECK_ONE_MAP: ShipMapLayout = {
             ],
             position: [
               cargo.x - 50,
-              crawl ? (cargo.height + opening.height) / 2 : cargo.height * (tier + 0.5),
+              crawl
+                ? (cargo.height + opening.height) / 2
+                : cargo.height * (tier + 0.5),
               cargo.z,
             ],
           });
@@ -141,7 +146,7 @@ export const DECK_ONE_MAP: ShipMapLayout = {
                 position: [
                   cargo.x - 50,
                   opening.height / 2,
-                  cargo.z + side * (opening.depth + sideDepth) / 2,
+                  cargo.z + (side * (opening.depth + sideDepth)) / 2,
                 ],
               });
           }
@@ -846,7 +851,12 @@ export function createScene({
     startCinematic("alarm", actor);
     ensureAudio();
     if (subtitle) {
-      setInputHint(subtitle, "Prime: They have sealed the exits.", "foot", true);
+      setInputHint(
+        subtitle,
+        "Prime: They have sealed the exits.",
+        "foot",
+        true,
+      );
       subtitle.classList.remove("hidden");
     }
   }
@@ -1261,8 +1271,7 @@ export function createScene({
         Math.hypot(
           player.body.position.x - HANGAR_LAYOUT.exit.x,
           player.body.position.z - HANGAR_LAYOUT.exit.z,
-        ) <
-          2.5
+        ) < 2.5
       ) {
         airlockCaptionTime = 4.7;
         if (subtitle) {
@@ -1434,7 +1443,11 @@ export function createScene({
           deckY + 3.5,
           HANGAR_LAYOUT.exit.z - 6.5,
         );
-        cinematicFocus.set(HANGAR_LAYOUT.exit.x, deckY + 1.7, HANGAR_LAYOUT.exit.z);
+        cinematicFocus.set(
+          HANGAR_LAYOUT.exit.x,
+          deckY + 1.7,
+          HANGAR_LAYOUT.exit.z,
+        );
       }
     } else if (cinematic.kind === "alarm") {
       if (alarmAge < ALARM_SEQUENCE.pullback) {

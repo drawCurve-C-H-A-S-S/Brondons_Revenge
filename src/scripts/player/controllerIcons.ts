@@ -42,7 +42,8 @@ export function createControllerIcon(
             d: "M17 6h14v11h11v14H31v11H17V31H6V17h11z",
           }),
     );
-    const name = /(?:stick|d-pad)\s+(up|down|left|right)$/i.exec(label)?.[1]
+    const name = /(?:stick|d-pad)\s+(up|down|left|right)$/i
+      .exec(label)?.[1]
       .toLowerCase();
     const [x, y] = direction ?? [
       name === "left" ? -1 : name === "right" ? 1 : 0,
@@ -68,7 +69,11 @@ export function createControllerIcon(
           fill: "currentColor",
         }),
       );
-      const side = /^left/i.test(label) ? "L" : /^right/i.test(label) ? "R" : "";
+      const side = /^left/i.test(label)
+        ? "L"
+        : /^right/i.test(label)
+          ? "R"
+          : "";
       if (side) {
         const text = svgNode("text", {
           x: 24,
@@ -101,12 +106,12 @@ export function createControllerIcon(
     svg.append(svgNode("path", { d: "M24 12l13 23H11z" }));
   else if (label === "+")
     svg.append(svgNode("path", { d: "M24 14v20m-10-10h20" }));
-  else if (label === "-")
-    svg.append(svgNode("path", { d: "M14 24h20" }));
+  else if (label === "-") svg.append(svgNode("path", { d: "M14 24h20" }));
   else if (/^(menu|options)$/i.test(label))
     svg.append(svgNode("path", { d: "M14 17h20m-20 7h20m-20 7h20" }));
   else {
-    const caption = /^Button (\d+)/i.exec(label)?.[1] ??
+    const caption =
+      /^Button (\d+)/i.exec(label)?.[1] ??
       (/create|share/i.test(label) ? "SHARE" : label);
     const text = svgNode("text", {
       x: 24,
@@ -139,11 +144,12 @@ export function renderControllerBinding(
     if (match.index > end)
       nodes.push(document.createTextNode(template.slice(end, match.index)));
     const token = match[0];
-    const label = token === "{confirm}"
-      ? controllerMenuLabel("confirm", type, swapAB)
-      : token === "{cancel}"
-        ? controllerMenuLabel("back", type, swapAB)
-        : controllerText(token, type, swapAB);
+    const label =
+      token === "{confirm}"
+        ? controllerMenuLabel("confirm", type, swapAB)
+        : token === "{cancel}"
+          ? controllerMenuLabel("back", type, swapAB)
+          : controllerText(token, type, swapAB);
     const icon = document.createElement("span");
     icon.className = "controller-binding-icon";
     icon.setAttribute("role", "img");

@@ -737,11 +737,7 @@ export function createScene(options: StageTwoOptions) {
       phase === "surveillance" &&
       !transferPending,
   });
-  function tell(
-    text: string,
-    seconds = 3,
-    primeHint = /^Prime:/i.test(text),
-  ) {
+  function tell(text: string, seconds = 3, primeHint = /^Prime:/i.test(text)) {
     setInputHint(caption, text, "foot", true, primeHint);
     captionTime = popupDuration(seconds);
     caption.classList.remove("hidden");
@@ -1127,12 +1123,15 @@ export function createScene(options: StageTwoOptions) {
   }
   function updateSwipe() {
     const u = THREE.MathUtils.smootherstep(
-      phaseTime, 0, SWIPE_APPROACH_SECONDS,
+      phaseTime,
+      0,
+      SWIPE_APPROACH_SECONDS,
     );
     const standX = readerPoint.x - 0.15,
       standZ = readerPoint.z + 0.9;
     const approachYaw = Math.atan2(
-      swipeStart.x - standX, swipeStart.z - standZ,
+      swipeStart.x - standX,
+      swipeStart.z - standZ,
     );
     const actionTime = phaseTime - SWIPE_APPROACH_SECONDS;
     player.setPosition(
@@ -1142,7 +1141,8 @@ export function createScene(options: StageTwoOptions) {
     );
     if (actionTime < 0) {
       turnPlayer(
-        swipeStartYaw, approachYaw,
+        swipeStartYaw,
+        approachYaw,
         THREE.MathUtils.smootherstep(phaseTime, 0, 0.25),
       );
     } else {
@@ -1157,7 +1157,8 @@ export function createScene(options: StageTwoOptions) {
       readerPoint.x,
       readerPoint.y +
         THREE.MathUtils.lerp(
-          0.25, -0.2,
+          0.25,
+          -0.2,
           THREE.MathUtils.smoothstep(actionTime, 0.15, 0.8),
         ),
       readerPoint.z + 0.14,
@@ -1234,9 +1235,7 @@ export function createScene(options: StageTwoOptions) {
   }
   function updateLift() {
     const panelX = liftX - 1.25;
-    const entryYaw = Math.atan2(
-      liftStart.x - panelX, liftStart.z - liftZ,
-    );
+    const entryYaw = Math.atan2(liftStart.x - panelX, liftStart.z - liftZ);
     if (phaseTime < 1.6) {
       const u = THREE.MathUtils.smoothstep(phaseTime, 0, 1.6);
       player.setPosition(
@@ -1245,19 +1244,22 @@ export function createScene(options: StageTwoOptions) {
         THREE.MathUtils.lerp(liftStart.z, liftZ, u),
       );
       turnPlayer(
-        liftStartYaw, entryYaw,
+        liftStartYaw,
+        entryYaw,
         THREE.MathUtils.smootherstep(phaseTime, 0, 0.28),
       );
     } else if (phaseTime < 2.6) {
       player.setPosition(panelX, player.radius, liftZ);
       turnPlayer(
-        entryYaw, Math.PI / 2,
+        entryYaw,
+        Math.PI / 2,
         THREE.MathUtils.smootherstep(phaseTime, 1.6, 1.85),
       );
     } else if (phaseTime < 2.9) {
       player.setPosition(panelX, player.radius, liftZ);
       turnPlayer(
-        Math.PI / 2, -Math.PI / 2,
+        Math.PI / 2,
+        -Math.PI / 2,
         THREE.MathUtils.smootherstep(phaseTime, 2.6, 2.9),
       );
     } else if (phaseTime < 3.6) {
@@ -1281,7 +1283,8 @@ export function createScene(options: StageTwoOptions) {
             ),
       );
       turnPlayer(
-        -Math.PI / 2, 0,
+        -Math.PI / 2,
+        0,
         THREE.MathUtils.smootherstep(phaseTime, 3.6, 3.95),
       );
     }
@@ -1467,7 +1470,8 @@ export function createScene(options: StageTwoOptions) {
     if (playable.has(phase)) return null;
     return {
       ...player.getState(),
-      isMoving: liftWalking() ||
+      isMoving:
+        liftWalking() ||
         (phase === "swipe" && phaseTime < SWIPE_APPROACH_SECONDS),
       isOnGround: phase !== "drop",
       climbing: false,
@@ -1499,8 +1503,7 @@ export function createScene(options: StageTwoOptions) {
             clip: "Interact",
             time: Math.max(0, phaseTime - SWIPE_APPROACH_SECONDS - 0.15),
           };
-    if (liftWalking())
-      return { clip: "Walk_Loop", time: elapsed, loop: true };
+    if (liftWalking()) return { clip: "Walk_Loop", time: elapsed, loop: true };
     return !playable.has(phase)
       ? { clip: "Idle_Loop", time: elapsed, loop: true }
       : null;
@@ -1548,7 +1551,9 @@ export function createScene(options: StageTwoOptions) {
         liftCameraTargetRotation.copy(camera.quaternion);
         camera.position.lerpVectors(liftCameraStart, liftCameraTarget, blend);
         camera.quaternion.slerpQuaternions(
-          liftCameraStartRotation, liftCameraTargetRotation, blend,
+          liftCameraStartRotation,
+          liftCameraTargetRotation,
+          blend,
         );
         camera.fov = THREE.MathUtils.lerp(liftCameraStartFov, 64, blend);
       }
@@ -1723,8 +1728,7 @@ export function createScene(options: StageTwoOptions) {
       let text = "";
       if (phase === "surveillance") {
         if (returnAirlock.near(player)) text = "E / Airlock locked";
-        else if (readerFocused() || nearLiftDoor())
-          text = "E / Swipe keycard";
+        else if (readerFocused() || nearLiftDoor()) text = "E / Swipe keycard";
         else {
           const target = options.getCameraTarget();
           if (target)

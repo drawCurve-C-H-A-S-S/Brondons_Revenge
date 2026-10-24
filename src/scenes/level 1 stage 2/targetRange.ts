@@ -22,10 +22,7 @@ import { disposeRoom } from "../../scripts/global/shipRoom.js";
 import { createCameraVisitUI } from "../../scripts/global/cameraVisit.js";
 import { SHIP_INTERIOR_PALETTE } from "../../scripts/global/shipInterior.js";
 import { teleportPlayer } from "../../scripts/global/teleportationDevice.js";
-import {
-  cameraVisitMap,
-  type CameraRoomProgress,
-} from "./stageTwoLayout.js";
+import { cameraVisitMap, type CameraRoomProgress } from "./stageTwoLayout.js";
 import { loadToolModel } from "../../core/loader.js";
 import fireVertexShader from "../../shaders/vert/fireExplosion.vert.glsl?raw";
 import fireFragmentShader from "../../shaders/frag/fireExplosion.frag.glsl?raw";
@@ -69,11 +66,7 @@ export function createScene({
   onKeycardCollected?: () => void;
   modelLoader?: typeof loadToolModel;
 } = {}) {
-  if (
-    remoteVisit &&
-    !preview &&
-    (!onRestart || !onKeycardCollected || !loot)
-  )
+  if (remoteVisit && !preview && (!onRestart || !onKeycardCollected || !loot))
     throw new Error(
       "Camera visits require a return link, checkpoint restart and persistent keycard reward",
     );

@@ -1486,6 +1486,7 @@ export function createRescueSite(
   const {
     bark,
     branches: branchMat,
+    grove: groveBark,
     canopy: foliage,
     sprays: sprayMat,
     grass: tuftMat,
@@ -1518,7 +1519,7 @@ export function createRescueSite(
   const sourceTrunk = new THREE.CylinderGeometry(0.3, 0.55, 1, 7);
   const sourceBranch = new THREE.CylinderGeometry(0.08, 0.2, 1, 5);
   function sourceTree(x: number, y: number, z: number, height: number) {
-    const trunk = new THREE.Mesh(sourceTrunk, bark);
+    const trunk = new THREE.Mesh(sourceTrunk, groveBark);
     trunk.position.set(x, y + height / 2, z);
     trunk.scale.y = height;
     trunk.castShadow = true;
@@ -1532,7 +1533,7 @@ export function createRescueSite(
         const angle = a * 2.09 + w * 0.7;
         const dirX = Math.sin(angle),
           dirZ = Math.cos(angle);
-        const arm = new THREE.Mesh(sourceBranch, bark);
+        const arm = new THREE.Mesh(sourceBranch, branchMat);
         arm.position.set(
           x + dirX * radius * 0.4,
           wy - 0.12,
@@ -1738,7 +1739,7 @@ export function createRescueSite(
         !isWalkable(x, z, 1.5)
       )
         continue;
-      conifer(x, z, 15 + random() * 11, 0.4 + random() * 0.35);
+      conifer(x, z, 22 + random() * 14, 0.5 + random() * 0.4);
     }
   const pinecones = createFallingPinecones(scene, pineconeTrees);
   for (const [mesh, count, range, shadow, lod] of [

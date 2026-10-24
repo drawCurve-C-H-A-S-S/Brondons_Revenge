@@ -9,7 +9,10 @@ export function initializePrimeHints() {
   try {
     enabled = localStorage.getItem(STORAGE_KEY) !== "false";
   } catch (error) {
-    console.warn("[PrimeHints] Could not load the saved hint preference:", error);
+    console.warn(
+      "[PrimeHints] Could not load the saved hint preference:",
+      error,
+    );
   }
   document.body.classList.toggle("prime-hints-disabled", !enabled);
 }

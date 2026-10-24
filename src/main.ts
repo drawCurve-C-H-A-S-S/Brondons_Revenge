@@ -3726,7 +3726,8 @@ function setupControllerInput() {
       controllerNoticeTime = popupDuration(5);
     },
     onMenuAction: controllerMenuAction,
-    onMapNavigate: (input, delta) => shipMap?.navigateWithController(input, delta),
+    onMapNavigate: (input, delta) =>
+      shipMap?.navigateWithController(input, delta),
     aimWheel: (x, y) => weaponWheel.aimFromStick(x, y),
     cancelWheel: () => weaponWheel.close(),
   });
@@ -5231,9 +5232,9 @@ function animate() {
         activeSceneId,
       )
         ? activeSceneId
-        : currentSceneData?.getMapSceneId?.() ??
+        : (currentSceneData?.getMapSceneId?.() ??
           currentSceneData?.getSceneId?.() ??
-          activeSceneId,
+          activeSceneId),
       phase: currentSceneData?.getControllerPhase?.()?.split(":")[0],
       hasCrowbar,
       hasBloomstick,
