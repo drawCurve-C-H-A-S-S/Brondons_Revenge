@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { MechSide } from "../npc/mechDuel.js";
 
 export const MECH_HEIGHT = 16;
-export const FRAME_COLORS = { hero: 0x99dbe5, enemy: 0xb72e3e } as const;
+export const FRAME_COLORS = { hero: 0xa262dc, enemy: 0xb72e3e } as const;
 export const SLASH_MARK_LIFETIME = 1.65;
 
 function dataTexture(data: Uint8Array, size: number, color = false) {
@@ -130,7 +130,7 @@ export function createIndustrialSkin(side: MechSide) {
     uniform vec3 uCutColor;
     float armorHash(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 39.425))) * 43758.5453); }
   `;
-  function inject(shader: Shader, surface: boolean) {
+  function inject(shader: Shader, surface: boolean, authored = false) {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader =
       `varying vec3 vArmorP; varying vec3 vMechP; uniform mat4 uMechInverse;\n${shader.vertexShader}`.replace(
@@ -148,21 +148,27 @@ export function createIndustrialSkin(side: MechSide) {
       if (uDissolve > 0.0 && armorHash(floor(vArmorP * 65.0)) < uDissolve) discard;`,
     );
     if (surface) {
-      shader.fragmentShader = shader.fragmentShader.replace(
-        "#include <color_fragment>",
-        `#include <color_fragment>
-        vec3 cell = abs(fract(vArmorP * 3.5) - 0.5);
-        float seam = smoothstep(0.46, 0.485, max(cell.x, max(cell.y, cell.z)));
-        float caution = step(0.64, fract((vArmorP.x + vArmorP.y) * 9.0));
-        diffuseColor.rgb *= mix(1.0, 0.3, seam);
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.85, 0.48, 0.18) * (0.3 + caution * 0.7), seam * 0.15);`,
-      );
+      if (!authored) {
+        shader.fragmentShader = shader.fragmentShader.replace(
+          "#include <color_fragment>",
+          `#include <color_fragment>
+          vec3 cell = abs(fract(vArmorP * 3.5) - 0.5);
+          float seam = smoothstep(0.46, 0.485, max(cell.x, max(cell.y, cell.z)));
+          float caution = step(0.64, fract((vArmorP.x + vArmorP.y) * 9.0));
+          diffuseColor.rgb *= mix(1.0, 0.3, seam);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.85, 0.48, 0.18) * (0.3 + caution * 0.7), seam * 0.15);`,
+        );
+      }
       shader.fragmentShader = shader.fragmentShader.replace(
         "#include <emissivemap_fragment>",
         `#include <emissivemap_fragment>
         float construction = (1.0 - smoothstep(0.0, 0.04, abs(buildHeight - uBuild))) * step(uBuild, 0.995);
-        float circuit = pow(max(0.0, sin(vArmorP.y * 40.0 + uFrameTime * 1.2)), 24.0) * seam;
-        totalEmissiveRadiance += uFrameGlow * (construction * ${side === "hero" ? "5.0" : "2.8"} + circuit * 0.08);
+        float circuit = ${authored ? "0.0" : "pow(max(0.0, sin(vArmorP.y * 40.0 + uFrameTime * 1.2)), 24.0) * seam"};
+        totalEmissiveRadiance += uFrameGlow * (construction * ${authored ? "0.7" : side === "hero" ? "5.0" : "2.8"} + circuit * ${authored ? "0.0" : "0.08"});
+        ${authored && side === "enemy" ? `
+        float rim = pow(1.0 - abs(dot(normal, normalize(vViewPosition))), 2.0);
+        totalEmissiveRadiance += uFrameGlow * rim * (0.08 + sin(uFrameTime * 1.8) * 0.015);
+        ` : ""}
         float engraving = 0.0;
         for (int i = 0; i < 12; i++) {
           vec2 a = uCutStarts[i].xy;
@@ -171,8 +177,8 @@ export function createIndustrialSkin(side: MechSide) {
           float distanceToCut = length(vMechP.xy - a - delta * along);
           engraving = max(engraving, (1.0 - smoothstep(0.035, 0.15, distanceToCut)) * uCutStarts[i].w);
         }
-        totalEmissiveRadiance += uCutColor * engraving * 7.0;
-        totalEmissiveRadiance += ${side === "enemy" ? "uFrameGlow" : "vec3(1.0, 0.18, 0.025)"} * uDamage * armorHash(floor(vArmorP * 15.0)) * 0.65;`,
+        totalEmissiveRadiance += uCutColor * engraving * ${authored ? "2.0" : "7.0"};
+        totalEmissiveRadiance += ${side === "enemy" ? "uFrameGlow" : "vec3(1.0, 0.18, 0.025)"} * uDamage * armorHash(floor(vArmorP * 15.0)) * ${authored ? "0.18" : "0.65"};`,
       );
     }
   }
@@ -184,6 +190,18 @@ export function createIndustrialSkin(side: MechSide) {
     material,
     depth,
     uniforms,
+    finishAuthoredMaterial(source: THREE.MeshStandardMaterial) {
+      if (side === "enemy" && /plate/i.test(source.name)) {
+        const name = source.name.toLowerCase();
+        source.emissive.set(
+          name.includes("light") ? 0xd34b52 :
+          name.includes("mid") ? 0xa72736 : 0x581622,
+        );
+      }
+      source.onBeforeCompile = (shader) => inject(shader, true, true);
+      source.customProgramCacheKey = () => `finale-authored-finish-${side}-v1`;
+      source.needsUpdate = true;
+    },
     engrave(from: THREE.Vector3, to: THREE.Vector3) {
       const index = cutCursor++ % cutStarts.length;
       cutStarts[index].set(from.x, from.y, from.z, 1);

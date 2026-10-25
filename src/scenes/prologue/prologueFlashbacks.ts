@@ -71,13 +71,7 @@ export const PROLOGUE_SECURITY_CUTS = [
     end: 7,
     label: "PRIME / DECK ONE / LIVE PATROLS",
   },
-  { id: "bay-warden", start: 7, end: 7.75, label: "PRIME / BAY WARDEN" },
-  {
-    id: "surveillance-screens",
-    start: 7.75,
-    end: 10,
-    label: "PRIME / SURVEILLANCE / SECURITY EVERYWHERE",
-  },
+  { id: "bay-warden", start: 7, end: 10, label: "PRIME / BAY WARDEN" },
 ] as const;
 
 export function createPrologueShield() {
@@ -1218,8 +1212,8 @@ export function createPrologueFlashbacks({
         break;
       case "stealth":
         if (elapsed < 3.8) {
-          start.set(19, 6.5, 27);
-          end.set(28, 5.2, 23);
+          start.set(19, 6.5, 20.5);
+          end.set(28, 5.2, 19.5);
           focus.set(53, 2.5, 0);
           fov = 64;
         } else if (elapsed < duration * 0.78) {
@@ -1228,8 +1222,8 @@ export function createPrologueFlashbacks({
           focus.set(36.8, 0.6, -8);
           fov = 58;
         } else {
-          start.set(55.8, 3.6, 25);
-          end.set(58, 3.2, 23);
+          start.set(55.8, 3.6, 20.5);
+          end.set(58, 3.2, 19.5);
           focus.set(73, 1.8, 5);
           fov = 60;
         }
@@ -1259,8 +1253,8 @@ export function createPrologueFlashbacks({
             currentRenderScene = hubScene;
             break;
           case "deck-one":
-            start.set(41, 6.4, 23);
-            end.set(24, 9.5, 27.5);
+            start.set(41, 6.4, 19.5);
+            end.set(24, 9.2, 20.5);
             focus.set(57, 2, 0);
             fov = THREE.MathUtils.lerp(48, 67, progress);
             currentRenderScene = stealthScene;
@@ -1272,13 +1266,6 @@ export function createPrologueFlashbacks({
             fov = THREE.MathUtils.lerp(44, 35, progress);
             roll = -0.045;
             currentRenderScene = wardenScene;
-            break;
-          case "surveillance-screens":
-            start.set(31, 2.7, -53);
-            end.set(28.4, 2.5, -50.5);
-            focus.set(28, 2.3, -42.22);
-            fov = THREE.MathUtils.lerp(64, 54, progress);
-            currentRenderScene = hubScene;
             break;
         }
         break;

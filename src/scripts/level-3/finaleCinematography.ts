@@ -1,17 +1,24 @@
 import * as THREE from "three";
 import type { FinalePhase } from "../global/finaleDirector.js";
 import type { MechSide } from "../npc/mechDuel.js";
-import { FINALE_DECK_Y, FINALE_ROOFTOP, PLANET_CENTER } from "./finaleWorld.js";
+import {
+  FINALE_BATTLE_YAW,
+  FINALE_DECK_Y,
+  FINALE_ROOFTOP,
+  PLANET_CENTER,
+} from "./finaleWorld.js";
 import {
   FINALE_REVEAL,
   HERO_TRANSFORM,
   PLANET_RUPTURE,
   RIFLE_SEQUENCE,
   FINISHER_EXECUTION,
+  FINISHER_EXCHANGE,
   FINISHER_RIFLE,
   DONUS_RETURN,
   activeStudent,
   cinematicProgress,
+  samplePlanetSurface,
   ENEMY_ATTACK_LEAPS,
   type FinisherBeat,
 } from "../global/finaleChoreography.js";
@@ -21,6 +28,7 @@ import {
   FACILITY_ROOF_SEQUENCE,
   sampleFacilityLift,
 } from "../global/facilityArchitecture.js";
+import { FACILITY_OFFICE, FACILITY_OFFICE_SEATS } from "./facilityOffice.js";
 
 export interface FinaleCameraContext {
   phase: FinalePhase;
@@ -32,6 +40,8 @@ export interface FinaleCameraContext {
   human: THREE.Vector3;
   students: readonly THREE.Object3D[];
   boy: THREE.Vector3;
+  boyGround?: THREE.Vector3;
+  boyPOV?: { cameraPosition: THREE.Vector3; target: THREE.Vector3 };
   pilotFace: THREE.Vector3;
   pilotCamera: THREE.Vector3;
   ship: THREE.Object3D;
@@ -42,6 +52,7 @@ export interface FinaleCameraContext {
   heroFace: THREE.Vector3;
   enemyFace: THREE.Vector3;
   heroShoulder: THREE.Vector3;
+  enemyShoulder?: THREE.Vector3;
   heroMuzzle: THREE.Vector3;
   enemyMuzzle: THREE.Vector3;
   clash: THREE.Vector3;
@@ -69,6 +80,17 @@ export function createFinaleCamera(
   const desired = new THREE.PerspectiveCamera(),
     lastPosition = position.clone(),
     lastRotation = rotation.clone();
+  const stageRight = V(Math.sin(FINALE_BATTLE_YAW), 0, Math.cos(FINALE_BATTLE_YAW));
+  const stageFront = new THREE.Vector3().crossVectors(stageRight, V(0, 1, 0));
+  const previousTarget = new THREE.Vector3();
+  const stablePosition = position.clone();
+  const shakeRotation = new THREE.Quaternion();
+  const shakeAngles = new THREE.Euler();
+  let shakeAge = 0;
+  const clearanceLine = new THREE.Line3();
+  const clearancePoint = new THREE.Vector3();
+  const clearanceOffset = new THREE.Vector3();
+  let frameRoll = 0;
   let shotId = "",
     transition = 1,
     shake = 0,
@@ -99,15 +121,111 @@ export function createFinaleCamera(
     position.copy(p);
     target.copy(look);
     fov = lens;
+    frameRoll = roll;
     desired.position.copy(position);
     desired.up.set(0, 1, 0);
     desired.lookAt(target);
     if (!reducedMotion) desired.rotateZ(roll);
     rotation.copy(desired.quaternion);
   }
+  function stageFrame(
+    focus: THREE.Vector3,
+    across: number,
+    height: number,
+    distance: number,
+    lens = 44,
+    roll = 0,
+  ) {
+    // Keep every reverse angle on the same side of the established duel axis.
+    const portrait = Math.max(1, 1.35 / Math.max(0.5, camera.aspect));
+    frame(
+      focus.clone()
+        .addScaledVector(stageRight, across)
+        .addScaledVector(stageFront, distance * portrait)
+        .add(V(0, height, 0)),
+      focus,
+      lens,
+      roll,
+    );
+  }
+  function poseFrame(
+    context: FinaleCameraContext,
+    across: number,
+    height: number,
+    distance: number,
+    lens = 46,
+  ) {
+    const focus = context.hero.position.clone().lerp(context.enemy.position, 0.5).add(V(0, 9, 0));
+    const back = stageFront.clone().multiplyScalar(distance)
+      .addScaledVector(stageRight, across).add(V(0, height, 0)).normalize();
+    const right = new THREE.Vector3().crossVectors(V(0, 1, 0), back).normalize();
+    const up = new THREE.Vector3().crossVectors(back, right);
+    const tanY = Math.tan(THREE.MathUtils.degToRad(lens / 2));
+    const tanX = tanY * Math.max(0.5, camera.aspect);
+    let clearance = Math.hypot(across, height, distance);
+    for (const point of [
+      context.hero.position, context.enemy.position,
+      context.heroFace, context.enemyFace,
+      context.heroBladeBase, context.heroBladeTip, context.enemyBladeTip,
+    ]) {
+      const offset = point.clone().sub(focus);
+      const depth = offset.dot(back);
+      clearance = Math.max(clearance,
+        depth + (Math.abs(offset.dot(right)) + 3) / tanX,
+        depth + (Math.abs(offset.dot(up)) + 2.5) / tanY);
+    }
+    frame(focus.clone().addScaledVector(back, clearance), focus, lens);
+  }
+  function armView(context: FinaleCameraContext, owner: MechSide, slide = 0) {
+    const actor = owner === "hero" ? context.hero : context.enemy;
+    const chest = owner === "hero" ? context.heroChest : context.enemyChest;
+    const opponent = owner === "hero" ? context.enemyChest : context.heroChest;
+    const shoulder = owner === "hero"
+      ? context.heroShoulder
+      : context.enemyShoulder ?? actor.localToWorld(V(-2.5, 12.5, 0));
+    const forward = V(0, 0, 1).applyQuaternion(actor.quaternion).normalize();
+    const side = new THREE.Vector3().crossVectors(forward, V(0, 1, 0)).normalize();
+    if (side.dot(stageFront) < 0) side.negate();
+    return {
+      position: shoulder.clone()
+        .addScaledVector(forward, -9.5)
+        .addScaledVector(side, 6.2 + slide * 0.8)
+        .add(V(0, 1.8, 0)),
+      target: opponent.clone().lerp(chest, 0.15),
+    };
+  }
+  function clearFinisherCamera(context: FinaleCameraContext) {
+    const nearMargin = camera.near * Math.tan(THREE.MathUtils.degToRad(fov / 2)) *
+      Math.hypot(1, camera.aspect) + 0.7;
+    const clearSegment = (a: THREE.Vector3, b: THREE.Vector3, radius: number) => {
+      clearanceLine.set(a, b).closestPointToPoint(position, true, clearancePoint);
+      clearanceOffset.copy(position).sub(clearancePoint);
+      const distance = clearanceOffset.length();
+      if (distance >= radius + nearMargin) return;
+      if (distance < 0.001) clearanceOffset.copy(stageFront);
+      else clearanceOffset.multiplyScalar(1 / distance);
+      position.copy(clearancePoint).addScaledVector(clearanceOffset, radius + nearMargin);
+    };
+    // Conservative body and blade capsules protect the lens without mesh raycasts.
+    for (let pass = 0; pass < 2; pass++) {
+      for (const [actor, face] of [
+        [context.hero, context.heroFace],
+        [context.enemy, context.enemyFace],
+      ] as const) {
+        if (!actor.visible) continue;
+        clearSegment(actor.localToWorld(V(0, 3.5, 0)), face, 3.8 * actor.scale.x);
+      }
+      if (context.hero.visible)
+        clearSegment(context.heroBladeBase, context.heroBladeTip, 0.85);
+      if (context.enemy.visible)
+        clearSegment(context.enemyChest, context.enemyBladeTip, 0.85);
+    }
+    frame(position, target, fov, frameRoll);
+  }
   return {
     impact(strength: number) {
       shake = Math.max(shake, reducedMotion ? 0 : strength);
+      shakeAge = 0;
     },
     update(context: FinaleCameraContext, dt: number) {
       const { phase, phaseTime: t, hero, enemy, human } = context;
@@ -122,33 +240,38 @@ export function createFinaleCamera(
       const combat = duelView(context);
       let id = phase as string;
       if (phase === "loading" || phase === "error")
-        frame(local(0, 2.3, 13.5), local(0, 1.3, -5), 56);
+        frame(local(-5, 2.5, 8.1), local(0, 1.3, FACILITY_OFFICE.tableZ), 56);
       else if (phase === "reveal") {
-        if (t < 3.2) {
-          id += "-table-stand";
-          const p = smooth(t, 0, 3.2);
+        if (t < 3.4) {
+          id += "-brondon-arrives";
+          const p = reducedMotion ? 0.5 : smooth(t, 0, 3.4);
           frame(
-            local(-7.4 + p * 1.4, 3.3, 9.2 - p * 1.2),
-            local(0, 1.05, 0),
-            57,
+            human.clone().add(V(-2.25 + p * 0.35, 1.35, -3.2 + p * 0.25)),
+            human.clone().add(V(0, 1.18, 0)),
+            46,
           );
-        } else if (t < 6.3) {
-          id += "-footsteps";
-          const p = smooth(t, 3.2, 6.3);
+        } else if (t < 6.4) {
+          id += "-across-table";
+          const p = reducedMotion ? 0.5 : smooth(t, 3.4, 6.4);
           frame(
-            local(-6 + p * 12, 0.65, -6.7),
-            local(-3 + p * 6, 0.45, -3.5),
-            47,
+            human.clone().add(V(-1 - p * 0.2, 1.45, 2)),
+            local(0, 1.3, FACILITY_OFFICE_SEATS[2].z),
+            58,
           );
         } else if (t < FINALE_REVEAL.studentStart) {
           id += "-accusation";
-          frame(local(-1.4, 1.7, 3.4), local(0, 1.4, -3.5), 54);
+          const p = reducedMotion ? 0.5 : smooth(t, 6.4, FINALE_REVEAL.studentStart);
+          frame(
+            human.clone().add(V(-1.9 + p * 0.25, 1.25, -2.9)),
+            human.clone().add(V(0, 1.2, 0)), 42,
+          );
         } else if (t < FINALE_REVEAL.studentEnd) {
           const index = activeStudent(t, "reveal");
           id += `-student-${index}`;
           const actor = context.students[index],
             focus =
-              actor?.position.clone().add(V(0, 1.45, 0)) ?? V(0, 1.45, -3.5);
+              actor?.position.clone().add(V(0, 1.45, 0)) ??
+              local(FACILITY_OFFICE_SEATS[index].x, 1.45, FACILITY_OFFICE_SEATS[index].z);
           const drift = reducedMotion ? 0 : Math.sin(t * 0.4) * 0.25;
           frame(
             focus
@@ -160,7 +283,7 @@ export function createFinaleCamera(
         } else if (t < FINALE_REVEAL.mentorEnd) {
           id += "-wound";
           frame(
-            context.human.clone().add(V(-2.15, 1.45, 3.5)),
+            context.human.clone().add(V(-2.15 + smooth(t, FINALE_REVEAL.studentEnd, FINALE_REVEAL.mentorEnd) * 0.3, 1.45, -3.5)),
             context.human.clone().add(V(0, 1.15, 0)),
             42,
             -0.012,
@@ -169,13 +292,13 @@ export function createFinaleCamera(
           const actor = context.students[4],
             focus =
               actor?.position.clone().add(V(0, 1.45, 0)) ??
-              local(4.9, 1.45, -3.5);
+              local(FACILITY_OFFICE_SEATS[4].x, 1.45, FACILITY_OFFICE_SEATS[4].z);
           id += "-cruel-reply";
           frame(focus.clone().add(V(-1.8, 0.12, 3.5)), focus, 40, 0.01);
         } else if (t < FINALE_REVEAL.brandenEnd) {
           id += "-hurt";
           frame(
-            context.human.clone().add(V(2.1, 1.25, 3.2)),
+            context.human.clone().add(V(-2.1, 1.25, -3.2)),
             context.human.clone().add(V(0, 1.1, 0)),
             44,
             0.008,
@@ -184,23 +307,27 @@ export function createFinaleCamera(
           const actor = context.students[4],
             focus =
               actor?.position.clone().add(V(0, 1.45, 0)) ??
-              local(4.9, 1.45, -3.5);
+              local(FACILITY_OFFICE_SEATS[4].x, 1.45, FACILITY_OFFICE_SEATS[4].z);
           id += "-mockery";
           frame(focus.clone().add(V(1.8, 0.08, 3.4)), focus, 40, -0.008);
         } else if (t < FINALE_REVEAL.betrayalEnd) {
           id += "-divide";
-          frame(local(-4.7, 2.15, 7.6), local(0, 1.25, -1.5), 52, -0.012);
+          const p = reducedMotion ? 0.5 : smooth(t, FINALE_REVEAL.mockeryEnd, FINALE_REVEAL.betrayalEnd);
+          frame(
+            human.clone().add(V(-1.4 - p * 0.25, 1.6, 2.1)),
+            local(0, 1.25, FACILITY_OFFICE_SEATS[2].z), 58, -0.008,
+          );
         } else if (t < FINALE_REVEAL.recognitionEnd) {
           id += "-recognition";
           frame(
-            context.human.clone().add(V(-2, 1.2, 3)),
+            context.human.clone().add(V(-2, 1.2, -3)),
             context.human.clone().add(V(0, 1.15, 0)),
             41,
           );
         } else if (t < FINALE_REVEAL.renounceEnd) {
           id += "-resolve";
           frame(
-            context.human.clone().add(V(-1.45, 0.7, 2.65)),
+            context.human.clone().add(V(-1.45, 0.9, -2.65)),
             context.human.clone().add(V(0, 1.25, 0)),
             39,
           );
@@ -212,20 +339,28 @@ export function createFinaleCamera(
             FINALE_REVEAL.challengeEnd,
           );
           frame(
-            local(-5 + p * 9, 3 + p * 2.3, 8 + p * 2),
-            local(0, 1.25, -3.5),
+            local(-6 + p * 2, 3.4 + p * 0.9, 7.8 + p * 0.2),
+            local(0, 1.25, FACILITY_OFFICE.tableZ),
             58,
           );
         } else {
           id += "-answer";
           frame(
-            context.human.clone().add(V(1.45, 0.9, 2.55)),
+            context.human.clone().add(V(-1.6, 0.95, -2.9)),
             context.human.clone().add(V(0, 1.3, 0)),
             38,
           );
         }
       } else if (phase === "enemyTransform") {
-        if (t < FACILITY_ROOF_SEQUENCE.capClear) {
+        if (t < FACILITY_ROOF_SEQUENCE.cutStart) {
+          id += "-office-clearing-blast";
+          const pull = reducedMotion ? 0 : smooth(t, 0, FACILITY_ROOF_SEQUENCE.cutStart);
+          frame(
+            V(FACILITY.x - 7.4 - pull * 0.4, FACILITY.officeFloor + 3.1, FACILITY.z + 7.6),
+            V(FACILITY.x, FACILITY.officeFloor + 1.1, FACILITY.z + FACILITY_OFFICE.tableZ),
+            62,
+          );
+        } else if (t < FACILITY_ROOF_SEQUENCE.capClear) {
           id += "-roof-circle-cut";
           frame(
             V(FACILITY.x - 12, FACILITY.roofY + 11, FACILITY.z + 21),
@@ -237,12 +372,12 @@ export function createFinaleCamera(
           const lift = sampleFacilityLift(t);
           frame(
             V(FACILITY.x + 4, lift.y + 5.4, FACILITY.z + 6),
-            V(FACILITY.x, lift.y + 0.9, FACILITY.z - 1.2),
+            V(FACILITY.x, lift.y + 0.9, FACILITY.z + 1.2),
             66,
           );
-        } else if (t < 5.4) {
+        } else if (t < FACILITY_ROOF_SEQUENCE.boardingStart) {
           id += "-assembly";
-          const p = smooth(t, FACILITY_ROOF_SEQUENCE.liftEnd, 5.4);
+          const p = smooth(t, FACILITY_ROOF_SEQUENCE.liftEnd, FACILITY_ROOF_SEQUENCE.boardingStart);
           frame(
             enemy.position.clone().add(V(-13, 1.4 + p * 11, 18)),
             enemy.position.clone().add(V(0, 3 + p * 8, 0)),
@@ -266,7 +401,7 @@ export function createFinaleCamera(
           );
         } else {
           id += "-verdict";
-          const p = smooth(t, 17, 19.2);
+          const p = smooth(t, FACILITY_ROOF_SEQUENCE.assembled, FACILITY_ROOF_SEQUENCE.end);
           frame(
             enemy.position.clone().add(V(-17 - p * 3, 3.2 + p * 3.5, 23)),
             enemy.position.clone().add(V(0, 9, 0)),
@@ -424,29 +559,27 @@ export function createFinaleCamera(
             -0.012,
           );
         } else if (t < PLANET_RUPTURE.forestEnd) {
-          if (t < PLANET_RUPTURE.scorch) {
+          const ground = context.boyGround ?? context.boy.clone().add(V(0, -0.9, 0));
+          if (t < PLANET_RUPTURE.reflection) {
             id += "-brendan";
-            frame(
-              context.boy.clone().add(V(-2.6, 0.5, 4)),
-              context.boy.clone().add(V(0, -0.45, 0)),
-              43,
-              -0.012,
+            frame(ground.clone().add(V(-2.5, 1.25, 3.6)),
+              ground.clone().lerp(context.boy, 0.55), 46, -0.008);
+          } else if (t < PLANET_RUPTURE.feet) {
+            id += "-brendan-crouch";
+            const push = reducedMotion ? 0 : cinematicProgress(
+              t, PLANET_RUPTURE.reflection, PLANET_RUPTURE.feet,
             );
+            frame(ground.clone().add(V(-2.15 + push * 0.25, 1.05, 3.2 - push * 0.3)),
+              ground.clone().lerp(context.boy, 0.65), 43, -0.008);
+          } else if (t < PLANET_RUPTURE.fall) {
+            id += "-brendan-feet-pov";
+            frame(context.boyPOV?.cameraPosition ?? context.boy.clone().add(V(0, 0.06, 0.3)),
+              context.boyPOV?.target ?? ground, 72);
           } else {
-            id += "-brendan-head-fire";
-            const pull = cinematicProgress(
-              t,
-              PLANET_RUPTURE.scorch + 0.25,
-              PLANET_RUPTURE.forestEnd,
-            );
-            frame(
-              context.boy
-                .clone()
-                .add(V(-0.8 - pull * 0.6, 0.6 + pull * 0.5, 2.6 + pull * 0.8)),
-              context.boy.clone().add(V(0, -0.08, 0)),
-              40,
-              -0.012,
-            );
+            id += "-brendan-backward-fall";
+            const pull = reducedMotion ? 0 : cinematicProgress(t, PLANET_RUPTURE.fall, PLANET_RUPTURE.death);
+            frame(ground.clone().add(V(-3.3 - pull * 0.4, 1.5 + pull * 0.35, 3.1)),
+              ground.clone().lerp(context.boy, 0.45), 49, -0.008);
           }
         } else if (t < PLANET_RUPTURE.cockpit) {
           id += t < PLANET_RUPTURE.burst ? "-burning-earth" : "-stardust";
@@ -497,10 +630,6 @@ export function createFinaleCamera(
           .clone()
           .lerp(enemy.position, 0.5)
           .add(V(0, 9, 0));
-        const forward = V(0, 0, 1).applyQuaternion(hero.quaternion).normalize();
-        const side = new THREE.Vector3()
-          .crossVectors(forward, V(0, 1, 0))
-          .normalize();
         if (beat.shot === "evade") {
           if (clock < 0.38) {
             id += "-threat";
@@ -512,132 +641,159 @@ export function createFinaleCamera(
             );
           } else {
             id += "-track";
-            frame(
-              context.heroChest.clone().add(V(-11 + p * 12, 2 + p * 3, 29)),
-              context.heroChest.clone().lerp(context.enemyChest, 0.18),
-              56,
-              -Math.sin(p * Math.PI) * 0.035,
+            stageFrame(
+              context.heroChest.clone().lerp(context.enemyChest, 0.32),
+              -8 + p * 6, 2.5, 43, 46,
+              -Math.sin(p * Math.PI) * 0.012,
             );
           }
         } else if (beat.shot === "parry") {
-          frame(
-            context.clash.clone().add(V(-6 + p * 8, 2, 27)),
-            context.clash.clone().lerp(center, 0.15),
-            48,
-            -0.015,
+          stageFrame(
+            context.heroChest.clone().lerp(context.enemyChest, 0.5),
+            -5 + p * 3, 1.8, 35, 43,
           );
         } else if (beat.shot === "countershot") {
           if (clock < FINISHER_RIFLE.fire - 0.4) {
             id += "-draw";
-            frame(hero.localToWorld(V(-9, 13, -14)), context.heroChest, 49);
+            stageFrame(context.heroChest, -13, 2.4, 25, 42);
           } else if (clock < FINISHER_RIFLE.lastShot + 0.25) {
             id += "-sight";
-            frame(
-              hero.localToWorld(V(-8, 13, -11)),
-              context.heroMuzzle.clone().lerp(context.enemyChest, 0.25),
-              53,
+            stageFrame(
+              context.heroMuzzle.clone().lerp(context.enemyChest, 0.3),
+              -18, 2.2, 31, 43,
             );
           } else {
             id += "-pursuit";
-            frame(center.clone().add(V(-5, 4, 37)), center, 54, -0.01);
+            stageFrame(center, -6, 3, 43, 46);
           }
         } else if (beat.shot === "clash") {
           if (clock < 0.8) {
-            id += "-approach";
-            frame(center.clone().add(V(-7, 5, 35)), center, 56, -0.02);
+            id += "-contact-wide";
+            const pan = reducedMotion ? 0.5 : cinematicProgress(clock, 0, 0.8);
+            poseFrame(context, -9 + pan * 4, 3, 44, 47);
           } else if (clock < 1.85) {
-            id += "-steel";
-            const slide = cinematicProgress(clock, 0.8, 1.85);
+            // Steel insert while the blades lock, leading into the face pair.
+            id += "-locked-steel";
+            const slide = reducedMotion
+              ? 0.5
+              : cinematicProgress(clock, 0.8, 1.85);
             frame(
-              context.clash.clone().add(V(-2 + slide * 3, 1.2, 13)),
+              context.clash
+                .clone()
+                .add(V(-2 + slide * 3, 1.2, 13 - slide * 2)),
               context.clash,
               44,
             );
-          } else if (clock < 2.65) {
-            id += "-prime-face";
-            frame(
-              context.heroFace
-                .clone()
-                .addScaledVector(forward, 6.8)
-                .addScaledVector(side, 3.1)
-                .add(V(0, 0.5, 0)),
-              context.heroFace,
-              37,
-            );
           } else if (clock < 3.45) {
-            id += "-verdict-face";
-            const enemyForward = V(0, 0, 1).applyQuaternion(enemy.quaternion);
+            const heroShot = clock < 2.65;
+            id += heroShot ? "-prime-face" : "-verdict-face";
+            // Reverse the gaze, not the side of the sword lock.
             frame(
-              context.enemyFace
+              context.clash
                 .clone()
-                .addScaledVector(enemyForward, 6.8)
-                .addScaledVector(side, 3.1)
-                .add(V(0, 0.5, 0)),
-              context.enemyFace,
+                .addScaledVector(stageFront, 3.1)
+                .add(V(0, 1.2, 0)),
+              heroShot ? context.heroFace : context.enemyFace,
               37,
             );
           } else {
-            id += "-break";
-            frame(center.clone().add(V(-6 + p * 4, 3, 33)), center, 54);
+            id += "-break-wide";
+            const pan = reducedMotion ? 0.5 : cinematicProgress(clock, 3.45, duration);
+            poseFrame(context, -8 + pan * 3, 4, 46, 47);
+          }
+        } else if (beat.shot === "exchange") {
+          const timing = FINISHER_EXCHANGE;
+          const firstPhrase = timing.cuts[2].end;
+          const counterPhrase = timing.cuts[5].end;
+          const finalContact = timing.cuts[11].end;
+          const heroArmStart = timing.cuts[1].end;
+          const impactStart = timing.cuts[5].hit - 0.14;
+          const enemyArmEnd = timing.cuts[9].end;
+          const armInsert = (owner: MechSide, slide: number) => {
+            const arm = armView(context, owner, slide);
+            const focus = context.heroChest.clone().lerp(context.enemyChest, 0.5).add(V(0, 1.4, 0));
+            arm.position.addScaledVector(arm.position.clone().sub(focus).normalize(), 3.5);
+            frame(arm.position, focus, 53);
+          };
+          const pan = (start: number, end: number) =>
+            reducedMotion ? 0.5 : cinematicProgress(clock, start, end);
+          if (reducedMotion) {
+            id += "-steady-exchange";
+            poseFrame(context, 0, 6, 52, 48);
+          } else if (clock < heroArmStart) {
+            id += "-opening-poses";
+            poseFrame(context, -10 + pan(0, heroArmStart) * 6, 4, 44, 47);
+          } else if (clock < firstPhrase) {
+            id += "-hero-arm-contact";
+            armInsert("hero", pan(heroArmStart, firstPhrase));
+          } else if (clock < impactStart) {
+            id += "-counter-blades";
+            poseFrame(context, 9 - pan(firstPhrase, impactStart) * 4, 2.3, 39, 49);
+          } else if (clock < counterPhrase) {
+            id += "-counter-impact";
+            stageFrame(context.heroChest.clone().lerp(context.enemyChest, 0.5)
+              .lerp(context.clash, 0.35), -3, 1.2, 26, 44);
+          } else if (clock < timing.circleEnd) {
+            id += "-circling-footwork";
+            const arc = pan(counterPhrase, timing.circleEnd);
+            poseFrame(context, -10 + arc * 6, 8 - arc * 3, 46, 47);
+          } else if (clock < timing.breakEnd) {
+            id += "-separation-wide";
+            const pull = pan(timing.circleEnd, timing.breakEnd);
+            poseFrame(context, -3 + pull * 4, 7 + pull * 5, 48 + pull * 8, 47);
+          } else if (clock < enemyArmEnd) {
+            id += "-enemy-arm-contact";
+            armInsert("enemy", pan(timing.breakEnd, enemyArmEnd));
+          } else if (clock < finalContact) {
+            id += "-return-side";
+            poseFrame(context, 3 - pan(enemyArmEnd, finalContact) * 6, 3, 42, 48);
+          } else {
+            id += "-final-impact";
+            stageFrame(context.heroChest.clone().lerp(context.enemyChest, 0.5)
+              .lerp(context.clash, 0.3), -7, 2, 29, 46);
           }
         } else if (beat.shot === "armCut") {
           id += "-sword-arm";
-          frame(
-            context.heroShoulder
-              .clone()
-              .addScaledVector(forward, -5.2)
-              .addScaledVector(side, 2.4 + p * 0.8)
-              .add(V(0, 1, 0)),
-            context.enemyChest.clone().lerp(context.heroBladeTip, 0.16),
-            59,
-            -Math.sin(p * Math.PI) * 0.018,
-          );
+          const arm = armView(context, "hero", p);
+          frame(arm.position, arm.target, 46, -Math.sin(p * Math.PI) * 0.008);
         } else if (beat.shot === "ascend") {
-          frame(
-            hero.position.clone().add(V(7 - p * 4, 2, 34)),
-            context.heroChest.clone().lerp(context.enemyChest, 0.18),
-            58,
+          stageFrame(
+            context.heroChest.clone().lerp(context.enemyChest, 0.32),
+            5 - p * 3, -4 + p * 6, 48, 46,
           );
         } else if (beat.shot === "reactor") {
-          const angle = reducedMotion ? 0.3 : 0.3 + p * 0.45;
-          frame(
-            hero.position
-              .clone()
-              .add(V(Math.sin(angle) * 30, 12 + p * 6, Math.cos(angle) * 30)),
-            context.heroChest
-              .clone()
-              .lerp(context.heroBladeTip, 0.35 + p * 0.15),
-            48 + p * 5,
-            -0.015,
-          );
+          if (clock < 0.95) {
+            id += "-verdict-crouching";
+            stageFrame(enemy.position.clone().add(V(0, 6.5, 0)), -9, 2, 27, 45);
+          } else {
+            id += "-last-light";
+            const push = reducedMotion ? 0 : cinematicProgress(clock, 0.95, duration);
+            stageFrame(
+              context.heroChest.clone().lerp(context.heroBladeTip, 0.25),
+              8 - push * 3, -3 + push * 2, 43 - push * 4, 42,
+            );
+          }
         } else if (beat.shot === "finalCut") {
           const timing = FINISHER_EXECUTION;
           if (clock < timing.vanish) {
             id += "-dive";
             const rush = cinematicProgress(clock, timing.dash, timing.vanish);
-            frame(
-              reducedMotion
-                ? combat.position
-                : context.heroChest
-                    .clone()
-                    .add(V(-10 + rush * 5, 6 - rush * 4, 28 - rush * 5)),
-              context.heroChest.clone().lerp(context.enemyChest, 0.25),
-              54 + rush * 6,
-              -rush * 0.035,
+            stageFrame(
+              context.heroChest.clone().lerp(context.enemyChest, 0.5),
+              reducedMotion ? -3 : -7 + rush * 5,
+              3, 48, 48, -rush * 0.012,
             );
           } else if (clock < timing.appear) {
             id += "-empty-blade";
-            frame(
-              context.enemyChest.clone().add(V(-10, 2, 23)),
-              context.enemyChest.clone().lerp(context.enemyBladeTip, 0.25),
-              48,
+            stageFrame(
+              context.enemyChest.clone().lerp(context.enemyBladeTip, 0.2),
+              -7, 3, 35, 47,
             );
           } else if (clock < timing.cuts) {
             id += "-behind";
-            frame(
-              center.clone().add(V(9, 3, 33)),
+            stageFrame(
               context.enemyChest.clone().lerp(context.heroChest, 0.5),
-              49,
+              9, 1.8, 42, 43,
             );
           } else if (clock < timing.cuts + 0.9) {
             id += "-execution-orbit";
@@ -646,45 +802,23 @@ export function createFinaleCamera(
               timing.cuts,
               timing.cuts + 0.9,
             );
-            const angle = reducedMotion ? 0 : -0.45 + arc * 0.9;
-            frame(
-              context.enemyChest
-                .clone()
-                .add(
-                  V(Math.sin(angle) * 32, 3 - arc * 3, Math.cos(angle) * 32),
-                ),
-              context.enemyChest,
-              53,
-              (arc - 0.5) * 0.04,
-            );
+            const track = reducedMotion ? 0.5 : arc;
+            stageFrame(context.enemyChest, -7 + track * 4, 2, 37, 44);
           } else if (clock < timing.lastCut) {
-            id += "-execution-impact";
+            id += "-execution-orbit";
             const push = cinematicProgress(
               clock,
               timing.cuts + 0.9,
               timing.lastCut,
             );
-            frame(
-              context.enemyChest
-                .clone()
-                .add(V(-10 + push * 4, 2, 28 - push * 3)),
-              context.enemyChest,
-              50 - push * 3,
-              -0.025,
-            );
+            stageFrame(context.enemyChest, -3 + push * 2, 2, 37 - push * 3, 44);
           } else if (clock < timing.collapse) {
             id += "-blade-falls";
-            frame(center.clone().add(V(7, 3, 36)), center, 53);
+            stageFrame(center, 7, 2, 43, 45);
           } else {
             id += "-aftermath";
             const pull = cinematicProgress(clock, timing.collapse, duration);
-            frame(
-              center
-                .clone()
-                .add(V(7 + pull * 10, 5 + pull * 8, 36 + pull * 16)),
-              center,
-              55,
-            );
+            stageFrame(center, 7 + pull * 4, 2 + pull * 5, 43 + pull * 12, 45);
           }
         }
       } else if (phase === "defeat") {
@@ -823,32 +957,27 @@ export function createFinaleCamera(
           }
         } else frame(combat.position, combat.center, 54);
       }
-      if (id !== shotId) {
+      const shotChanged = id !== shotId;
+      if (shotChanged) {
         const firstShot = !shotId;
         lastPosition.copy(camera.position);
         lastRotation.copy(camera.quaternion);
         lastFov = camera.fov;
         const editorialCut =
-          (phase === "finisher" &&
-            shotId.startsWith("finisher") &&
-            (id.endsWith("-behind") ||
-              id.endsWith("-empty-blade") ||
-              id.endsWith("-steel") ||
-              id.endsWith("-prime-face") ||
-              id.endsWith("-verdict-face") ||
-              id.endsWith("-sword-arm"))) ||
+          phase === "reveal" ||
+          phase === "finisher" ||
           (phase === "victory" && id.endsWith("-mothership"));
         const locationCut =
           (phase === "rupture" &&
-            (id.endsWith("-brendan") ||
-              id.endsWith("-brendan-head-fire") ||
+            (id.includes("-brendan") ||
               id.endsWith("-burning-earth") ||
               id.endsWith("-cockpit") ||
               id.endsWith("-facility-core") ||
               shotId.endsWith("-facility-core"))) ||
           (phase === "heroTransform" && id.endsWith("-forest-liftoff")) ||
           (phase === "enemyTransform" &&
-            (id.endsWith("-roof-circle-cut") ||
+            (id.endsWith("-office-clearing-blast") ||
+              id.endsWith("-roof-circle-cut") ||
               id.endsWith("-roof-lift-passengers")));
         shotId = id;
         transition =
@@ -878,15 +1007,89 @@ export function createFinaleCamera(
         position.lerpVectors(camera.position, position.clone(), blend);
         rotation.slerpQuaternions(camera.quaternion, rotation.clone(), blend);
       }
-      shake = Math.max(0, shake - dt * 2.1);
-      if (!reducedMotion && shake > 0)
-        position.add(
-          V(
-            Math.sin(context.time * 67) * shake,
-            Math.cos(context.time * 79) * shake * 0.55,
-            0,
-          ),
+      if (phase === "finisher") {
+        if (!shotChanged && dt > 0) {
+          const follow = 1 - Math.exp(-dt * 16);
+          position.lerpVectors(stablePosition, position.clone(), follow);
+          target.lerpVectors(previousTarget, target.clone(), follow);
+        }
+        previousTarget.copy(target);
+        clearFinisherCamera(context);
+      }
+      stablePosition.copy(position);
+      if (!reducedMotion && shake > 0.001) {
+        const cinematic = phase === "finisher";
+        const exchange = cinematic && context.finisher.beat.shot === "exchange";
+        const amount = cinematic
+          ? Math.min(shake, id.endsWith("-face") ? 0.04 : exchange ? 0.65 : 0.3)
+          : shake;
+        position.add(V(
+          Math.cos(shakeAge * 38) * amount,
+          Math.sin(shakeAge * 47 + 0.5) * amount * 0.55,
+          -Math.cos(shakeAge * 31) * amount * 0.3,
+        ).applyQuaternion(rotation));
+        shakeAngles.set(
+          Math.sin(shakeAge * 41 + 0.7) * amount * 0.012,
+          Math.cos(shakeAge * 33) * amount * 0.008,
+          Math.sin(shakeAge * 29) * amount * 0.006,
         );
+        rotation.multiply(shakeRotation.setFromEuler(shakeAngles));
+      }
+      // Handheld tremor that runs under the whole blow exchange, hotter on the
+      // contact inserts, so the duel never reads as locked-off between impacts.
+      if (
+        !reducedMotion &&
+        phase === "finisher" &&
+        id.includes("-exchange") &&
+        !id.endsWith("-separation-wide") &&
+        !id.endsWith("-circling-footwork")
+      ) {
+        const contact =
+          id.endsWith("-counter-impact") || id.endsWith("-final-impact") ? 1
+          : id.endsWith("-hero-arm-contact") ||
+            id.endsWith("-enemy-arm-contact")
+            ? 0.62
+            : 0.34;
+        const tremor = context.time;
+        position.add(V(
+          Math.sin(tremor * 13.7) * 0.18 + Math.sin(tremor * 27.1) * 0.055,
+          Math.cos(tremor * 17.3) * 0.12 + Math.sin(tremor * 31.7) * 0.04,
+          Math.sin(tremor * 11.9) * 0.065,
+        ).multiplyScalar(contact).applyQuaternion(rotation));
+        shakeAngles.set(
+          Math.sin(tremor * 15.1) * 0.012 * contact,
+          Math.cos(tremor * 12.3) * 0.009 * contact,
+          Math.sin(tremor * 9.7) * 0.007 * contact,
+        );
+        rotation.multiply(shakeRotation.setFromEuler(shakeAngles));
+      }
+      shakeAge += dt;
+      shake *= Math.exp(-dt * (
+        phase === "finisher" && context.finisher.beat.shot === "exchange" ? 8 : 11
+      ));
+      if (phase === "rupture" && !reducedMotion) {
+        const quake = samplePlanetSurface(t).rumble;
+        const onSurface = t >= PLANET_RUPTURE.forest && t < PLANET_RUPTURE.forestEnd;
+        const pov = t >= PLANET_RUPTURE.feet && t < PLANET_RUPTURE.fall;
+        const amount = quake * (onSurface ? (pov ? 0.055 : 0.15) : 2.4);
+        position.add(V(
+          Math.sin(t * 23) + Math.sin(t * 41) * 0.25,
+          Math.cos(t * 31) * 0.65,
+          Math.sin(t * 19) * 0.25,
+        ).multiplyScalar(amount).applyQuaternion(rotation));
+        const angle = quake * (pov ? 0.003 : 0.005);
+        shakeAngles.set(Math.sin(t * 21) * angle, Math.cos(t * 17) * angle * 0.6,
+          Math.sin(t * 27) * angle * 0.5);
+        rotation.multiply(shakeRotation.setFromEuler(shakeAngles));
+      }
+      const insideOffice = phase === "loading" || phase === "error" || phase === "reveal" ||
+        (phase === "enemyTransform" && t < FACILITY_ROOF_SEQUENCE.cutStart);
+      if (insideOffice) {
+        const lensMargin = Math.max(0.6, camera.near *
+          Math.tan(THREE.MathUtils.degToRad(fov / 2)) * Math.hypot(1, camera.aspect) + 0.3);
+        position.z = Math.min(position.z, FACILITY.z + FACILITY_OFFICE.front - lensMargin);
+        frame(position, target, fov, frameRoll);
+      }
       camera.position.copy(position);
       camera.quaternion.copy(rotation);
       camera.fov = fov;

@@ -16,7 +16,7 @@ after(async () => server?.close());
 
 test("the refreshed screenshots resolve to the requested loading scenes", async () => {
   const expected = [
-    ["stage1", "stage1-patrol"],
+    ["stage1", "stage1-overview"],
     ["cargo", "stage2-cargo"],
     ["range", "stage2-range"],
     ["flight", "level2-space"],
@@ -50,7 +50,7 @@ test("the refreshed screenshots resolve to the requested loading scenes", async 
     chapters.LOADING_CHAPTERS.armor.images[0],
     chapters.LOADING_CHAPTERS.reactor.images[0],
   );
-  assert.equal(chapters.LOADING_CHAPTERS.stage1.images.length, 2);
+  assert.equal(chapters.LOADING_CHAPTERS.stage1.images.length, 1);
   assert.deepEqual(
     chapters.LOADING_CHAPTERS.finale.images,
     chapters.LOADING_CHAPTERS.trailer.images,

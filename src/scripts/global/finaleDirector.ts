@@ -1,4 +1,5 @@
 import { createMechDuel, type DuelEvent } from "../npc/mechDuel.js";
+import { FACILITY_ROOF_SEQUENCE } from "./facilityArchitecture.js";
 import {
   FINALE_REVEAL,
   FINISHER_DURATION,
@@ -41,7 +42,7 @@ export function shouldPauseFinale(
 }
 export const FINALE_DURATION = Object.freeze({
   reveal: FINALE_REVEAL.end,
-  enemyTransform: 19.2,
+  enemyTransform: FACILITY_ROOF_SEQUENCE.end,
   heroTransform: 17,
   versus: 4.6,
   rupture: PLANET_RUPTURE.orbit + 0.4,
@@ -53,12 +54,13 @@ export const FINALE_CUES: readonly FinaleCue[] = [
   { phase: "reveal", id: "lights", at: 2 },
   { phase: "reveal", id: "pose", at: FINALE_REVEAL.studentEnd },
   { phase: "reveal", id: "sudoers-title", at: FINALE_REVEAL.renounceEnd },
-  { phase: "enemyTransform", id: "roof-blast", at: 0.25 },
-  { phase: "enemyTransform", id: "prime-shield", at: 0.6 },
-  { phase: "enemyTransform", id: "fireworks", at: 0.4 },
-  { phase: "enemyTransform", id: "enemy-frame", at: 3.2 },
-  { phase: "enemyTransform", id: "five-cores", at: 17 },
-  { phase: "enemyTransform", id: "enemy-lock", at: 17.6 },
+  { phase: "enemyTransform", id: "prime-shield", at: FACILITY_ROOF_SEQUENCE.shieldStart },
+  { phase: "enemyTransform", id: "office-blast", at: FACILITY_ROOF_SEQUENCE.blastStart },
+  { phase: "enemyTransform", id: "roof-blast", at: FACILITY_ROOF_SEQUENCE.cutStart },
+  { phase: "enemyTransform", id: "fireworks", at: FACILITY_ROOF_SEQUENCE.transformStart },
+  { phase: "enemyTransform", id: "enemy-frame", at: FACILITY_ROOF_SEQUENCE.transformStart },
+  { phase: "enemyTransform", id: "five-cores", at: FACILITY_ROOF_SEQUENCE.assembled },
+  { phase: "enemyTransform", id: "enemy-lock", at: FACILITY_ROOF_SEQUENCE.lock },
   { phase: "heroTransform", id: "prime-beacon", at: HERO_TRANSFORM.launch },
   {
     phase: "heroTransform",

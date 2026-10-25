@@ -25,11 +25,20 @@ export const FACILITY_CUT_ANGLE = Math.asin(
 );
 export const FACILITY_CUT_Y = Math.cos(FACILITY_CUT_ANGLE) * FACILITY.radius;
 export const FACILITY_ROOF_SEQUENCE = Object.freeze({
-  cutEnd: 1.35,
-  capClear: 2,
-  liftStart: 2,
-  liftEnd: 4.8,
-  transformStart: 4.95,
+  shieldStart: 0.25,
+  blastStart: 1.1,
+  blastClear: 2.8,
+  cutStart: 3,
+  cutEnd: 4.35,
+  capClear: 5,
+  liftStart: 5,
+  liftEnd: 7.8,
+  transformStart: 7.95,
+  boardingStart: 8.4,
+  assemblyEnd: 10.8,
+  assembled: 20,
+  lock: 20.6,
+  end: 22.2,
 });
 
 export function sampleFacilityLift(time: number) {
@@ -41,7 +50,12 @@ export function sampleFacilityLift(time: number) {
   return {
     rise,
     y: THREE.MathUtils.lerp(FACILITY.officeFloor, FACILITY.roofY, rise),
-    cut: THREE.MathUtils.clamp(time / FACILITY_ROOF_SEQUENCE.cutEnd, 0, 1),
+    cut: THREE.MathUtils.clamp(
+      (time - FACILITY_ROOF_SEQUENCE.cutStart) /
+        (FACILITY_ROOF_SEQUENCE.cutEnd - FACILITY_ROOF_SEQUENCE.cutStart),
+      0,
+      1,
+    ),
   };
 }
 

@@ -1053,12 +1053,17 @@ export function createScene({
   // --- Defeat cutscene: the Warden splits in half, Branden walks out, then the shell self-destructs. ---
   const BLAST_AT = 21,
     WALK_AWAY_AT = 17,
-    KNEEL_AT = BLAST_AT + 1.2,
+    KNEEL_AT = BLAST_AT + 1.8,
     DISSOLVE_AT = BLAST_AT + 7.6,
     DISSOLVE_SECONDS = 4.2,
     STAND_AT = BLAST_AT + 12.5,
     REVEAL_END = BLAST_AT + 17.5;
-  const BLAST_SLOWMO_SECONDS = 1.6;
+  const BLAST_SLOWMO_SECONDS = 1.6,
+    BLAST_FRONT_SPEED = 9,
+    BRANDEN_FALL_SECONDS = 1.1,
+    BRANDEN_DISSOLVE_COLOR = 0xff2438;
+  let brendanImpactAt = BLAST_AT,
+    revealDelta = 0;
   type BossHalf = NonNullable<
     ReturnType<typeof boss.createSplitHalves>
   >[number];
@@ -1081,6 +1086,7 @@ export function createScene({
     defeatTime: { value: 0 },
     defeatBlend: { value: 0 },
     defeatDissolve: { value: 0 },
+    defeatColor: { value: new THREE.Color(BRANDEN_DISSOLVE_COLOR) },
   };
   const boyOriginalMaterials = new Set<THREE.Material>();
   function prepareBoyDisintegration() {
@@ -1091,7 +1097,7 @@ export function createScene({
       if (existing) return existing;
       boyOriginalMaterials.add(original);
       const material = original.clone();
-      material.customProgramCacheKey = () => "branden-hologram-disintegration";
+      material.customProgramCacheKey = () => "branden-red-disintegration";
       material.onBeforeCompile = (shader) => {
         Object.assign(shader.uniforms, boyDissolveUniforms);
         shader.vertexShader =
@@ -1101,15 +1107,15 @@ export function createScene({
             "#include <project_vertex>\ndefeatPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;",
           );
         shader.fragmentShader =
-          "varying vec3 defeatPosition;\nuniform float defeatTime;\nuniform float defeatBlend;\nuniform float defeatDissolve;\n" +
+          "varying vec3 defeatPosition;\nuniform float defeatTime;\nuniform float defeatBlend;\nuniform float defeatDissolve;\nuniform vec3 defeatColor;\n" +
           shader.fragmentShader.replace(
             "#include <dithering_fragment>",
             `#include <dithering_fragment>
             float cell = fract(sin(dot(floor(defeatPosition * 32.0), vec3(12.9898, 78.233, 37.719))) * 43758.5453);
             if (cell < defeatDissolve) discard;
             float scan = 0.65 + 0.35 * sin(defeatPosition.y * 130.0 - defeatTime * 8.0);
-            gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.3, 0.78, 1.0) * scan, defeatBlend * 0.85);
-            gl_FragColor.rgb += vec3(0.35, 0.75, 1.0) * defeatBlend * (1.0 - smoothstep(0.0, 0.09, cell - defeatDissolve));`,
+            gl_FragColor.rgb = mix(gl_FragColor.rgb, defeatColor * scan, defeatBlend);
+            gl_FragColor.rgb += defeatColor * 1.4 * defeatBlend * (1.0 - smoothstep(0.0, 0.09, cell - defeatDissolve));`,
           );
       };
       materials.set(original, material);
@@ -1159,9 +1165,10 @@ export function createScene({
       Infinity,
     );
     next.clampWhenFinished = name === "death";
-    next.timeScale = name === "death" ? 0.5 : 1;
+    next.timeScale =
+      name === "death" ? clip.duration / BRANDEN_FALL_SECONDS : 1;
     if (boyAction && boyAction !== next)
-      next.crossFadeFrom(boyAction, 0.25, false);
+      next.crossFadeFrom(boyAction, name === "death" ? 0.06 : 0.25, false);
     next.play();
     boyAction = next;
   }
@@ -1275,7 +1282,7 @@ export function createScene({
   // Detailed self-destruct extras: layered fireballs, rising smoke, streaking sparks, a scorch mark, a flash light and pre-blast bursts.
   // Fire shader fireballs (shared with the eye-drone explosions), one material each so they can age independently.
   const fireMaterials: THREE.ShaderMaterial[] = [];
-  const fireballs = Array.from({ length: 6 }, (_, i) => {
+  const fireballs = Array.from({ length: 3 }, (_, i) => {
     const uniforms = {
       uTime: { value: 0 },
       uProgress: { value: 0 },
@@ -1293,6 +1300,8 @@ export function createScene({
       fragmentShader: fireFragmentShader,
       transparent: true,
       depthWrite: false,
+      // The directed billow must engulf Branden, not be depth-rejected behind him.
+      depthTest: i !== 0,
       blending: THREE.AdditiveBlending,
       side: THREE.BackSide,
     });
@@ -1312,8 +1321,9 @@ export function createScene({
         Math.random() * 2.5 - 1,
         (Math.random() - 0.5) * 3,
       ),
+      impact: i === 0,
       delay: i * 0.09,
-      size: 2.6 + Math.random() * 2.2,
+      size: i === 0 ? 2.4 : 3.4 + Math.random(),
     };
   });
   const smokeMaterial = new THREE.MeshBasicMaterial({
@@ -1323,7 +1333,7 @@ export function createScene({
     depthWrite: false,
   });
   const smokeGeometry = new THREE.SphereGeometry(1, 12, 8);
-  const smokePuffs = Array.from({ length: 16 }, () => {
+  const smokePuffs = Array.from({ length: 10 }, () => {
     const mesh = new THREE.Mesh(smokeGeometry, smokeMaterial);
     blastGroup.add(mesh);
     return {
@@ -1441,13 +1451,18 @@ export function createScene({
       .addScaledVector(revealR, -2.2);
     revealBrendanEnd
       .copy(origin)
-      .addScaledVector(revealD, 5.8)
+      .addScaledVector(revealD, 4.9)
       .addScaledVector(revealR, 0.5);
     revealPlayerEnd
       .copy(origin)
       .addScaledVector(revealD, 7.3)
       .addScaledVector(revealR, -2.2);
-    brendanDeathPosition.copy(revealBrendanEnd).addScaledVector(revealD, 0.9);
+    brendanDeathPosition.copy(revealBrendanEnd).addScaledVector(revealD, 2);
+    tmpA.copy(origin).setY(3);
+    tmpB.copy(revealBrendanEnd).setY(1);
+    brendanImpactAt =
+      BLAST_AT + Math.max(0, tmpA.distanceTo(tmpB) - 1) / BLAST_FRONT_SPEED;
+    revealDelta = 0;
     revealBlasted = false;
     revealShake = 0;
     boyDead = false;
@@ -1565,8 +1580,8 @@ export function createScene({
         : Math.min(1, (t - WALK_AWAY_AT) / (BLAST_AT - WALK_AWAY_AT)) * 0.1;
     for (let i = 0; i < halves.length; i++) {
       const half = halves[i];
-      half.group.visible = !revealBlasted;
-      if (revealBlasted) continue;
+      half.group.visible = t < BLAST_AT;
+      if (!half.group.visible) continue;
       const base = half.side;
       half.group.position.set(
         revealOrigin.x,
@@ -1591,7 +1606,7 @@ export function createScene({
       glow.visible = t < BLAST_AT;
     }
     // Branden: walks out between the halves at a steady pace, talks, drifts toward the lift edge, and is caught by the blast.
-    if (boy) {
+    if (boy && !boy.userData.disintegrated) {
       boy.visible = t >= 3.6 && t < DISSOLVE_AT + DISSOLVE_SECONDS;
       const forward = Math.atan2(revealD.x, revealD.z);
       let yaw = forward,
@@ -1619,13 +1634,22 @@ export function createScene({
         walkSpeed =
           revealBrendanStart.distanceTo(revealBrendanEnd) /
           (BLAST_AT - WALK_AWAY_AT);
+        yaw = forward + Math.PI * THREE.MathUtils.smootherstep(
+          t, BLAST_AT - 0.8, BLAST_AT,
+        );
+      } else if (t < brendanImpactAt) {
+        tmpA.copy(revealBrendanEnd);
+        playBoy("idle");
+        yaw = forward + Math.PI;
       } else {
-        tmpA
-          .copy(revealBrendanEnd)
-          .lerp(
-            brendanDeathPosition,
-            THREE.MathUtils.smootherstep(t, BLAST_AT, BLAST_AT + 1.4),
-          );
+        const flight = THREE.MathUtils.clamp(
+          (t - brendanImpactAt) / BRANDEN_FALL_SECONDS, 0, 1,
+        );
+        tmpA.copy(revealBrendanEnd).lerp(
+          brendanDeathPosition, 1 - (1 - flight) ** 3,
+        );
+        tmpA.y = 4 * 0.65 * flight * (1 - flight);
+        boy.rotation.z = -Math.sin(flight * Math.PI) * 0.16;
         playBoy("death");
         yaw = forward + Math.PI;
       }
@@ -1635,13 +1659,17 @@ export function createScene({
       let delta = yaw - boy.rotation.y;
       delta = Math.atan2(Math.sin(delta), Math.cos(delta));
       boy.rotation.y += delta * Math.min(1, dt * 7);
-      boy.position.set(boyOrigin.x + tmpA.x, boyOrigin.y, boyOrigin.z + tmpA.z);
+      boy.position.set(
+        boyOrigin.x + tmpA.x,
+        boyOrigin.y + tmpA.y,
+        boyOrigin.z + tmpA.z,
+      );
       if (t >= DISSOLVE_AT) {
         const dissolve = hologramTransitionAt(
           t - DISSOLVE_AT,
           false,
           DISSOLVE_SECONDS,
-          0x79dfff,
+          BRANDEN_DISSOLVE_COLOR,
         );
         boyDissolveUniforms.defeatTime.value = dissolve.time;
         boyDissolveUniforms.defeatBlend.value = dissolve.blend;
@@ -1748,42 +1776,50 @@ export function createScene({
     }
     if (sparks.some((spark) => spark.life > 0) || sparkInstances.visible)
       syncParticleInstances(sparkInstances, sparks);
-    if (revealBlasted) {
+    if (revealBlasted && blastGroup.visible) {
       const b = t - BLAST_AT;
-      blastCore.scale.setScalar(1 + b * 7);
-      blastCoreMaterial.opacity = Math.max(0, 0.95 - b * 0.55);
+      blastCore.scale.setScalar(Math.min(7.2, 1 + b * BLAST_FRONT_SPEED));
+      blastCoreMaterial.opacity = Math.max(0, 0.7 - b * 0.55);
       blastCore.visible = blastCoreMaterial.opacity > 0;
       blastFlash.scale.setScalar(1 + b * 20);
-      blastFlashMaterial.opacity = Math.max(0, 1 - b * 2.2);
+      blastFlashMaterial.opacity = Math.max(0, 0.8 - b * 4);
       blastFlash.visible = blastFlashMaterial.opacity > 0;
       blastRing.scale.setScalar(1 + b * 11);
       blastRing.position.y = -2.8;
       blastRingMaterial.opacity = Math.max(0, 0.9 - b * 0.45);
       blastRing.visible = blastRingMaterial.opacity > 0;
       for (const fireball of fireballs) {
-        const age = Math.max(0, b - fireball.delay);
-        fireball.mesh.visible = age > 0 && age < 3.2;
+        const age = b - fireball.delay,
+          lifetime = fireball.impact ? 1.2 : 2.4;
+        fireball.mesh.visible = age > 0 && age < lifetime;
         if (!fireball.mesh.visible) continue;
-        fireball.mesh.position
-          .copy(fireball.offset)
-          .multiplyScalar(1 + age * 0.9);
-        fireball.mesh.position.y += age * 1.2;
-        fireball.mesh.scale.setScalar(
-          age <= 0
-            ? 0.001
-            : fireball.size * (1 - Math.exp(-age * 2.6)) * (1 + age * 0.35),
-        );
-        const progress = THREE.MathUtils.clamp(age / 3.2, 0, 1);
+        if (fireball.impact) {
+          const travel = THREE.MathUtils.smoothstep(
+            t, BLAST_AT, brendanImpactAt,
+          );
+          fireball.mesh.position.copy(revealBrendanEnd).sub(revealOrigin);
+          fireball.mesh.position.y = -2;
+          fireball.mesh.position.multiplyScalar(travel);
+          fireball.mesh.scale.setScalar(
+            fireball.size * (1 - Math.exp(-age * 6)),
+          );
+        } else {
+          fireball.mesh.position.copy(fireball.offset)
+            .multiplyScalar(1 + age * 0.65);
+          fireball.mesh.position.y += age * 1.4;
+          fireball.mesh.scale.setScalar(
+            fireball.size * (1 - Math.exp(-age * 2.6)) * (1 + age * 0.2),
+          );
+        }
+        const progress = age / lifetime;
         fireball.uniforms.uTime.value = t;
         fireball.uniforms.uProgress.value = progress;
         fireball.uniforms.uIntensity.value =
-          age <= 0
-            ? 0
-            : Math.max(0, 1 - THREE.MathUtils.smoothstep(progress, 0.7, 1)) *
-              1.35;
+          (1 - THREE.MathUtils.smoothstep(progress, 0.7, 1)) *
+          (fireball.impact ? 0.9 : 1.2);
       }
       smokeMaterial.opacity =
-        Math.min(0.7, b * 1.2) * Math.max(0, 1 - Math.max(0, b - 3) / 5);
+        Math.min(0.45, b * 0.8) * Math.max(0, 1 - Math.max(0, b - 2) / 4);
       for (const puff of smokePuffs) {
         puff.mesh.visible = smokeMaterial.opacity > 0;
         if (!puff.mesh.visible) continue;
@@ -1794,7 +1830,7 @@ export function createScene({
       scorchMaterial.opacity = Math.min(0.75, b * 1.5);
       blastLight.position.set(revealOrigin.x, 3, revealOrigin.z);
       blastLight.intensity = 900 * Math.max(0, 1 - b / 2.4) ** 2;
-      blastGroup.visible = b < 9;
+      blastGroup.visible = b < 6;
       revealShake = Math.max(0, 1 - b / 2.2);
       const flyingShrapnel = shrapnel.some((piece) => piece.moving);
       for (const piece of shrapnel) {
@@ -1915,22 +1951,24 @@ export function createScene({
         .addScaledVector(revealR, 4.4)
         .addScaledVector(revealD, -1.5)
         .setY(1.6);
-    } else if (t < BLAST_AT + 4.2) {
-      // Low wide shot facing the Warden over the survivors' shoulders, so the blast is seen in full.
-      const k = THREE.MathUtils.smoothstep(t, BLAST_AT - 1.2, BLAST_AT + 4.2);
-      focus = new THREE.Vector3(origin.x, 3.4 - k * 0.6, origin.z);
-      desired = new THREE.Vector3(
-        origin.x - 3.6,
-        1.1 + k * 0.7,
-        origin.z,
-      ).addScaledVector(revealD, 11.5 - k * 1.7);
-    } else if (t < BLAST_AT + 9.4) {
-      // Kneeling beside Branden: side shot that slowly pushes in.
-      const k = THREE.MathUtils.smoothstep(t, BLAST_AT + 4.2, BLAST_AT + 9.4);
-      focus = corpseMid.clone().setY(0.95);
+    } else if (t < KNEEL_AT + 0.4) {
+      // Side-on framing keeps the expanding blast and Branden's knockback visible together.
+      const k = THREE.MathUtils.smoothstep(t, BLAST_AT, KNEEL_AT + 0.4);
+      focus = origin.clone().lerp(revealBrendanEnd, 0.65).setY(1.35);
+      desired = focus.clone()
+        .addScaledVector(revealR, 8.5 - k)
+        .addScaledVector(revealD, 2)
+        .setY(2.2);
+      focus.lerp(tmpA.copy(brendanDeathPosition).setY(0.7), k * 0.4);
+    } else if (t < DISSOLVE_AT + DISSOLVE_SECONDS) {
+      // Hold Branden in frame through the entire red dissolve before cutting to Brondon.
+      const k = THREE.MathUtils.smoothstep(
+        t, KNEEL_AT + 0.4, DISSOLVE_AT + DISSOLVE_SECONDS,
+      );
+      focus = corpseMid.clone().lerp(brendanDeathPosition, k * 0.45).setY(0.7);
       desired = corpseMid
         .clone()
-        .addScaledVector(revealR, -(4.6 - k * 1.8))
+        .addScaledVector(revealR, 4.6 - k * 1.4)
         .addScaledVector(revealD, -0.8)
         .setY(1.35 - k * 0.2);
     } else if (t < STAND_AT) {
@@ -1977,9 +2015,10 @@ export function createScene({
   const status = document.getElementById("loading-bay-status");
   status?.classList.add("hidden");
   const cloudMaterial = new THREE.MeshBasicMaterial({
-    color: 0x79dfff,
+    color: BRANDEN_DISSOLVE_COLOR,
     transparent: true,
     opacity: 1,
+    blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
   const cloudGeometry = new THREE.BoxGeometry(1, 1, 1);
@@ -2616,6 +2655,7 @@ export function createScene({
       cinematicTime < BLAST_AT + BLAST_SLOWMO_SECONDS
     )
       dt *= 0.3;
+    revealDelta = cinematic === "reveal" ? dt : 0;
     cinematicTime += dt;
     if (cinematic === "bossReturn") return;
     // Round 1 change 2: phase-4 intro beats (taunt, dim, beacons, warning, player line, then drift-up).
@@ -2853,10 +2893,7 @@ export function createScene({
     const s = boss.getStatus();
     hud?.classList.toggle(
       "hidden",
-      cleared ||
-        cinematic === "versus" ||
-        cinematic === "reveal" ||
-        cinematic === "lift",
+      cleared || cinematic !== null || droneCutscene !== null,
     );
     if (cleared && !cinematic && prompt) {
       prompt.textContent = inputHint("Press E to interact — descend to hangar");
@@ -3226,7 +3263,7 @@ export function createScene({
         nearMissScale = 1 - (1 - NEAR_MISS.slowMo) * Math.sin(p * Math.PI);
       }
       const timeScale = Math.min(droneScale, nearMissScale);
-      cinematicDelta = dt * timeScale;
+      cinematicDelta = cinematic === "reveal" ? revealDelta : dt * timeScale;
       if (droneCutscene?.stage === "impact")
         droneCutscene.poseTime += cinematicDelta;
       if (cinematic !== "reveal") {

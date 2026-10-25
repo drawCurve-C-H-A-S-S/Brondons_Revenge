@@ -20,7 +20,8 @@ import {
   createFacilityCoreCutaway,
   createPlanetBreakerCore,
 } from "./facilityCore.js";
-import { FACILITY } from "../global/facilityArchitecture.js";
+import { FACILITY, FACILITY_ROOF_SEQUENCE } from "../global/facilityArchitecture.js";
+import { FACILITY_OFFICE_SEATS } from "./facilityOffice.js";
 
 export const PLANET_RADIUS = 340;
 export const SPACE_ALTITUDE = 95;
@@ -114,14 +115,14 @@ export function createFinaleWorld(
     const spot = new THREE.SpotLight(0xb8bec7, 0, 18, 0.16, 0.68, 1);
     spot.name = `${student.name}_CeilingSpotlight`;
     spot.position.set(
-      (i - 2) * 2.45,
+      FACILITY.x + FACILITY_OFFICE_SEATS[i].x,
       FACILITY.officeFloor + 5.5,
-      FINALE_ROOFTOP.z - 3.5,
+      FACILITY.z + FACILITY_OFFICE_SEATS[i].z,
     );
     spot.target.position.set(
-      (i - 2) * 2.45,
+      FACILITY.x + FACILITY_OFFICE_SEATS[i].x,
       FACILITY.officeFloor + 0.7,
-      FINALE_ROOFTOP.z - 3.5,
+      FACILITY.z + FACILITY_OFFICE_SEATS[i].z,
     );
     const fixture = new THREE.Mesh(
       new THREE.CylinderGeometry(0.25, 0.2, 0.22, 12),
@@ -162,9 +163,9 @@ export function createFinaleWorld(
       material,
     );
     mesh.position.set(
-      (i - 2) * 2.45,
+      FACILITY.x + FACILITY_OFFICE_SEATS[i].x,
       FACILITY.officeFloor + height / 2,
-      FINALE_ROOFTOP.z - 3.5,
+      FACILITY.z + FACILITY_OFFICE_SEATS[i].z,
     );
     mesh.visible = false;
     root.add(mesh);
@@ -200,6 +201,9 @@ export function createFinaleWorld(
   );
   planetRoot.name = "Earth";
   planetRoot.visible = false;
+  const planetRestRotation = planetRoot.quaternion.clone();
+  const planetTremor = new THREE.Quaternion();
+  const planetTremorAngles = new THREE.Euler();
   const planet = planetRoot.surface,
     planetMaterial = planet.material;
   const planetUniforms = {
@@ -613,6 +617,7 @@ export function createFinaleWorld(
       roofBlast = -1,
       ruptureTime = -1,
       night = 0,
+      reducedMotion = false,
     ) {
       const planetView = ruptureTime >= PLANET_RUPTURE.wide;
       const forestView =
@@ -628,7 +633,7 @@ export function createFinaleWorld(
         !cockpitView &&
         ruptureTime < PLANET_RUPTURE.stardustEnd;
       floor.visible = !space && !planetView;
-      upperWalls.visible = roofBlast < 0 && !space && !planetView;
+      upperWalls.visible = roofBlast < FACILITY_ROOF_SEQUENCE.blastClear && !space && !planetView;
       sky.visible = !space && !planetView && rupture < 1;
       // Keep the fog shader variant resident; orbital distances make its contribution zero.
       roofFog.near = space || planetView ? 1e6 : roofFogNear;
@@ -651,7 +656,7 @@ export function createFinaleWorld(
       studentLights.forEach((spot, i) => {
         const selected = activeStudent(reveal, "reveal") === i;
         spot.intensity =
-          (1 - smooth(roofBlast, 0.15, 0.5)) *
+          (1 - smooth(roofBlast, FACILITY_ROOF_SEQUENCE.blastStart, FACILITY_ROOF_SEQUENCE.blastClear)) *
           smooth(reveal, 2.15 + i * 0.18, 4 + i * 0.18) *
           (selected ? 58 : 28);
         beams[i].visible = spot.intensity > 0.1;
@@ -677,7 +682,21 @@ export function createFinaleWorld(
               ),
       );
       starfield.update(time);
-      planetUniforms.uRupture.value = rupture;
+      const rumble = reducedMotion ? 0 : surface.rumble;
+      const tremor = rumble * (2 + rumble * 6);
+      planetRoot.position.copy(PLANET_CENTER).add(new THREE.Vector3(
+        Math.sin(ruptureTime * 31) * tremor,
+        Math.sin(ruptureTime * 43 + 0.7) * tremor * 0.55,
+        Math.cos(ruptureTime * 37) * tremor * 0.35,
+      ));
+      planetTremorAngles.set(
+        Math.sin(ruptureTime * 23) * rumble * 0.009,
+        0,
+        Math.cos(ruptureTime * 29) * rumble * 0.012,
+      );
+      planetRoot.quaternion.copy(planetRestRotation)
+        .multiply(planetTremor.setFromEuler(planetTremorAngles));
+      planetUniforms.uRupture.value = Math.max(rupture, surface.dissolve);
       planetUniforms.uTime.value = time;
       planetUniforms.uCrustDissolve.value = surface.dissolve;
       planet.visible = surface.crustVisible && !space && planetView;
@@ -694,8 +713,13 @@ export function createFinaleWorld(
       fireMaterial.uniforms.uRupture.value = surface.dissolve;
       fireMaterial.uniforms.uDispersal.value = surface.dispersal;
       fireMaterial.uniforms.uTime.value = time;
+      // Keep the fire beneath the crust until the textured surface has melted away.
+      const exposedFire = smooth(
+        ruptureTime, PLANET_RUPTURE.forest, PLANET_RUPTURE.burning,
+      );
       fire.scale.setScalar(
-        1 + surface.dissolve * 0.1 + surface.dispersal * 0.24,
+        1 + exposedFire * 0.06 + surface.dispersal * 0.24 +
+          rumble * Math.sin(ruptureTime * 18) * 0.008,
       );
       dust.visible = !space && surface.dustVisible;
       dustMaterial.uniforms.uAge.value = ruptureTime - PLANET_RUPTURE.burst;

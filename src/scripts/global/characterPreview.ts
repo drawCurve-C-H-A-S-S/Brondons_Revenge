@@ -159,6 +159,10 @@ function applyStarfieldBackdrop(scene: THREE.Object3D) {
 
   scene.traverse((node) => {
     if (!(node instanceof THREE.Mesh)) return;
+    if (node.name === "BrondonComicInk") {
+      node.visible = false;
+      return;
+    }
 
     const meshMaterials = Array.isArray(node.material)
       ? node.material

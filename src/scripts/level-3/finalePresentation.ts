@@ -101,6 +101,8 @@ export function createFinalePresentation(
   const rifleTouch = get<HTMLElement>('.finale-touch [data-key="KeyF"]');
   const guardTouch = get<HTMLElement>('.finale-touch [data-key="KeyR"]');
   const specialTouch = get<HTMLElement>('.finale-touch [data-key="KeyE"]');
+  const slideControl = get<HTMLElement>('.finale-control[data-control="slide"]');
+  const slideTouch = get<HTMLButtonElement>('.finale-touch [data-key="KeyC"]');
   let objectiveHint = "";
   function updateInputLabels() {
     for (const key of root.querySelectorAll<HTMLElement>(
@@ -221,6 +223,11 @@ export function createFinalePresentation(
       );
       playerStatus.hidden = !mech || cinematic;
       controls.hidden = !mech || cinematic;
+      const slideAvailable = phase === "ground";
+      slideControl.hidden = slideTouch.hidden = !slideAvailable;
+      slideControl.classList.toggle("hidden", !slideAvailable);
+      slideTouch.classList.toggle("hidden", !slideAvailable);
+      slideTouch.disabled = !slideAvailable;
       bossHud.classList.toggle("hidden", !mech);
       if (mech) {
         bossLabel.textContent = "SUDOERS 5";

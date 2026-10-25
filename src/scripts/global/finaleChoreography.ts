@@ -1,5 +1,6 @@
 import type { MechPoseName } from "../npc/mechAnimation.js";
 import type { FinalePhase } from "./finaleDirector.js";
+import { FACILITY_ROOF_SEQUENCE } from "./facilityArchitecture.js";
 
 export const FINALE_START_X = 14;
 export const RIFLE_SEQUENCE = Object.freeze({
@@ -322,6 +323,7 @@ export function sampleUltimateBlade(time: number) {
   );
 }
 export const FINALE_REVEAL = Object.freeze({
+  walkEnd: 2.8,
   studentStart: 9,
   studentDuration: 5.8,
   studentEnd: 38,
@@ -343,7 +345,10 @@ export const STUDENT_TIMELINE = Object.freeze(
         FINALE_REVEAL.studentStart +
         (index + 1) * FINALE_REVEAL.studentDuration,
     },
-    boarding: { start: 5.4 + index * 2.3, end: 5.4 + (index + 1) * 2.3 },
+    boarding: {
+      start: FACILITY_ROOF_SEQUENCE.boardingStart + index * 2.3,
+      end: FACILITY_ROOF_SEQUENCE.boardingStart + (index + 1) * 2.3,
+    },
   })),
 );
 export const HERO_TRANSFORM = Object.freeze({
@@ -370,16 +375,20 @@ export const PLANET_RUPTURE = Object.freeze({
   escape: 5.85,
   wide: 7.6,
   impact: 8.65,
-  forest: 9,
-  scorch: 10.1,
-  forestEnd: 13.8,
-  burning: 13.8,
-  burst: 16.6,
-  stardustEnd: 20.8,
-  cockpit: 20.8,
-  resolve: 24,
-  returnToDuel: 26.8,
-  orbit: 29.2,
+  forest: 12,
+  scorch: 13.1,
+  reflection: 13.75,
+  feet: 18.4,
+  fall: 21.6,
+  death: 23.6,
+  forestEnd: 24,
+  burning: 24,
+  burst: 27,
+  stardustEnd: 31.2,
+  cockpit: 31.2,
+  resolve: 34.4,
+  returnToDuel: 37.2,
+  orbit: 39.6,
 });
 export const FINISHER_EXECUTION = Object.freeze({
   dash: 0.4,
@@ -417,10 +426,83 @@ export interface FinisherBeat {
     | "parry"
     | "countershot"
     | "clash"
+    | "exchange"
     | "armCut"
     | "ascend"
     | "reactor"
     | "finalCut";
+}
+interface ExchangeCut {
+  end: number;
+  hit: number;
+  hero: MechPoseName;
+  enemy: MechPoseName;
+  contact: boolean;
+}
+const exchangeCuts: readonly ExchangeCut[] = Object.freeze([
+  { end: 0.7, hit: 0.46, hero: "thrust", enemy: "clash", contact: true },
+  { end: 1.17, hit: 0.93, hero: "sideSlash", enemy: "clash", contact: true },
+  { end: 1.62, hit: 1.39, hero: "reap", enemy: "clash", contact: true },
+  { end: 2.1, hit: 1.87, hero: "clash", enemy: "cleave", contact: true },
+  { end: 2.55, hit: 2.32, hero: "sideSlash", enemy: "clash", contact: true },
+  { end: 3.21, hit: 2.96, hero: "clash", enemy: "reap", contact: true },
+  { end: 3.76, hit: 3.48, hero: "evade", enemy: "cleave", contact: false },
+  { end: 4.35, hit: 4.03, hero: "thrust", enemy: "clash", contact: true },
+  { end: 5.25, hit: 4.8, hero: "boost", enemy: "evade", contact: false },
+  { end: 5.87, hit: 5.6, hero: "clash", enemy: "thrust", contact: true },
+  { end: 6.36, hit: 6.12, hero: "reap", enemy: "clash", contact: true },
+  { end: 6.83, hit: 6.59, hero: "clash", enemy: "sideSlash", contact: true },
+  { end: 7.6, hit: 7.08, hero: "cleave", enemy: "clash", contact: true },
+]);
+const exchangeTempo = 1.4;
+export const FINISHER_EXCHANGE = Object.freeze({
+  tempo: exchangeTempo,
+  cuts: exchangeCuts.map((cut) => ({
+    ...cut, hit: cut.hit * exchangeTempo, end: cut.end * exchangeTempo,
+  })),
+  pressureEnd: 2.55 * exchangeTempo,
+  circleEnd: 4.35 * exchangeTempo,
+  breakEnd: 5.25 * exchangeTempo,
+  duration: 7.6 * exchangeTempo,
+});
+export function sampleFinisherExchange(clock: number) {
+  clock /= FINISHER_EXCHANGE.tempo;
+  const found = exchangeCuts.findIndex((cut) => clock < cut.end);
+  const index = found < 0 ? exchangeCuts.length - 1 : found;
+  const cut = exchangeCuts[index];
+  const start = index === 0 ? 0 : exchangeCuts[index - 1].end;
+  const progress = (move: MechPoseName) => {
+    if (!isMeleeStrike(move)) return cinematicProgress(clock, start, cut.end);
+    const strike = MELEE_STRIKES[move];
+    if (clock > cut.hit + 0.12) {
+      // Carry the follow-through into the next cut instead of rushing back to idle.
+      const followThrough = Math.min(0.38, strike.duration - strike.end);
+      return (strike.end + followThrough *
+        cinematicProgress(clock, cut.hit + 0.12, cut.end)) / strike.duration;
+    }
+    return swordClipTime(
+      clock - start, strike.duration, strike,
+      { duration: cut.end - start, start: cut.hit - start - 0.14, end: cut.hit - start + 0.12 },
+    ) / strike.duration;
+  };
+  const lock = cut.contact
+    ? cinematicProgress(clock, cut.hit - 0.12, cut.hit - 0.025) *
+      (1 - cinematicProgress(clock, cut.hit + 0.02, cut.hit + 0.14))
+    : 0;
+  const swinging = clock >= cut.hit - 0.13 && clock <= cut.hit + 0.13 && lock < 0.85;
+  return {
+    index,
+    heroMove: cut.hero,
+    enemyMove: cut.enemy,
+    heroProgress: progress(cut.hero),
+    enemyProgress: progress(cut.enemy),
+    heroTrail: swinging && isMeleeStrike(cut.hero),
+    enemyTrail: swinging && isMeleeStrike(cut.enemy),
+    lock,
+    height: [1.6, 0.3, 2.2, 0.8][index % 4],
+    depth: index % 2 ? -0.35 : 0.35,
+    dodge: cut.hero === "evade" ? Math.sin(cinematicProgress(clock, start, cut.end) * Math.PI) : 0,
+  };
 }
 const rifleDuration = 4.25;
 export const FINISHER_RIFLE = Object.freeze({
@@ -440,6 +522,10 @@ export const FINISHER_BEATS: readonly FinisherBeat[] = Object.freeze([
     shot: "countershot",
   },
   { id: "clash", duration: 4.4, action: 0.85, shot: "clash" },
+  {
+    id: "exchange", duration: FINISHER_EXCHANGE.duration,
+    action: FINISHER_EXCHANGE.cuts[0].hit, shot: "exchange",
+  },
   { id: "arm-cut", duration: 2.2, action: 0.9, shot: "armCut" },
   { id: "ascend", duration: 2.2, action: 1.1, shot: "ascend" },
   { id: "reactor", duration: 3.1, action: 2.3, shot: "reactor" },
@@ -485,10 +571,11 @@ export function samplePlanetAftermath(time: number) {
       PLANET_RUPTURE.forest + 0.1,
       PLANET_RUPTURE.scorch - 0.15,
     ),
+    pov: time >= PLANET_RUPTURE.feet && time < PLANET_RUPTURE.fall,
     death: cinematicProgress(
       time,
-      PLANET_RUPTURE.scorch + 0.25,
-      PLANET_RUPTURE.forestEnd - 0.55,
+      PLANET_RUPTURE.fall,
+      PLANET_RUPTURE.death,
     ),
     grief: cinematicProgress(
       time,
@@ -511,8 +598,8 @@ export function samplePlanetAftermath(time: number) {
 export function samplePlanetSurface(time: number) {
   const dissolve = cinematicProgress(
     time,
-    PLANET_RUPTURE.impact,
-    PLANET_RUPTURE.burning,
+    PLANET_RUPTURE.impact + 0.15,
+    PLANET_RUPTURE.forest - 0.25,
   );
   const dispersal = cinematicProgress(
     time,
@@ -522,6 +609,10 @@ export function samplePlanetSurface(time: number) {
   return {
     dissolve,
     dispersal,
+    rumble: time >= PLANET_RUPTURE.impact && time < PLANET_RUPTURE.burst
+      ? 0.35 + 0.45 * Math.exp(-(time - PLANET_RUPTURE.impact) * 1.8) +
+        0.65 * cinematicProgress(time, PLANET_RUPTURE.burning, PLANET_RUPTURE.burst)
+      : 0,
     crustVisible: dissolve < 1,
     fireVisible: time >= PLANET_RUPTURE.impact && dispersal < 1,
     dustVisible:
@@ -648,52 +739,87 @@ interface MotionKey {
   point: CinematicPoint;
   stop?: boolean;
 }
-const shotTime = (index: number, offset = 0) =>
-  FINISHER_TIMELINE[index].start + offset;
+const shotTime = (shot: FinisherBeat["shot"], offset = 0) =>
+  FINISHER_TIMELINE.find((entry) => entry.beat.shot === shot)!.start +
+  offset * (shot === "exchange" ? FINISHER_EXCHANGE.tempo : 1);
 const heroMotion: MotionKey[] = [
   { at: 0, point: [-14, 0, 0] },
   { at: 0.44, point: [-14.3, -0.15, 0.7] },
   { at: 1.05, point: [-15.2, -1.7, 5.4] },
   { at: 1.85, point: [-13.1, -0.8, 4.1] },
-  { at: shotTime(1), point: [-9.8, 0, 1.2] },
-  { at: shotTime(1, 0.9), point: [-8, 0, 0] },
-  { at: shotTime(1, 1.55), point: [-8.8, 0.35, 1] },
-  { at: shotTime(2), point: [-10.4, 1, 1.8] },
-  { at: shotTime(2, 2.1), point: [-10.9, 1.6, 2] },
-  { at: shotTime(2, 3.3), point: [-10.1, 1.6, 1.4] },
-  { at: shotTime(3), point: [-7.8, 1, 0.5] },
-  { at: shotTime(3, 0.85), point: [-5.9, 0, 0] },
-  { at: shotTime(3, 1.75), point: [-5.65, -0.08, 0.05] },
-  { at: shotTime(3, 3.15), point: [-5.5, -0.1, 0.1] },
-  { at: shotTime(4), point: [-6.3, 0.3, 0.4] },
-  { at: shotTime(4, 0.9), point: [-5, 1, 0.8] },
-  { at: shotTime(5), point: [-2.8, 3.2, 1.2] },
-  { at: shotTime(5, 1.25), point: [-4.8, 10.5, 0.2] },
-  { at: shotTime(6), point: [-8.5, 15.5, -1] },
-  { at: shotTime(6, 2), point: [-9.3, 16.5, -1.5] },
-  { at: shotTime(7), point: [-9, 16, -2], stop: true },
-  { at: shotTime(7, FINISHER_EXECUTION.dash), point: [-9, 16, -2], stop: true },
+  { at: shotTime("parry"), point: [-9.8, 0, 1.2] },
+  { at: shotTime("parry", 0.9), point: [-8, 0, 0] },
+  { at: shotTime("parry", 1.55), point: [-8.8, 0.35, 1] },
+  { at: shotTime("countershot"), point: [-10.4, 1, 1.8] },
+  { at: shotTime("countershot", 2.1), point: [-10.9, 1.6, 2] },
+  { at: shotTime("countershot", 3.3), point: [-10.1, 1.6, 1.4] },
+  { at: shotTime("clash"), point: [-7.8, 1, 0.5] },
+  { at: shotTime("clash", 0.85), point: [-5.9, 0, 0] },
+  { at: shotTime("clash", 1.75), point: [-5.65, -0.08, 0.05] },
+  { at: shotTime("clash", 3.15), point: [-5.5, -0.1, 0.1] },
+  { at: shotTime("exchange"), point: [-6.3, 0.3, 0.4] },
+  { at: shotTime("exchange", 0.46), point: [-3.8, 0, 1] },
+  { at: shotTime("exchange", 0.93), point: [-1, 1, 1.8] },
+  { at: shotTime("exchange", 1.39), point: [1.8, 2, 3] },
+  { at: shotTime("exchange", 1.87), point: [4.1, 2.4, 3.6] },
+  { at: shotTime("exchange", 2.32), point: [5.8, 3, 4.8] },
+  { at: shotTime("exchange", 2.55), point: [5.7, 3, 5.4] },
+  { at: shotTime("exchange", 2.96), point: [3.2, 3.8, 9] },
+  { at: shotTime("exchange", 3.48), point: [-0.5, 1.2, 13] },
+  { at: shotTime("exchange", 4.03), point: [-4.5, 3.5, 10] },
+  { at: shotTime("exchange", 4.35), point: [-6.5, 4.1, 8.5] },
+  { at: shotTime("exchange", 4.8), point: [-12, 6.2, 5] },
+  { at: shotTime("exchange", 5.25), point: [-13, 5, 2.6] },
+  { at: shotTime("exchange", 5.6), point: [-9, 3.2, 1.7] },
+  { at: shotTime("exchange", 6.12), point: [-6.8, 1.8, 0.8] },
+  { at: shotTime("exchange", 6.59), point: [-8.3, 0.6, -0.5] },
+  { at: shotTime("exchange", 7.08), point: [-6.5, 0.3, 0.4] },
+  { at: shotTime("armCut"), point: [-6.3, 0.3, 0.4] },
+  { at: shotTime("armCut", 0.9), point: [-5, 1, 0.8] },
+  { at: shotTime("ascend"), point: [-2.8, 3.2, 1.2] },
+  { at: shotTime("ascend", 1.25), point: [-4.8, 10.5, 0.2] },
+  { at: shotTime("reactor"), point: [-8.5, 15.5, -1] },
+  { at: shotTime("reactor", 2), point: [-9.3, 16.5, -1.5] },
+  { at: shotTime("finalCut"), point: [-9, 16, -2], stop: true },
+  { at: shotTime("finalCut", FINISHER_EXECUTION.dash), point: [-9, 16, -2], stop: true },
 ];
 const enemyMotion: MotionKey[] = [
   { at: 0, point: [14, 1, -2] },
   { at: 0.9, point: [13.5, 1, -2] },
   { at: 1.85, point: [9.5, 0.4, -0.8] },
-  { at: shotTime(1), point: [5.6, 0.1, 0] },
-  { at: shotTime(1, 0.9), point: [3.6, 0, 0] },
-  { at: shotTime(1, 1.55), point: [5.2, 0.25, -0.6] },
-  { at: shotTime(2), point: [12, 1.3, -2] },
-  { at: shotTime(2, 2.1), point: [13, 1.8, -2.3] },
-  { at: shotTime(2, 3.3), point: [14.5, 1.3, -3] },
-  { at: shotTime(3), point: [10.2, 0.8, -0.5] },
-  { at: shotTime(3, 0.85), point: [5.9, 0, 0] },
-  { at: shotTime(3, 1.75), point: [6, -0.1, -0.05] },
-  { at: shotTime(3, 3.15), point: [6.05, -0.08, -0.1] },
-  { at: shotTime(4), point: [6.3, 0, 0] },
-  { at: shotTime(4, 0.9), point: [6.4, 0.1, 0] },
-  { at: shotTime(5), point: [8.7, -0.1, -1.2] },
-  { at: shotTime(6), point: [7.5, 0.1, 0] },
-  { at: shotTime(7), point: [6, 0, 0], stop: true },
-  { at: shotTime(7, FINISHER_EXECUTION.dash), point: [6, 0, 0], stop: true },
+  { at: shotTime("parry"), point: [5.6, 0.1, 0] },
+  { at: shotTime("parry", 0.9), point: [3.6, 0, 0] },
+  { at: shotTime("parry", 1.55), point: [5.2, 0.25, -0.6] },
+  { at: shotTime("countershot"), point: [12, 1.3, -2] },
+  { at: shotTime("countershot", 2.1), point: [13, 1.8, -2.3] },
+  { at: shotTime("countershot", 3.3), point: [14.5, 1.3, -3] },
+  { at: shotTime("clash"), point: [10.2, 0.8, -0.5] },
+  { at: shotTime("clash", 0.85), point: [5.9, 0, 0] },
+  { at: shotTime("clash", 1.75), point: [6, -0.1, -0.05] },
+  { at: shotTime("clash", 3.15), point: [6.05, -0.08, -0.1] },
+  { at: shotTime("exchange"), point: [6.3, 0, 0] },
+  { at: shotTime("exchange", 0.46), point: [8.4, 0.2, 0.4] },
+  { at: shotTime("exchange", 0.93), point: [11, 1, 1] },
+  { at: shotTime("exchange", 1.39), point: [13.8, 2, 2] },
+  { at: shotTime("exchange", 1.87), point: [16.1, 2.6, 2.4] },
+  { at: shotTime("exchange", 2.32), point: [17.6, 3.1, 3.4] },
+  { at: shotTime("exchange", 2.55), point: [17.6, 3, 3] },
+  { at: shotTime("exchange", 2.96), point: [14.7, 4, 4.7] },
+  { at: shotTime("exchange", 3.48), point: [10, 4.2, 5.5] },
+  { at: shotTime("exchange", 4.03), point: [7.8, 3.6, 5.8] },
+  { at: shotTime("exchange", 4.35), point: [5.2, 4, 5.4] },
+  { at: shotTime("exchange", 4.8), point: [10, 6.2, -3.6] },
+  { at: shotTime("exchange", 5.25), point: [8.3, 5, -3.7] },
+  { at: shotTime("exchange", 5.6), point: [3.4, 3.3, 0.7] },
+  { at: shotTime("exchange", 6.12), point: [5.4, 1.9, 0.2] },
+  { at: shotTime("exchange", 6.59), point: [3.7, 0.8, -0.5] },
+  { at: shotTime("exchange", 7.08), point: [5.5, 0.1, 0] },
+  { at: shotTime("armCut"), point: [6.3, 0, 0] },
+  { at: shotTime("armCut", 0.9), point: [6.4, 0.1, 0] },
+  { at: shotTime("ascend"), point: [8.7, -0.1, -1.2] },
+  { at: shotTime("reactor"), point: [7.5, 0.1, 0] },
+  { at: shotTime("finalCut"), point: [6, 0, 0], stop: true },
+  { at: shotTime("finalCut", FINISHER_EXECUTION.dash), point: [6, 0, 0], stop: true },
 ];
 
 // Time-scaled Hermite tangents carry momentum through the editorial cuts.
@@ -711,17 +837,23 @@ function sampleMotion(
     p = (time - a.at) / span,
     p2 = p * p,
     p3 = p2 * p;
-  const tangent = (from: MotionKey, to: MotionKey, axis: number) =>
-    (to.point[axis] - from.point[axis]) / (to.at - from.at);
+  const tangent = (from: MotionKey, at: MotionKey, to: MotionKey, axis: number) => {
+    const incoming = (at.point[axis] - from.point[axis]) / (at.at - from.at);
+    const outgoing = (to.point[axis] - at.point[axis]) / (to.at - at.at);
+    // Brake at a reversal; neighboring keys must not pull a body past its mark.
+    return incoming * outgoing <= 0
+      ? 0
+      : (2 * incoming * outgoing) / (incoming + outgoing);
+  };
   const axis = (i: number) =>
     (2 * p3 - 3 * p2 + 1) * a.point[i] +
     (-2 * p3 + 3 * p2) * b.point[i] +
     (p3 - 2 * p2 + p) *
       span *
-      (index === 1 || a.stop ? 0 : tangent(before, b, i)) +
+      (index === 1 || a.stop ? 0 : tangent(before, a, b, i)) +
     (p3 - p2) *
       span *
-      (index === keys.length - 1 || b.stop ? 0 : tangent(a, after, i));
+      (index === keys.length - 1 || b.stop ? 0 : tangent(a, b, after, i));
   return [axis(0), axis(1), axis(2)];
 }
 
@@ -750,12 +882,28 @@ export function sampleFinisher(beat: FinisherBeat, clock: number) {
   let heroDissolve = 0,
     heroCharge = 0,
     barrage = 0,
-    bladeLock = 0;
+    bladeLock = 0,
+    enemyCrouch = 0;
+  const exchange = beat.shot === "exchange" ? sampleFinisherExchange(clock) : null;
   let heroVisible = true;
   const shot = FINISHER_TIMELINE.find((entry) => entry.beat.id === beat.id);
   if (!shot) throw new RangeError(`Unknown finisher shot: ${beat.id}`);
   let hero = sampleMotion(heroMotion, shot.start + clock);
   let enemy = sampleMotion(enemyMotion, shot.start + clock);
+  const velocity = (keys: readonly MotionKey[]): CinematicPoint => {
+    const beforeTime = Math.max(0, clock - 0.025);
+    const afterTime = Math.min(duration, clock + 0.025);
+    const before = sampleMotion(keys, shot.start + beforeTime);
+    const after = sampleMotion(keys, shot.start + afterTime);
+    const span = Math.max(0.001, afterTime - beforeTime);
+    return [(after[0] - before[0]) / span, (after[1] - before[1]) / span, (after[2] - before[2]) / span];
+  };
+  const travel = exchange ? {
+    hero: velocity(heroMotion),
+    enemy: velocity(enemyMotion),
+    weight: cinematicProgress(clock, 0, 0.22) *
+      (1 - cinematicProgress(clock, duration - 0.25, duration)),
+  } : null;
   const strikeProgress = (move: MeleeStrike) =>
     swordClipTime(clock, MELEE_STRIKES[move].duration, MELEE_STRIKES[move], {
       duration,
@@ -806,29 +954,45 @@ export function sampleFinisher(beat: FinisherBeat, clock: number) {
     enemyPose = clock < 0.5 ? "sideSlash" : clock < 3.65 ? "clash" : "stagger";
     heroPoseProgress = heroPose === "thrust" ? strikeProgress("thrust") : p;
     enemyPoseProgress =
-      enemyPose === "sideSlash" ? strikeProgress("sideSlash") : p;
+      enemyPose === "sideSlash"
+        ? strikeProgress("sideSlash")
+        : enemyPose === "stagger"
+          ? cinematicProgress(clock, 3.65, duration)
+          : p;
     bladeLock =
       cinematicProgress(clock, 0.45, 0.81) *
       (1 - cinematicProgress(clock, 3.2, 3.65));
     heroRoll = -bladeLock * 0.025;
     enemyRoll = bladeLock * 0.035;
     speed = (1 - cinematicProgress(clock, 0.2, 0.7)) * 0.18;
+  } else if (exchange) {
+    heroPose = exchange.heroMove;
+    enemyPose = exchange.enemyMove;
+    heroPoseProgress = exchange.heroProgress;
+    enemyPoseProgress = exchange.enemyProgress;
+    bladeLock = exchange.lock;
+    heroRoll = -exchange.lock * 0.035 - exchange.dodge * 0.18;
+    enemyRoll = exchange.lock * 0.04;
+    speed = 0.12;
   } else if (beat.shot === "armCut") {
     heroPose = "sideSlash";
     enemyPose = clock < action + 0.05 ? "clash" : "stagger";
     heroPoseProgress = strikeProgress("sideSlash");
     enemyPoseProgress = cinematicProgress(clock, action, duration);
     enemyRoll = Math.sin(strike * Math.PI) * 0.09;
+    enemyCrouch = cinematicProgress(clock, action + 0.25, duration - 0.1);
   } else if (beat.shot === "ascend") {
     heroPose = "boost";
-    enemyPose = "stagger";
+    enemyPose = "clash";
+    enemyCrouch = 1;
     heroPoseProgress = 0.15 + p * 0.7;
     enemyPoseProgress = 0.55 + p * 0.45;
     heroRoll = -Math.sin(p * Math.PI) * 0.055;
     speed = Math.sin(p * Math.PI) * 0.2;
   } else if (beat.shot === "reactor") {
     heroPose = "skyCharge";
-    enemyPose = "verdict";
+    enemyPose = "clash";
+    enemyCrouch = 1;
     heroPoseProgress = p;
     enemyPoseProgress = p * 0.65;
     heroCharge = cinematicProgress(clock, 0, duration - 0.15);
@@ -836,8 +1000,9 @@ export function sampleFinisher(beat: FinisherBeat, clock: number) {
     const timing = FINISHER_EXECUTION;
     const charge = cinematicProgress(clock, timing.dash, timing.vanish);
     const arrival = cinematicProgress(clock, timing.appear, timing.cuts);
-    const counter = cinematicProgress(clock, timing.dash + 0.35, timing.gone);
+    const counter = cinematicProgress(clock, timing.dash, timing.appear);
     const recover = cinematicProgress(clock, timing.appear, timing.cuts);
+    enemyCrouch = 1 - cinematicProgress(clock, timing.dash, timing.vanish);
     hero =
       clock < timing.appear
         ? pointMix([-9, 16, -2], [-5, 4, -1], charge ** 1.7)
@@ -896,30 +1061,36 @@ export function sampleFinisher(beat: FinisherBeat, clock: number) {
         ? "defeat"
         : clock >= timing.cuts
           ? "stagger"
-          : clock >= timing.dash && clock < timing.cuts - 0.25
-            ? "thrust"
+          : clock >= timing.dash && clock < timing.cuts
+            ? "orbitalCut"
             : "clash";
     enemyPoseProgress =
       clock >= timing.collapse
         ? cinematicProgress(clock, timing.collapse, duration)
         : clock >= timing.cuts
           ? 0.2 + barrage * 0.6
-          : Math.min(0.98, counter * 0.8 + recover * 0.18);
-    const hitPhase =
-      ((Math.max(0, clock - timing.cuts) / (timing.lastCut - timing.cuts)) *
-        timing.slashes) %
-      1;
+          : enemyPose === "orbitalCut"
+            ? swordClipTime(
+                clock - timing.dash,
+                MELEE_STRIKES.orbitalCut.duration,
+                MELEE_STRIKES.orbitalCut,
+                {
+                  duration: timing.cuts - timing.dash,
+                  start: timing.vanish - timing.dash - 0.08,
+                  end: timing.appear - timing.dash + 0.12,
+                },
+              ) / MELEE_STRIKES.orbitalCut.duration
+            : 0.55;
+    // Sparks retain all forty cuts; the body absorbs them in six weighted reactions.
+    const reaction =
+      (Math.max(0, clock - timing.cuts) / (timing.lastCut - timing.cuts)) * 6;
+    const hitPhase = reaction % 1;
     const hit =
       clock >= timing.cuts && clock < timing.lastCut
-        ? Math.sin(hitPhase * Math.PI) ** 2
+        ? cinematicProgress(hitPhase, 0, 0.18) *
+          (1 - cinematicProgress(hitPhase, 0.18, 1))
         : 0;
-    const side =
-      Math.floor(
-        (Math.max(0, clock - timing.cuts) / (timing.lastCut - timing.cuts)) *
-          timing.slashes,
-      ) % 2
-        ? 1
-        : -1;
+    const side = Math.floor(reaction) % 2 ? 1 : -1;
     const recoil =
       clock >= timing.cuts && clock < timing.collapse
         ? Math.sin(barrage * Math.PI) * 0.055
@@ -929,11 +1100,11 @@ export function sampleFinisher(beat: FinisherBeat, clock: number) {
     enemy[0] += recoil * 2;
     enemy[1] += barrage * 0.8;
     enemy[2] += recoil * 3;
-    enemy[0] += hit * side * 0.32;
-    enemy[1] -= hit * 0.18;
-    enemy[2] += hit * side * 0.28;
-    enemyRoll += hit * side * 0.045;
-    enemyPitch = -hit * 0.06;
+    enemy[0] += hit * side * 0.18;
+    enemy[1] -= hit * 0.09;
+    enemy[2] += hit * side * 0.14;
+    enemyRoll += hit * side * 0.025;
+    enemyPitch = -hit * 0.035;
   }
   return {
     hero,
@@ -953,6 +1124,9 @@ export function sampleFinisher(beat: FinisherBeat, clock: number) {
     barrage,
     speed,
     bladeLock,
+    enemyCrouch,
+    exchange,
+    travel,
     progress: p,
   };
 }

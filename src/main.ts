@@ -1,4 +1,10 @@
 import * as THREE from "three";
+import {
+  prepareEnvironmentComicShading,
+  getComicLookEnabled,
+  setComicLookEnabled,
+  setComicFrameEnabled,
+} from "./core/comicShading.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { createScreenBloom } from "./scripts/global/screenBloom.js";
 import {
@@ -337,6 +343,7 @@ async function warmBehindLoading(
 }
 
 function renderGameScene(scene: THREE.Scene, camera: THREE.Camera) {
+  prepareEnvironmentComicShading(scene);
   if (currentSceneData?.renderSceneWithEffects) {
     currentSceneData.renderSceneWithEffects(renderer, scene, camera);
     currentSceneData.renderCinematicOverlay?.(renderer);
@@ -361,10 +368,7 @@ function renderGameScene(scene: THREE.Scene, camera: THREE.Camera) {
 function renderSceneEffects(scene: THREE.Scene, camera: THREE.Camera) {
   const shouldInvert = currentSceneData?.shouldInvertColors?.() ?? false;
   if (shouldInvert) {
-    renderer.domElement.style.filter = "invert(1)";
     currentSceneData?.consumeInvertFrame?.();
-  } else {
-    renderer.domElement.style.filter = "";
   }
 
   const retroStrength = currentSceneData?.getRetroConsoleStrength?.() ?? 0;
@@ -1241,11 +1245,9 @@ function enterHudScene(id: string) {
       ? "quarters"
       : id === "stage1-storage"
         ? "stealth"
-        : id === "stage2-infiltration"
-          ? "basics"
-          : id === "scene15"
-            ? "flight"
-            : null;
+        : id === "scene15"
+          ? "flight"
+          : null;
   if (key) introduceControls(key, id);
 }
 function updateControlCard(dt: number) {
@@ -1308,6 +1310,9 @@ function renderMinimap(preparing = false) {
     activeSceneId === "scene15" ||
     activeSceneId === "scene16" ||
     activeSceneId === "scene21" ||
+    !!cutsceneManager ||
+    !!deathPresentation ||
+    currentSceneData?.isCinematic?.() ||
     (!preparing && currentSceneData?.hideMinimap?.()) ||
     !activeScene ||
     !currentPlayer
@@ -1329,6 +1334,16 @@ function renderGameplayFrame(
   scene: THREE.Scene,
   camera: THREE.PerspectiveCamera,
 ) {
+  const minigame = isCameraVisit(activeSceneId) ||
+    activeSceneId.startsWith("stage2-") ||
+    activeSceneId === "scene1.2" ||
+    !!currentSceneData?.isMazeActive?.();
+  const comic = getComicLookEnabled() && !minigame;
+  setComicFrameEnabled(!minigame);
+  renderer.domElement.style.filter = [
+    comic ? "contrast(1.07) saturate(1.12)" : "",
+    currentSceneData?.shouldInvertColors?.() ? "invert(1)" : "",
+  ].filter(Boolean).join(" ");
   document.body.classList.toggle(
     "nonplayable-cinematic",
     !!cutsceneManager ||
@@ -2247,7 +2262,7 @@ async function transitionToScene2() {
   if (playLoading) return;
   playLoading = true;
   developerRun = false;
-  const loading = beginCinematicLoading("game");
+  const loading = beginCinematicLoading("prologue");
   try {
     await new Promise<void>((resolve) =>
       requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
@@ -3903,6 +3918,8 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
       .getElementById("pause-display-panel")!
       .classList.toggle("hidden", screen !== "display");
     if (screen === "display") {
+      (document.getElementById("comic-look-toggle") as HTMLInputElement).checked =
+        getComicLookEnabled();
       syncBloomSlider();
       const fpsToggle = document.getElementById(
         "fps-counter-toggle",
@@ -4724,6 +4741,16 @@ function setupSceneQuickMenu() {
     screenBloom.setLevel(bloomSlider.valueAsNumber / 100),
   );
   screenBloom.onChange(syncBloomSlider);
+  const comicToggle = document.getElementById(
+    "comic-look-toggle",
+  ) as HTMLInputElement;
+  const storedComicLook = localStorage.getItem("comicLookEnabled");
+  setComicLookEnabled(storedComicLook === "true");
+  comicToggle.checked = getComicLookEnabled();
+  comicToggle.addEventListener("change", () => {
+    setComicLookEnabled(comicToggle.checked);
+    localStorage.setItem("comicLookEnabled", String(comicToggle.checked));
+  });
   const hideHudToggle = document.getElementById(
     "interface-visibility-toggle",
   ) as HTMLInputElement;
@@ -5153,23 +5180,6 @@ function animate() {
       }
     }
   }
-  if (healthBarEl)
-    healthBarEl.style.display =
-      activeSceneId === "scene1" ||
-      activeSceneId === "prologue1" ||
-      activeSceneId === "scene21"
-        ? "none"
-        : "";
-  if (shieldBarEl)
-    shieldBarEl.style.display =
-      activeSceneId === "scene1" ||
-      activeSceneId === "prologue1" ||
-      activeSceneId === "scene21" ||
-      !currentPlayer ||
-      currentPlayer.getShield() <= 0
-        ? "none"
-        : "";
-
   // Physics
   if (updatePhysics) updatePhysics(delta, isThirdPerson);
   music.update(Math.min(delta, 0.1));
@@ -5191,6 +5201,16 @@ function animate() {
     !!cutsceneManager ||
     !!deathPresentation ||
     !!currentSceneData?.isCinematic?.();
+  const hideVitals =
+    inCutscene ||
+    !currentPlayer ||
+    activeSceneId === "scene1" ||
+    activeSceneId === "prologue1" ||
+    activeSceneId === "scene21";
+  if (healthBarEl) healthBarEl.style.display = hideVitals ? "none" : "";
+  if (shieldBarEl)
+    shieldBarEl.style.display =
+      hideVitals || (currentPlayer?.getShield() ?? 0) <= 0 ? "none" : "";
   const aiming = pistol.isAiming();
   const crosshair = document.getElementById("crosshair");
   if (crosshair) {

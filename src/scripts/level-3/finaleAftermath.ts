@@ -23,6 +23,10 @@ export function createFinaleAftermath(
   reducedMotion: boolean,
   boyAnimations: () => readonly THREE.AnimationClip[],
 ) {
+  const boyRestPosition = boy.position.clone();
+  const boyForward = V(0, 0, 1).applyQuaternion(boy.quaternion).setY(0).normalize();
+  const boyFeet: THREE.Object3D[] = [];
+  const boyPov = { cameraPosition: new THREE.Vector3(), target: new THREE.Vector3() };
   const root = new THREE.Group();
   root.name = "PlanetCollapseAftermath";
   scene.add(root);
@@ -253,6 +257,11 @@ export function createFinaleAftermath(
         throw new Error(
           "The final surface transmission requires Brendan and his DonfromStreets.glb head bone",
         );
+      for (const name of ["foot_l", "foot_r"]) {
+        const foot = boy.getObjectByName(name);
+        if (!foot) throw new Error(`Brendan's feet perspective requires the ${name} bone`);
+        boyFeet.push(foot);
+      }
       const clips = boyAnimations();
       const idle = clips.find((clip) => clip.name === "Idle_Loop");
       const kneel = clips.find((clip) => clip.name === "Fixing_Kneeling");
@@ -397,16 +406,17 @@ export function createFinaleAftermath(
       cockpit.visible = state.cockpit || (pullingBack && cockpitOpacity > 0);
       boy.visible = state.forest;
       headFire.visible =
-        state.forest && phaseTime >= PLANET_RUPTURE.scorch - 0.25;
+        state.forest && !state.pov && phaseTime >= PLANET_RUPTURE.scorch - 0.25;
+      boy.position.copy(boyRestPosition).addScaledVector(boyForward, -state.death * 0.45);
       if (state.forest) {
         burnUniforms.uBurn.value = state.burn;
         burnUniforms.uScorchTime.value = time;
         if (boyMixer && boyIdle && boyKneel && boyDeath) {
-          const deathStart = PLANET_RUPTURE.scorch + 0.25;
+          const deathStart = PLANET_RUPTURE.fall;
           const falling = cinematicProgress(
             phaseTime,
             deathStart,
-            deathStart + 0.3,
+            deathStart + 0.55,
           );
           boyIdle.setEffectiveWeight(1 - state.kneel);
           boyKneel.setEffectiveWeight(state.kneel * (1 - falling));
@@ -417,7 +427,7 @@ export function createFinaleAftermath(
           boyKneel.time = state.kneel * boyKneel.getClip().duration * 0.42;
           const fall = THREE.MathUtils.clamp(
             (phaseTime - deathStart) /
-              (PLANET_RUPTURE.forestEnd - 0.55 - deathStart),
+              (PLANET_RUPTURE.death - deathStart),
             0,
             1,
           );
@@ -518,6 +528,22 @@ export function createFinaleAftermath(
       return boyHead
         ? boyHead.getWorldPosition(out)
         : boy.localToWorld(out.set(0, 1.6, 0));
+    },
+    getBoyGround(out = new THREE.Vector3()) {
+      return boy.getWorldPosition(out);
+    },
+    getBoyPOV() {
+      if (boyHead) boyHead.getWorldPosition(boyPov.cameraPosition);
+      else boy.localToWorld(boyPov.cameraPosition.set(0, 1.1, 0));
+      boyPov.cameraPosition.addScaledVector(boyForward, 0.7).y += 0.25;
+      boyPov.target.set(0, 0, 0);
+      if (boyFeet.length) {
+        for (const foot of boyFeet)
+          boyPov.target.add(foot.getWorldPosition(new THREE.Vector3()));
+        boyPov.target.multiplyScalar(1 / boyFeet.length);
+      } else boy.getWorldPosition(boyPov.target);
+      boyPov.target.addScaledVector(boyForward, 0.18).y += 0.04;
+      return boyPov;
     },
     getPilotFace(out = new THREE.Vector3()) {
       if (!pilotHead) return cockpit.localToWorld(out.set(0, 1.6, -0.2));

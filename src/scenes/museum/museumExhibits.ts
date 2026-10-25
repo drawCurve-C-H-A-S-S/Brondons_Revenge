@@ -2,9 +2,9 @@ import * as THREE from "three";
 import {
   loadBossModel,
   loadDinoModel,
-  loadMCModel,
   loadToolModel,
 } from "../../core/loader.js";
+import { createFinaleMechModel } from "../../scripts/level-3/finaleMechModel.js";
 import { createMothership } from "../../scripts/global/mothership.js";
 import { createEscapeShip } from "../../scripts/items/createEscapeShip.js";
 import { createBloomstick } from "../../scripts/items/createBloomstick.js";
@@ -236,7 +236,7 @@ export async function createDisplayFigure(
       return fit(ship.root, height * 1.5);
     }
     case "bigMech":
-      return fit((await loadMCModel()).scene, height * 1.4);
+      return fit((await createFinaleMechModel("hero")).scene, height * 1.4);
     case "quadShell":
       return fit((await loadToolModel("Enemy_QuadShell")).scene, height);
     case "scavenger":
@@ -274,6 +274,6 @@ export async function createExhibitFigure(
     case "terminal":
       return fit(terminal());
     case "mech":
-      return fit((await loadMCModel()).scene, 1.15);
+      return fit((await createFinaleMechModel("hero")).scene, 1.15);
   }
 }

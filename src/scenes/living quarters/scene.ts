@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { preloadToolModel } from "../../core/loader.js";
+import { addCabinInk, createCabinCelMaterial } from "../../core/comicShading.js";
 import {
   createScenePhysics,
   PHYSICS,
@@ -159,6 +160,36 @@ export function createScene({
   player.disable();
   setStudentCabinAccess(developerAccess);
   const hull = createQuartersHull(scene, physics, progress);
+  const cabinMaterials = new Map<
+    THREE.MeshStandardMaterial,
+    THREE.MeshStandardMaterial
+  >();
+  function shadeCabin(root: THREE.Object3D) {
+    root.traverse((node) => {
+      if (!(node instanceof THREE.Mesh)) return;
+      const convert = (original: THREE.Material) => {
+        if (!(original instanceof THREE.MeshStandardMaterial) ||
+            original.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile)
+          return original;
+        let toon = cabinMaterials.get(original);
+        if (!toon) {
+          toon = createCabinCelMaterial(original);
+          cabinMaterials.set(original, toon);
+        }
+        return toon;
+      };
+      node.material = Array.isArray(node.material)
+        ? node.material.map(convert)
+        : convert(node.material);
+    });
+    addCabinInk(root);
+  }
+  for (const cabin of CABINS) {
+    const shell = scene.getObjectByName(`CabinShell-${cabin.id}`);
+    if (shell) shadeCabin(shell);
+    const door = scene.getObjectByName(`CabinDoor-${cabin.id}`);
+    if (door) shadeCabin(door);
+  }
   const bathroom = createCommunalBathroom(scene, physics);
   const interiors = new Map<CabinId, CabinFurnishings>(),
     pending = new Map<CabinId, Promise<CabinFurnishings>>();
@@ -380,6 +411,7 @@ export function createScene({
             "Living quarters were closed during cabin preparation",
           );
         }
+        shadeCabin(room.root);
         scene.add(room.root);
         try {
           await warmCabin();
@@ -1390,6 +1422,11 @@ export function createScene({
       player.dispose();
       physics.dispose();
       disposeQuartersObject(scene);
+      cabinMaterials.forEach((toon, original) => {
+        toon.dispose();
+        original.dispose();
+      });
+      cabinMaterials.clear();
     },
   };
 }

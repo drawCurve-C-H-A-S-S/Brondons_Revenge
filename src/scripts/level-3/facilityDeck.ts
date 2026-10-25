@@ -2,8 +2,8 @@ import * as THREE from "three";
 import type { createScenePhysics } from "../../helpers/physics/scenePhysics.js";
 
 export function createFacilityDeck(
-  scene: THREE.Scene,
-  physics: ReturnType<typeof createScenePhysics>,
+  scene: THREE.Object3D,
+  physics?: ReturnType<typeof createScenePhysics>,
 ) {
   const MEZZ_Y = 4,
     W = 14,
@@ -236,7 +236,7 @@ export function createFacilityDeck(
       box(group, [w + 0.12, 0.07, 0.07], [0, (side * h) / 2, 0.14], cyan);
       box(group, [0.07, h + 0.12, 0.07], [(side * w) / 2, 0, 0.14], cyan);
     }
-    physics.addBoxFromMesh(cabinet);
+    physics?.addBoxFromMesh(cabinet);
   }
   box(root, [10.6, 2.3, 0.22], [0, 6.5, -D + 0.35], dark);
   box(root, [10.8, 3.6, 0.65], [0, 6, -D + 0.1], pale);
@@ -301,7 +301,7 @@ export function createFacilityDeck(
         red,
       );
     body.updateWorldMatrix(true, false);
-    physics.addBoxFromMesh(body);
+    physics?.addBoxFromMesh(body);
   }
   console(0, -18.8, 0, 9);
   for (const [x, z] of [

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 import { prepareComicEffects } from "../scripts/global/comicEffects.js";
 import { yieldToMainThread } from "./loader.js";
+import { prepareEnvironmentComicShading } from "./comicShading.js";
 
 /** Upload textures and run the first shadow/render programs without advancing the story. */
 export async function prepareSceneRendering(
@@ -10,6 +11,7 @@ export async function prepareSceneRendering(
   camera: THREE.Camera,
   { fogVariants = true }: { fogVariants?: boolean } = {},
 ) {
+  prepareEnvironmentComicShading(scene);
   await prepareComicEffects(scene, renderer);
   const textures = new Set<THREE.Texture>();
   const visibility = new Map<THREE.Object3D, boolean>(),

@@ -109,7 +109,9 @@ until you select Controller or reconnect the controller. Nonstandard devices
 still require calibration before their controls can be enabled.
 The two Controls tabs select the input and show the matching bindings.
 The menu is available during the opening as well as gameplay.
-Scene 1 is the **Main Menu**. Choose **Main Menu** from the pause menu to
+Scene 1 is the **Main Menu**. Its straight blue-and-red **BRONDON'S REVENGE**
+title fades in from a blur with a brief chromatic glitch. It then pulses slowly,
+with "A tale of vengeance" underneath as a subtitle. Choose **Main Menu** from the pause menu to
 return after confirming that no progress will be saved. Returning discards the
 current run and skips the opening camera animation; a fresh page load still
 plays it.
@@ -328,6 +330,10 @@ Browsers without Web Audio report that browser-native looping is being used.
 
 ## Loading and caching
 
+Starting the story uses only the new ship screenshots in the prologue loading
+loop: cabins, stealth bay, cargo, Bloomstick tennis, target range, reactor and
+both rust chambers. The empty surveillance capture is excluded until replaced.
+
 The opening requests **Loading.ogg first**, before model loading. The mothership's
 compatible static surfaces and edge lines are batched, and its first GPU render
 is prepared before the opening camera starts. Character animation preparation
@@ -415,6 +421,24 @@ full-screen overlay:
 
 - **BAM! / PING! / KRAK!** mark damaging hits; bloomstick and laser hits use **ZAP!**.
 - **BOOM!** marks exploding interceptors, eye drones, scramblers and ship components.
+- Scavengers retain the VS screen's stepped toon shading throughout gameplay.
+  QuadShell spider bots outside the facility use the same shading. The winding
+  stone trail has black edge outlines, including its culled instance batches.
+  Eye drones carry a subtle blue emissive tint matching ballistic breakable blocks,
+  while retaining their textures and existing warning-light colours.
+  Ordinary opaque environment materials throughout the game use the crew cabins'
+  lit cel shading, cool blue-purple shadows and subtle black structural ink
+  edges. Characters, enemies, vehicles, screens and custom shader effects retain
+  their existing styles. Newly added environment props receive the same treatment
+  before rendering. Brondon's animated silhouette has a stronger two-pixel outline.
+  Shared cel and outline GLSL lives under `src/shaders/frag` and `src/shaders/vert`,
+  imported by `src/core/comicShading.ts`.
+  **Display > Comic Look** toggles the environment treatment, added character
+  outlines and a restrained contrast/saturation boost; it defaults to off and
+  saves the player's preference.
+  Real lighting, shadows and material detail remain visible beneath the cel bands.
+  The minigame stage, puzzle camera feeds and dedicated minigame views bypass this
+  treatment and its outlines, regardless of the Display preference.
 - **CLANK!** marks robot shutdowns and takedowns.
 - Small, translucent **PEW!** callouts appear beside enemy laser muzzles.
 
@@ -1081,6 +1105,20 @@ blows clear, the students enter their mech one at a time, and the shuttle recall
 from its Scene 17 jungle parking spot to morph into Prime Frame. A comic VS
 screen introduces the fight; there are no generated platforms under the mechs.
 After the transformations, dusk deepens into a moonlit, starry nighttime rooftop.
+Both combat frames use `mechs.glb` armour bound to independent copies of the
+Subject combat rig, with articulated hands and weapon grips. Only Final Verdict
+has wrist bridges to fill its hand gaps.
+Prime Frame retains its original forearm and wrist-crossing armour faces; only
+the original hand geometry beyond the wrist is removed, with no added filler.
+Using the same rig avoids twisting the hero armour around MC's different bind
+pose; combat clips are selected for the actual rig. Prime Frame keeps
+the asset's authored purple materials instead of the procedural industrial armour
+shader; Final Verdict uses a softer red emissive finish. Their swords, rifles and
+scabbards follow their armour palette. Assembly, fading slash marks and the final
+dissolve remain available without replacing the model's surface materials.
+The original armour's hand-end geometry is trimmed at the wrists so it cannot
+overlap the articulated replacement hands. Both frames use Brondon's two-tone
+shadow shading, retaining the authored palette and Final Verdict's soft red glow.
 
 Use **A / D** to move and **J** to swing the reactor blade. The free Standard
 animations retain their complete anticipation, contact and recovery at their

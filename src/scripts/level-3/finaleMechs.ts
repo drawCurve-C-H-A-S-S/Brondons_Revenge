@@ -1,9 +1,6 @@
 import * as THREE from "three";
-import {
-  loadMCModel,
-  loadSubjectModel,
-  loadToolModel,
-} from "../../core/loader.js";
+import { applyPlayerCelShading, loadToolModel } from "../../core/loader.js";
+import { createFinaleMechModel } from "./finaleMechModel.js";
 import {
   loadCombatAnimationsForRig,
   preloadCombatAnimations,
@@ -56,13 +53,14 @@ export interface MechAsset {
   animations?: THREE.AnimationClip[];
   bones?: MechBoneMap;
   armored?: boolean;
+  authoredMaterials?: boolean;
   ownership?: "owned" | "shared";
   sockets?: Partial<Record<"sword" | "gun" | "chest", string>>;
 }
 export type MechFactory = () => Promise<MechAsset>;
 export const DEFAULT_MECH_FACTORIES: Record<MechSide, MechFactory> = {
-  hero: async () => ({ ...(await loadMCModel()), ownership: "owned" }),
-  enemy: async () => ({ ...(await loadSubjectModel()), ownership: "owned" }),
+  hero: () => createFinaleMechModel("hero"),
+  enemy: () => createFinaleMechModel("enemy"),
 };
 
 const clamp = THREE.MathUtils.clamp;
@@ -142,7 +140,7 @@ export function createFinaleMech(
   const shieldCenter = new THREE.Vector3();
   const previousPose = new Map<
     THREE.Object3D,
-    { rotation: THREE.Quaternion; position: THREE.Vector3 }
+    { rotation: THREE.Quaternion; position: THREE.Vector3; scale: THREE.Vector3 }
   >();
   const sampledPose: Array<{
     bone: THREE.Bone;
@@ -297,12 +295,42 @@ export function createFinaleMech(
     normalized = normalizeFinaleActor(model, MECH_HEIGHT);
     baseY = normalized.position.y;
     root.add(normalized);
-    model.traverse((node) => {
-      if (node instanceof THREE.Mesh) {
-        node.material = skin.material;
+    if (asset.authoredMaterials) {
+      const materials = new Set<THREE.MeshStandardMaterial>();
+      model.traverse((node) => {
+        if (!(node instanceof THREE.Mesh)) return;
+        for (const material of Array.isArray(node.material)
+          ? node.material
+          : [node.material]) {
+          if (!(material instanceof THREE.MeshStandardMaterial))
+            throw new Error(`${root.name} requires PBR materials for its authored finish`);
+          materials.add(material);
+        }
         node.customDepthMaterial = skin.depth;
-      }
-    });
+      });
+      for (const material of materials) skin.finishAuthoredMaterial(material);
+      applyPlayerCelShading(model, true);
+      const plate = [...materials].find((material) => material.name === "platelight");
+      const gem = [...materials].find((material) => material.name === "gemlight");
+      if (!plate || !gem)
+        throw new Error("The finale mech is missing its plate or gem palette");
+      swordMetal.color.copy(plate.emissive).lerp(new THREE.Color(0xffffff), 0.25);
+      swordMetal.emissive.copy(plate.emissive);
+      swordMetal.emissiveIntensity = 0.12;
+      bladeMaterial.color.copy(plate.emissive).lerp(new THREE.Color(0xffffff), 0.5);
+      bladeMaterial.emissive.copy(plate.emissive);
+      cyan.color.copy(plate.emissive);
+      orange.color.copy(gem.emissive);
+      sheath.material = swordMetal;
+      sheath.customDepthMaterial = undefined;
+    } else {
+      model.traverse((node) => {
+        if (node instanceof THREE.Mesh) {
+          node.material = skin.material;
+          node.customDepthMaterial = skin.depth;
+        }
+      });
+    }
     animator = createMechAnimator(model, asset.bones);
     nativeMixer = new THREE.AnimationMixer(model);
     for (const clip of asset.animations ?? [])
@@ -366,8 +394,8 @@ export function createFinaleMech(
     rifle.scene.position.y = -0.08 * rifleScale;
     rifle.scene.traverse((node) => {
       if (node instanceof THREE.Mesh) {
-        node.material = skin.material;
-        node.customDepthMaterial = skin.depth;
+        node.material = asset.authoredMaterials ? swordMetal : skin.material;
+        node.customDepthMaterial = asset.authoredMaterials ? undefined : skin.depth;
         node.castShadow = node.receiveShadow = true;
       }
     });
@@ -430,6 +458,7 @@ export function createFinaleMech(
     bone: THREE.Object3D,
     axis: THREE.Vector3,
     target: THREE.Vector3,
+    maxTwist = Infinity,
   ) {
     weapon.getWorldPosition(weaponOrigin);
     desiredDirection.copy(target).sub(weaponOrigin);
@@ -442,6 +471,14 @@ export function createFinaleMech(
       weaponDirection,
       desiredDirection.normalize(),
     );
+    // Cap how far the wrist can crank off its rest pose so carrying the blade
+    // never snaps into anatomically impossible angles. Full freedom is kept for
+    // clash/drive aim where the blade must land on an exact contact line.
+    if (Number.isFinite(maxTwist)) {
+      const twist = 2 * Math.acos(clamp(Math.abs(aimRotation.w), 0, 1));
+      if (twist > maxTwist)
+        aimRotation.slerp(new THREE.Quaternion(), maxTwist / twist);
+    }
     bone.getWorldQuaternion(handWorld).premultiply(aimRotation);
     if (!bone.parent)
       throw new Error(`${bone.name} needs a parent for its weapon socket`);
@@ -449,10 +486,18 @@ export function createFinaleMech(
     bone.quaternion.copy(parentWorld.invert().multiply(handWorld));
     root.updateMatrixWorld(true);
   }
-  function pointSwordAt(target: THREE.Vector3) {
+  function pointSwordAt(target: THREE.Vector3, maxTwist = Infinity) {
     if (!swordBone || gunHeld) return;
-    aimHand(sword, swordBone, new THREE.Vector3(0, 1, 0), target);
+    aimHand(sword, swordBone, new THREE.Vector3(0, 1, 0), target, maxTwist);
     attachWeapon(sword, swordBone, swordOffset, swordGrip);
+  }
+  function blendBladeDirection(from: THREE.Vector3, to: THREE.Vector3, weight: number) {
+    const start = from.clone().normalize();
+    const end = to.clone().normalize();
+    if (start.lengthSq() < 0.001) return end;
+    if (end.lengthSq() < 0.001) return start;
+    const turn = new THREE.Quaternion().setFromUnitVectors(start, end);
+    return start.applyQuaternion(new THREE.Quaternion().slerp(turn, weight));
   }
   function driveBlade(
     grip: THREE.Vector3,
@@ -463,16 +508,20 @@ export function createFinaleMech(
     if (!animator || !swordBone) return;
     if (transition && poseBlend < 1) {
       grip.lerpVectors(bladeEntry.grip, grip.clone(), poseBlend);
-      direction
-        .lerpVectors(bladeEntry.direction, direction.clone(), poseBlend)
-        .normalize();
+      direction.copy(blendBladeDirection(bladeEntry.direction, direction, poseBlend));
     }
     const target = root.localToWorld(grip.clone());
     const look = root.localToWorld(grip.clone().addScaledVector(direction, 20));
+    const armPose = [animator.slots.rightArm, animator.slots.rightElbow, swordBone]
+      .filter((bone): bone is THREE.Object3D => !!bone)
+      .map((bone) => ({ bone, rotation: bone.quaternion.clone() }));
     for (let pass = 0; pass < 4; pass++) {
       attachWeapon(sword, swordBone, swordOffset, swordGrip);
       const palm = swordBone.getWorldPosition(new THREE.Vector3());
       const correction = sword.getWorldPosition(new THREE.Vector3()).sub(palm);
+      // Refine the grip offset from the same pose; do not wind up the wrist each pass.
+      for (const entry of armPose) entry.bone.quaternion.copy(entry.rotation);
+      root.updateMatrixWorld(true);
       animator.reach(
         "right",
         target.clone().sub(correction),
@@ -637,14 +686,12 @@ export function createFinaleMech(
       const localDirection = bladeDirection
         .clone()
         .applyQuaternion(root.getWorldQuaternion(rootRotation).invert());
-      const direction = up
-        .clone()
-        .applyQuaternion(sword.quaternion)
-        .lerp(localDirection, weight)
-        .normalize();
+      const direction = blendBladeDirection(
+        up.clone().applyQuaternion(sword.quaternion), localDirection, weight,
+      );
       driveBlade(grip, direction, false, false);
-      if (weight < 0.99) return;
-      for (let pass = 0; pass < 6; pass++) {
+      const alignment = cinematicProgress(weight, 0.15, 0.95);
+      for (let pass = 0; pass < 3; pass++) {
         const worldDirection = edge
           .clone()
           .sub(sword.getWorldPosition(new THREE.Vector3()))
@@ -659,14 +706,21 @@ export function createFinaleMech(
           new THREE.Matrix4().makeBasis(width, worldDirection, depth),
         );
         orientation.premultiply(root.getWorldQuaternion(rootRotation).invert());
+        orientation.slerpQuaternions(sword.quaternion, orientation.clone(), alignment);
         orientWeapon(sword, swordBone, orientation, swordOffset, swordGrip);
       }
-      const support = sword.localToWorld(new THREE.Vector3(0, -0.5, 0));
-      animator.reach(
-        "left",
-        support,
-        root.localToWorld(new THREE.Vector3(5, 9, side * 0.4)),
-      );
+      const supportHand = animator.slots.leftHand;
+      if (supportHand) {
+        const support = supportHand.getWorldPosition(new THREE.Vector3()).lerp(
+          sword.localToWorld(new THREE.Vector3(0, -0.65, 0)),
+          cinematicProgress(weight, 0.08, 0.9),
+        );
+        animator.reach(
+          "left",
+          support,
+          root.localToWorld(new THREE.Vector3(5, 9, 2)),
+        );
+      }
       root.updateMatrixWorld(true);
     },
     pose(
@@ -678,6 +732,7 @@ export function createFinaleMech(
       effectTime = time,
       custom = false,
       sequence = "",
+      travel?: { velocity: THREE.Vector3; clock: number; weight: number },
     ) {
       if (!animator || !nativeMixer || !normalized || !model) return;
       const motion = Math.hypot(forwardMotion, liftMotion);
@@ -709,16 +764,18 @@ export function createFinaleMech(
           move === "verdict" ||
           move === "bomb" ||
           (move === "missiles" && !sampleRifleSequence(time).firing));
-      const moveKey = `${poseMove}-${clip?.name ?? "procedural"}-${sequence}`;
+      const sustained = custom && (move === "skyCharge" || move === "reactor" || move === "afterCut");
+      const moveKey = `${poseMove}-${clip?.name ?? "procedural"}-${sustained ? "hold" : sequence}`;
       if (previousMove && previousMove !== moveKey) {
         previousPose.clear();
-        for (const bone of Object.values(animator.slots))
-          if (bone) {
-            previousPose.set(bone, {
-              rotation: bone.quaternion.clone(),
-              position: bone.position.clone(),
-            });
-          }
+        // Twist bones and fingers must crossfade with the main joints.
+        for (const { bone } of sampledPose) {
+          previousPose.set(bone, {
+            rotation: bone.quaternion.clone(),
+            position: bone.position.clone(),
+            scale: bone.scale.clone(),
+          });
+        }
         bladeEntry.grip.copy(sword.position);
         bladeEntry.direction.copy(up).applyQuaternion(sword.quaternion);
         blendStart = effectTime;
@@ -775,6 +832,12 @@ export function createFinaleMech(
                           clip.duration
                         : clamp(time / Math.max(0.01, duration), 0, 1) *
                           clip.duration;
+        if (custom && (move === "skyCharge" || move === "reactor")) {
+          nativeAction.time = clip.duration * 0.35;
+        } else if (custom && (move === "evade" || move === "boost")) {
+          const flight = clamp(time / Math.max(duration, 0.01), 0, 1);
+          nativeAction.time = clip.duration * (0.35 + flight * 0.2);
+        }
         nativeAction.paused = true;
         nativeMixer.update(0);
       } else {
@@ -813,7 +876,15 @@ export function createFinaleMech(
           : THREE.MathUtils.smootherstep(
               effectTime - blendStart,
               0,
-              custom ? 0.14 : 0.13,
+              custom
+                ? sequence.includes("-exchange-")
+                  ? isMeleeStrike(move) || move === "clash" ? 0.14 : 0.24
+                  : move === "stagger" || isMeleeStrike(move)
+                    ? 0.16
+                    : sustained
+                      ? 0.32
+                      : 0.24
+                : 0.13,
             );
       poseBlend = blend;
       if (blend < 1)
@@ -828,6 +899,7 @@ export function createFinaleMech(
             bone.position.clone(),
             blend,
           );
+          bone.scale.lerpVectors(previous.scale, bone.scale.clone(), blend);
         }
       if (!sampling)
         animator.perform(
@@ -837,6 +909,12 @@ export function createFinaleMech(
           forwardMotion,
           liftMotion,
         );
+      if (travel && !sampling) {
+        const localVelocity = travel.velocity.clone().applyQuaternion(
+          root.getWorldQuaternion(rootRotation).invert(),
+        );
+        animator.travel(localVelocity, travel.clock, travel.weight);
+      }
       root.updateMatrixWorld(true);
       const head = animator.slots.head;
       if (move === "guard" && head?.parent && socketRest.has(head)) {
@@ -904,7 +982,7 @@ export function createFinaleMech(
         aimGripLocal.x = sign * 1.3;
         gunHolster.x = sign * 1.7;
         const gunPole = root.localToWorld(
-          new THREE.Vector3(sign * 6, 11, -0.5),
+          new THREE.Vector3(sign * 6.5, 8.4, 2.8),
         );
         attachWeapon(scabbard, chestBone, swordHolster, swordHolsterGrip);
         sheathPosition.copy(scabbard.position);
@@ -914,10 +992,11 @@ export function createFinaleMech(
             .copy(rifleEntry.grip)
             .lerp(sheathPosition, sequence.sheath);
           stowTarget.y += Math.sin(sequence.sheath * Math.PI) * 2;
-          const direction = rifleEntry.direction
-            .clone()
-            .lerp(up.clone().applyQuaternion(sheathRotation), sequence.sheath)
-            .normalize();
+          const direction = blendBladeDirection(
+            rifleEntry.direction,
+            up.clone().applyQuaternion(sheathRotation),
+            sequence.sheath,
+          );
           driveBlade(stowTarget, direction);
           const retract =
             1 -
@@ -936,7 +1015,11 @@ export function createFinaleMech(
         } else if (time < RIFLE_SEQUENCE.ready) {
           const p = sequence.shoulderToAim;
           drawTarget.copy(gunMountPosition).lerp(aimGripLocal, p);
-          drawTarget.y += Math.sin(p * Math.PI) * 4.2;
+          // Lift just above the shoulder line and sweep forward instead of arcing
+          // over the crown, so the rifle settles into the cheek rather than
+          // reading as an arm reaching behind the head.
+          drawTarget.y += Math.sin(p * Math.PI) * 1.1;
+          drawTarget.z += Math.sin(p * Math.PI) * 1.5;
         } else if (time < RIFLE_SEQUENCE.return) {
           drawTarget.copy(aimGripLocal);
           const recoil = sequence.firing
@@ -950,7 +1033,8 @@ export function createFinaleMech(
           drawTarget
             .copy(aimGripLocal)
             .lerp(gunMountPosition, sequence.returning);
-          drawTarget.y += Math.sin(sequence.returning * Math.PI) * 4.2;
+          drawTarget.y += Math.sin(sequence.returning * Math.PI) * 1.1;
+          drawTarget.z += Math.sin(sequence.returning * Math.PI) * 1.5;
         }
         if (time >= RIFLE_SEQUENCE.sheath && time < RIFLE_SEQUENCE.holstered) {
           animator.reach(
@@ -1002,11 +1086,11 @@ export function createFinaleMech(
           stowTarget.y += Math.sin(sequence.swordReturn * Math.PI) * 2;
           driveBlade(
             stowTarget,
-            up
-              .clone()
-              .applyQuaternion(sheathRotation)
-              .lerp(rifleEntry.direction, sequence.swordReturn)
-              .normalize(),
+            blendBladeDirection(
+              up.clone().applyQuaternion(sheathRotation),
+              rifleEntry.direction,
+              sequence.swordReturn,
+            ),
           );
           blade.scale.y =
             leftEdge.scale.y =
@@ -1029,6 +1113,11 @@ export function createFinaleMech(
           !shielded &&
             (move === "slash" || move === "cleave" || move === "overdrive"),
         );
+      } else if (custom && (move === "evade" || move === "boost")) {
+        driveBlade(
+          new THREE.Vector3(-3.6, 9.2, 2.4),
+          new THREE.Vector3(-0.22, -0.35, -0.91).normalize(),
+        );
       } else if (move === "skyCharge" || move === "reactor") {
         const rise = cinematicProgress(
           time / Math.max(duration, 0.01),
@@ -1036,8 +1125,8 @@ export function createFinaleMech(
           0.55,
         );
         driveBlade(
-          new THREE.Vector3(-0.6, 10 + rise * 4.5, 1.7),
-          new THREE.Vector3(0, 1, 0.015),
+          new THREE.Vector3(-1.8 + rise, 11.6 + rise * 3.5, 3.5 - rise * 0.5),
+          new THREE.Vector3(-0.04, 1, 0.08).normalize(),
           true,
         );
       } else if (move === "bomb") {
@@ -1091,6 +1180,7 @@ export function createFinaleMech(
               .clone()
               .addScaledVector(weaponDirection.normalize(), 20),
           ),
+          0.85,
         );
       }
       if (shielded || move === "guard") {
@@ -1113,6 +1203,18 @@ export function createFinaleMech(
       }
       skin.update(root, effectTime, build, damage, dissolve);
       root.updateMatrixWorld(true);
+    },
+    applyCrouch(weight: number) {
+      if (!animator || !normalized || weight <= 0) return;
+      const amount = clamp(weight, 0, 1);
+      animator.crouch(amount);
+      normalized.position.y -= MECH_HEIGHT * 0.15 * amount;
+      root.updateMatrixWorld(true);
+      if (swordBone) attachWeapon(sword, swordBone, swordOffset, swordGrip);
+      if (chestBone) {
+        attachWeapon(scabbard, chestBone, swordHolster, swordHolsterGrip);
+        if (!gunHeld) attachWeapon(gun, chestBone, gunHolster, gunHolsterGrip);
+      }
     },
     watch(target: THREE.Vector3, weight: number) {
       const head = animator?.slots.head;

@@ -12,26 +12,25 @@ import { FACILITY } from "../global/facilityArchitecture.js";
 export const FACILITY_OFFICE = Object.freeze({
   floor: FACILITY.officeFloor,
   front: 9,
-  tableZ: 0,
+  tableZ: 2.4,
+  tableWidth: 10.6,
+  tableDepth: 2.2,
+  chairSetback: 0.18,
 });
-export const FACILITY_OFFICE_SEATS = [
-  [-3.5, FACILITY_OFFICE.tableZ],
-  [-1.8, FACILITY_OFFICE.tableZ - 2.4],
-  [1.8, FACILITY_OFFICE.tableZ - 2.4],
-  [3.5, FACILITY_OFFICE.tableZ],
-  [0, FACILITY_OFFICE.tableZ + 2.5],
-].map(([x, z]) =>
+export const FACILITY_OFFICE_SEATS = [-4.2, -2.1, 0, 2.1, 4.2].map((x) =>
   Object.freeze({
     x,
-    z,
-    yaw: Math.atan2(-x, FACILITY_OFFICE.tableZ - z),
+    z: FACILITY_OFFICE.tableZ - 2.2,
+    yaw: 0,
   }),
 );
 
 export function placeFacilityOfficeChair(chair: THREE.Group, index: number) {
   const seat = FACILITY_OFFICE_SEATS[index];
   fitRoomProp(chair, 0.96, 0.8, 0.9, seat.yaw);
-  chair.position.add(new THREE.Vector3(seat.x, FACILITY_OFFICE.floor, seat.z));
+  chair.position.add(new THREE.Vector3(
+    seat.x, FACILITY_OFFICE.floor, seat.z - FACILITY_OFFICE.chairSetback,
+  ));
   chair.name = `FacilityOfficeChair${index + 1}`;
 }
 
@@ -59,26 +58,16 @@ export function alignFacilityOfficeStudent(
   return model.position.y;
 }
 
-export function createFacilityOffice(
-  scene: THREE.Scene,
-  physics: ReturnType<typeof createScenePhysics>,
-  loadChair = loadToolModel,
-  loadStudent = loadSubjectModel,
-) {
+type OfficePhysics = ReturnType<typeof createScenePhysics>;
+
+export function createFacilityOfficeGlazing(physics?: OfficePhysics) {
   const root = new THREE.Group();
-  root.name = "FacilityGlassOffice";
-  scene.add(root);
-  const { floor, front, tableZ } = FACILITY_OFFICE;
-  const peekPoint = new THREE.Vector3(0, floor + 1.55, front + 1.1);
-  const tablePoint = new THREE.Vector3(0, floor + 1.1, tableZ);
+  root.name = "FacilityOfficeGlazing";
+  const { floor, front } = FACILITY_OFFICE;
   const metal = new THREE.MeshStandardMaterial({
     color: 0x253e48,
     metalness: 0.65,
     roughness: 0.35,
-  });
-  const wood = new THREE.MeshStandardMaterial({
-    color: 0x925d3f,
-    roughness: 0.55,
   });
   const glass = new THREE.MeshPhysicalMaterial({
     color: 0xc5e8ed,
@@ -89,7 +78,7 @@ export function createFacilityOffice(
     side: THREE.DoubleSide,
     depthWrite: false,
   });
-  const bodies: ReturnType<typeof physics.addBox>[] = [];
+  const bodies: ReturnType<OfficePhysics["addBox"]>[] = [];
   function box(
     name: string,
     size: [number, number, number],
@@ -102,7 +91,7 @@ export function createFacilityOffice(
     mesh.position.set(...at);
     mesh.castShadow = mesh.receiveShadow = material !== glass;
     root.add(mesh);
-    if (solid) bodies.push(physics.addBoxFromMesh(mesh));
+    if (solid && physics) bodies.push(physics.addBoxFromMesh(mesh));
     return mesh;
   }
   // The room uses the existing exterior walls; only the atrium edge is glazed.
@@ -147,15 +136,51 @@ export function createFacilityOffice(
     [-1.2, floor + 1.1, front + 0.09],
     metal,
   );
-  box(
-    "OfficeMeetingTable",
-    [5.6, 0.16, 3.2],
-    [0, floor + 0.84, tableZ],
-    wood,
-    true,
+  return { root, bodies };
+}
+
+export function createFacilityOfficeTable(physics?: OfficePhysics) {
+  const root = new THREE.Group();
+  root.name = "FacilityOfficeMeetingFurniture";
+  const { floor, tableZ, tableWidth, tableDepth } = FACILITY_OFFICE;
+  const wood = new THREE.MeshStandardMaterial({ color: 0x925d3f, roughness: 0.55 });
+  const metal = new THREE.MeshStandardMaterial({
+    color: 0x253e48, metalness: 0.65, roughness: 0.35,
+  });
+  const tabletop = new THREE.Mesh(
+    new THREE.BoxGeometry(tableWidth, 0.16, tableDepth), wood,
   );
-  for (const x of [-2.1, 2.1])
-    box("OfficeTableLeg", [0.22, 0.76, 2.3], [x, floor + 0.38, tableZ], metal);
+  tabletop.name = "OfficeMeetingTable";
+  tabletop.position.set(0, floor + 0.84, tableZ);
+  tabletop.castShadow = tabletop.receiveShadow = true;
+  root.add(tabletop);
+  const bodies = physics ? [physics.addBoxFromMesh(tabletop)] : [];
+  for (const x of [-tableWidth * 0.37, tableWidth * 0.37]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.76, 1.6), metal);
+    leg.name = "OfficeTableLeg";
+    leg.position.set(x, floor + 0.38, tableZ);
+    leg.castShadow = leg.receiveShadow = true;
+    root.add(leg);
+  }
+  return { root, bodies };
+}
+
+export function createFacilityOffice(
+  scene: THREE.Scene,
+  physics: OfficePhysics,
+  loadChair = loadToolModel,
+  loadStudent = loadSubjectModel,
+) {
+  const root = new THREE.Group();
+  root.name = "FacilityGlassOffice";
+  scene.add(root);
+  const { floor, front, tableZ } = FACILITY_OFFICE;
+  const peekPoint = new THREE.Vector3(0, floor + 1.55, front + 1.1);
+  const tablePoint = new THREE.Vector3(0, floor + 1.25, FACILITY_OFFICE_SEATS[2].z);
+  const glazing = createFacilityOfficeGlazing(physics);
+  const table = createFacilityOfficeTable(physics);
+  root.add(glazing.root, table.root);
+  const bodies = [...glazing.bodies, ...table.bodies];
   const light = new THREE.PointLight(0xffe2bb, 30, 20);
   light.position.set(0, 7.4, tableZ);
   root.add(light);

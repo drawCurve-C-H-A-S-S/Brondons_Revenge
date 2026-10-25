@@ -1127,7 +1127,7 @@ export function createScene({
     if (revealTime >= 0) {
       revealTime += dt;
       applyPeekCamera();
-      if (revealTime >= 3) message("Sudoers 5: He's here?", 0.5);
+      if (revealTime >= 3) message("Sudoers 5: So you've come, professor.", 0.5);
       if (revealTime >= 6) {
         finished = true;
         onFinished({

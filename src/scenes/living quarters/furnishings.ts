@@ -43,7 +43,7 @@ export function disposeQuartersObject(root: THREE.Object3D) {
     textures = new Set<THREE.Texture>();
   root.traverse((node) => {
     if (node instanceof THREE.SkinnedMesh) node.skeleton.dispose();
-    if (!(node instanceof THREE.Mesh)) return;
+    if (!(node instanceof THREE.Mesh || node instanceof THREE.LineSegments)) return;
     geometries.add(node.geometry);
     for (const material of Array.isArray(node.material)
       ? node.material

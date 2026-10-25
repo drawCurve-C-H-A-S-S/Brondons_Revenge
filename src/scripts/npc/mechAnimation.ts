@@ -522,15 +522,73 @@ export function createMechAnimator(
     from: THREE.Vector3,
     to: THREE.Vector3,
   ) {
+    if (from.lengthSq() < 1e-10 || to.lengthSq() < 1e-10) return;
     worldDelta.setFromUnitVectors(from.normalize(), to.normalize());
     bone.getWorldQuaternion(worldRotation).premultiply(worldDelta);
+    parentRotation.identity();
     bone.parent?.getWorldQuaternion(parentRotation);
     bone.quaternion.copy(parentRotation.invert().multiply(worldRotation));
     model.updateMatrixWorld(true);
   }
+  const crouchingPose: RigPose = {
+    hips: [0.1, 0, 0],
+    spine: [0.26, -0.08, 0],
+    spineUpper: [0.08, 0, 0],
+    head: [-0.04, 0.08, 0],
+    leftLeg: [-0.9, 0, 0.2],
+    rightLeg: [-0.82, 0, -0.2],
+    leftKnee: [1.3, 0, 0],
+    rightKnee: [1.22, 0, 0],
+    leftFoot: [-0.4, 0, 0],
+    rightFoot: [-0.4, 0, 0],
+  };
+  const poseRotation = new THREE.Quaternion();
   return {
     slots: sampler.slots,
     animations: [...clips.values()],
+    crouch(weight: number) {
+      const blend = clamp(weight, 0, 1);
+      for (const entry of sampler.entries) {
+        const angles = crouchingPose[entry.slot];
+        if (!angles) continue;
+        poseRotation.copy(entry.rest);
+        for (let axis = 0; axis < 3; axis++) {
+          worldDelta.setFromAxisAngle(entry.axes[axis], angles[axis]);
+          poseRotation.premultiply(worldDelta);
+        }
+        entry.bone.quaternion.slerp(poseRotation, blend);
+      }
+      model.updateMatrixWorld(true);
+    },
+    travel(velocity: THREE.Vector3, time: number, weight: number) {
+      const forward = clamp(velocity.z / 12, -1, 1);
+      const lateral = clamp(velocity.x / 10, -1, 1);
+      const lift = clamp(velocity.y / 8, -1, 1);
+      const motion = clamp(velocity.length() / 10, 0, 1);
+      const stride = Math.sin(time * 5.2) * motion * 0.8;
+      const pose: RigPose = {
+        hips: [forward * 0.12, lateral * 0.08, -lateral * 0.07],
+        leftLeg: [-0.22 + stride * 0.36 - forward * 0.18, lateral * 0.12, 0.14],
+        rightLeg: [-0.12 - stride * 0.32 + forward * 0.12, lateral * 0.12, -0.14],
+        leftKnee: [0.34 + Math.max(0, -stride) * 0.65 + Math.max(0, lift) * 0.25, 0, 0],
+        rightKnee: [0.3 + Math.max(0, stride) * 0.65 + Math.max(0, lift) * 0.2, 0, 0],
+        leftFoot: [-0.14 - Math.max(0, -stride) * 0.2, 0, 0],
+        rightFoot: [-0.12 - Math.max(0, stride) * 0.2, 0, 0],
+      };
+      // The sampled sword action owns the arms; locomotion supplies hips and leg recovery.
+      const blend = clamp(weight, 0, 1) * motion * 0.55;
+      for (const entry of sampler.entries) {
+        const angles = pose[entry.slot];
+        if (!angles) continue;
+        poseRotation.copy(entry.rest);
+        for (let axis = 0; axis < 3; axis++) {
+          worldDelta.setFromAxisAngle(entry.axes[axis], angles[axis]);
+          poseRotation.premultiply(worldDelta);
+        }
+        entry.bone.quaternion.slerp(poseRotation, blend);
+      }
+      model.updateMatrixWorld(true);
+    },
     perform(
       move: MechPoseName,
       time: number,
@@ -632,15 +690,23 @@ export function createMechAnimator(
       const upperLength = a.distanceTo(b),
         lowerLength = b.distanceTo(c);
       direction.copy(target).sub(a);
+      if (upperLength < 1e-5 || lowerLength < 1e-5 || direction.lengthSq() < 1e-10)
+        return;
+      // Leave a small bend at either reach limit so elbows cannot lock and flip.
+      const bendMargin = Math.min(upperLength, lowerLength) * 0.03;
       const distance = clamp(
         direction.length(),
-        Math.abs(upperLength - lowerLength) + 0.001,
-        upperLength + lowerLength - 0.001,
+        Math.abs(upperLength - lowerLength) + bendMargin,
+        upperLength + lowerLength - bendMargin,
       );
       direction.normalize();
       goal.copy(a).addScaledVector(direction, distance);
       pole.copy(polePoint).sub(a);
       pole.addScaledVector(direction, -pole.dot(direction));
+      if (pole.lengthSq() < 1e-6) {
+        pole.copy(b).sub(a);
+        pole.addScaledVector(direction, -pole.dot(direction));
+      }
       if (pole.lengthSq() < 1e-8) {
         pole.set(
           Math.abs(direction.y) < 0.9 ? 0 : 1,

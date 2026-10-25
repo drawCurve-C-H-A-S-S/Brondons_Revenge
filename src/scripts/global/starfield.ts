@@ -26,6 +26,11 @@ export interface Starfield {
   dispose(): void;
 }
 
+const bakeCache = new WeakMap<
+  THREE.WebGLRenderer,
+  Map<number, THREE.WebGLRenderTarget[]>
+>();
+
 export function createStarfield(config: StarfieldConfig): Starfield {
   const {
     scene,
@@ -92,8 +97,16 @@ export function createStarfield(config: StarfieldConfig): Starfield {
       octaves: 3,
     },
   ];
-  const bakedTargets: THREE.WebGLRenderTarget[] = [];
-
+  // Bakes are deterministic, so a renderer reuses the same layers instead of re-running four 2K noise passes per scene.
+  let rendererCache = renderer ? bakeCache.get(renderer) : undefined;
+  if (renderer && !rendererCache) {
+    rendererCache = new Map();
+    bakeCache.set(renderer, rendererCache);
+  }
+  const cachedTargets = rendererCache?.get(nebulaOpacity);
+  const sharedTargets = !!renderer;
+  const bakedTargets: THREE.WebGLRenderTarget[] = cachedTargets ?? [];
+  if (!cachedTargets) {
   const texWidth = 2048,
     texHeight = 1024;
   const bakeRenderer =
@@ -309,6 +322,8 @@ export function createStarfield(config: StarfieldConfig): Starfield {
 
   bakeRenderer.setClearColor(clearColor, clearAlpha);
   if (!renderer) bakeRenderer.dispose();
+  rendererCache?.set(nebulaOpacity, bakedTargets);
+  }
 
   // --- Nebula shell: one BackSide sphere composites all baked layers in-shader ---
   const shellVertShader = `
@@ -594,7 +609,8 @@ export function createStarfield(config: StarfieldConfig): Starfield {
         cube.geometry.dispose();
         (cube.material as THREE.ShaderMaterial).dispose();
       }
-      for (const target of bakedTargets) target.dispose();
+      if (!sharedTargets)
+        for (const target of bakedTargets) target.dispose();
       for (const layer of starLayers) {
         layer.removeFromParent();
         layer.geometry.dispose();

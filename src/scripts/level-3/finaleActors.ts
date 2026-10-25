@@ -9,6 +9,7 @@ import {
 import {
   FACILITY_OFFICE,
   FACILITY_OFFICE_SEATS,
+  createFacilityOfficeTable,
   alignFacilityOfficeStudent,
   placeFacilityOfficeChair,
 } from "./facilityOffice.js";
@@ -84,32 +85,9 @@ export function captureFinaleResources(root: THREE.Object3D, shared = false) {
 export function createFinaleStudents(loadModel = loadSubjectModel) {
   const root = new THREE.Group();
   root.name = "Sudoers5";
-  const furniture = new THREE.Group();
+  const furniture = createFacilityOfficeTable().root;
   furniture.name = "FinaleOfficeMeetingFurniture";
   root.add(furniture);
-  const tabletop = new THREE.Mesh(
-    new THREE.BoxGeometry(5.6, 0.16, 3.2),
-    new THREE.MeshStandardMaterial({ color: 0x925d3f, roughness: 0.55 }),
-  );
-  tabletop.name = "OfficeMeetingTable";
-  tabletop.position.set(
-    0,
-    FACILITY_OFFICE.floor + 0.84,
-    FACILITY_OFFICE.tableZ,
-  );
-  furniture.add(tabletop);
-  for (const x of [-2.1, 2.1]) {
-    const leg = new THREE.Mesh(
-      new THREE.BoxGeometry(0.22, 0.76, 2.3),
-      new THREE.MeshStandardMaterial({
-        color: 0x253e48,
-        metalness: 0.65,
-        roughness: 0.35,
-      }),
-    );
-    leg.position.set(x, FACILITY_OFFICE.floor + 0.38, FACILITY_OFFICE.tableZ);
-    furniture.add(leg);
-  }
   type Student = {
     root: THREE.Group;
     model: THREE.Object3D;
@@ -121,7 +99,7 @@ export function createFinaleStudents(loadModel = loadSubjectModel) {
       "sit" | "stand" | "walk" | "idle" | "talk" | "pose" | "board",
       THREE.AnimationAction
     >;
-    mode: string;
+    mode: keyof Student["actions"] | "";
   };
   const students: Student[] = [];
   let disposed = false,
@@ -213,12 +191,15 @@ export function createFinaleStudents(loadModel = loadSubjectModel) {
     furniture,
     students,
     loaded,
-    animate(index: number, mode: keyof Student["actions"], time: number) {
+    animate(index: number, mode: keyof Student["actions"], time: number, dt = 0) {
       const student = students[index];
       if (!student) return;
       if (student.mode !== mode) {
-        student.mixer.stopAllAction();
-        student.actions[mode].reset().play();
+        const previous = student.mode ? student.actions[student.mode] : null;
+        const next = student.actions[mode];
+        next.reset().setEffectiveWeight(1).play();
+        if (previous && dt > 0) next.crossFadeFrom(previous, 0.28, false);
+        else previous?.stop();
         student.mode = mode;
       }
       const action = student.actions[mode];
@@ -227,7 +208,7 @@ export function createFinaleStudents(loadModel = loadSubjectModel) {
           ? Math.min(Math.max(0, time), action.getClip().duration)
           : Math.max(0, time) % action.getClip().duration;
       action.paused = true;
-      student.mixer.update(0);
+      student.mixer.update(Math.max(0, dt));
       student.wrapper.position.y =
         mode === "sit"
           ? student.seatedY
@@ -259,10 +240,8 @@ export function createFinaleStudents(loadModel = loadSubjectModel) {
       });
       sourceResources?.dispose();
       chairResources?.dispose();
-      tabletop.geometry.dispose();
-      tabletop.material.dispose();
       for (const child of furniture.children)
-        if (child instanceof THREE.Mesh && child !== tabletop) {
+        if (child instanceof THREE.Mesh) {
           child.geometry.dispose();
           const materials = Array.isArray(child.material)
             ? child.material

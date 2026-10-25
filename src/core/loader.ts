@@ -4,6 +4,7 @@ import { clone as cloneRig } from "three/addons/utils/SkeletonUtils.js";
 import playerModelUrl from "../assets/models/Don.glb";
 import mcModelUrl from "../assets/models/MC.glb";
 import subjectModelUrl from "../assets/models/Subject.glb";
+import finaleMechModelUrl from "../assets/models/mechs.glb";
 import brendanModelUrl from "../assets/models/DonfromStreets.glb";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import dinoModelUrl from "../assets/models/Dino/dino.glb";
@@ -20,6 +21,8 @@ import {
 } from "./assetCache.js";
 import playerCelUniforms from "../shaders/frag/playerCelUniforms.frag.glsl?raw";
 import playerCelFragment from "../shaders/frag/playerCel.frag.glsl?raw";
+import { applyDroneGlow, applyScavengerAppearance } from "./robotAppearance.js";
+import { addCharacterInk } from "./comicShading.js";
 
 const gltfLoader = new GLTFLoader();
 const playerLoader = new GLTFLoader();
@@ -57,6 +60,15 @@ function modelTemplate(url: string) {
   if (!pending) {
     pending = assetUrl(url)
       .then((source) => gltfLoader.loadAsync(source))
+      .then((asset) => {
+        if ([
+          playerModelUrl, mcModelUrl, subjectModelUrl, brendanModelUrl,
+          dinoModelUrl, sharkModelUrl, bossModelUrl, mothershipModelUrl,
+          gundamModelUrl, finaleMechModelUrl,
+        ].includes(url))
+          asset.scene.userData.preserveComicAppearance = true;
+        return asset;
+      })
       .catch((error) => {
         modelTemplates.delete(url);
         throw error;
@@ -89,6 +101,10 @@ function cloneModel(template: GLTF): GLTF {
     return copy;
   };
   const scene = cloneRig(template.scene) as THREE.Group;
+  scene.traverse((node) => {
+    if (node instanceof THREE.SkinnedMesh)
+      scene.userData.preserveComicAppearance = true;
+  });
   scene.traverse((node) => {
     if (!(
       node instanceof THREE.Mesh ||
@@ -209,6 +225,9 @@ export async function loadBoyModel() {
 export async function loadMCModel() {
   return cloneModel(await modelTemplate(mcModelUrl));
 }
+export async function loadFinaleMechModel() {
+  return cloneModel(await modelTemplate(finaleMechModelUrl));
+}
 export async function loadBrendanModel() {
   const model = cloneModel(await modelTemplate(brendanModelUrl));
   applyPlayerCelShading(model.scene);
@@ -238,7 +257,10 @@ export function setPlayerCellShadingEnabled(
   if (uniform) uniform.value = enabled ? 1 : 0;
 }
 
-function applyPlayerCelShading(scene: THREE.Object3D) {
+export function applyPlayerCelShading(
+  scene: THREE.Object3D,
+  preserveEmissiveEffects = false,
+) {
   const enabled = { value: 1 };
   playerCelShading.set(scene, enabled);
   const materials = new Set<THREE.MeshStandardMaterial>();
@@ -258,8 +280,12 @@ function applyPlayerCelShading(scene: THREE.Object3D) {
           ? material.emissive.clone()
           : material.color.clone();
       const unshaded = /faceskin|eyewhites/i.test(material.name);
-      material.customProgramCacheKey = () => "brondon-two-tone-cel-v2";
-      material.onBeforeCompile = (shader) => {
+      const previousCompile = material.onBeforeCompile;
+      const previousKey = material.customProgramCacheKey();
+      material.customProgramCacheKey = () =>
+        `${previousKey}-brondon-two-tone-cel-v2-${preserveEmissiveEffects}`;
+      material.onBeforeCompile = (shader, renderer) => {
+        previousCompile.call(material, shader, renderer);
         shader.uniforms.uBrondonColor = { value: baseColor };
         shader.uniforms.uBrondonUnshaded = { value: unshaded ? 1 : 0 };
         shader.uniforms.uCellShadingEnabled = enabled;
@@ -270,9 +296,12 @@ function applyPlayerCelShading(scene: THREE.Object3D) {
           )
           .replace(
             "#include <opaque_fragment>",
-            `${playerCelFragment}\n#include <opaque_fragment>`,
+            `${playerCelFragment}
+            ${preserveEmissiveEffects ? "outgoingLight += max(vec3(0.0), totalEmissiveRadiance - emissive);" : ""}
+            #include <opaque_fragment>`,
           );
       };
+      material.needsUpdate = true;
     }
   });
 }
@@ -313,6 +342,7 @@ export async function loadPlayerModel(loader = playerLoader) {
   const model = cloneModel(template);
   // Install on the clone: Three.js material cloning does not retain shader hooks.
   applyPlayerCelShading(model.scene);
+  addCharacterInk(model.scene);
   return model;
 }
 
@@ -341,6 +371,7 @@ export const MODEL_ASSET_URLS = [
   playerModelUrl,
   mcModelUrl,
   subjectModelUrl,
+  finaleMechModelUrl,
   brendanModelUrl,
   dinoModelUrl,
   sharkModelUrl,
@@ -394,7 +425,11 @@ function toolTemplate(name: ToolModelName) {
 
 /** Resolve glTF dependencies through Vite in both dev and hashed production builds. */
 export async function loadToolModel(name: ToolModelName) {
-  return cloneModel(await toolTemplate(name));
+  const asset = cloneModel(await toolTemplate(name));
+  if (name === "Enemy_Trilobite" || name === "Enemy_QuadShell")
+    applyScavengerAppearance(asset.scene);
+  if (name === "Enemy_EyeDrone") applyDroneGlow(asset.scene);
+  return asset;
 }
 
 /** Load the rig and animation together so cloned dinosaurs can share the source asset. */

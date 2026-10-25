@@ -4,11 +4,20 @@ const artwork = import.meta.glob<string>("../assets/loading/*.{jpg,png}", {
   import: "default",
 });
 function image(name: string) {
-  const url =
-    artwork[`../assets/loading/${name}.jpg`] ??
-    artwork[`../assets/loading/${name}.png`];
+  const url = optionalImage(name);
   if (!url) throw new Error(`Missing chapter screenshot: ${name}`);
   return url;
+}
+function optionalImage(name: string): string | undefined {
+  return (
+    artwork[`../assets/loading/${name}.jpg`] ??
+    artwork[`../assets/loading/${name}.png`]
+  );
+}
+// Prefer a newer capture when present, otherwise keep the existing artwork.
+function images(...names: string[]) {
+  const found = names.flatMap((name) => optionalImage(name) ?? []);
+  return found.length ? found : [image(names[0])];
 }
 export const LOADING_IMAGE_URLS = Object.values(artwork);
 
@@ -22,16 +31,19 @@ const FIELD_NOTES = [
 ] as const;
 
 export const LOADING_CHAPTERS = {
-  opening: {
-    chapter: "OPENING / SPACE PROLOGUE",
-    title: "BRONDON'S REVENGE",
-    images: [image("space-opening")],
-    tips: FIELD_NOTES,
-  },
   prologue: {
     chapter: "PROLOGUE / AWAKENING",
     title: "THE PRISON",
-    images: [image("prologue-prison")],
+    images: [
+      image("cabins"),
+      image("stealthbay"),
+      image("cargo"),
+      image("bloomstick"),
+      image("target"),
+      image("reactor"),
+      image("rust1"),
+      image("rust2"),
+    ],
     tips: FIELD_NOTES,
   },
   quarters: {
@@ -43,13 +55,13 @@ export const LOADING_CHAPTERS = {
   stage1: {
     chapter: "LEVEL 1 / STEALTH STAGE",
     title: "DECK ONE HANGAR",
-    images: [image("stage1-overview"), image("stage1-patrol")],
+    images: [image("stage1-overview")],
     tips: FIELD_NOTES,
   },
   stage2: {
     chapter: "LEVEL 1 / MINIGAME STAGE",
     title: "THE SURVEILLANCE HUB",
-    images: [image("stage2-camera-wall")],
+    images: images("stage2-camera-wall", "stage2-maze"),
     tips: FIELD_NOTES,
   },
   cargo: {
@@ -73,7 +85,7 @@ export const LOADING_CHAPTERS = {
   rust: {
     chapter: "LEVEL 1 / MINIGAME STAGE / RUST CHAMBER",
     title: "THE RUST CHAMBER",
-    images: [image("stage2-archive")],
+    images: images("stage2-rust", "stage2-archive"),
     tips: FIELD_NOTES,
   },
   boss: {

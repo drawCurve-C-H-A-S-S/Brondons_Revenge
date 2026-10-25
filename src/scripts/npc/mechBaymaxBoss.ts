@@ -346,42 +346,20 @@ export function createLoadingBayBoss(
   const auraPurple = new THREE.MeshBasicMaterial({
     color: 0xa44dff,
     transparent: true,
-    opacity: 0.34,
+    opacity: 0.32,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     side: THREE.DoubleSide,
   });
-  const auraCrimson = new THREE.MeshBasicMaterial({
-    color: 0xff1238,
-    transparent: true,
-    opacity: 0.3,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
-  const auraVoid = new THREE.MeshBasicMaterial({
-    color: 0x07000d,
-    transparent: true,
-    opacity: 0.6,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
-  const phaseFourAuraColor = new THREE.Color(0x9a3dff),
-    phaseFourAuraCrimson = new THREE.Color(0xff1238);
 
   // --- Aura rings (kept for cross-scene test compatibility). ---
   const auraRoot = new THREE.Group();
   auraRoot.name = "BossEnergyAura";
   root.add(auraRoot);
-  // Rings 0-2 are the original aura; 3-9 only appear in phase 4 as a darker, thicker purple / black / crimson storm.
-  const auraRings = Array.from({ length: 10 }, (_, index) => {
+  // Possession recolors the same three phase-3 rings without adding geometry.
+  const auraRings = Array.from({ length: 3 }, (_, index) => {
     const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(
-        3.5 + index * 0.62,
-        index < 3 ? 0.045 : 0.09,
-        8,
-        64,
-      ),
+      new THREE.TorusGeometry(3.5 + index * 0.62, 0.045, 8, 64),
       auraBlue,
     );
     ring.rotation.set(index * 0.82, index * 0.47, index * 0.35);
@@ -2016,22 +1994,8 @@ export function createLoadingBayBoss(
 
     // Aura rings.
     auraRings.forEach((ring, index) => {
-      ring.material = possessed
-        ? index % 3 === 0
-          ? auraVoid
-          : index % 3 === 1
-            ? auraPurple
-            : auraCrimson
-        : phaseThree
-          ? auraRed
-          : auraBlue;
-      ring.visible =
-        phaseThree && phase !== "defeated" && (possessed || index < 3);
-      ring.scale.setScalar(
-        possessed
-          ? 1 + (1 - possession) * 0.35 + Math.sin(elapsed * 3 + index) * 0.035
-          : 1,
-      );
+      ring.material = possessed ? auraPurple : phaseThree ? auraRed : auraBlue;
+      ring.visible = phaseThree && phase !== "defeated";
       ring.rotation.x =
         index * 0.82 + elapsed * 0.5 * (index + 1) * (index % 2 ? -1 : 1);
       ring.rotation.z = index * 0.35 + elapsed * 0.7 * (index + 1);
@@ -3305,8 +3269,6 @@ export function createLoadingBayBoss(
         auraBlue,
         auraRed,
         auraPurple,
-        auraCrimson,
-        auraVoid,
         phaseFourShellMat,
         shardMaterial,
         droneBoltMaterial,

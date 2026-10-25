@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { withoutComicLook } from "../../core/comicShading.js";
 import { disposeRoom } from "../global/shipRoom.js";
 import {
   STAGE_TWO,
@@ -402,12 +403,15 @@ export function createCctvSystem(
       try {
         records.forEach((record, index) => {
           if (!record.source || record.status !== "ready") return;
-          if (!paused) record.source.update?.(Math.min(frame, 0.1));
+          const source = record.source;
+          if (!paused) source.update?.(Math.min(frame, 0.1));
           renderer.setRenderTarget(targets[index]);
-          renderer.render(
-            record.source.scene,
-            record.source.camera ?? cameras[index],
-          );
+          withoutComicLook(() => {
+            renderer.render(
+              source.scene,
+              source.camera ?? cameras[index],
+            );
+          });
         });
       } finally {
         renderer.setRenderTarget(previousTarget);

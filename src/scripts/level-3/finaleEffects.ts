@@ -113,6 +113,11 @@ export function createFinaleEffects(
     return { mesh, life: 0, duration: 1, size: 1, speed: 1 };
   });
   let ringCursor = 0;
+  const clashLight = new THREE.PointLight(0xffe6bb, 0, 48, 2);
+  clashLight.name = "SwordClashContactLight";
+  // Keep the light in the shader layout; animate intensity without recompiling materials.
+  root.add(clashLight);
+  let clashLightLife = 0;
   function ring(
     position: THREE.Vector3,
     size: number,
@@ -309,6 +314,17 @@ export function createFinaleEffects(
       ring(position, 2, tint, true, 1.4);
     },
     ring,
+    swordClash(position: THREE.Vector3, tint: number) {
+      clashLight.position.copy(position);
+      clashLight.color.set(tint).lerp(new THREE.Color(0xffffff), 0.65);
+      clashLightLife = 0.14;
+      clashLight.intensity = reducedMotion ? 25 : 120;
+      ring(position, reducedMotion ? 0.5 : 0.9, tint, true, 0.16);
+      for (let i = 0; i < (reducedMotion ? 6 : mobile ? 10 : 16); i++) {
+        particle(position, i % 3 ? tint : 0xfff4da,
+          10 + random() * 14, 0.12 + random() * 0.14, 0.12 + random() * 0.09);
+      }
+    },
     deflect(
       position: THREE.Vector3,
       perfect: boolean,
@@ -538,6 +554,9 @@ export function createFinaleEffects(
       mesh.material.uniforms.uPower.value = power;
     },
     update(dt: number) {
+      clashLightLife = Math.max(0, clashLightLife - dt);
+      clashLight.intensity = (reducedMotion ? 25 : 120) *
+        (clashLightLife / 0.14) ** 2;
       for (let i = 0; i < capacity; i++) {
         if (life[i] <= 0) continue;
         life[i] = Math.max(0, life[i] - dt);
@@ -588,12 +607,14 @@ export function createFinaleEffects(
 }
 
 export function createBladeTrail(scene: THREE.Scene, side: MechSide) {
-  const capacity = 10,
+  const capacity = 36,
     lifetime = 0.085,
     cadence = 1 / 90;
   const positions = new Float32Array(capacity * 18),
     alpha = new Float32Array(capacity * 6);
   const ages = new Float32Array(capacity),
+    durations = new Float32Array(capacity).fill(lifetime),
+    strengths = new Float32Array(capacity).fill(1),
     geometry = new THREE.BufferGeometry();
   geometry.setAttribute(
     "position",
@@ -630,11 +651,15 @@ export function createBladeTrail(scene: THREE.Scene, side: MechSide) {
     carry = 0;
   const weights = [0.015, 0.065, 0.065, 0.015, 0.065, 0.015];
   return {
-    update(a: THREE.Vector3, b: THREE.Vector3, dt: number, active: boolean) {
+    update(a: THREE.Vector3, b: THREE.Vector3, dt: number, active: boolean, cinematic = 0) {
+      const power = THREE.MathUtils.clamp(cinematic, 0, 1);
+      const segmentLifetime = lifetime + power * 0.07;
+      const innerEdge = 0.78 - power * 0.18;
       for (let i = 0; i < capacity; i++) {
         ages[i] = Math.max(0, ages[i] - dt);
         for (let vertex = 0; vertex < 6; vertex++)
-          alpha[i * 6 + vertex] = (ages[i] / lifetime) ** 1.5 * weights[vertex];
+          alpha[i * 6 + vertex] = (ages[i] / durations[i]) ** 1.5 *
+            weights[vertex] * strengths[i];
       }
       const teleported = previousA.distanceToSquared(a) > 28 ** 2;
       if (teleported) {
@@ -648,18 +673,20 @@ export function createBladeTrail(scene: THREE.Scene, side: MechSide) {
         dt > 0 &&
         previousB.distanceToSquared(b) > 0.025
       ) {
-        start.copy(previousA).lerp(previousB, 0.78);
+        start.copy(previousA).lerp(previousB, innerEdge);
         end.copy(previousB);
         for (let at = cadence - carry; at <= dt + 1e-8; at += cadence) {
           const p = Math.min(1, at / dt),
             i = cursor++ % capacity;
           outer.lerpVectors(previousB, b, p);
-          inner.lerpVectors(previousA, a, p).lerp(outer, 0.78);
-          ages[i] = Math.max(0, lifetime - (dt - at));
+          inner.lerpVectors(previousA, a, p).lerp(outer, innerEdge);
+          durations[i] = segmentLifetime;
+          strengths[i] = 1 + power * 1.2;
+          ages[i] = Math.max(0, segmentLifetime - (dt - at));
           [start, end, outer, start, outer, inner].forEach((point, vertex) => {
             point.toArray(positions, i * 18 + vertex * 3);
             alpha[i * 6 + vertex] =
-              (ages[i] / lifetime) ** 1.5 * weights[vertex];
+              (ages[i] / durations[i]) ** 1.5 * weights[vertex] * strengths[i];
           });
           start.copy(inner);
           end.copy(outer);

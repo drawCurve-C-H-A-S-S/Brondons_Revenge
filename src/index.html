@@ -928,6 +928,10 @@
 
     <!-- Menu buttons -->
     <div id="menu-buttons" class="hidden">
+      <div id="menu-title-card" aria-hidden="true">
+        <span class="menu-title-main" data-text="BRONDON'S REVENGE">BRONDON'S REVENGE</span>
+        <span class="menu-title-kicker">A tale of vengeance</span>
+      </div>
       <div id="title-actions" class="menu-actions">
         <button id="play-btn" class="menu-btn">PLAY</button>
         <button id="quit-btn" class="menu-btn">DON'T PLAY</button>
@@ -1325,6 +1329,12 @@
         class="pause-panel hidden"
         aria-label="Display settings"
       >
+        <div class="sound-slider-group menu-tilt">
+          <label for="comic-look-toggle"
+            >Comic Look
+            <input id="comic-look-toggle" type="checkbox" />
+          </label>
+        </div>
         <div class="sound-slider-group menu-tilt">
           <label for="bloom-level"
             >Bloom
