@@ -1,4 +1,10 @@
-import { playSfx, playSfxAt } from "../../helpers/audio/sfx.js";
+import {
+  playSfx,
+  playSfxAt,
+  playRobotMeleeAttackSound,
+  playRobotRangedAttackSound,
+  playRobotAlertSound,
+} from "../../helpers/audio/sfx.js";
 /**
  * NPC Enemy Robots - Scavenger enemy AI.
  * Paces scene4 until player enters trigger zone, then chases across scenes.
@@ -272,6 +278,7 @@ export class NPCEnemyManager {
         this.hasSight(target)
       ) {
         this.state = "CHASING";
+        playRobotAlertSound(0.5);
         this.owner.trail = [target];
         this.playAnimation("Run", true);
       } else {
@@ -317,6 +324,7 @@ export class NPCEnemyManager {
     ) {
       if (distanceToPlayer <= this.meleeRange) {
         this.playAnimation("Attack", false);
+        playRobotMeleeAttackSound(0.5);
         this.active.player.takeDamage(15);
         this.attackCooldown = 2.5 + this.random() * 2;
       } else if (
@@ -324,6 +332,7 @@ export class NPCEnemyManager {
         this.hasSight(this.playerFeet(this.active))
       ) {
         this.playAnimation("AttackAuto", false);
+        playRobotRangedAttackSound(0.6);
         emitComicEffect(this.active.scene, "pew", {
           source: this.model,
           position: this.model
@@ -442,6 +451,7 @@ export class NPCEnemyManager {
     else {
       if (this.state === "PACING") {
         this.state = "CHASING";
+        playRobotAlertSound(0.5);
         this.owner!.trail = [this.playerFeet(this.active!)];
       }
       this.playAnimation("Hit", false);

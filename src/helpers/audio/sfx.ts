@@ -392,3 +392,703 @@ export function playFootstep(foot: Foot, volume: number) {
   };
   source.start();
 }
+
+export function playJumpSound(volume: number = 0.5) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const osc = context.createOscillator();
+  const output = context.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(180, context.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(280, context.currentTime + 0.08);
+  osc.frequency.exponentialRampToValueAtTime(220, context.currentTime + 0.15);
+  output.gain.setValueAtTime(gain * 0.3, context.currentTime);
+  output.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.2);
+  osc.connect(output);
+  output.connect(context.destination);
+  osc.onended = () => { osc.disconnect(); output.disconnect(); };
+  osc.start();
+  osc.stop(context.currentTime + 0.2);
+}
+
+export function playLandingSound(impactVelocity: number, volume: number = 1) {
+  const scaledVolume = Math.min(1, Math.abs(impactVelocity) / 15) * volume;
+  const gain = Math.min(1, Math.max(0, scaledVolume)) * getSfxGain();
+  if (gain <= 0.01 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const buffer = context.createBuffer(1, Math.ceil(context.sampleRate * 0.15), context.sampleRate);
+  const samples = buffer.getChannelData(0);
+  const lowPass = 1 - Math.exp(-Math.PI * 2 * 180 / context.sampleRate);
+  let low = 0;
+  for (let frame = 0; frame < samples.length; frame++) {
+    const noise = Math.random() * 2 - 1;
+    const time = frame / context.sampleRate;
+    low += (noise - low) * lowPass;
+    const attack = 1 - Math.exp(-time * 600);
+    const decay = Math.exp(-time * 18);
+    samples[frame] = low * attack * decay;
+  }
+  const source = context.createBufferSource();
+  const output = context.createGain();
+  source.buffer = buffer;
+  output.gain.value = gain * 0.5;
+  source.connect(output);
+  output.connect(context.destination);
+  source.onended = () => { source.disconnect(); output.disconnect(); };
+  source.start();
+}
+
+export function playSlideSound(volume: number = 0.6) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const duration = 0.4;
+  const buffer = context.createBuffer(1, Math.ceil(context.sampleRate * duration), context.sampleRate);
+  const samples = buffer.getChannelData(0);
+  const lowPass = 1 - Math.exp(-Math.PI * 2 * 400 / context.sampleRate);
+  let low = 0;
+  for (let frame = 0; frame < samples.length; frame++) {
+    const noise = Math.random() * 2 - 1;
+    const time = frame / context.sampleRate;
+    low += (noise - low) * lowPass;
+    const envelope = Math.exp(-time * 4) * (1 - Math.exp(-time * 80));
+    samples[frame] = low * envelope;
+  }
+  const source = context.createBufferSource();
+  const output = context.createGain();
+  source.buffer = buffer;
+  output.gain.value = gain * 0.4;
+  source.connect(output);
+  output.connect(context.destination);
+  source.onended = () => { source.disconnect(); output.disconnect(); };
+  source.start();
+}
+
+export function playCrouchSound(volume: number = 0.3) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const duration = 0.15;
+  const buffer = context.createBuffer(1, Math.ceil(context.sampleRate * duration), context.sampleRate);
+  const samples = buffer.getChannelData(0);
+  const lowPass = 1 - Math.exp(-Math.PI * 2 * 800 / context.sampleRate);
+  let low = 0;
+  for (let frame = 0; frame < samples.length; frame++) {
+    const noise = Math.random() * 2 - 1;
+    const time = frame / context.sampleRate;
+    low += (noise - low) * lowPass;
+    const envelope = Math.exp(-time * 20);
+    samples[frame] = low * envelope * 0.3;
+  }
+  const source = context.createBufferSource();
+  const output = context.createGain();
+  source.buffer = buffer;
+  output.gain.value = gain * 0.3;
+  source.connect(output);
+  output.connect(context.destination);
+  source.onended = () => { source.disconnect(); output.disconnect(); };
+  source.start();
+}
+
+export function playSprintSound(volume: number = 0.25) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const duration = 0.2;
+  const buffer = context.createBuffer(1, Math.ceil(context.sampleRate * duration), context.sampleRate);
+  const samples = buffer.getChannelData(0);
+  const lowPass = 1 - Math.exp(-Math.PI * 2 * 600 / context.sampleRate);
+  let low = 0;
+  for (let frame = 0; frame < samples.length; frame++) {
+    const noise = Math.random() * 2 - 1;
+    const time = frame / context.sampleRate;
+    low += (noise - low) * lowPass;
+    const envelope = Math.exp(-time * 8);
+    samples[frame] = low * envelope * 0.4;
+  }
+  const source = context.createBufferSource();
+  const output = context.createGain();
+  source.buffer = buffer;
+  output.gain.value = gain * 0.35;
+  source.connect(output);
+  output.connect(context.destination);
+  source.onended = () => { source.disconnect(); output.disconnect(); };
+  source.start();
+}
+
+export function playPistolDrawSound(volume: number = 0.4) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const now = context.currentTime;
+  const click = context.createOscillator();
+  const clickGain = context.createGain();
+  click.type = 'square';
+  click.frequency.setValueAtTime(1200, now);
+  click.frequency.exponentialRampToValueAtTime(800, now + 0.05);
+  clickGain.gain.setValueAtTime(gain * 0.2, now);
+  clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+  click.connect(clickGain);
+  clickGain.connect(context.destination);
+  click.onended = () => { click.disconnect(); clickGain.disconnect(); };
+  click.start(now);
+  click.stop(now + 0.08);
+  const duration = 0.25;
+  const buffer = context.createBuffer(1, Math.ceil(context.sampleRate * duration), context.sampleRate);
+  const samples = buffer.getChannelData(0);
+  const lowPass = 1 - Math.exp(-Math.PI * 2 * 1500 / context.sampleRate);
+  let low = 0;
+  for (let frame = 0; frame < samples.length; frame++) {
+    const noise = Math.random() * 2 - 1;
+    const time = frame / context.sampleRate;
+    low += (noise - low) * lowPass;
+    const envelope = Math.exp(-time * 6) * (1 - Math.exp(-time * 200));
+    samples[frame] = low * envelope * 0.2;
+  }
+  const source = context.createBufferSource();
+  const output = context.createGain();
+  source.buffer = buffer;
+  output.gain.value = gain * 0.3;
+  source.connect(output);
+  output.connect(context.destination);
+  source.onended = () => { source.disconnect(); output.disconnect(); };
+  source.start(now + 0.05);
+}
+
+export function playCrowbarDrawSound(volume: number = 0.5) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const now = context.currentTime;
+  const scrape = context.createOscillator();
+  const scrapeGain = context.createGain();
+  scrape.type = 'sawtooth';
+  scrape.frequency.setValueAtTime(300, now);
+  scrape.frequency.linearRampToValueAtTime(600, now + 0.15);
+  scrape.frequency.linearRampToValueAtTime(400, now + 0.3);
+  scrapeGain.gain.setValueAtTime(0.001, now);
+  scrapeGain.gain.linearRampToValueAtTime(gain * 0.15, now + 0.05);
+  scrapeGain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+  scrape.connect(scrapeGain);
+  scrapeGain.connect(context.destination);
+  scrape.onended = () => { scrape.disconnect(); scrapeGain.disconnect(); };
+  scrape.start(now);
+  scrape.stop(now + 0.3);
+  const clink = context.createOscillator();
+  const clinkGain = context.createGain();
+  clink.type = 'sine';
+  clink.frequency.setValueAtTime(2400, now + 0.2);
+  clink.frequency.exponentialRampToValueAtTime(1800, now + 0.25);
+  clinkGain.gain.setValueAtTime(gain * 0.1, now + 0.2);
+  clinkGain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+  clink.connect(clinkGain);
+  clinkGain.connect(context.destination);
+  clink.onended = () => { clink.disconnect(); clinkGain.disconnect(); };
+  clink.start(now + 0.2);
+  clink.stop(now + 0.28);
+}
+
+export function playMeleeHitSound(volume: number = 0.7) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const now = context.currentTime;
+  const thud = context.createOscillator();
+  const thudGain = context.createGain();
+  thud.type = 'sine';
+  thud.frequency.setValueAtTime(120, now);
+  thud.frequency.exponentialRampToValueAtTime(60, now + 0.1);
+  thudGain.gain.setValueAtTime(gain * 0.4, now);
+  thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+  thud.connect(thudGain);
+  thudGain.connect(context.destination);
+  thud.onended = () => { thud.disconnect(); thudGain.disconnect(); };
+  thud.start(now);
+  thud.stop(now + 0.15);
+  const ring = context.createOscillator();
+  const ringGain = context.createGain();
+  ring.type = 'sine';
+  ring.frequency.setValueAtTime(400, now);
+  ring.frequency.exponentialRampToValueAtTime(300, now + 0.1);
+  ringGain.gain.setValueAtTime(gain * 0.15, now);
+  ringGain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+  ring.connect(ringGain);
+  ringGain.connect(context.destination);
+  ring.onended = () => { ring.disconnect(); ringGain.disconnect(); };
+  ring.start(now);
+  ring.stop(now + 0.12);
+  const duration = 0.25;
+  const buffer = context.createBuffer(1, Math.ceil(context.sampleRate * duration), context.sampleRate);
+  const samples = buffer.getChannelData(0);
+  const lowPass = 1 - Math.exp(-Math.PI * 2 * 300 / context.sampleRate);
+  let low = 0;
+  for (let frame = 0; frame < samples.length; frame++) {
+    const noise = Math.random() * 2 - 1;
+    const time = frame / context.sampleRate;
+    low += (noise - low) * lowPass;
+    const envelope = Math.exp(-time * 12);
+    samples[frame] = low * envelope * 0.3;
+  }
+  const source = context.createBufferSource();
+  const output = context.createGain();
+  source.buffer = buffer;
+  output.gain.value = gain * 0.4;
+  source.connect(output);
+  output.connect(context.destination);
+  source.onended = () => { source.disconnect(); output.disconnect(); };
+  source.start(now);
+}
+
+export function playRobotMeleeAttackSound(volume: number = 0.5) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const now = context.currentTime;
+  const servo = context.createOscillator();
+  const servoGain = context.createGain();
+  servo.type = 'sawtooth';
+  servo.frequency.setValueAtTime(200, now);
+  servo.frequency.linearRampToValueAtTime(500, now + 0.15);
+  servo.frequency.linearRampToValueAtTime(300, now + 0.3);
+  servoGain.gain.setValueAtTime(gain * 0.12, now);
+  servoGain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+  servo.connect(servoGain);
+  servoGain.connect(context.destination);
+  servo.onended = () => { servo.disconnect(); servoGain.disconnect(); };
+  servo.start(now);
+  servo.stop(now + 0.3);
+  const duration = 0.3;
+  const buffer = context.createBuffer(1, Math.ceil(context.sampleRate * duration), context.sampleRate);
+  const samples = buffer.getChannelData(0);
+  const lowPass = 1 - Math.exp(-Math.PI * 2 * 800 / context.sampleRate);
+  let low = 0;
+  for (let frame = 0; frame < samples.length; frame++) {
+    const noise = Math.random() * 2 - 1;
+    const time = frame / context.sampleRate;
+    low += (noise - low) * lowPass;
+    const envelope = Math.exp(-time * 6) * (1 - Math.exp(-time * 100));
+    samples[frame] = low * envelope * 0.25;
+  }
+  const source = context.createBufferSource();
+  const output = context.createGain();
+  source.buffer = buffer;
+  output.gain.value = gain * 0.3;
+  source.connect(output);
+  output.connect(context.destination);
+  source.onended = () => { source.disconnect(); output.disconnect(); };
+  source.start(now + 0.1);
+}
+
+export function playRobotRangedAttackSound(volume: number = 0.6) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const now = context.currentTime;
+  const charge = context.createOscillator();
+  const chargeGain = context.createGain();
+  charge.type = 'sine';
+  charge.frequency.setValueAtTime(400, now);
+  charge.frequency.exponentialRampToValueAtTime(1200, now + 0.1);
+  chargeGain.gain.setValueAtTime(gain * 0.15, now);
+  chargeGain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+  charge.connect(chargeGain);
+  chargeGain.connect(context.destination);
+  charge.onended = () => { charge.disconnect(); chargeGain.disconnect(); };
+  charge.start(now);
+  charge.stop(now + 0.12);
+  const launch = context.createOscillator();
+  const launchGain = context.createGain();
+  launch.type = 'square';
+  launch.frequency.setValueAtTime(800, now + 0.1);
+  launch.frequency.exponentialRampToValueAtTime(200, now + 0.2);
+  launchGain.gain.setValueAtTime(gain * 0.2, now + 0.1);
+  launchGain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+  launch.connect(launchGain);
+  launchGain.connect(context.destination);
+  launch.onended = () => { launch.disconnect(); launchGain.disconnect(); };
+  launch.start(now + 0.1);
+  launch.stop(now + 0.2);
+}
+
+export function playRobotAlertSound(volume: number = 0.5) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const now = context.currentTime;
+  const tone1 = context.createOscillator();
+  const tone1Gain = context.createGain();
+  tone1.type = 'square';
+  tone1.frequency.setValueAtTime(880, now);
+  tone1Gain.gain.setValueAtTime(gain * 0.15, now);
+  tone1Gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+  tone1.connect(tone1Gain);
+  tone1Gain.connect(context.destination);
+  tone1.onended = () => { tone1.disconnect(); tone1Gain.disconnect(); };
+  tone1.start(now);
+  tone1.stop(now + 0.15);
+  const tone2 = context.createOscillator();
+  const tone2Gain = context.createGain();
+  tone2.type = 'square';
+  tone2.frequency.setValueAtTime(660, now + 0.15);
+  tone2Gain.gain.setValueAtTime(gain * 0.15, now + 0.15);
+  tone2Gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+  tone2.connect(tone2Gain);
+  tone2Gain.connect(context.destination);
+  tone2.onended = () => { tone2.disconnect(); tone2Gain.disconnect(); };
+  tone2.start(now + 0.15);
+  tone2.stop(now + 0.3);
+}
+
+export function playPlayerDamageSound(volume: number = 0.5) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const now = context.currentTime;
+  const osc = context.createOscillator();
+  const output = context.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(150, now);
+  osc.frequency.exponentialRampToValueAtTime(100, now + 0.15);
+  output.gain.setValueAtTime(gain * 0.25, now);
+  output.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+  osc.connect(output);
+  output.connect(context.destination);
+  osc.onended = () => { osc.disconnect(); output.disconnect(); };
+  osc.start(now);
+  osc.stop(now + 0.2);
+}
+
+export function playPlayerDefeatSound(volume: number = 0.7) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const now = context.currentTime;
+  const thud = context.createOscillator();
+  const thudGain = context.createGain();
+  thud.type = 'sine';
+  thud.frequency.setValueAtTime(60, now);
+  thud.frequency.exponentialRampToValueAtTime(30, now + 0.3);
+  thudGain.gain.setValueAtTime(gain * 0.5, now);
+  thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+  thud.connect(thudGain);
+  thudGain.connect(context.destination);
+  thud.onended = () => { thud.disconnect(); thudGain.disconnect(); };
+  thud.start(now);
+  thud.stop(now + 0.4);
+  const descend = context.createOscillator();
+  const descendGain = context.createGain();
+  descend.type = 'sine';
+  descend.frequency.setValueAtTime(300, now + 0.1);
+  descend.frequency.exponentialRampToValueAtTime(80, now + 0.6);
+  descendGain.gain.setValueAtTime(gain * 0.2, now + 0.1);
+  descendGain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+  descend.connect(descendGain);
+  descendGain.connect(context.destination);
+  descend.onended = () => { descend.disconnect(); descendGain.disconnect(); };
+  descend.start(now + 0.1);
+  descend.stop(now + 0.6);
+}
+
+export function playItemPickupSound(volume: number = 0.5) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const now = context.currentTime;
+  const freqs = [880, 1100, 1320];
+  freqs.forEach((freq, i) => {
+    const osc = context.createOscillator();
+    const output = context.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, now + i * 0.08);
+    output.gain.setValueAtTime(0.001, now + i * 0.08);
+    output.gain.linearRampToValueAtTime(gain * 0.2, now + i * 0.08 + 0.02);
+    output.gain.exponentialRampToValueAtTime(0.001, now + i * 0.08 + 0.15);
+    osc.connect(output);
+    output.connect(context.destination);
+    osc.onended = () => { osc.disconnect(); output.disconnect(); };
+    osc.start(now + i * 0.08);
+    osc.stop(now + i * 0.08 + 0.15);
+  });
+}
+
+export function playTeleportCollectSound(volume: number = 0.5) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const now = context.currentTime;
+  const ping1 = context.createOscillator();
+  const ping1Gain = context.createGain();
+  ping1.type = 'sine';
+  ping1.frequency.setValueAtTime(1800, now);
+  ping1Gain.gain.setValueAtTime(gain * 0.2, now);
+  ping1Gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+  ping1.connect(ping1Gain);
+  ping1Gain.connect(context.destination);
+  ping1.onended = () => { ping1.disconnect(); ping1Gain.disconnect(); };
+  ping1.start(now);
+  ping1.stop(now + 0.3);
+  const ping2 = context.createOscillator();
+  const ping2Gain = context.createGain();
+  ping2.type = 'sine';
+  ping2.frequency.setValueAtTime(2400, now + 0.05);
+  ping2Gain.gain.setValueAtTime(gain * 0.15, now + 0.05);
+  ping2Gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+  ping2.connect(ping2Gain);
+  ping2Gain.connect(context.destination);
+  ping2.onended = () => { ping2.disconnect(); ping2Gain.disconnect(); };
+  ping2.start(now + 0.05);
+  ping2.stop(now + 0.35);
+}
+
+export function playTeleportPlaceSound(volume: number = 0.6) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const now = context.currentTime;
+  const thud = context.createOscillator();
+  const thudGain = context.createGain();
+  thud.type = 'sine';
+  thud.frequency.setValueAtTime(100, now);
+  thud.frequency.exponentialRampToValueAtTime(60, now + 0.1);
+  thudGain.gain.setValueAtTime(gain * 0.3, now);
+  thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+  thud.connect(thudGain);
+  thudGain.connect(context.destination);
+  thud.onended = () => { thud.disconnect(); thudGain.disconnect(); };
+  thud.start(now);
+  thud.stop(now + 0.15);
+  const hum = context.createOscillator();
+  const humGain = context.createGain();
+  hum.type = 'sine';
+  hum.frequency.setValueAtTime(440, now + 0.05);
+  humGain.gain.setValueAtTime(gain * 0.15, now + 0.05);
+  humGain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+  hum.connect(humGain);
+  humGain.connect(context.destination);
+  hum.onended = () => { hum.disconnect(); humGain.disconnect(); };
+  hum.start(now + 0.05);
+  hum.stop(now + 0.5);
+}
+
+export function playTeleportThrowSound(volume: number = 0.4) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const now = context.currentTime;
+  const osc = context.createOscillator();
+  const output = context.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(400, now);
+  osc.frequency.exponentialRampToValueAtTime(1000, now + 0.25);
+  output.gain.setValueAtTime(gain * 0.2, now);
+  output.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+  osc.connect(output);
+  output.connect(context.destination);
+  osc.onended = () => { osc.disconnect(); output.disconnect(); };
+  osc.start(now);
+  osc.stop(now + 0.25);
+}
+
+export function playTeleportLandSound(volume: number = 0.5) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const now = context.currentTime;
+  const clink = context.createOscillator();
+  const clinkGain = context.createGain();
+  clink.type = 'sine';
+  clink.frequency.setValueAtTime(2000, now);
+  clink.frequency.exponentialRampToValueAtTime(1500, now + 0.08);
+  clinkGain.gain.setValueAtTime(gain * 0.2, now);
+  clinkGain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+  clink.connect(clinkGain);
+  clinkGain.connect(context.destination);
+  clink.onended = () => { clink.disconnect(); clinkGain.disconnect(); };
+  clink.start(now);
+  clink.stop(now + 0.12);
+  const thud = context.createOscillator();
+  const thudGain = context.createGain();
+  thud.type = 'sine';
+  thud.frequency.setValueAtTime(120, now + 0.02);
+  thud.frequency.exponentialRampToValueAtTime(80, now + 0.1);
+  thudGain.gain.setValueAtTime(gain * 0.25, now + 0.02);
+  thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+  thud.connect(thudGain);
+  thudGain.connect(context.destination);
+  thud.onended = () => { thud.disconnect(); thudGain.disconnect(); };
+  thud.start(now + 0.02);
+  thud.stop(now + 0.15);
+}
+
+export function playTeleportActivateSound(volume: number = 0.7) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const now = context.currentTime;
+  const osc = context.createOscillator();
+  const output = context.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(200, now);
+  osc.frequency.exponentialRampToValueAtTime(2000, now + 0.6);
+  output.gain.setValueAtTime(gain * 0.25, now);
+  output.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+  osc.connect(output);
+  output.connect(context.destination);
+  osc.onended = () => { osc.disconnect(); output.disconnect(); };
+  osc.start(now);
+  osc.stop(now + 0.6);
+}
+
+export function playBossPhaseTransitionSound(volume: number = 0.8) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const now = context.currentTime;
+  const duration = 1.2;
+  const buffer = context.createBuffer(1, Math.ceil(context.sampleRate * duration), context.sampleRate);
+  const samples = buffer.getChannelData(0);
+  for (let frame = 0; frame < samples.length; frame++) {
+    const time = frame / context.sampleRate;
+    const mechanical = Math.sin(time * 80 * Math.PI * 2) * Math.exp(-time * 1.5);
+    const servo = Math.sin(time * 400 * Math.PI * 2 * (1 + time * 0.3)) * Math.exp(-time * 2);
+    const impact = Math.sin(time * 50 * Math.PI * 2) * Math.exp(-time * 4) * (time < 0.1 ? 1 : 0);
+    samples[frame] = (mechanical * 0.4 + servo * 0.3 + impact * 0.3) * 0.6;
+  }
+  const source = context.createBufferSource();
+  const output = context.createGain();
+  source.buffer = buffer;
+  output.gain.value = gain * 0.6;
+  source.connect(output);
+  output.connect(context.destination);
+  source.onended = () => { source.disconnect(); output.disconnect(); };
+  source.start(now);
+}
+
+export function playBossLaserSound(volume: number = 0.6) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const now = context.currentTime;
+  const charge = context.createOscillator();
+  const chargeGain = context.createGain();
+  charge.type = 'sawtooth';
+  charge.frequency.setValueAtTime(200, now);
+  charge.frequency.exponentialRampToValueAtTime(1500, now + 0.3);
+  chargeGain.gain.setValueAtTime(gain * 0.15, now);
+  chargeGain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+  charge.connect(chargeGain);
+  chargeGain.connect(context.destination);
+  charge.onended = () => { charge.disconnect(); chargeGain.disconnect(); };
+  charge.start(now);
+  charge.stop(now + 0.35);
+  const beam = context.createOscillator();
+  const beamGain = context.createGain();
+  beam.type = 'square';
+  beam.frequency.setValueAtTime(800, now + 0.3);
+  beam.frequency.exponentialRampToValueAtTime(600, now + 0.5);
+  beamGain.gain.setValueAtTime(gain * 0.2, now + 0.3);
+  beamGain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+  beam.connect(beamGain);
+  beamGain.connect(context.destination);
+  beam.onended = () => { beam.disconnect(); beamGain.disconnect(); };
+  beam.start(now + 0.3);
+  beam.stop(now + 0.5);
+}
+
+export function playBossDroneLaunchSound(volume: number = 0.6) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const now = context.currentTime;
+  const duration = 0.7;
+  const buffer = context.createBuffer(1, Math.ceil(context.sampleRate * duration), context.sampleRate);
+  const samples = buffer.getChannelData(0);
+  for (let frame = 0; frame < samples.length; frame++) {
+    const time = frame / context.sampleRate;
+    const hiss = (Math.random() * 2 - 1) * Math.exp(-time * 3) * (time < 0.2 ? 1 : 0);
+    const pod = Math.sin(time * 150 * Math.PI * 2) * Math.exp(-time * 2) * (time > 0.15 && time < 0.5 ? 1 : 0);
+    const whoosh = (Math.random() * 2 - 1) * Math.exp(-(time - 0.4) * 4) * (time > 0.4 ? 1 : 0);
+    samples[frame] = (hiss * 0.3 + pod * 0.4 + whoosh * 0.3) * 0.5;
+  }
+  const source = context.createBufferSource();
+  const output = context.createGain();
+  source.buffer = buffer;
+  output.gain.value = gain * 0.5;
+  source.connect(output);
+  output.connect(context.destination);
+  source.onended = () => { source.disconnect(); output.disconnect(); };
+  source.start(now);
+}
+
+export function playBossDefeatSound(volume: number = 0.9) {
+  const gain = Math.min(1, Math.max(0, volume)) * getSfxGain();
+  if (gain <= 0 || getAudioSettings().paused || (typeof document !== 'undefined' && document.hidden)) return;
+  if (typeof window === 'undefined' || typeof window.AudioContext !== 'function') return;
+  const context = sharedAudioContext();
+  if (context.state !== 'running') return;
+  const now = context.currentTime;
+  const duration = 1.5;
+  const buffer = context.createBuffer(1, Math.ceil(context.sampleRate * duration), context.sampleRate);
+  const samples = buffer.getChannelData(0);
+  for (let frame = 0; frame < samples.length; frame++) {
+    const time = frame / context.sampleRate;
+    const explosion1 = (Math.random() * 2 - 1) * Math.exp(-time * 2) * (time < 0.3 ? 1 : 0);
+    const explosion2 = (Math.random() * 2 - 1) * Math.exp(-(time - 0.4) * 3) * (time > 0.3 && time < 0.7 ? 1 : 0);
+    const powerDown = Math.sin(time * 300 * Math.PI * 2 * (1 - time * 0.5)) * Math.exp(-time * 1.5);
+    const debris = (Math.random() * 2 - 1) * Math.exp(-(time - 0.8) * 2) * (time > 0.8 ? 1 : 0) * 0.3;
+    samples[frame] = (explosion1 * 0.4 + explosion2 * 0.3 + powerDown * 0.2 + debris * 0.1) * 0.7;
+  }
+  const source = context.createBufferSource();
+  const output = context.createGain();
+  source.buffer = buffer;
+  output.gain.value = gain * 0.7;
+  source.connect(output);
+  output.connect(context.destination);
+  source.onended = () => { source.disconnect(); output.disconnect(); };
+  source.start(now);
+}

@@ -21,6 +21,15 @@ import {
   getControllerMovement,
   resetControllerInput,
 } from "./gamepadInput.js";
+import {
+  playJumpSound,
+  playLandingSound,
+  playSlideSound,
+  playCrouchSound,
+  playSprintSound,
+  playPlayerDamageSound,
+  playPlayerDefeatSound,
+} from "../../helpers/audio/sfx.js";
 
 // One-shot character actions (see characterManager.ts) on number keys 6-9.
 export type PlayerActionName =
@@ -419,6 +428,7 @@ export function createPlayer({
         slideCooldown <= 0
       ) {
         sliding = true;
+        playSlideSound(0.6);
         slideTime = 0;
         slideYaw = yaw;
         slideEntrySpeed = forwardSpeed;
@@ -427,11 +437,13 @@ export function createPlayer({
         actionRequestLife = 0;
       } else if (!sliding && !runningForward) {
         crouching = !crouching;
+        playCrouchSound(0.3);
         syncCollider();
       }
     }
     // Sprint with Shift key
     if (e.code === "ShiftLeft" || e.code === "ShiftRight") {
+      if (!sprinting) playSprintSound(0.25);
       sprinting = true;
     }
     const action = ACTION_KEYS[e.code];
@@ -701,6 +713,9 @@ export function createPlayer({
     if (support) {
       groundNormal.copy(support);
       isOnGround = true;
+      if (!wasGrounded) {
+        playLandingSound(Math.abs(playerBody.velocity.y), 1);
+      }
       intentionalJump = false;
       const outwardSpeed = playerBody.velocity.dot(groundNormal);
       if (outwardSpeed > 0) {
@@ -985,6 +1000,7 @@ export function createPlayer({
     }
     if (jumpQueued && !sliding && isOnGround && !crouching && !crouchForced) {
       playerBody.velocity.y = PHYSICS.jumpSpeed;
+      playJumpSound(0.5);
       isOnGround = false;
       intentionalJump = true;
     }
@@ -1573,6 +1589,8 @@ export function createPlayer({
       lastDamageWasShield = remaining === 0;
       if (remaining > 0) {
         health = Math.max(0, health - remaining);
+        playPlayerDamageSound(0.5);
+        if (health <= 0) playPlayerDefeatSound(0.7);
       }
     },
     heal: (amount: number) => {

@@ -1,4 +1,4 @@
-import { playSfx } from "../../helpers/audio/sfx.js";
+import { playSfx, playPistolDrawSound } from "../../helpers/audio/sfx.js";
 import * as THREE from "three";
 import * as CANNON from "cannon-es";
 import { loadToolModel } from "../../core/loader.js";
@@ -254,6 +254,7 @@ export class PistolController {
       this.loaded && !!this.context().player?.isEnabled(),
     );
     this.updateStatus();
+    playPistolDrawSound(0.4);
   }
 
   holster() {
@@ -261,6 +262,7 @@ export class PistolController {
     this.clearFeedback();
     this.context().weaponAnimation?.setEquipped(false);
     this.updateStatus();
+    playPistolDrawSound(0.3);
   }
 
   shoot() {

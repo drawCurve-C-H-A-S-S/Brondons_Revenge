@@ -9,7 +9,13 @@ import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
 import fireVertexShader from "../../shaders/vert/fireExplosion.vert.glsl?raw";
 import fireFragmentShader from "../../shaders/frag/fireExplosion.frag.glsl?raw";
 import { BreakableMaterial } from "../global/breakableMaterial.js";
-import { playSfx } from "../../helpers/audio/sfx.js";
+import {
+  playSfx,
+  playBossPhaseTransitionSound,
+  playBossLaserSound,
+  playBossDroneLaunchSound,
+  playBossDefeatSound,
+} from "../../helpers/audio/sfx.js";
 
 export const BOSS_RULES = Object.freeze({
   health: 980,
@@ -692,6 +698,7 @@ export function createLoadingBayBoss(
       beginFall(false);
   }
   function enterPhaseThree() {
+    playBossPhaseTransitionSound(0.8);
     phaseThree = true;
     phase = "phaseThreeAwakening";
     phaseTime = 0;
@@ -740,6 +747,7 @@ export function createLoadingBayBoss(
     drones.length = 0;
   }
   function finishBoss() {
+    playBossDefeatSound(0.9);
     if (phase === "droneExplosion") options.onDroneExplosionEnd?.();
     emitComicEffect(scene, "clank", { source: root });
     phase = "defeated";
@@ -1344,6 +1352,7 @@ export function createLoadingBayBoss(
   }
   function spawnDroneWave() {
     if (!droneTemplate) return;
+    playBossDroneLaunchSound(0.6);
     removeDrones();
     root.updateMatrixWorld(true);
     droneOrbitCentre.copy(root.position);
@@ -2076,6 +2085,7 @@ export function createLoadingBayBoss(
     const from = getShoulderWorld(side as "l" | "r");
     emitComicEffect(scene, "pew", { source: root, position: from });
     playSfx("botShot", 0.65);
+    playBossLaserSound(0.6);
     const direction = chargedAim.clone().sub(from).normalize();
     if (offsetAngle !== 0)
       direction.applyAxisAngle(new THREE.Vector3(0, 1, 0), offsetAngle);

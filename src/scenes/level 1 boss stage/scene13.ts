@@ -1,4 +1,4 @@
-import { playSfx } from "../../helpers/audio/sfx.js";
+import { playSfx, playItemPickupSound } from "../../helpers/audio/sfx.js";
 import * as THREE from "three";
 import { inputHint } from "../../scripts/player/gamepadInput.js";
 import { renderDirectionalPrompt } from "../../scripts/player/directionalPrompt.js";
@@ -3335,6 +3335,7 @@ export function createScene({
           supply.kind === "shield" ? player.addShield(50) : player.heal(100);
         if (!recovered) continue;
         supply.collected = true;
+        playItemPickupSound(0.5);
         collectedSupplies.add(supply.id);
         pickup.root.visible = false;
         supplyNoticeTime = 1.8;

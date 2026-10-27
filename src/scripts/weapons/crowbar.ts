@@ -1,4 +1,4 @@
-import { playSfx } from "../../helpers/audio/sfx.js";
+import { playSfx, playCrowbarDrawSound } from "../../helpers/audio/sfx.js";
 import * as THREE from "three";
 import * as CANNON from "cannon-es";
 import { createCrowbar } from "../items/createCrowbar.js";
@@ -67,6 +67,7 @@ export class CrowbarController {
     this.root.removeFromParent();
     refreshTouchAttackButton();
     this.context().setCharacterEquipped(false);
+    playCrowbarDrawSound(0.4);
   }
 
   equip() {
@@ -79,6 +80,7 @@ export class CrowbarController {
       this.status.textContent = inputHint(
         "Hold Tab: weapons | Left click: crowbar",
       );
+    playCrowbarDrawSound(0.5);
   }
 
   private onMouseDown = (event: MouseEvent) => {

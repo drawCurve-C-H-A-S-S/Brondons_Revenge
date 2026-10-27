@@ -2,6 +2,7 @@ import * as THREE from "three";
 import * as CANNON from "cannon-es";
 import { Capsule } from "three/addons/math/Capsule.js";
 import { emitComicEffect } from "../global/comicEffects.js";
+import { playMeleeHitSound } from "../../helpers/audio/sfx.js";
 import type { DamageTarget, DamageWeapon } from "./pistol.js";
 import type { Player } from "../player/player.js";
 
@@ -247,6 +248,7 @@ export class MeleeSwing {
           position: point,
           weapon: this.weapon,
         });
+        playMeleeHitSound(0.7);
         hit = true;
       }
     }

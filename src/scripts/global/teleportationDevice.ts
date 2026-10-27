@@ -1,6 +1,13 @@
 import * as THREE from "three";
 import type { Player, PlayerTransitionState } from "../player/player.js";
-import { playSfx } from "../../helpers/audio/sfx.js";
+import {
+  playSfx,
+  playTeleportCollectSound,
+  playTeleportPlaceSound,
+  playTeleportThrowSound,
+  playTeleportLandSound,
+  playTeleportActivateSound,
+} from "../../helpers/audio/sfx.js";
 
 export function createTeleportCrystal(
   color = 0xbd77ff,
@@ -166,6 +173,7 @@ export class TeleportationDeviceController {
   collect(announce = true) {
     if (this.state.collected) return;
     this.state.collected = true;
+    playTeleportCollectSound(0.5);
     if (announce)
       this.showMessage(
         "Teleporting crystal shard linked! Q: place marker / Hold Q: throw / T: teleport to marker / R: leave a minigame.",
@@ -281,6 +289,7 @@ export class TeleportationDeviceController {
       return;
     }
     this.cancelThrow();
+    playTeleportThrowSound(0.4);
     const origin = ctx.getPlayerPosition(),
       aim = new THREE.Vector3(
         direction.x,
@@ -418,6 +427,7 @@ export class TeleportationDeviceController {
   }
 
   private landThrow(point: THREE.Vector3) {
+    playTeleportLandSound(0.5);
     const flight = this.thrown!,
       ctx = this.context();
     const position = {
@@ -459,6 +469,7 @@ export class TeleportationDeviceController {
       return;
     }
 
+    playTeleportPlaceSound(0.6);
     this.setMarker(ctx.currentSceneId, position, rotation);
     ctx.showMessage(
       ctx.placementMessage?.(ctx.currentSceneId, position) ??
@@ -493,6 +504,7 @@ export class TeleportationDeviceController {
       return;
     }
 
+    playTeleportActivateSound(0.7);
     ctx.onTeleport(
       this.state.placementScene,
       this.state.placementPosition,
