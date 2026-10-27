@@ -114,6 +114,18 @@ export const WATERFALL_PATH = new THREE.CatmullRomCurve3(
   false,
   "centripetal",
 );
+export const ARCADE_JUNGLE_SPAWN = new THREE.Vector3(49, 0.3, 82);
+export const ARCADE_JUNGLE_ROUTE = new THREE.CatmullRomCurve3(
+  [
+    ARCADE_JUNGLE_SPAWN.clone().setY(0),
+    new THREE.Vector3(46, 0, 50),
+    new THREE.Vector3(14, 0, 32),
+    new THREE.Vector3(-15, 0, 30),
+    ...WATERFALL_PATH.points.map((point) => point.clone()),
+  ],
+  false,
+  "centripetal",
+).getSpacedPoints(240);
 const WATERFALL_ROUTE = WATERFALL_PATH.getSpacedPoints(70);
 const EXPLORATION_PATHS = [
   [
@@ -153,29 +165,37 @@ const EXPLORATION_ROUTES = EXPLORATION_PATHS.flatMap((path) =>
   path.getSpacedPoints(Math.ceil(path.getLength() / 2)),
 );
 const TRAIL_CELLS = new Map<string, THREE.Vector3[]>();
-for (const point of [
-  ...JUNGLE_ROUTE,
-  ...WATERFALL_ROUTE,
-  ...EXPLORATION_ROUTES,
-]) {
-  const column = Math.floor(point.x / 8),
-    row = Math.floor(point.z / 8);
-  for (let dx = -1; dx <= 1; dx++)
-    for (let dz = -1; dz <= 1; dz++) {
-      const key = `${column + dx},${row + dz}`,
-        points = TRAIL_CELLS.get(key) ?? [];
-      points.push(point);
-      TRAIL_CELLS.set(key, points);
-    }
+const ARCADE_TRAIL_CELLS = new Map<string, THREE.Vector3[]>();
+for (const [route, cells] of [
+  [[...JUNGLE_ROUTE, ...WATERFALL_ROUTE, ...EXPLORATION_ROUTES], TRAIL_CELLS],
+  [ARCADE_JUNGLE_ROUTE, ARCADE_TRAIL_CELLS],
+] as const) {
+  for (const point of route) {
+    const column = Math.floor(point.x / 8),
+      row = Math.floor(point.z / 8);
+    for (let dx = -1; dx <= 1; dx++)
+      for (let dz = -1; dz <= 1; dz++) {
+        const key = `${column + dx},${row + dz}`,
+          points = cells.get(key) ?? [];
+        points.push(point);
+        cells.set(key, points);
+      }
+  }
 }
-export function jungleTrailDistance(x: number, z: number) {
+function trailCellDistance(cells: Map<string, THREE.Vector3[]>, x: number, z: number) {
   let distance = Infinity;
-  for (const point of TRAIL_CELLS.get(
+  for (const point of cells.get(
     `${Math.floor(x / 8)},${Math.floor(z / 8)}`,
   ) ?? []) {
     distance = Math.min(distance, (point.x - x) ** 2 + (point.z - z) ** 2);
   }
   return Math.sqrt(distance);
+}
+export function jungleTrailDistance(x: number, z: number, includeArcade = false) {
+  const storyDistance = trailCellDistance(TRAIL_CELLS, x, z);
+  return includeArcade
+    ? Math.min(storyDistance, trailCellDistance(ARCADE_TRAIL_CELLS, x, z))
+    : storyDistance;
 }
 export function isJungleGrassSite(x: number, z: number) {
   const onBridge =
@@ -205,9 +225,13 @@ export function createRescueSite(
   {
     culling = false,
     bridgeBrokenAtStart = false,
+    includeNarrativeProps = true,
+    arcadeTrail = false,
   }: {
     culling?: boolean;
     bridgeBrokenAtStart?: boolean;
+    includeNarrativeProps?: boolean;
+    arcadeTrail?: boolean;
     facilityFootprint?: { width: number; depth: number };
   } = {},
 ) {
@@ -549,7 +573,7 @@ export function createRescueSite(
   }
   const facility = (x: number, z: number, margin = 0) =>
     Math.hypot(x - FACILITY.x, z - FACILITY.z) < FACILITY.radius + margin;
-  const routeDistance = jungleTrailDistance;
+  const routeDistance = (x: number, z: number) => jungleTrailDistance(x, z, arcadeTrail);
   let bridgeBroken = false;
   const river = (z: number, margin = 0) =>
     Math.abs(z - RESCUE_SITE.riverZ) < RESCUE_SITE.riverHalfWidth + margin;
@@ -566,6 +590,7 @@ export function createRescueSite(
       (x > -106 + radius && z > 9 + radius && z < 25 - radius)) &&
     (!river(z) ||
       waterfallLedge(x, z, radius) ||
+      (arcadeTrail && trailCellDistance(ARCADE_TRAIL_CELLS, x, z) < 3.5 - radius) ||
       (!bridgeBroken &&
         Math.abs(x - RESCUE_SITE.bridge.x) < Math.max(0.2, 2.03 - radius))) &&
     !facility(x, z) &&
@@ -1769,7 +1794,11 @@ export function createRescueSite(
     for (let z0 = -118; z0 <= 118; z0 += JUNGLE_GRASS_SPACING) {
       const x = x0 + (random() - 0.5) * 0.9,
         z = z0 + (random() - 0.5) * 0.9;
-      if (!isJungleGrassSite(x, z) || !isWalkable(x, z, 0.4)) continue;
+      if (
+        !isJungleGrassSite(x, z) ||
+        !isWalkable(x, z, 0.4) ||
+        (arcadeTrail && trailCellDistance(ARCADE_TRAIL_CELLS, x, z) < 3.8)
+      ) continue;
       if (grassCount >= GRASS_CAP) break carpet;
       writeGrassTuft(x, z, random, (matrix, color) => {
         grass.setMatrixAt(grassCount, matrix);
@@ -1830,7 +1859,9 @@ export function createRescueSite(
   fronds.receiveShadow = true;
   addJungleBatch(fronds, 42);
   const pathLength = JUNGLE_PATH.getLength();
-  const trailSteps = [JUNGLE_PATH, WATERFALL_PATH, ...EXPLORATION_PATHS].map(
+  const trailSteps = (arcadeTrail
+    ? [new THREE.CatmullRomCurve3(ARCADE_JUNGLE_ROUTE)]
+    : [JUNGLE_PATH, WATERFALL_PATH, ...EXPLORATION_PATHS]).map(
     (path) => ({ path, steps: Math.ceil(path.getLength() / 1.25) }),
   );
   const stones = new THREE.InstancedMesh(
@@ -2025,12 +2056,14 @@ export function createRescueSite(
     return { root, muzzle };
   });
   const pod = createEscapePod();
+  pod.visible = includeNarrativeProps;
   pod.position.copy(RESCUE_SITE.pod);
   pod.rotation.copy(RESCUE_SITE.podRotation);
   scene.add(pod);
   const podTrail = pod.getObjectByName("PodTrail")!;
   podTrail.visible = false;
   const ship = createEscapeShip();
+  ship.root.visible = includeNarrativeProps;
   ship.root.position.copy(RESCUE_SITE.ship);
   ship.setThrust(0);
   ship.setFlying(false, true);
@@ -2058,14 +2091,16 @@ export function createRescueSite(
   });
   const boy = new THREE.Group();
   boy.name = "RescuedPodBoy";
+  boy.visible = includeNarrativeProps;
   boy.position.copy(RESCUE_SITE.boy);
   scene.add(boy);
   let disposed = false,
     settled = false,
     brendan: ReturnType<typeof createBrendanBehavior> | null = null;
   let brendanActivity: BrendanActivity = "idle";
-  const boyReady = loadBrendanModel()
+  const boyReady = (includeNarrativeProps ? loadBrendanModel() : Promise.resolve(null))
     .then((gltf) => {
+      if (!gltf) return;
       if (disposed) {
         disposeRoom(gltf.scene as unknown as THREE.Scene);
         return;
@@ -2120,7 +2155,7 @@ export function createRescueSite(
   sun.shadow.camera.updateProjectionMatrix();
   sun.shadow.bias = -0.001;
   scene.add(sun);
-  if (culling)
+  if (culling && includeNarrativeProps)
     for (const root of [ship.root, pod, boy])
       distantProps.push({
         root,

@@ -88,6 +88,7 @@ interface StageTwoOptions {
   entryState?: PlayerTransitionState;
   deferActivation?: boolean;
   developerAccess?: boolean;
+  skipCinematics?: boolean;
   getCameraTarget: () => CctvTarget | null;
   holsterWeapons: () => void;
   onCrowbarCollected: () => void;
@@ -98,6 +99,7 @@ interface StageTwoOptions {
   ) => Promise<boolean>;
   onVentDrop: () => Promise<void>;
   onVentKeycard?: () => void;
+  onArcadeComplete?: () => void;
   prepareBay13: () => Promise<void>;
   onExitToBay13: (state: PlayerTransitionState) => Promise<boolean>;
   onAirlockReturn: (state: PlayerTransitionState) => Promise<boolean>;
@@ -735,6 +737,7 @@ export function createScene(options: StageTwoOptions) {
       !disposed &&
       !menuPaused &&
       phase === "surveillance" &&
+      !options.skipCinematics &&
       !transferPending,
   });
   function tell(text: string, seconds = 3, primeHint = /^Prime:/i.test(text)) {
@@ -1119,6 +1122,17 @@ export function createScene(options: StageTwoOptions) {
     swipeStartYaw = player.getState().yaw;
     swipeDone = false;
     swipeResult = "missing";
+    if (options.skipCinematics) {
+      swipeResult = options.developerAccess ? "accepted" : swipeStageTwoKeycard(progress);
+      playSound(swipeResult === "accepted" ? "accept" : "reject");
+      if (swipeResult === "accepted") {
+        if (options.onArcadeComplete) {
+          setPhase("handoff");
+          options.onArcadeComplete();
+        } else startLift();
+      } else tell("Keycard rejected. Try another room.");
+      return;
+    }
     setPhase("swipe");
   }
   function updateSwipe() {
@@ -1178,7 +1192,10 @@ export function createScene(options: StageTwoOptions) {
     if (actionTime >= SWIPE_ACTION_SECONDS) {
       heldCard.visible = false;
       if (swipeResult === "accepted") {
-        startLift();
+        if (options.onArcadeComplete) {
+          setPhase("handoff");
+          options.onArcadeComplete();
+        } else startLift();
       } else setPhase("surveillance");
     }
   }
@@ -1410,6 +1427,7 @@ export function createScene(options: StageTwoOptions) {
     }
     transferTarget = target.id;
     setPhase("teleport");
+    if (options.skipCinematics) void teleportToFeed();
   }
   function onPointer(event: MouseEvent) {
     if (

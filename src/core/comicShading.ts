@@ -6,7 +6,10 @@ import environmentInkFragment from "../shaders/frag/environmentInk.frag.glsl?raw
 
 const environmentMaterials = new WeakSet<THREE.Material>();
 const comicEnabled = { value: 0 };
+const inkEnabled = { value: 0 };
 let comicLookEnabled = false;
+let outlinesEnabled = false;
+let comicFrameEnabled = false;
 
 export function getComicLookEnabled() {
   return comicLookEnabled;
@@ -14,19 +17,34 @@ export function getComicLookEnabled() {
 
 export function setComicLookEnabled(enabled: boolean) {
   comicLookEnabled = enabled;
+  setComicFrameEnabled(comicFrameEnabled);
+}
+
+export function getOutlinesEnabled() {
+  return outlinesEnabled;
+}
+
+export function setOutlinesEnabled(enabled: boolean) {
+  outlinesEnabled = enabled;
+  setComicFrameEnabled(comicFrameEnabled);
 }
 
 export function setComicFrameEnabled(enabled: boolean) {
+  comicFrameEnabled = enabled;
   comicEnabled.value = comicLookEnabled && enabled ? 1 : 0;
+  inkEnabled.value = outlinesEnabled && enabled ? 1 : 0;
 }
 
 export function withoutComicLook<T>(render: () => T): T {
-  const previous = comicEnabled.value;
+  const previousComic = comicEnabled.value;
+  const previousInk = inkEnabled.value;
   comicEnabled.value = 0;
+  inkEnabled.value = 0;
   try {
     return render();
   } finally {
-    comicEnabled.value = previous;
+    comicEnabled.value = previousComic;
+    inkEnabled.value = previousInk;
   }
 }
 
@@ -101,8 +119,8 @@ export function addCabinInk(root: THREE.Object3D) {
     ink.name = "CabinComicInk";
     ink.material.customProgramCacheKey = () => "environment-black-ink-toggle-v2";
     ink.material.onBeforeCompile = (shader) => {
-      shader.uniforms.uComicEnabled = comicEnabled;
-      shader.fragmentShader = `uniform float uComicEnabled;\n${shader.fragmentShader}`;
+      shader.uniforms.uInkEnabled = inkEnabled;
+      shader.fragmentShader = `uniform float uInkEnabled;\n${shader.fragmentShader}`;
       shader.vertexShader = shader.vertexShader.replace(
         "#include <project_vertex>", environmentInkVertex,
       );
@@ -186,11 +204,11 @@ export function addCharacterInk(root: THREE.Object3D) {
     const viewport = new THREE.Vector2();
     material.customProgramCacheKey = () => "brondon-black-ink-toggle-v2";
     material.onBeforeCompile = (shader) => {
-      shader.uniforms.uComicEnabled = comicEnabled;
+      shader.uniforms.uInkEnabled = inkEnabled;
       shader.uniforms.uInkViewport = { value: viewport };
-      shader.fragmentShader = `uniform float uComicEnabled;\n${shader.fragmentShader}`
+      shader.fragmentShader = `uniform float uInkEnabled;\n${shader.fragmentShader}`
         .replace("#include <clipping_planes_fragment>",
-          "#include <clipping_planes_fragment>\nif (uComicEnabled < 0.5) discard;");
+          "#include <clipping_planes_fragment>\nif (uInkEnabled < 0.5) discard;");
       shader.vertexShader = `uniform vec2 uInkViewport;\n${shader.vertexShader}`
         .replace("#include <project_vertex>", characterInk);
     };

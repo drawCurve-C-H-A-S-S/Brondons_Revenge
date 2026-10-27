@@ -544,8 +544,8 @@ export const CONTROLLER_LESSONS: Record<string, string[]> = {
   finale: [
     "Left stick - move (up / down changes altitude in space)",
     "{a} - swing reactor blade / {y} - slide tackle and briefly knock the boss down",
-    "{x} - rifle salvo / Hold {zl} - shield and parry",
-    "{b} - dodge boost / {r} - Last Light (18-second recharge) / {plus} - pause / Hold {minus} - skip intro",
+    "{x} - Branden's Tears rifle salvo / Hold {zl} - shield and parry",
+    "{b} - dodge boost / {r} - Brendan's Will (18-second recharge) / {plus} - pause / Hold {minus} - skip intro",
     "D-pad Left - retry after defeat",
   ],
 };

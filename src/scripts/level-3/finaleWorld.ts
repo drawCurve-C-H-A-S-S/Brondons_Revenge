@@ -112,7 +112,7 @@ export function createFinaleWorld(
   root.add(upperWalls);
 
   const studentLights = SUDOERS_5.map((student, i) => {
-    const spot = new THREE.SpotLight(0xb8bec7, 0, 18, 0.16, 0.68, 1);
+    const spot = new THREE.SpotLight(0xc5cbd6, 0, 18, 0.34, 0.92, 1.4);
     spot.name = `${student.name}_CeilingSpotlight`;
     spot.position.set(
       FACILITY.x + FACILITY_OFFICE_SEATS[i].x,
@@ -658,10 +658,10 @@ export function createFinaleWorld(
         spot.intensity =
           (1 - smooth(roofBlast, FACILITY_ROOF_SEQUENCE.blastStart, FACILITY_ROOF_SEQUENCE.blastClear)) *
           smooth(reveal, 2.15 + i * 0.18, 4 + i * 0.18) *
-          (selected ? 58 : 28);
+          (selected ? 17 : 9);
         beams[i].visible = spot.intensity > 0.1;
         beams[i].material.uniforms.uTime.value = time;
-        beams[i].material.uniforms.uPower.value = spot.intensity / 58;
+        beams[i].material.uniforms.uPower.value = spot.intensity / 90;
       });
       const surface = samplePlanetSurface(
         space ? PLANET_RUPTURE.stardustEnd : ruptureTime,

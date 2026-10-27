@@ -63,7 +63,7 @@ const sceneTracks = new Map<string, BackgroundMusicTrack>([
   ["scene21", "loading"],
 ]);
 
-/** The entire Planet Breaker film, including Brendan's cutaway, has one music bed. */
+/** The planetary-collapse film, including Brendan's cutaway, has one music bed. */
 export function finaleMusicTrack(
   phase: FinalePhase,
   _bombDetonated = false,

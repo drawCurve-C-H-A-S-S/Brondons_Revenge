@@ -12,7 +12,12 @@ import {
   SUDOERS_5,
 } from "../../scripts/level-3/finaleActors.js";
 import { createFinaleCamera } from "../../scripts/level-3/finaleCinematography.js";
+import {
+  createFinaleCredits,
+  type FinaleCreditsSource,
+} from "../../scripts/level-3/finaleCredits.js";
 import { createFinaleAftermath } from "../../scripts/level-3/finaleAftermath.js";
+import { createFinaleRemembrance, REMEMBRANCE_START } from "../../scripts/level-3/finaleRemembrance.js";
 import {
   createBladeTrail,
   createFinaleEffects,
@@ -24,7 +29,6 @@ import {
 import { createFinalePresentation } from "../../scripts/level-3/finalePresentation.js";
 import { createFinaleRenderer } from "../../scripts/level-3/finaleRenderer.js";
 import { createFinaleShipTransformation } from "../../scripts/level-3/finaleShipTransformation.js";
-import { createMothership } from "../../scripts/global/mothership.js";
 import { createHoldToSkip } from "../../scripts/global/holdToSkip.js";
 import {
   createBeamMaterial,
@@ -87,9 +91,7 @@ import {
   finisherActionTime,
   cinematicProgress,
   sampleRooftopNight,
-  DONUS_RETURN,
   sampleDodgeArc,
-  sampleMothershipArrival,
   type FinisherBeat,
 } from "../../scripts/global/finaleChoreography.js";
 import type { MechPoseName } from "../../scripts/npc/mechAnimation.js";
@@ -169,26 +171,26 @@ const LINES: Partial<
       start: 0,
       end: 3.4,
       speaker: "BRONDON",
-      text: "I came all this way to hear the truth from you.",
+      text: "No more hiding. Tell me the truth.",
     },
     {
       start: 3.4,
       end: 6.4,
       speaker: "BRONDON",
-      text: "Look at me and tell me what you did to Branden and Brendan.",
+      text: "What did you do to Branden and Brendan?",
     },
     {
       start: 6.4,
       end: FINALE_REVEAL.studentStart,
       speaker: "BRONDON",
-      text: "Tell me I didn't teach you this.",
+      text: "Was any of it real?",
     },
     ...[
-      "You taught us to question every limit, Professor. Donus's safeguards were simply the first ones we broke.",
-      "Branden let us perfect neural control, and Brendan showed us how often a mind could be broken and made to begin again.",
-      "Prime never saw us in that laboratory. We gave it the memory and let your guilt turn it into truth.",
-      "Every lock, keycard, and signal was placed for you. You did not find us, Professor. We guided you here.",
-      "Branden and Brendan were rehearsals, Donus was our alibi, and you were the only result that mattered.",
+      "We broke Donus's safeguards. Every order it gave came from us.",
+      "Branden was our first neural link. With Brendan, we learned how far we could take it.",
+      "Prime's memories of the laboratory were ours to write. It never knew the difference.",
+      "We left the signals and opened the way. We wanted you to reach this room.",
+      "Donus took the blame. Your friends paid the price. Now you get to see what we built.",
     ].map((text, i) => ({
       ...STUDENT_TIMELINE[i].reveal,
       speaker: SUDOERS_5[i].name,
@@ -198,55 +200,55 @@ const LINES: Partial<
       start: FINALE_REVEAL.studentEnd,
       end: FINALE_REVEAL.mentorEnd,
       speaker: "BRONDON",
-      text: "All those years, I thought I was teaching you to make the world better.",
+      text: "I trusted you to use what I taught you to help people.",
     },
     {
       start: FINALE_REVEAL.mentorEnd,
       end: FINALE_REVEAL.correctionEnd,
       speaker: SUDOERS_5[4].name,
-      text: "You taught us to make it obey.",
+      text: "You taught us what was possible. We went further.",
     },
     {
       start: FINALE_REVEAL.correctionEnd,
       end: FINALE_REVEAL.brandenEnd,
       speaker: "BRONDON",
-      text: "Branden died believing there was still something in you worth saving.",
+      text: "Branden died asking me to save you.",
     },
     {
       start: FINALE_REVEAL.brandenEnd,
       end: FINALE_REVEAL.mockeryEnd,
       speaker: SUDOERS_5[4].name,
-      text: "You crossed the stars for the same mistake.",
+      text: "He never understood what we were doing.",
     },
     {
       start: FINALE_REVEAL.mockeryEnd,
       end: FINALE_REVEAL.betrayalEnd,
       speaker: "BRONDON",
-      text: "You used my trust, tortured my friends, and rewrote Prime just to put a leash around me.",
+      text: "You tortured my friends and used my trust to bring me here.",
     },
     {
       start: FINALE_REVEAL.betrayalEnd,
       end: FINALE_REVEAL.recognitionEnd,
       speaker: "BRONDON",
-      text: "You wanted your mentor to see what you became. I see you.",
+      text: "You wanted me to see what you've become. I see it.",
     },
     {
       start: FINALE_REVEAL.recognitionEnd,
       end: FINALE_REVEAL.renounceEnd,
       speaker: "BRONDON",
-      text: "And I am ashamed I ever called you my students.",
+      text: "You stopped being my students the moment you chose this.",
     },
     {
       start: FINALE_REVEAL.renounceEnd,
       end: FINALE_REVEAL.challengeEnd,
       speaker: "SUDOERS 5",
-      text: "Then give us one final lesson.",
+      text: "Then try to stop us.",
     },
     {
       start: FINALE_REVEAL.challengeEnd,
       end: FINALE_REVEAL.end,
       speaker: "BRONDON",
-      text: "Gladly.",
+      text: "I will.",
     },
   ],
   enemyTransform: [
@@ -272,57 +274,51 @@ const LINES: Partial<
       start: FACILITY_ROOF_SEQUENCE.boardingStart,
       end: FACILITY_ROOF_SEQUENCE.boardingStart + 3.9,
       speaker: "SUDOERS 5",
-      text: "You taught us every machine has a weakness, Professor. We learned that people do too.",
+      text: "Separate bodies were a limitation. We don't need them anymore.",
     },
     {
       start: FACILITY_ROOF_SEQUENCE.boardingStart + 3.9,
       end: FACILITY_ROOF_SEQUENCE.boardingStart + 7.9,
       speaker: "SUDOERS 5",
-      text: "Branden gave us control, Brendan gave us endurance, and Donus gave us reach.",
+      text: "Five minds, linked through a single frame.",
     },
     {
       start: FACILITY_ROOF_SEQUENCE.boardingStart + 7.9,
       end: FACILITY_ROOF_SEQUENCE.assembled,
       speaker: "SUDOERS 5",
-      text: "Now your final lesson gives us a body.",
+      text: "Let's see how long you can stand against us.",
     },
     {
       start: FACILITY_ROOF_SEQUENCE.assembled,
       end: FACILITY_ROOF_SEQUENCE.end,
-      speaker: "SUDOERS 5",
-      text: "Five minds. One Final Verdict.",
+      speaker: "BRONDON",
+      text: "I taught you everything you know.",
     },
   ],
   heroTransform: [
     {
       start: 0,
       end: 2.6,
-      speaker: "PRIME",
-      text: "They have five cores. We have one chance.",
+      speaker: "BRONDON",
+      text: "But not everything I know.",
     },
     {
       start: 2.6,
       end: 6.4,
       speaker: "PRIME",
-      text: "Shuttle, emergency ascent. Give him everything.",
+      text: "Calling the ship. Opus, deploy!",
     },
     {
       start: 6.4,
       end: 10.2,
       speaker: "PRIME",
-      text: "The frame will hold. Brondon... you have to hold with it.",
+      text: "Opus is synchronised. You're in control.",
     },
     {
       start: 10.2,
-      end: 12.6,
+      end: 14.2,
       speaker: "BRONDON",
-      text: "Donus is still in there. I'm not leaving him.",
-    },
-    {
-      start: 12.6,
-      end: 17,
-      speaker: "BRONDON",
-      text: "Prime Frame. Stand with me.",
+      text: "For Branden. For Brendan.",
     },
   ],
   rupture: [
@@ -330,13 +326,13 @@ const LINES: Partial<
       start: 0,
       end: 3.8,
       speaker: "SUDOERS 5",
-      text: "If we cannot rule this world, no one will.",
+      text: "You haven't seen the extent of our ambition.",
     },
     {
-      start: 3.8,
-      end: 9,
+      start: PLANET_RUPTURE.escape - 0.4,
+      end: PLANET_RUPTURE.escape + 4.1,
       speaker: "PRIME",
-      text: "That bomb will ignite the core! Boost now, Brondon!",
+      text: "Emergency thrusters activated. Escaping the atmosphere.",
     },
     {
       start: PLANET_RUPTURE.scorch,
@@ -363,32 +359,24 @@ const LINES: Partial<
       text: "Sudoers, I will never forgive you. You must die. I will have my revenge!!!",
     },
   ],
-  finisher: [
-    {
-      start: 0,
-      end: 3.2,
-      speaker: "PRIME",
-      text: "The frame is coming apart. Stay with me, Brondon!",
-    },
-  ],
   victory: [
     {
-      start: 0,
-      end: 3.2,
+      start: 6,
+      end: 9.5,
       speaker: "BRONDON",
-      text: "The reactor is down. The fight is over.",
+      text: "Branden... Brendan... I'm sorry.",
     },
     {
-      start: 3.2,
-      end: 9.2,
-      speaker: "PRIME",
-      text: "Donus, if you can hear us, come back.",
+      start: 9.5,
+      end: 12.5,
+      speaker: "BRONDON",
+      text: "I couldn't save you.",
     },
     {
-      start: 9.2,
-      end: 18,
-      speaker: "DONUS",
-      text: "Brondon... I am here. Thank you.",
+      start: 12.5,
+      end: 17.8,
+      speaker: "BRONDON",
+      text: "I came for vengeance. Now it's all I have left.",
     },
   ],
   defeat: [
@@ -396,7 +384,7 @@ const LINES: Partial<
       start: 0,
       end: 4.2,
       speaker: "SUDOERS 5",
-      text: "The last light goes out.",
+      text: "You were never going to stop us.",
     },
   ],
 };
@@ -487,9 +475,6 @@ export function createScene({
     facilityRoof: site.facilityRoof,
     renderer,
   });
-  const mothership = createMothership();
-  mothership.root.visible = false;
-  scene.add(mothership.root);
   physics.addBox(
     { x: FINALE_ROOFTOP.width, y: 0.4, z: FINALE_ROOFTOP.depth - 1 },
     { x: FINALE_ROOFTOP.x, y: FINALE_DECK_Y - 0.2, z: FINALE_ROOFTOP.z },
@@ -502,6 +487,7 @@ export function createScene({
     finaleBattlePoint(-FINALE_START_X),
   );
   const students = createFinaleStudents(loadStudents);
+  const remembrance = createFinaleRemembrance(scene, camera);
   students.root.visible = false;
   scene.add(students.root);
   site.setOfficeFurniture(students.furniture);
@@ -519,7 +505,7 @@ export function createScene({
   );
   const versus = createHangarVersus({
     singleOpponent: true,
-    playerName: "BRONDON / PRIME FRAME",
+    playerName: "BRONDON / OPUS",
     opponentName: "SUDOERS 5 / FINAL VERDICT",
     portraitScale: 1.83 / 16,
     layout: "columns",
@@ -550,6 +536,8 @@ export function createScene({
     (code, pressed) => handleInput(code, pressed),
     retryCheckpoint,
   );
+  let creditsCast: ReturnType<typeof createFinaleCredits> | null = null;
+  let creditsCastFailed = false;
   let postProcessing: ReturnType<typeof createFinaleRenderer> | null = null;
   try {
     postProcessing = createFinaleRenderer(renderer, scene, camera, mobile);
@@ -818,7 +806,7 @@ export function createScene({
     students.loaded,
     heroMech.loaded,
     enemyMech.loaded,
-    mothership.ready,
+    remembrance.ready,
     aftermath.ready,
   ]).then(async () => {
     if (disposed) return;
@@ -835,10 +823,7 @@ export function createScene({
   });
 
   function updateStudentReveal(phase: FinalePhase, phaseTime: number) {
-    const visible =
-      phase === "reveal" ||
-      phase === "enemyTransform" ||
-      (phase === "victory" && phaseTime >= 6 && phaseTime < 15);
+    const visible = phase === "reveal" || phase === "enemyTransform";
     students.root.visible = visible;
     const lift =
       phase === "enemyTransform"
@@ -864,7 +849,7 @@ export function createScene({
         student.root.position.copy(officePoint(seat.x, 0, seat.z));
         student.root.rotation.y = seat.yaw;
         const chair = students.furniture.getObjectByName(`FacilityOfficeChair${i + 1}`);
-        if (chair) chair.position.z = seat.z - FACILITY_OFFICE.chairSetback -
+        if (chair) chair.position.z = chair.userData.seatedZ -
           smooth(phaseTime, standStart, standEnd) * 0.32;
         const speaking =
           activeStudent(phaseTime, "reveal") === i ||
@@ -1199,69 +1184,35 @@ export function createScene({
   function showDialogue(phase: FinalePhase, phaseTime: number) {
     if (phase === "finisher") {
       const { beat, clock } = sampleFinisherSequence(phaseTime);
-      const lines: Record<
+      if (beat.shot === "challenge") {
+        const reply = beat.duration / 2;
+        presentation.dialogue(
+          clock < reply ? "SUDOERS 5" : "BRONDON",
+          clock < reply ? "Our ambition knows no limits." : "Neither does my vengeance.",
+        );
+        return;
+      }
+      const lines: Partial<Record<
         FinisherBeat["shot"],
         { speaker: string; text: string; start: number; end: number }
-      > = {
-        evade: {
-          speaker: "PRIME",
-          text: "Stay with me, Brondon!",
-          start: 0,
-          end: 1.9,
-        },
-        parry: {
-          speaker: "SUDOERS 5",
-          text: "Nowhere left to run.",
-          start: 0,
-          end: 1.5,
-        },
-        countershot: {
-          speaker: "BRONDON",
-          text: "Then I'll stop running.",
-          start: 0.1,
-          end: 2.6,
-        },
-        clash: {
-          speaker: "SUDOERS 5",
-          text: "You still resist?!",
-          start: 0.1,
-          end: 1.9,
-        },
-        exchange: {
-          speaker: "BRONDON",
-          text: "I'm not done.",
-          start: FINISHER_EXCHANGE.circleEnd + 0.12,
-          end: FINISHER_EXCHANGE.breakEnd - 0.06,
-        },
-        armCut: {
-          speaker: "BRONDON",
-          text: "He is not yours!",
-          start: 0,
-          end: 1.5,
-        },
-        ascend: {
-          speaker: "SUDOERS 5",
-          text: "We will erase you!",
-          start: 0,
-          end: 1.5,
-        },
+      >> = {
         reactor: {
-          speaker: "PRIME",
-          text: "All limiters released. Finish it.",
-          start: 0,
-          end: 2.2,
+          speaker: "BRONDON",
+          text: "I will end this.",
+          start: 0.2,
+          end: 2.9,
         },
         finalCut: {
-          speaker: "BRONDON",
-          text: "Donus. Come home.",
-          start: 3.6,
-          end: 5.5,
+          speaker: "SUDOERS 5",
+          text: "Final Verdict!",
+          start: 0,
+          end: FINISHER_EXECUTION.gone,
         },
       };
       const cue = lines[beat.shot];
       presentation.dialogue(
-        cue.speaker,
-        clock >= cue.start && clock < cue.end ? cue.text : "",
+        cue?.speaker ?? "",
+        cue && clock >= cue.start && clock < cue.end ? cue.text : "",
       );
       return;
     }
@@ -1294,24 +1245,24 @@ export function createScene({
       );
     else if (phase === "heroTransform")
       presentation.objective(
-        "PRIME FRAME / SHUTTLE RECALL",
-        "The shuttle is flying in from the jungle",
+        "OPUS / SHIP RECALL",
+        "Opus is launching from the jungle",
       );
     else if (phase === "versus")
       presentation.objective(
         "FINAL CHAPTER / MATCHUP",
-        "Prime Frame versus Final Verdict",
+        "Opus versus Final Verdict",
       );
     else if (phase === "ground")
       presentation.objective("THE SUMMIT", "Hold R to block");
     else if (phase === "rupture")
       presentation.objective(
         "PLANETARY COLLAPSE / ESCAPE",
-        "Boost with Prime. The fight is not over.",
+        "Emergency ascent. Clearing the atmosphere.",
       );
     else if (phase === "space")
       presentation.objective("LAST ORBIT", "Hold R to block");
-    else if (phase === "finisher") presentation.objective("LAST LIGHT", "");
+    else if (phase === "finisher") presentation.objective("BRONDON'S REVENGE", "");
     else if (phase === "defeat")
       presentation.objective(
         "SIGNAL LOST / BRONDON DOWN",
@@ -1319,8 +1270,8 @@ export function createScene({
       );
     else if (phase === "victory")
       presentation.objective(
-        "THE LAST LIGHT / DONUS RESTORED",
-        "The Final Verdict has been defeated",
+        "AFTERMATH",
+        "",
       );
     else if (phase === "credits")
       presentation.objective("BRONDON’S REVENGE", "A final light remains");
@@ -1332,13 +1283,7 @@ export function createScene({
     else if (phase === "enemyTransform" && phaseTime >= FACILITY_ROOF_SEQUENCE.lock)
       presentation.title("FINAL VERDICT");
     else if (phase === "heroTransform" && phaseTime >= 14.2)
-      presentation.title("PRIME FRAME");
-    else if (
-      phase === "rupture" &&
-      phaseTime >= PLANET_RUPTURE.raise &&
-      phaseTime < PLANET_RUPTURE.release + 0.4
-    )
-      presentation.title("PLANET BREAKER");
+      presentation.title("OPUS");
     else if (
       phase === "rupture" &&
       phaseTime >= PLANET_RUPTURE.burst &&
@@ -1355,8 +1300,18 @@ export function createScene({
           ? SPECIAL_MOVE_NAMES[special.kind]
           : "",
       );
-    } else if (phase === "victory" && phaseTime >= 14)
-      presentation.title("THE END");
+    } else if (phase === "finisher") {
+      const { beat, clock } = sampleFinisherSequence(phaseTime);
+      presentation.title(
+        beat.shot === "finalCut"
+          ? clock < FINISHER_EXECUTION.gone
+            ? "FINAL VERDICT"
+            : clock >= FINISHER_EXECUTION.appear && clock <= FINISHER_EXECUTION.lastCut + 0.3
+              ? "BRONDON'S REVENGE"
+              : ""
+          : "",
+      );
+    } else if (phase === "victory") presentation.title("");
     else if (phase === "credits" || phase === "done") presentation.title("");
     else presentation.title("");
   }
@@ -1781,22 +1736,7 @@ export function createScene({
         );
       }
     } else if (phase === "victory" || phase === "credits" || phase === "done") {
-      const victoryTime =
-        phase === "victory" ? phaseTime : FINALE_DURATION.victory + phaseTime;
-      heroMove =
-        phase === "credits" ||
-        phase === "done" ||
-        (phaseTime >= DONUS_RETURN.dance && phaseTime < DONUS_RETURN.appear)
-          ? "dance"
-          : phaseTime < DONUS_RETURN.dance
-            ? "afterCut"
-            : "victory";
-      const turn = cinematicProgress(
-        victoryTime,
-        DONUS_RETURN.dance - 0.5,
-        DONUS_RETURN.dance + 0.3,
-      );
-      heroMech.root.quaternion.slerp(new THREE.Quaternion(), turn);
+      heroMove = phase === "victory" && phaseTime < REMEMBRANCE_START ? "afterCut" : "mourn";
       enemyMove = "defeat";
     } else if (phase === "defeat") {
       heroMove = "defeat";
@@ -1828,8 +1768,10 @@ export function createScene({
         : phase === "rupture"
           ? PLANET_RUPTURE.escape + 0.5
           : Math.max(0.1, enemy.duration || 1);
-    const heroPoseTime = choreography
-      ? choreography.heroPoseProgress * heroDuration
+    const heroPoseTime = heroMove === "mourn"
+      ? (phase === "victory" ? phaseTime : FINALE_DURATION.victory + phaseTime) - REMEMBRANCE_START
+      : choreography
+        ? choreography.heroPoseProgress * heroDuration
       : phase === "heroTransform" || phase === "rupture"
         ? phaseTime
         : phase === "victory" || phase === "defeat"
@@ -2440,24 +2382,10 @@ export function createScene({
     if (aftermathState.forest || aftermathState.cockpit) {
       heroMech.root.visible = enemyMech.root.visible = false;
     }
-    mothership.root.visible =
-      (state.phase === "victory" && state.phaseTime >= DONUS_RETURN.appear) ||
-      state.phase === "credits" ||
-      state.phase === "done";
-    if (mothership.root.visible) {
-      const arrival = sampleMothershipArrival(
-        state.phase === "victory"
-          ? state.phaseTime
-          : FINALE_DURATION.victory + state.phaseTime,
-      );
-      mothership.root.position
-        .copy(heroMech.root.position)
-        .add(vector(...arrival.position));
-      mothership.root.quaternion.setFromUnitVectors(
-        vector(0, 0, 1),
-        vector(...arrival.direction),
-      );
-      mothership.root.rotateZ(arrival.roll);
+    remembrance.update(state.phase, state.phaseTime, heroMech.root);
+    if (remembrance.active) {
+      heroMech.root.visible = true;
+      enemyMech.root.visible = false;
     }
     consumeDirectorEvents();
     updateMissiles(state.phase);
@@ -2551,7 +2479,7 @@ export function createScene({
         ),
         students: students.students.map((student) => student.root),
         ship: site.ship.root,
-        mothership: mothership.root,
+        remembrance: remembrance.getCamera(),
         bomb: world.getBombPosition(),
         facilityInterior: world.facilityInterior,
         heroChest: heroMech.getChest(),
@@ -2579,6 +2507,15 @@ export function createScene({
       animationDelta,
     );
 
+    if (state.phase === "reveal" && entryState?.cameraPosition &&
+        entryState.cameraQuaternion && state.phaseTime < 1.6) {
+      const blend = smooth(state.phaseTime, 0, 1.6);
+      camera.position.lerpVectors(entryState.cameraPosition, camera.position.clone(), blend);
+      camera.quaternion.slerpQuaternions(entryState.cameraQuaternion, camera.quaternion.clone(), blend);
+      camera.fov = THREE.MathUtils.lerp(entryState.cameraFov ?? 56, camera.fov, blend);
+      camera.updateProjectionMatrix();
+      camera.updateMatrixWorld(true);
+    }
     updateObjective(state.phase, state.phaseTime);
     showDialogue(state.phase, state.phaseTime);
     const isMechCombat = state.phase === "ground" || state.phase === "space";
@@ -2599,9 +2536,9 @@ export function createScene({
             (duelState.enemyGuarding
               ? "SHIELD RAISED"
               : duelState.enemyTell === "orbitalCut"
-                ? "ECLIPSE REND / DODGE OR PARRY"
+                ? "ECLIPSE / DODGE OR PARRY"
                 : duelState.enemyTell === "verdict"
-                  ? "BEAM INCOMING"
+                  ? "REBEL / BEAM INCOMING"
                   : duelState.enemyTell === "reap"
                     ? "REVERSE CUT"
                     : duelState.enemyTell === "thrust"
@@ -2639,6 +2576,7 @@ export function createScene({
     if (state.phase === "credits" || state.phase === "done")
       presentation.credits(
         state.phase === "done" ? FINALE_DURATION.credits : state.phaseTime,
+        creditsCast !== null,
       );
     else presentation.credits(-1);
   }
@@ -2698,12 +2636,52 @@ export function createScene({
     updateCinematicCharacter(
       character: Awaited<ReturnType<typeof loadCharacter>> | null,
     ) {
-      if (character)
-        character.model.visible =
-          lastPhase === "reveal" ||
-          lastPhase === "enemyTransform" ||
-          (lastPhase === "heroTransform" &&
-            director.getState().phaseTime < HERO_TRANSFORM.pilotMerge);
+      if (!character) return;
+      character.model.visible =
+        lastPhase === "reveal" ||
+        lastPhase === "enemyTransform" ||
+        (lastPhase === "heroTransform" &&
+          director.getState().phaseTime < HERO_TRANSFORM.pilotMerge);
+      if (
+        !creditsCast &&
+        !creditsCastFailed &&
+        (lastPhase === "victory" ||
+          lastPhase === "credits" ||
+          lastPhase === "done")
+      ) {
+        try {
+          creditsCast = createFinaleCredits(
+            [
+              {
+                name: "Brondon",
+                model: character.model,
+                animations: character.animations,
+                outcome: "winner",
+              },
+              ...remembrance.getCreditsCast().map(
+                (source): FinaleCreditsSource => ({ ...source, outcome: "kneel" }),
+              ),
+              ...students.getCreditsCast().map(
+                (source): FinaleCreditsSource => ({ ...source, outcome: "fall" }),
+              ),
+            ],
+            reducedMotion,
+          );
+          if (lastPhase === "credits" || lastPhase === "done")
+            presentation.credits(
+              lastPhase === "done"
+                ? FINALE_DURATION.credits
+                : director.getState().phaseTime,
+              true,
+            );
+        } catch (error) {
+          creditsCastFailed = true;
+          console.error("[Credits] Unable to prepare the cached cast:", error);
+          director.assetsFailed(
+            `Unable to prepare the credits cast: ${String(error)}`,
+          );
+        }
+      }
     },
     setMenuPaused(value: boolean) {
       paused = value;
@@ -2717,7 +2695,14 @@ export function createScene({
       updateInput();
     },
     renderSceneWithEffects() {
-      if (lastPhase === "versus") versus.render(renderer);
+      if (creditsCast && (lastPhase === "credits" || lastPhase === "done"))
+        creditsCast.render(
+          renderer,
+          lastPhase === "done"
+            ? FINALE_DURATION.credits
+            : director.getState().phaseTime,
+        );
+      else if (lastPhase === "versus") versus.render(renderer);
       else if (postProcessing) postProcessing.render();
       else renderer.render(scene, camera);
     },
@@ -2749,6 +2734,7 @@ export function createScene({
       listeners.abort();
       skipHold.dispose();
       director.pause(true);
+      creditsCast?.dispose();
       presentation.dispose();
       versus.dispose();
       postProcessing?.dispose();
@@ -2760,7 +2746,7 @@ export function createScene({
       lightCounts.dispose();
       world.dispose();
       shipTransform.dispose();
-      mothership.dispose();
+      remembrance.dispose();
       students.dispose();
       heroMech.dispose();
       enemyMech.dispose();

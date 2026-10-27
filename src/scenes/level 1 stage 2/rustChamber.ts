@@ -42,6 +42,7 @@ interface RustChamberOptions {
   entryState?: PlayerTransitionState;
   preview?: boolean;
   deferActivation?: boolean;
+  skipCinematics?: boolean;
   loot?: CameraRoomProgress;
   hasReturnMarker?: () => boolean;
   onRestart?: () => Promise<boolean>;
@@ -99,6 +100,7 @@ export function createScene({
   entryState,
   preview = false,
   deferActivation = false,
+  skipCinematics = false,
   loot = { cleared: new Set<string>(), rewardCollected: false },
   hasReturnMarker,
   onRestart,
@@ -751,6 +753,13 @@ export function createScene({
     impactTime = 0,
   ) {
     if (preview || !active || presentation || melting) return;
+    if (skipCinematics) {
+      if (kind === "poem") {
+        reading.classList.remove("hidden");
+        setInputHint(closeReading, "E / Return");
+      }
+      return;
+    }
     presentation = {
       kind,
       time: 0,
@@ -1354,6 +1363,12 @@ export function createScene({
         ))
     )
       return;
+    if (skipCinematics && !reading.classList.contains("hidden")) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      reading.classList.add("hidden");
+      return;
+    }
     if (presentation) {
       if (
         presentation.kind === "poem" &&
@@ -1671,7 +1686,7 @@ export function createScene({
         ) {
           endPresentation();
           melting = {
-            time: 0,
+            time: skipCinematics ? 3.2 : 0,
             position: new THREE.Vector3(p.x, p.y, p.z),
             camera: camera.position.clone(),
           };

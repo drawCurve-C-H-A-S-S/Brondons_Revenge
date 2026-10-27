@@ -3,6 +3,8 @@ import {
   prepareEnvironmentComicShading,
   getComicLookEnabled,
   setComicLookEnabled,
+  getOutlinesEnabled,
+  setOutlinesEnabled,
   setComicFrameEnabled,
 } from "./core/comicShading.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -23,6 +25,12 @@ import { configureAssetCache, type PreloadTask } from "./core/assetCache.js";
 import { GAME_ASSET_URLS, preloadGameAssets } from "./core/gamePreload.js";
 import { SCENE_CHOICES } from "./core/chapters.js";
 import { MUSEUM_EXHIBITS } from "./scenes/museum/museumCatalog.js";
+import {
+  arcadeChallenge,
+  downloadArcadeRecord,
+  formatArcadeTime,
+  type ArcadeDifficulty,
+} from "./scripts/global/arcadeChallenges.js";
 import {
   createShipMap,
   createShipMapProgress,
@@ -262,6 +270,27 @@ const minimap = createSceneMinimap(
 const audioManager = null;
 const music = createGameMusic();
 const cinematicLoading = createCinematicLoadingScreen();
+type MenuFont = "normal" | "sefa" | "comic-sans";
+let menuFont: MenuFont = "normal";
+try {
+  const saved = window.localStorage.getItem("menuFont");
+  if (saved === "normal" || saved === "sefa" || saved === "comic-sans") menuFont = saved;
+  else if (saved !== null) console.warn("[Display] Unknown saved menu font:", saved);
+} catch (error) {
+  console.warn("[Display] Unable to read the menu font preference:", error);
+}
+function applyMenuFont(font: MenuFont, persist = false) {
+  menuFont = font;
+  document.documentElement.dataset.menuFont = font;
+  if (persist) {
+    try {
+      window.localStorage.setItem("menuFont", font);
+    } catch (error) {
+      console.warn("[Display] Menu font changed for this session, but could not be saved:", error);
+    }
+  }
+}
+applyMenuFont(menuFont);
 let openingReady = false,
   fullGamePreparation: Promise<void> | null = null;
 let playLoading = false,
@@ -807,11 +836,11 @@ async function teleportToAnchor(
   currentPlayer.enable();
   if (activeCamera) resetThirdPersonCamera(activeCamera);
   globalCharacter?.setFacing(rotation);
-  teleportArrivalTime = 0;
+  teleportArrivalTime = arcade.run?.id === 1.25 ? -1 : 0;
   teleportArrivalColor = 0xbd77ff;
   updatePlayerView(0);
   globalCharacter?.setHologramTransition(
-    hologramTransitionAt(
+    arcade.run?.id === 1.25 ? null : hologramTransitionAt(
       0,
       true,
       TELEPORT_TRANSFER_DURATION,
@@ -1194,15 +1223,15 @@ const lessons: Record<string, Omit<ControlCard, "key" | "scene">> = {
   finale: {
     title: "Final boss controls",
     lines: [
-      "A / D move · J sword chain · F rifle salvo",
+      "A / D move · J sword chain · F Branden's Tears",
       "Hold R shield / parry · Space dodge",
-      "E Last Light (18s recharge) · W / S rise or dive",
+      "E Brendan's Will (18s recharge) · W / S rise or dive",
       "Enter skip intro · The final execution plays automatically",
     ],
     touch: [
       "LEFT / RIGHT move · UP / DOWN fly",
       "SWORD chain · SHIELD block · BOOST dodge",
-      "RIFLE fire · ULTIMATE Last Light",
+      "TEARS rifle salvo · WILL ultimate",
       "The final execution plays automatically",
     ],
   },
@@ -1733,6 +1762,15 @@ async function loadStage1Storage(
     }
     const sceneData = module.createScene({
       hintsEnabled: getPrimeHintsEnabled(),
+      arcadeDifficulty:
+        arcade.run?.id === 1.1 ? arcade.run.difficulty : undefined,
+      onArcadeComplete: () => completeArcadeStage(),
+      onArcadeRetry: () => {
+        const run = arcade.run;
+        if (!run || run.id !== 1.1 || !run.started) return;
+        sampleArcadeHealth(run);
+        if (run.lastHealth !== null && run.lastHealth > 0) run.deaths++;
+      },
       openingEntry: !fromQuarters && !fromCameraRoom,
       fromQuarters,
       entryState,
@@ -2004,6 +2042,8 @@ const MUSEUM_STAGE_TITLES = new Map(
 type ArcadeCharacter = "brondon" | "brendan";
 interface ArcadeRun {
   id: number;
+  difficulty: ArcadeDifficulty;
+  started: boolean;
   sceneKey: string | null;
   elapsed: number;
   damage: number;
@@ -2017,6 +2057,7 @@ const arcade = {
   character: "brondon" as ArcadeCharacter,
   run: null as ArcadeRun | null,
   resultsOpen: false,
+  briefingOpen: false,
 };
 let arcadeReturnTo: number | undefined;
 
@@ -2101,11 +2142,14 @@ async function loadMuseum(returnTo?: number) {
 }
 
 async function startArcadeStage(id: number) {
+  const difficulty = arcade.run?.id === id ? arcade.run.difficulty : "easy";
   arcade.active = true;
   stageTwoProgress = createStageTwoProgress();
   cctv.clearSources();
   arcade.run = {
     id,
+    difficulty,
+    started: false,
     sceneKey: null,
     elapsed: 0,
     damage: 0,
@@ -2120,10 +2164,15 @@ async function startArcadeStage(id: number) {
     arcade.run = null;
     arcadeReturnTo = id;
     await enterSceneById(MUSEUM_ID);
+    return;
   }
+  showArcadeBriefing();
 }
 
 async function returnToMuseum() {
+  closeArcadeBriefing();
+  document.body.classList.remove("arcade-run-active");
+  document.getElementById("arcade-run-clock")!.classList.add("hidden");
   const returnTo = arcade.run?.id ?? arcadeReturnTo;
   arcade.run = null;
   arcadeReturnTo = returnTo;
@@ -2131,8 +2180,13 @@ async function returnToMuseum() {
 }
 
 function arcadeSceneEntered(id: string) {
+  document.body.classList.toggle(
+    "arcade-run-active",
+    arcade.active && id !== "museum" && !!arcade.run,
+  );
   const run = arcade.run;
   if (!arcade.active || !run) return;
+  if (run.started) sampleArcadeHealth(run);
   if (id === "museum") {
     arcade.run = null;
     return;
@@ -2140,7 +2194,12 @@ function arcadeSceneEntered(id: string) {
   if (run.sceneKey === null) {
     run.sceneKey = id;
   } else if (id === run.sceneKey) {
-    run.deaths++;
+    if (
+      run.id !== 1.25 &&
+      run.started &&
+      (run.lastHealth === null || run.lastHealth > 0)
+    )
+      run.deaths++;
     run.lastHealth = null;
   } else if (
     MUSEUM_EXHIBITS.find(
@@ -2149,31 +2208,86 @@ function arcadeSceneEntered(id: string) {
   ) {
     // A later part of the same multi-scene stage.
   } else if (!run.finished) {
-    // Another scene taking over means the stage has been completed.
-    run.finished = true;
-    window.setTimeout(showArcadeResults, 500);
+    console.error(`[Arcade] Unexpected scene ${id} during challenge ${run.id}`);
+    showTeleportDeviceMessage(
+      "This scene is outside the Arcade challenge. Return to the Museum to restart.",
+    );
   }
 }
 
 function completeArcadeStage() {
   const run = arcade.run;
-  if (!arcade.active || !run || run.sceneKey === null || run.finished) return;
+  if (
+    !arcade.active ||
+    !run ||
+    !run.started ||
+    run.sceneKey === null ||
+    run.finished
+  )
+    return;
+  sampleArcadeHealth(run);
   run.finished = true;
-  window.setTimeout(showArcadeResults, 500);
+  document.body.classList.remove("arcade-run-active");
+  document.getElementById("arcade-run-clock")!.classList.add("hidden");
+  showArcadeResults();
 }
 
-function trackArcadeRun(delta: number) {
-  const run = arcade.run;
-  if (!run || run.sceneKey === null || run.finished || !currentPlayer) return;
-  run.elapsed += Math.min(delta, 0.1);
+function sampleArcadeHealth(run: ArcadeRun) {
+  if (!currentPlayer) return;
   const health = currentPlayer.getHealth();
+  if (health <= 0 && (run.lastHealth === null || run.lastHealth > 0))
+    run.deaths++;
   if (run.lastHealth !== null && health < run.lastHealth)
     run.damage += run.lastHealth - health;
   run.lastHealth = health;
   run.lowestHealth = Math.min(run.lowestHealth, health);
 }
 
+function trackArcadeRun(delta: number) {
+  const run = arcade.run;
+  if (!run || !run.started || run.sceneKey === null || run.finished) return;
+  run.elapsed += delta;
+  sampleArcadeHealth(run);
+  const clockElement = document.getElementById("arcade-run-clock")!;
+  clockElement.classList.toggle("hidden", run.id === 14);
+  const objective: string | undefined = currentSceneData?.getArcadeObjective?.();
+  clockElement.textContent = [
+    formatArcadeTime(run.elapsed),
+    objective,
+  ]
+    .filter(Boolean)
+    .join("  /  ");
+}
+
 function arcadeGrade(run: ArcadeRun) {
+  const challenge = arcadeChallenge(run.id);
+  if (challenge.scoring === "none") return null;
+  if (challenge.scoring === "time")
+    return ["S", "A", "B", "C", "D"][
+      Math.min(
+        4,
+        Math.max(0, Math.ceil(run.elapsed / challenge.targetSeconds) - 1) +
+          run.deaths,
+      )
+    ];
+  if (challenge.scoring === "time-health") {
+    const health = THREE.MathUtils.clamp(
+      (run.lastHealth ?? PLAYER_MAX_HEALTH) / PLAYER_MAX_HEALTH,
+      0,
+      1,
+    );
+    const speed = Math.min(1, challenge.targetSeconds / Math.max(1, run.elapsed));
+    const score = health * 0.6 + speed * 0.4 - run.deaths * 0.1;
+    return score >= 0.95
+      ? "S"
+      : score >= 0.8
+        ? "A"
+        : score >= 0.65
+          ? "B"
+          : score >= 0.45
+            ? "C"
+            : "D";
+  }
   const ratio = run.damage / PLAYER_MAX_HEALTH;
   const tier =
     ratio <= 0.05
@@ -2202,20 +2316,27 @@ function showArcadeResults() {
   currentSceneData?.setMenuPaused?.(true);
   const stage = MUSEUM_STAGE_TITLES.get(run.id) ?? "Stage";
   const grade = arcadeGrade(run);
-  const minutes = Math.floor(run.elapsed / 60);
-  const seconds = Math.floor(run.elapsed % 60);
   const finalHealth = run.lastHealth ?? PLAYER_MAX_HEALTH;
   document.getElementById("arcade-results-title")!.textContent = stage;
   const gradeElement = document.getElementById("arcade-grade")!;
-  gradeElement.textContent = grade;
-  gradeElement.dataset.grade = grade;
-  const rows: Array<[string, string]> = [
-    ["Time", `${minutes}:${String(seconds).padStart(2, "0")}`],
+  gradeElement.classList.toggle("hidden", grade === null);
+  gradeElement.textContent = grade ?? "";
+  gradeElement.dataset.grade = grade ?? "";
+  document
+    .getElementById("arcade-download-record")!
+    .classList.toggle("hidden", run.id !== 1.25);
+  const rows: Array<[string, string]> = run.id === 14
+    ? [["Result", "Escaped / ungraded"]]
+    : [
+    ["Time", formatArcadeTime(run.elapsed)],
     ["Damage taken", String(Math.round(run.damage))],
     ["Health remaining", `${Math.round(finalHealth)} / ${PLAYER_MAX_HEALTH}`],
     ["Lowest health", `${Math.round(run.lowestHealth)}`],
     ["Retries", String(run.deaths)],
   ];
+  if (run.id === 1.1) rows.unshift(["Difficulty", run.difficulty.toUpperCase()]);
+  if (run.id === 1.25)
+    rows.splice(1, 0, ["Built-in cutscenes", "Skipped"]);
   document.getElementById("arcade-stats")!.replaceChildren(
     ...rows.flatMap(([label, value]) => {
       const dt = document.createElement("dt");
@@ -2239,6 +2360,52 @@ function closeArcadeResults() {
 }
 
 function setupArcadeResults() {
+  document.getElementById("arcade-start")!.addEventListener("click", () => {
+    const run = arcade.run;
+    if (!run || !arcade.briefingOpen) return;
+    currentSceneData?.setArcadeDifficulty?.(run.difficulty);
+    run.started = true;
+    sampleArcadeHealth(run);
+    closeArcadeBriefing();
+  });
+  document.getElementById("arcade-briefing-return")!.addEventListener("click", () => {
+    void returnToMuseum();
+  });
+  document.querySelectorAll<HTMLButtonElement>("[data-arcade-difficulty]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const difficulty = button.dataset.arcadeDifficulty;
+      if (!arcade.run) return;
+      if (
+        difficulty !== "easy" &&
+        difficulty !== "medium" &&
+        difficulty !== "hard"
+      )
+        throw new Error(`Invalid Arcade difficulty: ${difficulty}`);
+      arcade.run.difficulty = difficulty;
+      updateArcadeDifficultyButtons();
+    });
+  });
+  const downloadButton = document.getElementById("arcade-download-record") as HTMLButtonElement;
+  downloadButton.addEventListener("click", async () => {
+    const run = arcade.run;
+    if (!run || !run.finished || run.id !== 1.25) return;
+    try {
+      downloadButton.disabled = true;
+      await downloadArcadeRecord({
+        stage: MUSEUM_STAGE_TITLES.get(run.id)!,
+        character: arcade.character === "brondon" ? "Brondon" : "Brendan",
+        time: run.elapsed,
+        retries: run.deaths,
+      });
+    } catch (error) {
+      console.error("[Arcade] Record download failed:", error);
+      showTeleportDeviceMessage(
+        "The record image could not be downloaded. Please try again.",
+      );
+    } finally {
+      downloadButton.disabled = false;
+    }
+  });
   document
     .getElementById("arcade-play-again")!
     .addEventListener("click", () => {
@@ -2256,6 +2423,58 @@ function setupArcadeResults() {
       setPauseMenu(null, false);
       void returnToMuseum();
     });
+}
+
+function updateArcadeDifficultyButtons() {
+  document.querySelectorAll<HTMLButtonElement>("[data-arcade-difficulty]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.arcadeDifficulty === arcade.run?.difficulty));
+  });
+}
+
+function showArcadeBriefing() {
+  const run = arcade.run;
+  if (!run) return;
+  const challenge = arcadeChallenge(run.id);
+  document.getElementById("arcade-briefing-title")!.textContent = MUSEUM_STAGE_TITLES.get(run.id)!;
+  document.getElementById("arcade-instructions")!.replaceChildren(
+    ...challenge.instructions.map((instruction) => {
+      const item = document.createElement("li");
+      item.textContent = instruction;
+      return item;
+    }),
+  );
+  document.getElementById("arcade-difficulties")!.classList.toggle("hidden", run.id !== 1.1);
+  document.getElementById("arcade-scoring-note")!.textContent =
+    challenge.targetSeconds > 0
+      ? `Speed target: ${formatArcadeTime(challenge.targetSeconds)}. Faster times score better.`
+      : "";
+  updateArcadeDifficultyButtons();
+  arcade.briefingOpen = true;
+  weaponWheel.close();
+  clearSceneInput();
+  if (document.pointerLockElement) document.exitPointerLock();
+  quickMenuOpen = true;
+  document.body.classList.add("quick-menu-open");
+  setAudioMenuPaused(true);
+  music.setMenuOpen(true);
+  currentSceneData?.setMenuPaused?.(true);
+  document.getElementById("arcade-briefing")!.classList.remove("hidden");
+  document.getElementById("arcade-start")!.focus();
+}
+
+function closeArcadeBriefing() {
+  if (!arcade.briefingOpen) return;
+  const focused = document.activeElement;
+  if (focused instanceof HTMLElement && document.getElementById("arcade-briefing")!.contains(focused))
+    focused.blur();
+  arcade.briefingOpen = false;
+  document.getElementById("arcade-briefing")!.classList.add("hidden");
+  quickMenuOpen = false;
+  document.body.classList.remove("quick-menu-open");
+  setAudioMenuPaused(false);
+  music.setMenuOpen(false);
+  currentSceneData?.setMenuPaused?.(false);
+  clearSceneInput();
 }
 
 async function transitionToScene2() {
@@ -2376,7 +2595,9 @@ async function loadStageTwo(
     request = sceneRequestVersion;
   const sceneData = module.createScene({
     progress: stageTwoProgress,
-    developerAccess: developerRun,
+    developerAccess: developerRun && arcade.run?.id !== 1.25,
+    skipCinematics: arcade.run?.id === 1.25,
+    onArcadeComplete: arcade.run?.id === 1.25 ? completeArcadeStage : undefined,
     entryState,
     deferActivation: true,
     fromAirlock,
@@ -2393,7 +2614,6 @@ async function loadStageTwo(
     onRetryFeed: (id) => cctv.retryFeed(id),
     onCameraTeleport: (id, state) => loadCameraVisit(id, state),
     onVentDrop: prepareSurveillanceHub,
-    onVentKeycard: completeArcadeStage,
     prepareBay13: async () => {
       await (await sceneModule(13)).preloadAssets();
     },
@@ -2527,7 +2747,7 @@ async function restartSurveillance() {
     state.health = PLAYER_MAX_HEALTH;
   const source = currentSceneData;
   try {
-    if (currentPlayer && currentPlayer.getHealth() > 0) {
+    if (currentPlayer && currentPlayer.getHealth() > 0 && arcade.run?.id !== 1.25) {
       teleportDepartureTime = 0;
       teleportArrivalColor = 0x58ff9a;
       currentPlayer.setInputLocked(true);
@@ -2539,7 +2759,7 @@ async function restartSurveillance() {
     const loaded = await loadStageTwo(state);
     if (loaded) {
       currentSceneData?.returnToAnchor?.();
-      teleportArrivalTime = 0;
+      teleportArrivalTime = arcade.run?.id === 1.25 ? -1 : 0;
       teleportArrivalColor = 0x58ff9a;
     }
     return loaded;
@@ -2561,6 +2781,14 @@ function returnToSurveillanceAnchor() {
   )
     return false;
   const source = currentSceneData;
+  if (arcade.run?.id === 1.25) {
+    if (!source.returnToAnchor()) {
+      console.warn("[Teleport] Surveillance return anchor is unavailable");
+      showTeleportDeviceMessage("The surveillance anchor is unavailable right now.");
+      return false;
+    }
+    return true;
+  }
   returnTeleportPending = true;
   teleportDepartureTime = 0;
   teleportArrivalColor = 0x58ff9a;
@@ -2605,7 +2833,6 @@ async function loadCameraVisit(
       onRestart: restartSurveillance,
       onKeycardCollected: () => {
         collectStageTwoKeycard(stageTwoProgress, "scene5");
-        completeArcadeStage();
       },
     });
   } else if (id === "scene6") {
@@ -2613,6 +2840,7 @@ async function loadCameraVisit(
     if (!module || source !== currentSceneData) return false;
     sceneData = module.createScene({
       remoteVisit: true,
+      skipCinematics: arcade.run?.id === 1.25,
       deferActivation: true,
       entryState,
       loot: stageTwoProgress.remoteRooms.scene6,
@@ -2620,7 +2848,6 @@ async function loadCameraVisit(
       onRestart: restartSurveillance,
       onKeycardCollected: () => {
         collectStageTwoKeycard(stageTwoProgress, "scene6");
-        completeArcadeStage();
       },
     });
   } else if (id === "stage2-rust") {
@@ -2628,13 +2855,13 @@ async function loadCameraVisit(
     if (!module || source !== currentSceneData) return false;
     sceneData = module.createScene({
       deferActivation: true,
+      skipCinematics: arcade.run?.id === 1.25,
       entryState,
       loot: stageTwoProgress.remoteRooms["stage2-rust"],
       hasReturnMarker: surveillanceMarkerPlaced,
       onRestart: restartSurveillance,
       onKeycardCollected: () => {
         collectStageTwoKeycard(stageTwoProgress, "stage2-rust");
-        completeArcadeStage();
       },
     });
   } else if (id === "stage2-reactor") {
@@ -2648,7 +2875,6 @@ async function loadCameraVisit(
       onRestart: restartSurveillance,
       onKeycardCollected: () => {
         collectStageTwoKeycard(stageTwoProgress, "stage2-reactor");
-        completeArcadeStage();
       },
     });
   } else if (id === "stage2-rust2") {
@@ -2656,13 +2882,13 @@ async function loadCameraVisit(
     if (!module || source !== currentSceneData) return false;
     sceneData = module.createScene({
       deferActivation: true,
+      skipCinematics: arcade.run?.id === 1.25,
       entryState,
       loot: stageTwoProgress.remoteRooms["stage2-rust2"],
       hasReturnMarker: surveillanceMarkerPlaced,
       onRestart: restartSurveillance,
       onKeycardCollected: () => {
         collectStageTwoKeycard(stageTwoProgress, "stage2-rust2");
-        completeArcadeStage();
       },
     });
   } else {
@@ -2680,7 +2906,6 @@ async function loadCameraVisit(
       },
       onKeycardCollected: () => {
         collectStageTwoKeycard(stageTwoProgress, "stage2-armory");
-        completeArcadeStage();
       },
     });
   }
@@ -2694,10 +2919,10 @@ async function loadCameraVisit(
     stageTwoProgress.guardDown = true;
   }
   shipMapProgress.reveal(sceneData.getMapLayout());
-  teleportArrivalTime = 0;
+  teleportArrivalTime = arcade.run?.id === 1.25 ? -1 : 0;
   teleportArrivalColor = 0x58ff9a;
   globalCharacter?.setHologramTransition(
-    hologramTransitionAt(
+    arcade.run?.id === 1.25 ? null : hologramTransitionAt(
       0,
       true,
       TELEPORT_TRANSFER_DURATION,
@@ -2737,8 +2962,8 @@ async function loadBay13(
       },
       onDefeated: () => {
         bayBossDefeated = true;
-        completeArcadeStage();
       },
+      onFinisherComplete: arcade.run?.id === 13 ? completeArcadeStage : undefined,
       onRespawn: (phaseFour = false) => {
         void loadBay13(undefined, false, true, phaseFour).catch((error) =>
           console.error("Bay 13 checkpoint restart failed:", error),
@@ -2802,6 +3027,10 @@ async function loadHangar14(
             );
           },
           onLaunch: (state) => {
+            if (arcade.run?.id === 14) {
+              completeArcadeStage();
+              return;
+            }
             void loadFlight15(state).catch((error) => {
               console.error("Flight launch transition failed:", error);
               showTeleportDeviceMessage(
@@ -2905,7 +3134,10 @@ async function loadFlight15(
           entryState,
           startAt,
           renderer,
-          onTransition: loadCrash16,
+          onTransition: (state) => {
+            if (arcade.run?.id === 15) completeArcadeStage();
+            else void loadCrash16(state);
+          },
         }),
       };
     },
@@ -2951,6 +3183,8 @@ async function loadGround17(entryState?: RescueArrival, fromFacility = false) {
         data: module.createScene({
           entryState,
           fromFacility,
+          arcadeMode: arcade.run?.id === 17,
+          onArcadeComplete: arcade.run?.id === 17 ? completeArcadeStage : undefined,
           onFinished: loadFacility20,
           onRespawn: (state) => loadGround17(checkpointArrival(state)),
         }),
@@ -3040,7 +3274,6 @@ async function loadScene21(
         if (arcade.active && arcade.run) completeArcadeStage();
       },
       onFinished: () => {
-        if (arcade.active && arcade.run) return;
         if (!developerRun) {
           campaignCompleted = true;
           try {
@@ -3052,7 +3285,15 @@ async function loadScene21(
             );
           }
         }
-        showMenuButtons();
+        queueMicrotask(() => {
+          if (currentSceneData !== sceneData) return;
+          void enterSceneById(1).catch((error) => {
+            console.error("[Credits] Unable to return to the Main Menu:", error);
+            document.getElementById("main-menu-error")!.textContent =
+              "Unable to load the Main Menu. Please try again.";
+            setPauseMenu("main-menu", false);
+          });
+        });
       },
       onRetry: (next) => {
         void loadScene21(entryState, next);
@@ -3340,8 +3581,9 @@ let controllerFocusedItem: HTMLElement | null = null;
 
 function controllerMenuRoot() {
   if (creditsDialog.open) return creditsDialog;
-  if (cinematicLoading.active) return cinematicLoading.menuRoot;
+  if (arcade.briefingOpen) return document.getElementById("arcade-briefing");
   if (arcade.resultsOpen) return document.getElementById("arcade-results");
+  if (cinematicLoading.active) return cinematicLoading.menuRoot;
   if (quickMenuOpen) return menuScreen === "scenes" ? quickMenu : pauseMenu;
   const title = document.getElementById("menu-buttons")!;
   return !title.classList.contains("hidden") ? title : null;
@@ -3429,6 +3671,18 @@ function clearSceneInput() {
   currentPlayer?.clearInput();
   currentSceneData?.clearInput?.();
 }
+function syncControlsScrollHint() {
+  if (menuScreen !== "controls") return;
+  const list = document.getElementById("pause-controls-list");
+  const hint = document.getElementById("controls-scroll-hint");
+  if (!list || !hint || !list.clientHeight) return;
+  const scrollable = list.scrollHeight > list.clientHeight + 1;
+  hint.classList.toggle("hidden", !scrollable);
+  const atEnd = list.scrollTop + list.clientHeight >= list.scrollHeight - 2;
+  hint.dataset.atEnd = String(atEnd);
+  const text = hint.querySelector("span");
+  if (text) text.textContent = atEnd ? "Scroll up for earlier controls" : "Scroll for more controls";
+}
 function renderControlsReference() {
   const devices = lastControllerStatus?.controllers ?? [];
   document.getElementById("pause-controls-description")!.textContent =
@@ -3484,6 +3738,7 @@ function renderControlsReference() {
   const scrollTop = list.scrollTop;
   list.replaceChildren(...entries);
   list.scrollTop = scrollTop;
+  requestAnimationFrame(syncControlsScrollHint);
 }
 function renderControllerStatus(status: ControllerStatus) {
   lastControllerStatus = status;
@@ -3591,6 +3846,18 @@ function selectControlsTab(tab: InputMode) {
   if (controllerInput) renderControllerStatus(controllerInput.getStatus());
 }
 function controllerMenuAction(action: ControllerMenuAction) {
+  if (
+    (arcade.briefingOpen || arcade.resultsOpen) &&
+    (action === "pause" || action === "back")
+  ) {
+    if (action === "back") {
+      const returnButton = document.getElementById(
+        arcade.briefingOpen ? "arcade-briefing-return" : "arcade-return",
+      ) as HTMLButtonElement;
+      returnButton.click();
+    }
+    return;
+  }
   if (menuScreen === "credits" && (action === "pause" || action === "back")) {
     backFromMenu();
     return;
@@ -3601,6 +3868,10 @@ function controllerMenuAction(action: ControllerMenuAction) {
   }
   if (action === "back") {
     if (quickMenuOpen) backFromMenu();
+    else if (!document.getElementById("character-select")!.classList.contains("hidden"))
+      showTitlePanel("mode");
+    else if (!document.getElementById("mode-select")!.classList.contains("hidden"))
+      showTitlePanel("title");
     return;
   }
   const root = controllerMenuRoot();
@@ -3697,7 +3968,7 @@ function setupControllerInput() {
           ? ["ground", "space"].includes(phase)
             ? "finale"
             : "cinematic"
-          : scene === "scene14"
+          : scene === "scene14" || (scene === "scene13" && phase === "finisher")
             ? "escape"
             : activeSceneId === "scene15"
               ? "flight"
@@ -3709,13 +3980,10 @@ function setupControllerInput() {
                   : "foot";
       if (cinematicLoading.active || teleportLoading || deathPresentation)
         kind = "cinematic";
-      const titleMenu = !document
-        .getElementById("menu-buttons")!
-        .classList.contains("hidden");
       return {
         id: `${scene}:${phase}`,
         kind,
-        menuOpen: quickMenuOpen || titleMenu,
+        menuOpen: quickMenuOpen || controllerMenuRoot() !== null,
         wheelOpen: weaponWheelOpen,
         mapOpen: menuScreen === "map" && !!shipMap?.visible,
       };
@@ -3904,7 +4172,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
       .classList.toggle("hidden", screen !== "home");
     document
       .getElementById("pause-prime-settings")!
-      .classList.toggle("hidden", screen !== "home");
+      .classList.toggle("hidden", screen !== "controls");
     (
       document.getElementById("prime-hints-toggle") as HTMLInputElement
     ).checked = getPrimeHintsEnabled();
@@ -3918,8 +4186,11 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
       .getElementById("pause-display-panel")!
       .classList.toggle("hidden", screen !== "display");
     if (screen === "display") {
+      (document.getElementById("menu-font-select") as HTMLSelectElement).value = menuFont;
       (document.getElementById("comic-look-toggle") as HTMLInputElement).checked =
         getComicLookEnabled();
+      (document.getElementById("outlines-toggle") as HTMLInputElement).checked =
+        getOutlinesEnabled();
       syncBloomSlider();
       const fpsToggle = document.getElementById(
         "fps-counter-toggle",
@@ -4015,32 +4286,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
       }, 0);
     }
     if (screen === "controls") {
-      setTimeout(() => {
-        const controlsGroups = document.querySelectorAll<HTMLElement>(
-          "#pause-controls-panel .controls-group",
-        );
-        const controlsBackButton = document.querySelector<HTMLElement>(
-          "#pause-controls-panel button[data-pause-back]",
-        );
-        const groups = Array.from(controlsGroups);
-        const elements = controlsBackButton
-          ? [...groups, controlsBackButton]
-          : groups;
-        const count = elements.length;
-        if (count >= 2) {
-          elements.forEach((element) => {
-            const rect = element.getBoundingClientRect();
-            const offset =
-              (rect.top + rect.height / 2 - window.innerHeight / 2) /
-              (window.innerHeight / 2);
-            const rotation = Math.max(-12, Math.min(12, -offset * 15));
-            const arc =
-              Math.min(1, Math.abs(offset)) ** 2 * window.innerWidth * 0.15;
-            element.style.setProperty("--menu-arc", `${arc}px`);
-            element.style.setProperty("--menu-rotation", `${rotation}deg`);
-          });
-        }
-      }, 0);
+      requestAnimationFrame(syncControlsScrollHint);
     }
     if (screen === "display") {
       setTimeout(() => {
@@ -4267,6 +4513,8 @@ async function jumpToScene(id: number) {
   )
     return;
   if (id === 1) {
+    closeArcadeBriefing();
+    document.getElementById("arcade-run-clock")!.classList.add("hidden");
     setPauseMenu("main-menu");
     return;
   }
@@ -4336,6 +4584,8 @@ async function enterSceneById(id: number) {
   fade?.classList.add("hidden");
   if (id === 1) {
     setPauseMenu(null, false);
+    closeArcadeBriefing();
+    document.getElementById("arcade-run-clock")!.classList.add("hidden");
     closeArcadeResults();
     arcade.active = false;
     arcade.run = null;
@@ -4363,6 +4613,8 @@ async function enterSceneById(id: number) {
     stageTwoProgress.checkpoint = "surveillance";
     stageTwoProgress.guardDown = true;
     stageTwoProgress.ventCleared = true;
+    if (arcade.run?.id === 1.25)
+      collectStageTwoKeycard(stageTwoProgress, "stage2-vents");
     cctv.clearSources();
     bayBossDefeated = false;
     healthPackCollectedScene13 = false;
@@ -4505,6 +4757,11 @@ async function enterSceneById(id: number) {
 }
 function setupSceneQuickMenu() {
   renderer.domElement.tabIndex = -1;
+  document.getElementById("pause-controls-list")!.addEventListener(
+    "scroll", syncControlsScrollHint, { passive: true },
+  );
+  window.addEventListener("resize", syncControlsScrollHint, { passive: true });
+  document.fonts.addEventListener("loadingdone", syncControlsScrollHint);
   const creditsCopy = document
     .getElementById("credits-content")!
     .cloneNode(true) as HTMLElement;
@@ -4741,6 +4998,18 @@ function setupSceneQuickMenu() {
     screenBloom.setLevel(bloomSlider.valueAsNumber / 100),
   );
   screenBloom.onChange(syncBloomSlider);
+  const menuFontSelect = document.getElementById("menu-font-select") as HTMLSelectElement;
+  menuFontSelect.value = menuFont;
+  menuFontSelect.addEventListener("change", () => {
+    const selected = menuFontSelect.value;
+    if (selected !== "normal" && selected !== "sefa" && selected !== "comic-sans") {
+      console.error("[Display] Unsupported menu font:", selected);
+      menuFontSelect.value = menuFont;
+      return;
+    }
+    applyMenuFont(selected, true);
+    requestAnimationFrame(syncControlsScrollHint);
+  });
   const comicToggle = document.getElementById(
     "comic-look-toggle",
   ) as HTMLInputElement;
@@ -4750,6 +5019,21 @@ function setupSceneQuickMenu() {
   comicToggle.addEventListener("change", () => {
     setComicLookEnabled(comicToggle.checked);
     localStorage.setItem("comicLookEnabled", String(comicToggle.checked));
+  });
+  const outlinesToggle = document.getElementById(
+    "outlines-toggle",
+  ) as HTMLInputElement;
+  const storedOutlines = localStorage.getItem("outlinesEnabled");
+  setOutlinesEnabled(
+    storedOutlines === null
+      ? storedComicLook === "true"
+      : storedOutlines === "true",
+  );
+  localStorage.setItem("outlinesEnabled", String(getOutlinesEnabled()));
+  outlinesToggle.checked = getOutlinesEnabled();
+  outlinesToggle.addEventListener("change", () => {
+    setOutlinesEnabled(outlinesToggle.checked);
+    localStorage.setItem("outlinesEnabled", String(outlinesToggle.checked));
   });
   const hideHudToggle = document.getElementById(
     "interface-visibility-toggle",
@@ -4859,13 +5143,15 @@ function setupSceneQuickMenu() {
       quickMenu.contains(event.target) ||
       creditsDialog.contains(event.target) ||
       (arcade.resultsOpen &&
-        !!document.getElementById("arcade-results")?.contains(event.target)));
+        !!document.getElementById("arcade-results")?.contains(event.target)) ||
+      (arcade.briefingOpen &&
+        !!document.getElementById("arcade-briefing")?.contains(event.target)));
   window.addEventListener(
     "keydown",
     (event) => {
       // This capture handler precedes the input observer and owns menu shortcuts.
       if (!isControllerEvent(event)) controllerInput?.setMode("keyboard");
-      if (arcade.resultsOpen) {
+      if (arcade.resultsOpen || arcade.briefingOpen) {
         // Results own the keyboard; Tab and Enter still reach the buttons natively.
         event.stopImmediatePropagation();
         return;
@@ -5061,9 +5347,9 @@ function animate() {
     }
   }
 
-  if (!openingReady) return;
   controllerInput?.update(delta);
   updateControllerMenuFocus();
+  if (!openingReady) return;
   if (controllerNoticeTime > 0) {
     controllerNoticeTime = Math.max(
       0,

@@ -8,6 +8,7 @@ type Ctx = CanvasRenderingContext2D;
 const PALETTE: Record<PaintingTheme, [string, string]> = {
   stealth: ["#0b1522", "#1d3550"],
   vents: ["#10161c", "#2a3a44"],
+  surveillance: ["#08151e", "#173e48"],
   cargo: ["#1c1710", "#4a3a22"],
   range: ["#0e1420", "#2a3550"],
   archive: ["#101a24", "#2c4660"],
@@ -157,6 +158,27 @@ const MOTIFS: Record<PaintingTheme, (ctx: Ctx, t: number) => void> = {
     ctx.fillStyle = "#05080a";
     for (let i = 0; i < 9; i++) ctx.fillRect(40, 40 + i * 36, W - 80, 14);
     glow(ctx, 90 + ((t * 120) % 460), 200, 46, "#7fe0ff", 0.8);
+  },
+  surveillance(ctx, t) {
+    for (let i = 0; i < 6; i++) {
+      const x = 65 + (i % 3) * 175;
+      const y = 72 + Math.floor(i / 3) * 120;
+      ctx.fillStyle = "#030b10";
+      ctx.fillRect(x, y, 150, 90);
+      ctx.strokeStyle = "#79e9dc";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x, y, 150, 90);
+      ctx.fillStyle = "#1c6157";
+      ctx.fillRect(x + 5, y + 24 + ((t * 22 + i * 11) % 56), 140, 3);
+      ctx.fillStyle = "#a9f4dc";
+      ctx.font = "bold 15px monospace";
+      ctx.textAlign = "left";
+      ctx.fillText(`CAM ${i + 1}`, x + 10, y + 20);
+    }
+    ctx.fillStyle = "#455c64";
+    ctx.fillRect(65, 316, 500, 18);
+    ctx.fillRect(95, 334, 16, 40);
+    ctx.fillRect(519, 334, 16, 40);
   },
   cargo(ctx, t) {
     ctx.fillStyle = "#7a5a2c";

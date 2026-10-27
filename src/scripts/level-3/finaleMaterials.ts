@@ -2,7 +2,32 @@ import * as THREE from "three";
 import type { MechSide } from "../npc/mechDuel.js";
 
 export const MECH_HEIGHT = 16;
-export const FRAME_COLORS = { hero: 0xa262dc, enemy: 0xb72e3e } as const;
+const MECH_PALETTES = {
+  hero: {
+    platelight: 0xdcc8bf,
+    platemid: 0xb89494,
+    plateshad: 0x755967,
+    innerframelight: 0x575757,
+    innerframedark: 0x292929,
+    gemlight: 0xb93875,
+    gemmid: 0xa3161d,
+    gemdark: 0x680d10,
+  },
+  enemy: {
+    platelight: 0x4c315f,
+    platemid: 0x2b1d3b,
+    plateshad: 0x150f20,
+    innerframelight: 0x27232d,
+    innerframedark: 0x0c0a10,
+    gemlight: 0xd3ff6d,
+    gemmid: 0x5c9a54,
+    gemdark: 0x1a3727,
+  },
+} as const;
+export const FRAME_COLORS = {
+  hero: MECH_PALETTES.hero.gemlight,
+  enemy: 0x864aa5,
+} as const;
 export const SLASH_MARK_LIFETIME = 1.65;
 
 function dataTexture(data: Uint8Array, size: number, color = false) {
@@ -165,10 +190,14 @@ export function createIndustrialSkin(side: MechSide) {
         float construction = (1.0 - smoothstep(0.0, 0.04, abs(buildHeight - uBuild))) * step(uBuild, 0.995);
         float circuit = ${authored ? "0.0" : "pow(max(0.0, sin(vArmorP.y * 40.0 + uFrameTime * 1.2)), 24.0) * seam"};
         totalEmissiveRadiance += uFrameGlow * (construction * ${authored ? "0.7" : side === "hero" ? "5.0" : "2.8"} + circuit * ${authored ? "0.0" : "0.08"});
-        ${authored && side === "enemy" ? `
+        ${
+          authored && side === "enemy"
+            ? `
         float rim = pow(1.0 - abs(dot(normal, normalize(vViewPosition))), 2.0);
         totalEmissiveRadiance += uFrameGlow * rim * (0.08 + sin(uFrameTime * 1.8) * 0.015);
-        ` : ""}
+        `
+            : ""
+        }
         float engraving = 0.0;
         for (int i = 0; i < 12; i++) {
           vec2 a = uCutStarts[i].xy;
@@ -191,13 +220,10 @@ export function createIndustrialSkin(side: MechSide) {
     depth,
     uniforms,
     finishAuthoredMaterial(source: THREE.MeshStandardMaterial) {
-      if (side === "enemy" && /plate/i.test(source.name)) {
-        const name = source.name.toLowerCase();
-        source.emissive.set(
-          name.includes("light") ? 0xd34b52 :
-          name.includes("mid") ? 0xa72736 : 0x581622,
-        );
-      }
+      const swatch = Object.entries(MECH_PALETTES[side]).find(([name]) =>
+        source.name.toLowerCase().endsWith(name),
+      )?.[1];
+      if (swatch !== undefined) source.emissive.setHex(swatch);
       source.onBeforeCompile = (shader) => inject(shader, true, true);
       source.customProgramCacheKey = () => `finale-authored-finish-${side}-v1`;
       source.needsUpdate = true;

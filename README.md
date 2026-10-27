@@ -2,6 +2,33 @@
 
 A 3D browser game built with Three.js for the COMS3006A CGV project.
 
+## Game activity diagram
+
+- [View the vector activity diagram](./GAME_ACTIVITY.svg) -- zoom or print
+  without losing sharpness.
+- [Edit the Mermaid source](./GAME_ACTIVITY.mmd).
+
+The diagram covers the normal story campaign, Arcade/Museum mode, decisions,
+retries, optional exploration and the shared on-foot gameplay loop. Developer
+shortcuts and removed legacy scenes are excluded.
+
+To regenerate the image locally with Mermaid CLI:
+
+```bash
+npx --yes --package=@mermaid-js/mermaid-cli@11.12.0 mmdc -i GAME_ACTIVITY.mmd -o GAME_ACTIVITY.svg -b white
+```
+
+Open the SVG in a browser or vector editor. For paper output, use a large/custom
+page or poster tiling; fitting the entire long diagram onto A4 makes labels too
+small.
+
+## Development video
+
+- [Development vlog script](./DEVLOG_SCRIPT.md): narration and technical references.
+- [Discussion outline](./storyboard/index.html): topics and talking points for
+  your own recordings, following the script's 4:50 target. No screenshots,
+  video uploads or animatic playback are required.
+
 ## Setup
 
 ### Install dependencies
@@ -111,7 +138,9 @@ The two Controls tabs select the input and show the matching bindings.
 The menu is available during the opening as well as gameplay.
 Scene 1 is the **Main Menu**. Its straight blue-and-red **BRONDON'S REVENGE**
 title fades in from a blur with a brief chromatic glitch. It then pulses slowly,
-with "A tale of vengeance" underneath as a subtitle. Choose **Main Menu** from the pause menu to
+with "A tale of vengeance" underneath as a subtitle. Its straight comic-paper
+buttons and ink frames retain the Sefa font, cyan/red accents and subtle
+techno highlights; this fusion is scoped to Scene 1. Choose **Main Menu** from the pause menu to
 return after confirming that no progress will be saved. Returning discards the
 current run and skips the opening camera animation; a fresh page load still
 plays it.
@@ -124,6 +153,75 @@ pause menu; the Museum is still available through the developer scene list.
 At the center of the Museum, beneath the open sky, the prison's blue light
 effect marks the Main Menu exit. Stand in it and press **E** to open the
 no-progress-saved confirmation.
+
+### Arcade challenges
+
+Arcade rules are isolated from Story mode. Entering a museum screen opens a
+pre-start briefing; gameplay and the run timer remain paused until **Start**.
+Title, mode, character, difficulty and briefing menus support controller
+stick/D-pad navigation, confirm and Back, including loading retry menus.
+Run timers and Arcade instructions sit at the bottom-centre, above the player
+HUD. Keyboard **Shift** and the controller sprint trigger work in the museum
+and on-foot Arcade challenges; the hangar does not force Story's stealth crouch
+or limited stealth-sprint meter in Arcade.
+The Level 1 wing has exactly four screens:
+
+- **Deck One Hangar:** choose **Easy** (climb the exit ladder), **Medium**
+  (disable every hangar eye drone, then climb), or **Hard** (disable every
+  hangar eye drone and ground scavenger/shell bot, then climb). The exit ladder
+  refuses ascent while required targets remain. Cargo ladders still work.
+- **Camera Room:** starts in surveillance with the vent maze already cleared.
+  Complete the six existing camera minigames, collect their keycards, return
+  to the elevator and swipe the accepted card. The millisecond timer starts
+  with **Start** and excludes loading, menus and pauses. Built-in camera-room
+  cinematics, teleport presentations, Rust chamber camera shots/death
+  presentations and range-failure explosions are skipped, applying their
+  gameplay outcomes immediately rather than watching and subtracting them.
+  Camera-room teleports and keycard pickups do not finish the run. Results
+  offer an optional styled **PNG image** downloaded locally; no upload,
+  screenshot service or external assets are involved.
+- **Bay Warden:** time and health challenge, ending immediately after the
+  successful finisher QTE rather than waiting through victory dialogue.
+- **Escape QTE:** ungraded; ends when the ship leaves, without continuing into
+  the flight chapter.
+
+The flight screen and **Final Fight** remain available. **AI Research Facility**
+is removed from the museum, but remains in the Story campaign.
+**Bridge and Waterfall** becomes an Arcade-only survival run from the southeast
+trail. A solid metal gate blocks the bridge; follow the existing trail west to
+the waterfall instead. Brendan, the pod, the ship and their colliders are absent.
+Scavengers, shell bots, eye drones and dinosaurs replenish continuously from a
+reusable pool of exactly **four regular enemies**, with at most **four
+simultaneous attackers including the Warden**. Replacements spawn one at a time,
+at least 2.5 seconds apart. Distant enemies are suspended without releasing their
+population slots, so running away cannot spawn an extra crowd or activate
+distant physics chunks. Separate Story sentries and sharks are absent, and
+facility turrets cannot attack in this challenge.
+The trail has a rear start fence, side fences, a safety deck over water edges,
+and protected access to the full Warden arena. Gate and fence colliders derive
+from their visible meshes. Route confinement preserves forward/tangential
+running speed and rejects off-route teleport markers. Enemy animation and
+conservative hit bounds are budgeted separately to avoid per-frame skinning
+overhead.
+Arcade dinosaurs can be defeated and use non-instant-kill attacks; Story
+dinosaurs retain their existing behaviour. Defeating the Waterfall Warden ends
+the challenge without entering the research facility.
+
+Boss and waterfall grades weight health remaining at **60%** and speed at
+**40%**, with a retry penalty. Speed targets are **8 minutes** for the Bay
+Warden and **5 minutes** for the waterfall run. The camera speedrun uses a
+**15-minute** top-rank target and records the exact active time independently
+of its letter grade. The pre-start briefing displays the relevant target.
+The museum's northeast corner, between Levels 1 and 3, displays a scaled copy
+of Level 2's enemy capital ship on a labelled plinth, using the original flight
+model factory without its combat logic.
+The telescope displays the animated `ROLL.gif` asset inside its circular
+eyepiece, replacing the former text. It loads only when looking through the
+telescope, reuses the cached asset URL when available, and releases the image
+on exit. Image-load failures show a retry message rather than a blank view.
+
+### Menus and display
+
 Scene 1 suppresses automatic controller notices and gameplay control popups;
 controller setup remains available through the pause menu.
 **Sound** is available from the pause menu in every scene, including Scene 1.
@@ -131,8 +229,11 @@ Vertex and fragment GLSL files live in `src/shaders/vert/` and
 `src/shaders/frag/`; shared GLSL chunks remain in `src/shaders/`.
 Player cel-shading fragments are imported by `src/core/loader.ts`, preserving
 the existing model-material application and shading toggle.
-**Display** includes a **Bloom** strength slider, **Hide HUD**, **Show FPS** and
-**Perf timers**. Bloom strength and style are remembered between visits.
+**Display** includes a saved **Menu font** choice: **Normal** keeps Sefa on
+Scene 1 and the original fonts elsewhere; **Serra (Sefa) everywhere** and
+**Comic Sans** apply their font to all menus. It also includes a **Bloom**
+strength slider, **Hide HUD**,
+**Show FPS** and **Perf timers**. Bloom strength and style are remembered between visits.
 Press **Backslash (\\)** outside a text field to cycle bloom off, bright and soft.
 With **Show FPS** enabled, **Perf timers** adds CPU rendering time and GPU time
 when the browser supports GPU timer queries.
@@ -144,7 +245,9 @@ or immediately with **H** or their close button. Controller bindings use SVG
 face buttons, shoulders, triggers, sticks and directional pads both in these
 new-mechanic pop-ups and in the complete Controls menu. The icons follow each
 controller's selected family, calibrated layout and face-button swap.
-**Prime hints (all levels)** is available on the pause menu throughout the game.
+**Prime hints (all levels)** is under **Controls** in the pause menu throughout
+the game. The Controls panel stays upright and shows a scrollbar and scroll
+cue when more bindings are available.
 It is **on by default**, and the choice is saved between visits. Optional Prime
 guidance is available across the playable levels, with short contextual hints
 spaced apart using gameplay time; pausing or watching a cutscene does not advance
@@ -234,7 +337,7 @@ X (crowbar), B (dodge), Y (bloomstick spin), and R (launch).
 
 The **final boss** uses left stick for movement and space altitude, A to swing,
 X for the rifle salvo, hold ZL for shield/parry, B for dodge boost, and R for
-Last Light (the existing 18-second recharge). Y performs a grounded slide tackle
+Brendan's Will (the existing 18-second recharge). Y performs a grounded slide tackle
 that briefly knocks Sudoers 5 down.
 There is no inventory wheel. Hold - to skip the intro;
 D-pad Left retries after defeat. The final execution is an uninterrupted cinematic:
@@ -268,7 +371,7 @@ including the pause menu.
 | Boss defeated | Existing area music continues without a victory-song override |
 | Final boss introduction and transformations | Loading |
 | Playable final boss duel | Three-second crossfade into DonRevBGM1 |
-| Planet Breaker and final surface transmission | BrokenChainsBGm |
+| Planetary collapse and final surface transmission | BrokenChainsBGm |
 | Orbital duel, finisher and victory | DonRevBGM1 |
 | Final credits | Level 2 |
 
@@ -433,12 +536,14 @@ full-screen overlay:
   before rendering. Brondon's animated silhouette has a stronger two-pixel outline.
   Shared cel and outline GLSL lives under `src/shaders/frag` and `src/shaders/vert`,
   imported by `src/core/comicShading.ts`.
-  **Display > Comic Look** toggles the environment treatment, added character
-  outlines and a restrained contrast/saturation boost; it defaults to off and
-  saves the player's preference.
+  **Display > Comic Look** toggles the environment's cel lighting and a restrained
+  contrast/saturation boost. **Display > Outlines** independently toggles black
+  structural and character outlines without changing the lighting.
+  Both settings default to off and save independently. Existing Comic Look
+  preferences initialize the outline setting once to preserve the previous look.
   Real lighting, shadows and material detail remain visible beneath the cel bands.
   The minigame stage, puzzle camera feeds and dedicated minigame views bypass this
-  treatment and its outlines, regardless of the Display preference.
+  treatment and outlines, regardless of the Display preferences.
 - **CLANK!** marks robot shutdowns and takedowns.
 - Small, translucent **PEW!** callouts appear beside enemy laser muzzles.
 
@@ -802,7 +907,7 @@ are no longer part of Stage Two.
   Water rims and the torn deck sides use textured corrosion, with rust-stained
   top borders rather than plain grey edges. Orange wall fixtures and six warm
   wall lights brighten the second chamber without adding shadow-casting lights.
-  The **pink trampoline** has a woven fabric mat, tubular metal frame, 36
+  The **directional trampoline** has a woven fabric mat, tubular metal frame, 36
   visible coil springs and braced support legs. The middle of the mat flexes
   down and rebounds while its edges remain attached to the frame. Its collider
   stays stable during visual rebounds, and reduced-motion settings suppress
@@ -816,11 +921,16 @@ are no longer part of Stage Two.
   look and camera-relative movement at 60% walking speed, but no sprinting,
   jumping or crystal use. Placement accepts the cube's overlap with the floor
   plate and seats it on the plate; it does not require an exact center point.
-  Off-plate drops fall under gravity. Shoot the pink beacon to switch the
-  trampoline's launch direction, return west, and collect the keycard behind the
+  Off-plate drops fall under gravity. The shootable direction beacon is centered
+  on the wall above the rust water, visible from both decks. Each successful shot
+  immediately switches the launch direction and changes both the beacon and mat
+  to matching pink (far/east deck) or cyan (entrance/west deck), including the
+  mat's glow and light. Rebuilding restores the pink eastbound state.
+  Switch west, return, and collect the keycard behind the
   glass door. Completed plate/reward state persists across visits.
-  A short wall hint and a locked opposite-side exit match the first chamber's
-  styling. Releasing the load and opening the reward doors have short cutscenes.
+  A larger, high-contrast framed wall plaque pairs a short verse with numbered
+  puzzle instructions and a direction-colour key. The opposite-side exit stays
+  locked. Releasing the load and opening the reward doors have short cutscenes.
   Loose decorative blocks and the automatic puzzle walkthrough have been removed.
 - Destructibles consistently use **blue glowing corrosion for pistol targets**
   and **orange for crowbar/bloomstick targets**, including cargo, wall targets
@@ -900,6 +1010,27 @@ recovered during Stage Two.
   **???** appears above his head, he holds his facing and stops launching attacks,
   and the blue back target remains vulnerable. Afterwards he repeats his opening
   scan before resuming attacks. Existing drones and lasers remain dangerous.
+- The phase-three return walk blends into Donus's takeover. A head-anchored
+  **DONUS // OVERRIDE** terminal shows progress and **CONTROL SEIZED** instead
+  of surrounding the possessed bot with energy rings.
+- Teleporting behind the phase-four bot starts a low-gravity finishing QTE:
+  **Y** shoots the rear core, which uses the blue ballistic-breakable shader;
+  **U** jumps onto the fallen bot; **I** bisects it. Each prompt allows five
+  seconds and uses the existing controller button mappings or a touch button.
+  It shares the hangar's letter-prompt styling. **Hold Q** and **Press T**
+  cues appear in the centre, with Prime's directions at the top-left.
+  Camera shots follow the aim, core impact, fall, jump and cutting stroke,
+  with slow movement during the input windows. A single travelling slash wave,
+  the finale's blade trail and a short impact pause intensify the final cut.
+- The cut flows into Brondon leaping across the split bot while the camera pans
+  to Branden emerging crouched on Brendan's authored
+  rig, explains the neural experiments, and saves Brondon when Donus detonates
+  the fallen halves. Both remain close to the wreck: Branden makes contact
+  before shoving Brondon clear, and the directed fire engulfs Branden during
+  the push. There is no Prime shield. Brondon lands and runs back to Branden,
+  then kneels for his promise to save the students before Branden dissolves in red.
+  Control resumes at the death spot; there is no scripted walk or teleport to
+  the console. The lift remains available for its existing interaction and descent.
 
 ## Level 2 matchup, targeting and firing
 
@@ -1096,29 +1227,37 @@ Scene 20's observation-deck reveal leads into the Sudoers 5 finale. Each student
 gets an individual close-up while the group admits that they hacked Donus,
 experimented on Branden and Brendan through the warden and simulations, planted
 the false laboratory rescue in Prime's memory, and designed every step of
-Brondon's journey. They repeatedly call their former mentor “Professor” while
-twisting his lessons into a defence of what they did. Brondon reels when they
-mock Branden's death, renounces them as his students and accepts their challenge
-to fight. The taller summit room
-has cold, desaturated ceiling spotlights and synchronized student dialogue. The roof
+Brondon's journey. Brondon confronts them over his friends' deaths and rejects
+their justification. The students' seated skin contact and leg length determine
+their cushion alignment; ceiling spotlights are wider, softer and less intense.
+Speaker close-ups use eased camera transitions. The roof
 blows clear, the students enter their mech one at a time, and the shuttle recalls
-from its Scene 17 jungle parking spot to morph into Prime Frame. A comic VS
+from its Scene 17 jungle parking spot to morph into **Opus**. Brondon answers,
+"I taught you everything you know. But not everything I know," before Prime
+calls the ship and deploys Opus. A comic VS
 screen introduces the fight; there are no generated platforms under the mechs.
 After the transformations, dusk deepens into a moonlit, starry nighttime rooftop.
 Both combat frames use `mechs.glb` armour bound to independent copies of the
 Subject combat rig, with articulated hands and weapon grips. Only Final Verdict
 has wrist bridges to fill its hand gaps.
-Prime Frame retains its original forearm and wrist-crossing armour faces; only
+Opus retains its original forearm and wrist-crossing armour faces; only
 the original hand geometry beyond the wrist is removed, with no added filler.
 Using the same rig avoids twisting the hero armour around MC's different bind
-pose; combat clips are selected for the actual rig. Prime Frame keeps
-the asset's authored purple materials instead of the procedural industrial armour
-shader; Final Verdict uses a softer red emissive finish. Their swords, rifles and
+pose; combat clips are selected for the actual rig. Opus uses cream/pink armour
+(`platelight` **#DCC8BF**, `platemid` **#B89494**, `plateshad` **#755967**),
+a grey inner frame and pink/red gems. Final Verdict uses deep-purple armour,
+near-black frame parts and lime/emerald gems (`gemlight` **#D3FF6D**,
+`gemmid` **#5C9A54**, `gemdark` **#1A3727**) instead of the previous red finish.
+Both preserve the asset's material regions instead of replacing them with
+the procedural industrial armour shader. Their swords, rifles and
 scabbards follow their armour palette. Assembly, fading slash marks and the final
 dissolve remain available without replacing the model's surface materials.
 The original armour's hand-end geometry is trimmed at the wrists so it cannot
 overlap the articulated replacement hands. Both frames use Brondon's two-tone
-shadow shading, retaining the authored palette and Final Verdict's soft red glow.
+shadow shading, retaining their separate palettes and Final Verdict's soft violet glow.
+Replacement hands and wrist bridges share their frame's light armour colour;
+energy effects use Opus's pink and Final Verdict's violet colours. Only Final
+Verdict's three gem materials use lime/emerald greens.
 
 Use **A / D** to move and **J** to swing the reactor blade. The free Standard
 animations retain their complete anticipation, contact and recovery at their
@@ -1130,7 +1269,7 @@ or timed parry, **Space** performs a dodge boost with **no energy cost or rechar
 and **C** slide-tackles the Final Verdict and knocks it down briefly on a clean hit.
 Boosts can also cancel a committed move once its cinematic close-up is over.
 The rooftop fighting bounds are subtly wider; the facility perimeter and its
-colliders extend to the enlarged deck edges as well. **E** charges **Last Light**, then
+colliders extend to the enlarged deck edges as well. **E** charges **Brendan's Will**, then
 releases a flying blade flash; it starts ready and recharges in **18 seconds** of
 combat time. **W / S** control altitude in space. Shielded hits are fully absorbed,
 including the hit that breaks the shield. Blocking recoils melee attackers and
@@ -1138,7 +1277,7 @@ deflects projectiles; a timed parry reflects them toward Sudoers 5.
 
 Sudoers 5 jumps forward into its thrust, uses a reverse diagonal cut, and leaps
 backward before charging its sword-tip beam, whose deep red matches its armor glow.
-In orbit it also uses **Eclipse Rend**, a sword rush with its own cinematic tell
+In orbit it also uses **Eclipse**, a sword rush with its own cinematic tell
 and a dodge/parry window. The jumps move the actual combat
 body in both rooftop and orbital fights. Recovery reminders, adaptive exploration
 hints and introductory control cards are disabled during the finale; attack tells
@@ -1148,7 +1287,7 @@ from unrelated attacks during the introductory close-up; dodge or guard when
 gameplay resumes. Release R to recharge the shield.
 The boss health bar is centred along the top edge, Brondon's life sits at the
 bottom-right, and circular comic controls ring the remaining edges. Rifle energy,
-shield recovery and Last Light recharge directly around their **F**, **R** and
+shield recovery and Brendan's Will recharge directly around their **F**, **R** and
 **E** buttons and change to **READY** when available. Shielding uses an open,
 extended off-hand stance instead of the pushing animation;
 the sphere follows the center of the fighter. Orbital locomotion blends a
@@ -1167,9 +1306,11 @@ Brendan cries, "Ahhhhh, it burns!" The camera returns to a full view of Earth
 engulfed in animated solar fire, holds it for **2.8 seconds**, then shows the planet
 bursting into stardust with a large **BOOM!** using the shared comic impact artwork.
 The fire surface breaks apart as the dust expands, exposing the nebula and stars
-where Earth used to be. Inside Prime Frame's cockpit, Brondon answers,
-"Nooooo, Brendan!!" and vows to the Sudoers, "I will never forgive you. You must
-die. I will have my revenge!!!"
+where Earth used to be. Inside Opus's cockpit, Brondon answers,
+"Nooooo, Brendan!!" and tells the Sudoers, "Sudoers, I will never forgive you.
+You must die. I will have my revenge!!!" Before the escape, the students declare, "You haven't seen
+the extent of our ambition." Prime announces emergency thrusters and atmospheric
+escape; the bomb has no named special-move callout.
 The final fight uses the shared baked-nebula starfield, fading in over the
 nighttime rooftop and remaining behind the orbital duel and ending. The
 background follows the camera and its stars stay beyond the actors and planet.
@@ -1184,17 +1325,20 @@ through its distance uniforms rather than switching shader variants, and rooftop
 shadows stop updating without changing the light's shader configuration.
 The sequence cuts between locations instead of flying the camera through terrain.
 Its eased, curved pullback starts at the actual cockpit camera; the cockpit fades
-out as Prime Frame is revealed, with both mechs in airborne fighting stances before
+out as Opus is revealed, with both mechs in airborne fighting stances before
 the orbital duel resumes. Music continues without restarting. The bomb begins
 its descent at the apex rather than pausing there.
 
-The final execution is a **28.55-second, input-independent cinematic**. There are
+The final execution is an **input-independent cinematic**. There are
 no prompts, grades, input pauses or missed-command deaths; future QTE overlays can
-follow the film clock without controlling it. Brondon evades Final Verdict,
+follow the film clock without controlling it. The students open with "Our ambition
+knows no limits." Brondon replies, "Neither does my vengeance." Each has a
+full-body power-pose shot before Brondon evades Final Verdict,
 parries a second attack, returns rifle fire, locks blades, cuts through, ascends
-and charges Last Light. The extended clash cuts from sparking steel to Prime's
+and charges his final attack, saying "I will end this." The extended clash cuts from sparking steel to Opus's
 face and Final Verdict's face. The following slash is framed just behind Prime's
-sword shoulder. The vanishing rush reappears behind the enemy before forty
+sword shoulder. The students' final slash is **Final Verdict**; Brondon's
+vanishing rush reappears behind them for **Brondon's Revenge**, followed by forty
 staggered slash accents, with a physical recoil for every hit and an authored
 death pose. Root trajectories preserve momentum across cuts. Blade-contact IK
 keeps the bevelled sword surfaces separated instead of passing through each other;
@@ -1206,12 +1350,27 @@ animated solar-fire surface. In the clearing, Brendan uses his authored
 match the kneeling hip height. Head fire follows the actual head bone throughout
 the fall. The burning-Earth and stardust shots finish before the cockpit cut.
 
-Prime's native dance has a full-body shot **before** the return of the actual
-Scene 1 mothership. The ship enters along a banked curve, brakes into its final
-heading and continues smoothly into the epilogue. No automatic bloom/temporal
-trail is added to Prime; the normal display bloom controls are unchanged.
-Centered credits run in **90 seconds**, with
-rolling text but no background dancing copies or sprite generation.
+After the final strike, Brondon remains in **Opus**, crouched and bowed in space.
+A low-angle shot looks up at the ghostlike figures of Branden and Brendan above
+him. He apologises for not saving them and admits that vengeance is all he has
+left; this is not presented as justice or celebration. There is no dance,
+human-on-foot tableau, generated deck, or Donus fly-in. The narrative ends here;
+the later credits cast is a separate, non-narrative curtain call.
+Centered credits run in **90 seconds**, with Brondon, Branden, Brendan and the
+five students dancing fully solid along the side margins. These
+performers clone the finale's already-loaded characters and share cached
+geometry, textures and animation clips; no new model downloads, sprite baking,
+or additional WebGL context are needed. The copies are prepared during the
+victory epilogue, outside the initial loading screen. Reduced motion freezes
+dancing and removes the side performers' drifting movement.
+After the text clears, all eight walk in from the screen edges over **five
+seconds** into one responsive row, ordered left to right: Brondon, Branden,
+Brendan, then the five Sudoers. A party-game-style results celebration follows
+for **five seconds**: winner Brondon stands and dances, Branden and Brendan
+kneel and hold, and the five Sudoers fall down and remain defeated. These
+reactions reuse the cached dance, kneeling and fall animations.
+When the curtain call finishes, the finale is disposed and the game returns to the
+actual main-menu scene, preserving the campaign-completion unlock.
 A visible **hold Enter to skip** control
 skips the boss introduction; the same control skips the ending dialogue in
 Scenes 13 and 16 without losing their unlocks or scene handoff. Scene 1 ends
@@ -1221,18 +1380,23 @@ Scene 1 has a small **View Credits** button in the bottom-right corner of its me
 credits sheet and the rolling credits use the game's comic typography, halftone
 paper panels, ink outlines, offset shadows and coloured caption badges.
 The credits sheet shares the end roll's attribution list: creation and story by
-**CHASS**, music by **Caleb** produced in **GarageBand for iOS**, the new Brondon
-and DonfromStreets (Brendan) GLB models by **Husain**, and the other generic
-character models from **Quaternius's Universal Animation Library (UAL)**.
-It also credits animation authors, engine/physics libraries and development
-tools. Unconfirmed asset sources remain explicitly marked for
-verification rather than assigned to an author.
+**CHASS**; music by **Caleb**, produced in **GarageBand for iOS**; Brondon and
+DonfromStreets (Brendan) character models and the mech model by **Husain**;
+generic character models from **Quaternius's Universal Animation Library
+(UAL)**; and weapons (including the pistol and rifle) and enemy robots from
+**Quaternius's Sci-Fi Essentials Kit** (**CC0 1.0**). It also credits animation
+authors, engine/physics libraries and development tools. Unconfirmed asset
+sources remain explicitly marked for verification rather than assigned to an
+author.
 
 The shuttle recall preserves its parked world transform, lifts clear of the ground
-before forward flight, then follows a curved approach to Brondon. Donus returns
-along a banked, decelerating flight path rather than sliding between two points.
-Signature moves display **Starfall Salvo**, **Last Light**, **Final Verdict**,
-**Eclipse Rend** and **Planet Breaker** during their cinematic wind-ups.
+before forward flight, then follows a curved approach to Brondon.
+Signature moves display **Branden's Tears** (rifle), **Brendan's Will** (slash),
+**Rebel** and **Eclipse** during their cinematic wind-ups, using the Sefa font
+and a higher screen position. **Final Verdict** names the students' final
+execution slash; **Brondon's Revenge** names Brondon's teleporting counterattack.
+The combat buttons use the short labels **TEARS** and **WILL**; cinematic
+callouts and control-reference entries retain the full move names.
 Mech clips are retained between frames instead of being stopped and restarted.
 Cinematic poses blend across attacks with controlled guard, weight transfer and ascent;
 damage reactions retain their sampled motion and momentum.
@@ -1273,6 +1437,10 @@ shoulder camera into first person, then disappear when shoulder clearance return
 The hands render in a separate depth-cleared view so nearby walls do not clip
 the held weapon; pistol muzzle effects remain aligned with the grip, and melee
 damage continues to use the gameplay attack paths rather than the overlay.
+The third-person revolver is fitted to the character's hand size and seated
+between the right hand's curled fingers. The cylinder sits above the grip,
+clear of the fingers, while the authored left hand supports the hold. Muzzle
+effects follow the resized gun; first-person weapon placement is unchanged.
 Bloomstick first-person presentation follows the animated hand and blade, not a
 separate generic swing arc. Gameplay bloomstick clips play at **1.6x speed** with
 **70-millisecond attack blends**; both camera modes share the same scaled animation,
@@ -1333,7 +1501,8 @@ The final-boss shortcuts include **Bomb release / 50% health**, which starts at
 the exact bomb-release frame with **900 / 1800** enemy health, and **Final cinematic
 start**, which starts the execution at time zero. Loading warm-up does not advance
 either checkpoint's timeline. **Epilogue - Rolling credits** jumps straight to
-the actual end credits, with the same music and 90-second text roll
+the actual end credits, with the same music, 90-second text roll and ten-second
+cast curtain call
 as a completed game; it does not replay the boss fight.
 Shielding keeps the mech's head facing forward;
 its normal opponent-tracking remains separate from the guard's torso/arm pose.
@@ -1441,7 +1610,7 @@ removes every visible part of an affected tree.
 The reveal and each student's close-up share one dialogue timeline. After the
 roof shatters, the five students ascend one at a time and merge into the enemy's
 chest through subdued crimson beams and a dark energy aura. The actual shuttle lifts off from its jungle
-parking spot, flies to Brondon, disassembles, and morphs into Prime Frame. A comic
+parking spot, flies to Brondon, disassembles, and morphs into Opus. A comic
 VS introduction leads into the duel on the facility's exposed top floor; there
 are no generated mech platforms.
 
@@ -1457,11 +1626,13 @@ timing failures; normal gameplay input cannot redirect the film. HUD panels, rec
 indicators and controls use the game's shared comic-paper panels, ink outlines,
 hard shadows and resource colors; the VS and game-over layouts are preserved. Hold **Enter** during the
 reveal and transformations to skip ahead to the VS introduction.
-Victory credits are centered without background dancers or character sprite rendering.
+Victory credits keep their text centered between fully solid, cached 3D cast
+dancers, followed by a single-row winner-and-defeated results celebration.
 Brondon's cockpit close-ups use the same character model as on-foot gameplay;
-Prime Frame retains its existing mech model.
-The epilogue also flies in the shared opening mothership and plays Prime Frame's
-native `Dance_Loop`; the credit timeline and scrolling share one duration.
+Opus retains its existing mech model.
+The epilogue keeps Opus crouched in space below Branden and Brendan's apparitions.
+The 90-second text roll is followed by the cast's ten-second walk-in and pose
+before returning to the main menu.
 
 ## Five Chairs trailer and loading artwork
 

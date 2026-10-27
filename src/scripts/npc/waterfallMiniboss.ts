@@ -32,6 +32,7 @@ export function createWaterfallMiniboss({
   arena,
   defeated = false,
   achievementUnlocked = false,
+  onDefeated,
   loadModel = loadToolModel,
 }: {
   scene: THREE.Scene;
@@ -41,6 +42,7 @@ export function createWaterfallMiniboss({
   arena: WaterfallArena;
   defeated?: boolean;
   achievementUnlocked?: boolean;
+  onDefeated?: () => void;
   loadModel?: typeof loadToolModel;
 }) {
   const root = new THREE.Group();
@@ -214,6 +216,7 @@ export function createWaterfallMiniboss({
       achievementTime = 6.5;
       achievement.classList.remove("hidden");
     }
+    onDefeated?.();
   }
   function damage(amount: number, weapon?: DamageWeapon) {
     if (!Number.isFinite(amount) || amount <= 0)

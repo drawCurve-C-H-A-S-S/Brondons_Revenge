@@ -27,7 +27,7 @@ export const FACILITY_OFFICE_SEATS = [-4.2, -2.1, 0, 2.1, 4.2].map((x) =>
 
 export function placeFacilityOfficeChair(chair: THREE.Group, index: number) {
   const seat = FACILITY_OFFICE_SEATS[index];
-  fitRoomProp(chair, 0.96, 0.8, 0.9, seat.yaw);
+  fitRoomProp(chair, 1.2, 0.95, 1.05, seat.yaw);
   chair.position.add(new THREE.Vector3(
     seat.x, FACILITY_OFFICE.floor, seat.z - FACILITY_OFFICE.chairSetback,
   ));
@@ -40,21 +40,89 @@ export function alignFacilityOfficeStudent(
 ) {
   model.updateWorldMatrix(true, false);
   model.updateMatrixWorld(true);
-  // The authored chair is skinned; refresh its bind inverse before raycasting.
   chair.updateWorldMatrix(true, false);
   chair.updateMatrixWorld(true);
+  chair.traverse((node) => {
+    if (node instanceof THREE.SkinnedMesh) {
+      node.skeleton.update();
+      node.computeBoundingBox();
+    }
+  });
   const pelvis = model.getObjectByName("pelvis");
   if (!pelvis) throw new Error("Office student is missing its pelvis bone");
-  const bounds = new THREE.Box3().setFromObject(chair);
-  const origin = bounds.getCenter(new THREE.Vector3());
-  origin.y = bounds.max.y + 0.2;
-  const seat = new THREE.Raycaster(
-    origin,
-    new THREE.Vector3(0, -1, 0),
-  ).intersectObject(chair, true)[0];
-  if (!seat) throw new Error("Office chair has no seated contact surface");
-  model.position.y +=
-    seat.point.y + 0.09 - pelvis.getWorldPosition(new THREE.Vector3()).y;
+  const hip = pelvis.getWorldPosition(new THREE.Vector3());
+  const forward = new THREE.Vector3(0, 0, 1).transformDirection(model.matrixWorld);
+  const vertex = new THREE.Vector3(), relative = new THREE.Vector3();
+  let contactY = Infinity, footY = Infinity;
+  model.traverse((node) => {
+    if (!(node instanceof THREE.SkinnedMesh)) return;
+    node.skeleton.update();
+    const { position, skinIndex, skinWeight } = node.geometry.attributes;
+    for (let index = 0; index < position.count; index++) {
+      let hipWeight = 0, footWeight = 0;
+      for (let component = 0; component < 4; component++) {
+        const name = node.skeleton.bones[skinIndex.getComponent(index, component)].name;
+        const weight = skinWeight.getComponent(index, component);
+        if (/pelvis|hips|thigh|upleg/i.test(name)) hipWeight += weight;
+        if (/foot|ball|toe/i.test(name)) footWeight += weight;
+      }
+      if (hipWeight < 0.6 && footWeight < 0.6) continue;
+      node.getVertexPosition(index, vertex);
+      node.localToWorld(vertex);
+      if (footWeight >= 0.6) footY = Math.min(footY, vertex.y);
+      relative.copy(vertex).sub(hip);
+      if (hipWeight >= 0.6 && relative.dot(forward) <= 0.035 &&
+          relative.y > -0.25 && relative.y < 0.04)
+        contactY = Math.min(contactY, vertex.y);
+    }
+  });
+  if (!Number.isFinite(contactY) || !Number.isFinite(footY))
+    throw new Error("Office student has no seated skin or foot contact surface");
+  const findCushion = () => {
+    const bounds = new THREE.Box3().setFromObject(chair);
+    const center = bounds.getCenter(new THREE.Vector3());
+    const height = bounds.max.y - bounds.min.y;
+    const ray = new THREE.Raycaster(
+      new THREE.Vector3(center.x, bounds.min.y + height * 0.7, center.z + 0.06),
+      new THREE.Vector3(0, -1, 0),
+    );
+    const normal = new THREE.Vector3(), matrix = new THREE.Matrix3();
+    const hit = ray.intersectObject(chair, true).find((candidate) => {
+      if (!candidate.face ||
+          candidate.point.y < bounds.min.y + height * 0.22 ||
+          candidate.point.y > bounds.min.y + height * 0.65) return false;
+      matrix.getNormalMatrix(candidate.object.matrixWorld);
+      return normal.copy(candidate.face.normal).applyMatrix3(matrix).normalize().y > 0.75;
+    });
+    if (!hit) throw new Error("Office chair has no upward-facing cushion surface");
+    return { point: hit.point.clone(), bounds, center };
+  };
+  let cushion = findCushion();
+  // Fit the cushion to the rig's seated leg length instead of raising the feet off the floor.
+  const scale = (contactY - footY) / (cushion.point.y - cushion.bounds.min.y);
+  if (!Number.isFinite(scale) || scale <= 0)
+    throw new Error("Office chair cannot be fitted to the student's seated pose");
+  chair.scale.multiplyScalar(scale);
+  chair.updateMatrixWorld(true);
+  const fitted = new THREE.Box3().setFromObject(chair);
+  chair.position.add(new THREE.Vector3(
+    cushion.center.x - fitted.getCenter(new THREE.Vector3()).x,
+    cushion.bounds.min.y - fitted.min.y,
+    cushion.center.z - fitted.getCenter(new THREE.Vector3()).z,
+  ));
+  chair.updateMatrixWorld(true);
+  cushion = findCushion();
+  const offset = new THREE.Vector3(
+    cushion.point.x - hip.x,
+    cushion.point.y + 0.002 - contactY,
+    cushion.point.z - hip.z,
+  );
+  if (model.parent) {
+    const origin = model.parent.worldToLocal(new THREE.Vector3());
+    model.parent.worldToLocal(offset).sub(origin);
+  }
+  model.position.add(offset);
+  chair.userData.seatedZ = chair.position.z;
   return model.position.y;
 }
 
@@ -181,7 +249,7 @@ export function createFacilityOffice(
   const table = createFacilityOfficeTable(physics);
   root.add(glazing.root, table.root);
   const bodies = [...glazing.bodies, ...table.bodies];
-  const light = new THREE.PointLight(0xffe2bb, 30, 20);
+  const light = new THREE.PointLight(0xffe2bb, 12, 20, 2);
   light.position.set(0, 7.4, tableZ);
   root.add(light);
   const students: Array<{

@@ -219,6 +219,7 @@ export type BossPhase =
   | "zeroG"
   | "zeroGTrapped"
   | "zeroGOverload"
+  | "finisher"
   | "defeated";
 export interface BossPillar {
   position: THREE.Vector3;
@@ -507,7 +508,9 @@ export function createLoadingBayBoss(
     bossYaw = 0;
   let confusionEffect: (() => void) | undefined;
   let backHits = 0,
-    backHitGraceUntil = 0;
+    backHitGraceUntil = 0,
+    finisherDrop = 0,
+    finisherCoreHit = false;
   const scanBeamMaterial = new THREE.MeshBasicMaterial({
     color: 0xb45cff,
     transparent: true,
@@ -524,7 +527,7 @@ export function createLoadingBayBoss(
   scanBeam.visible = false;
   scanBeam.frustumCulled = false;
   scene.add(scanBeam);
-  const backTargetMaterial = new THREE.MeshBasicMaterial({ color: 0x38b6ff });
+  const backTargetMaterial = new BreakableMaterial("pistol");
   const backTargetMesh = new THREE.Mesh(sphereGeometry, backTargetMaterial);
   backTargetMesh.name = "BossBackTarget";
   backTargetMesh.scale.setScalar(ZERO_G_BOSS.backTargetRadius * 2);
@@ -643,7 +646,8 @@ export function createLoadingBayBoss(
     )
       return false;
     const previousPhase = healthPhase();
-    health = Math.max(0, health - amount);
+    // The final strike is owned by the teleport-behind finishing sequence.
+    health = Math.max(1, health - amount);
     headCooldown = BOSS_RULES.headCooldown;
     if (health > 0)
       emitComicEffect(scene, "hit", {
@@ -652,8 +656,7 @@ export function createLoadingBayBoss(
         weapon,
       });
     burst(getHeadWorldPosition());
-    if (!health) finishBoss();
-    else if (healthPhase() === 4 && !phaseFour) enterPhaseFour();
+    if (healthPhase() === 4 && !phaseFour) enterPhaseFour();
     else if (healthPhase() === 3 && !phaseThree) enterPhaseThree();
     else if (previousPhase === 1 && healthPhase() === 2) {
       phase = "rising";
@@ -751,6 +754,8 @@ export function createLoadingBayBoss(
     if (phase === "droneExplosion") options.onDroneExplosionEnd?.();
     emitComicEffect(scene, "clank", { source: root });
     phase = "defeated";
+    zeroGActive = false;
+    scanBeam.visible = false;
     root.visible = false;
     clearBolts();
     removeDrones();
@@ -1821,9 +1826,11 @@ export function createLoadingBayBoss(
   function pose() {
     if (!modelLoaded) return;
     resetBones();
-    const isExposed = phase === "exposed";
+    const isExposed = phase === "exposed" || (phase === "finisher" && finisherDrop >= 1);
     const drop =
-      phase === "falling"
+      phase === "finisher"
+        ? finisherDrop
+      : phase === "falling"
         ? THREE.MathUtils.smootherstep(phaseTime, 0, 0.85)
         : isExposed
           ? 1
@@ -1873,7 +1880,7 @@ export function createLoadingBayBoss(
             ? 0.5
             : 0;
     const stride = phaseTime * (bossWalking ? 9 : 19);
-    root.rotation.x = -drop * 0.16 + run * 0.14;
+    root.rotation.x = phase === "finisher" ? -drop * 1.25 : -drop * 0.16 + run * 0.14;
     root.position.y =
       drop > 0
         ? -drop * 3.4
@@ -1951,7 +1958,7 @@ export function createLoadingBayBoss(
     }
     headHitbox.position.copy(root.worldToLocal(getHeadWorldPosition()));
     headHitbox.scale.setScalar(drop > 0 ? 1.4 : 1);
-    backTargetMesh.visible = phase === "zeroG";
+    backTargetMesh.visible = phase === "zeroG" || (phase === "finisher" && !finisherCoreHit);
     if (phaseFour) for (const target of targets) target.mesh.visible = false;
     backTargetMesh.position.copy(backLocal);
     backTargetMesh.scale.setScalar(
@@ -1961,15 +1968,7 @@ export function createLoadingBayBoss(
 
     // --- Visor and eye lighting. ---
     const possessed = phaseFour && phase !== "phaseFourReturn";
-    const possession =
-      phase === "phaseFourAwakening"
-        ? THREE.MathUtils.smootherstep(
-            phaseTime,
-            0,
-            PHASE4_RULES.possessionSeconds,
-          )
-        : 1;
-    // Donus's violet energy takes over only after the bot has walked back into place.
+    // The takeover is identified by the head-anchored Donus terminal in Scene 13.
     // Yellow visor during exposed (goggles scanning), red in phase 3, green normally.
     const isExposedPhase = isExposed || (phase === "rising" && drop > 0.3);
     helmetLight.color.setHex(
@@ -1996,7 +1995,7 @@ export function createLoadingBayBoss(
       possessed ? 0x7a2fd0 : phaseThree ? 0xff251b : 0x52dfff,
     );
     auraLight.intensity = possessed
-      ? 10 + Math.sin(possession * Math.PI) * 18
+      ? 4
       : phaseThree
         ? 18 + Math.sin(elapsed * 4) * 3
         : 7;
@@ -2004,7 +2003,7 @@ export function createLoadingBayBoss(
     // Aura rings.
     auraRings.forEach((ring, index) => {
       ring.material = possessed ? auraPurple : phaseThree ? auraRed : auraBlue;
-      ring.visible = phaseThree && phase !== "defeated";
+      ring.visible = phaseThree && !phaseFour && phase !== "defeated";
       ring.rotation.x =
         index * 0.82 + elapsed * 0.5 * (index + 1) * (index % 2 ? -1 : 1);
       ring.rotation.z = index * 0.35 + elapsed * 0.7 * (index + 1);
@@ -2699,7 +2698,12 @@ export function createLoadingBayBoss(
     }
     if (phase === "defeated" || !modelLoaded) return;
     targetMaterials.forEach((material) => material.update(dt));
+    backTargetMaterial.update(dt);
     mixer?.update(dt);
+    if (phase === "finisher") {
+      pose();
+      return;
+    }
     servoClock -= dt;
     if (servoClock <= 0) {
       servoClock = 0.8;
@@ -3110,8 +3114,14 @@ export function createLoadingBayBoss(
         group.position.copy(root.position);
         group.quaternion.copy(root.quaternion);
         const plane = new THREE.Plane(),
+          bounds = new THREE.Box3(),
           materials: THREE.Material[] = [];
         for (const snapshot of snapshots) {
+          const positions = snapshot.geometry.getAttribute("position");
+          for (let i = 0; i < positions.count; i++) {
+            vertex.fromBufferAttribute(positions, i);
+            if (vertex.x * side >= 0) bounds.expandByPoint(vertex);
+          }
           const cloneMaterial = (source: THREE.Material) => {
             const material = source.clone();
             material.side = THREE.DoubleSide;
@@ -3130,6 +3140,7 @@ export function createLoadingBayBoss(
         return {
           group,
           plane,
+          bounds,
           side,
           dispose() {
             if (released) return;
@@ -3150,6 +3161,45 @@ export function createLoadingBayBoss(
     getRootPosition: (out = new THREE.Vector3()) => out.copy(root.position),
     getYaw: () => root.rotation.y,
     isTeleportWindow: () => phase === "zeroG",
+    beginFinisher() {
+      if (disposed || phase !== "zeroG") return false;
+      clearConfusionEffect();
+      removeDrones();
+      clearBolts();
+      scanBeam.visible = false;
+      finisherDrop = 0;
+      finisherCoreHit = false;
+      phase = "finisher";
+      phaseTime = 0;
+      return true;
+    },
+    shootFinisherCore() {
+      if (phase !== "finisher" || finisherCoreHit) return;
+      finisherCoreHit = true;
+      backTargetMaterial.hit(1);
+      root.updateMatrixWorld(true);
+      burst(backLocal.clone().applyMatrix4(root.matrixWorld));
+      emitComicEffect(scene, "hit", { source: backTargetMesh, weapon: "pistol" });
+    },
+    setFinisherDrop(progress: number) {
+      if (phase !== "finisher") return;
+      finisherDrop = THREE.MathUtils.clamp(progress, 0, 1);
+      pose();
+    },
+    completeFinisher() {
+      if (phase !== "finisher") return;
+      health = 0;
+      finishBoss();
+    },
+    cancelFinisher() {
+      if (phase !== "finisher") return;
+      finisherDrop = 0;
+      finisherCoreHit = false;
+      backTargetMaterial.reset();
+      phase = "phaseFourAwakening";
+      zeroGIntroPending = false;
+      startZeroGBarrage();
+    },
     onPlayerTeleport() {
       if (
         disposed ||

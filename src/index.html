@@ -635,6 +635,10 @@
               </p>
             </li>
             <li>
+              Mech model
+              <p class="credit-detail">Husain</p>
+            </li>
+            <li>
               <a
                 href="https://quaternius.com/packs/universalanimationlibrary.html"
                 target="_blank"
@@ -647,6 +651,21 @@
               </p>
               <p class="credit-note">
                 Used for the other generic characters throughout the game.
+              </p>
+            </li>
+            <li>
+              <a
+                href="https://quaternius.itch.io/sci-fi-essentials-kit"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Sci-Fi Essentials Kit
+              </a>
+              <p class="credit-detail">
+                Quaternius <span class="credit-license">CC0 1.0</span>
+              </p>
+              <p class="credit-note">
+                Weapons including the pistol and rifle, plus enemy robot models.
               </p>
             </li>
             <li>
@@ -1019,6 +1038,25 @@
       </div>
     </div>
 
+    <div id="arcade-run-clock" class="hidden" role="timer" aria-label="Arcade run timer"></div>
+    <div id="arcade-briefing" class="hidden" role="dialog" aria-modal="true" aria-labelledby="arcade-briefing-title">
+      <div class="arcade-results-card">
+        <p class="arcade-results-eyebrow">Arcade / Ready to play?</p>
+        <h2 id="arcade-briefing-title"></h2>
+        <ul id="arcade-instructions"></ul>
+        <div id="arcade-difficulties" class="arcade-results-actions hidden" role="group" aria-label="Hangar difficulty">
+          <button class="menu-btn" type="button" data-arcade-difficulty="easy" aria-pressed="true">Easy</button>
+          <button class="menu-btn" type="button" data-arcade-difficulty="medium" aria-pressed="false">Medium</button>
+          <button class="menu-btn" type="button" data-arcade-difficulty="hard" aria-pressed="false">Hard</button>
+        </div>
+        <p id="arcade-scoring-note"></p>
+        <div class="arcade-results-actions">
+          <button id="arcade-start" class="menu-btn" type="button">Start</button>
+          <button id="arcade-briefing-return" class="menu-btn" type="button">Return to Museum</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Arcade results -->
     <div
       id="arcade-results"
@@ -1032,6 +1070,9 @@
         <div class="arcade-grade" id="arcade-grade">S</div>
         <dl class="arcade-stats" id="arcade-stats"></dl>
         <div class="arcade-results-actions">
+          <button id="arcade-download-record" class="menu-btn hidden" type="button">
+            Download record image (PNG)
+          </button>
           <button id="arcade-play-again" class="menu-btn" type="button">
             Play again
           </button>
@@ -1104,14 +1145,6 @@
         <button id="pause-credits" type="button" class="menu-button menu-tilt">
           View Credits
         </button>
-        <label
-          id="pause-prime-settings"
-          class="hidden"
-          for="prime-hints-toggle"
-        >
-          <span>Prime hints (all levels)</span
-          ><input id="prime-hints-toggle" type="checkbox" checked />
-        </label>
         <button
           id="pause-developer"
           type="button"
@@ -1156,7 +1189,7 @@
         class="pause-panel hidden"
         aria-label="Controls reference"
       >
-        <div class="controls-group menu-tilt">
+        <div class="controls-group">
           <div id="input-mode-tabs" role="tablist" aria-label="Input device">
             <button
               id="input-keyboard"
@@ -1180,8 +1213,12 @@
               Connected controllers (0)
             </button>
           </div>
+          <label id="pause-prime-settings" for="prime-hints-toggle">
+            <span>Prime hints (all levels)</span>
+            <input id="prime-hints-toggle" type="checkbox" checked />
+          </label>
         </div>
-        <div class="controls-group menu-tilt">
+        <div class="controls-group">
           <div
             id="controller-controls-settings"
             class="hidden"
@@ -1284,8 +1321,15 @@
             id="pause-controls-list"
             role="tabpanel"
             aria-labelledby="input-keyboard"
+            aria-describedby="controls-scroll-hint"
             tabindex="0"
           ></div>
+          <p id="controls-scroll-hint" class="controls-scroll-hint hidden">
+            <span>Scroll for more controls</span>
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M3 5.5 8 10.5 13 5.5" />
+            </svg>
+          </p>
         </div>
         <button type="button" data-pause-back class="menu-button">Back</button>
       </section>
@@ -1330,9 +1374,23 @@
         aria-label="Display settings"
       >
         <div class="sound-slider-group menu-tilt">
+          <label for="menu-font-select">Menu font</label>
+          <select id="menu-font-select">
+            <option value="normal" selected>Normal (Scene 1 Sefa)</option>
+            <option value="sefa">Serra (Sefa) everywhere</option>
+            <option value="comic-sans">Comic Sans</option>
+          </select>
+        </div>
+        <div class="sound-slider-group menu-tilt">
           <label for="comic-look-toggle"
             >Comic Look
             <input id="comic-look-toggle" type="checkbox" />
+          </label>
+        </div>
+        <div class="sound-slider-group menu-tilt">
+          <label for="outlines-toggle"
+            >Outlines
+            <input id="outlines-toggle" type="checkbox" />
           </label>
         </div>
         <div class="sound-slider-group menu-tilt">

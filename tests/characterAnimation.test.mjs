@@ -60,8 +60,10 @@ async function fixture(t, asset) {
     : modelData;
   // Use the actual GLB and loader; replace only the browser URL transport.
   const loader = new GLTFLoader();
-  t.mock.method(loader, "loadAsync", function () {
-    return this.parseAsync(data.slice(0), "");
+  let template;
+  t.mock.method(loader, "loadAsync", async function () {
+    template = await this.parseAsync(data.slice(0), "");
+    return template;
   });
   t.mock.method(console, "log", () => {});
   mockCombatAnimationFetch(t);
@@ -96,56 +98,6 @@ async function fixture(t, asset) {
     Object.defineProperty(event, "code", { value: code });
     window.dispatchEvent(event);
   }
-
-  test("night vision switches cel shading on original, silhouette and hologram materials together", async (t) => {
-    const { character } = await fixture(t);
-    const shaders = [];
-    function compileMaterials() {
-      character.model.traverse((node) => {
-        if (!node.isMesh) return;
-        for (const material of Array.isArray(node.material)
-          ? node.material
-          : [node.material]) {
-          const shader = {
-            uniforms: {},
-            vertexShader: "#include <project_vertex>",
-            fragmentShader:
-              "#include <common>\n#include <opaque_fragment>\n#include <dithering_fragment>",
-          };
-          material.onBeforeCompile(shader, null);
-          if (shader.uniforms.uCellShadingEnabled) shaders.push(shader);
-        }
-      });
-    }
-    compileMaterials();
-    assert.ok(shaders.length > 0);
-    character.setCellShadingEnabled(false);
-    assert.ok(
-      shaders.every(
-        (shader) => shader.uniforms.uCellShadingEnabled.value === 0,
-      ),
-    );
-    character.setSilhouetteEnabled(true);
-    compileMaterials();
-    character.setHologramTransition({ blend: 0.5, opacity: 1, time: 0.1 });
-    compileMaterials();
-    assert.ok(
-      shaders.every(
-        (shader) => shader.uniforms.uCellShadingEnabled.value === 0,
-      ),
-    );
-    character.setCellShadingEnabled(true);
-    assert.ok(
-      shaders.every(
-        (shader) => shader.uniforms.uCellShadingEnabled.value === 1,
-      ),
-    );
-    assert.ok(
-      shaders.every((shader) =>
-        shader.fragmentShader.includes("uCellShadingEnabled < 0.5 ? 0.3"),
-      ),
-    );
-  });
 
   function frame(frames = 1, thirdPerson = true) {
     for (let i = 0; i < frames; i++) {
@@ -188,13 +140,66 @@ async function fixture(t, asset) {
     frame,
     weight,
     actionTime,
+    template,
   };
 }
 
+test("night vision switches cel shading on original, silhouette and hologram materials together", async (t) => {
+  const { character } = await fixture(t);
+  const shaders = [];
+  function compileMaterials() {
+    character.model.traverse((node) => {
+      if (!node.isMesh) return;
+      for (const material of Array.isArray(node.material)
+        ? node.material
+        : [node.material]) {
+        const shader = {
+          uniforms: {},
+          vertexShader: "#include <project_vertex>",
+          fragmentShader:
+            "#include <common>\n#include <opaque_fragment>\n#include <dithering_fragment>",
+        };
+        material.onBeforeCompile(shader, null);
+        if (shader.uniforms.uCellShadingEnabled) shaders.push(shader);
+      }
+    });
+  }
+  compileMaterials();
+  assert.ok(shaders.length > 0);
+  character.setCellShadingEnabled(false);
+  assert.ok(
+    shaders.every((shader) => shader.uniforms.uCellShadingEnabled.value === 0),
+  );
+  character.setSilhouetteEnabled(true);
+  compileMaterials();
+  character.setHologramTransition({ blend: 0.5, opacity: 1, time: 0.1 });
+  compileMaterials();
+  assert.ok(
+    shaders.every((shader) => shader.uniforms.uCellShadingEnabled.value === 0),
+  );
+  character.setCellShadingEnabled(true);
+  assert.ok(
+    shaders.every((shader) => shader.uniforms.uCellShadingEnabled.value === 1),
+  );
+  assert.ok(
+    shaders.every((shader) =>
+      shader.fragmentShader.includes("uCellShadingEnabled < 0.5 ? 0.3"),
+    ),
+  );
+});
+
 test("latest Brondon model loads with retargeted combat and preserves gameplay scale and locomotion", async (t) => {
-  const { character, frame, key, weight } = await fixture(t, "Don.glb");
-  const bounds = new THREE.Box3().setFromObject(character.model);
-  assert.ok(Math.abs(bounds.getSize(new THREE.Vector3()).y - 1.83) < 0.001);
+  const { character, frame, key, weight, template } = await fixture(
+    t,
+    "Don.glb",
+  );
+  // Check normalization in the bind pose, before procedural animation changes its bounds.
+  const bounds = new THREE.Box3().setFromObject(template.scene);
+  const height = bounds.getSize(new THREE.Vector3()).y;
+  assert.ok(
+    Math.abs(height - 1.83) < 0.001,
+    `Bind-pose character height: ${height}`,
+  );
   const skins = [];
   character.model.traverse((node) => {
     if (node.isSkinnedMesh) skins.push(node);

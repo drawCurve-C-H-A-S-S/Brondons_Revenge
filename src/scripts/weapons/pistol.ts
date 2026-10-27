@@ -382,6 +382,21 @@ export class PistolController {
       return;
     }
     camera.updateMatrixWorld(true);
+    if (this.model) {
+      if (thirdPerson) {
+        this.model.scale.setScalar(0.72);
+        this.model.position.set(0, 0.008, -0.024);
+        this.flash.position
+          .set(-0.45, 0.071, 0)
+          .multiplyScalar(0.72)
+          .applyQuaternion(this.model.quaternion)
+          .add(this.model.position);
+      } else {
+        this.model.scale.setScalar(1);
+        this.model.position.set(0, 0.02, 0);
+        this.flash.position.set(0, 0.12, -0.38);
+      }
+    }
     const socket = thirdPerson ? weaponAnimation?.socket : null;
     if (socket) {
       if (this.root.parent !== socket) socket.add(this.root);

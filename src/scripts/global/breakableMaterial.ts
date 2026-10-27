@@ -97,6 +97,9 @@ export class BreakableMaterial extends THREE.MeshStandardMaterial {
   setHighlighted(active: boolean) {
     this.glow.uBreakableScan.value = active ? 1 : 0;
   }
+  setGlowColor(glowHex: number) {
+    this.glow.uBreakableColor.value.setHex(glowHex);
+  }
   reset() {
     this.glow.uBreakableFlash.value = 0;
     this.glow.uBreakableDamage.value = 0;

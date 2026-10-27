@@ -306,7 +306,7 @@ export function createScene({
     scene.add(light);
     labLights.push(light);
   }
-  const mezzLight = new THREE.PointLight(0xc7f3ec, 36, 25);
+  const mezzLight = new THREE.PointLight(0xc7f3ec, 18, 25);
   mezzLight.position.set(0, MEZZ_Y + 3, -10);
   scene.add(mezzLight);
   // Soft green wash from the ceiling dome hologram above the core
@@ -812,11 +812,12 @@ export function createScene({
     if (revealTime < 0) return;
     const blend = THREE.MathUtils.smootherstep(revealTime, 0, 1.2);
     const view = new THREE.PerspectiveCamera();
-    view.position.copy(office.peekPoint);
+    const drift = THREE.MathUtils.smootherstep(revealTime, 1.2, 4);
+    view.position.copy(office.peekPoint).add(new THREE.Vector3(-0.45 * drift, 0.1 * drift, -0.3 * drift));
     view.lookAt(office.tablePoint);
     camera.position.lerpVectors(peekStart, view.position, blend);
     camera.quaternion.slerpQuaternions(peekRotation, view.quaternion, blend);
-    camera.fov = THREE.MathUtils.lerp(peekFov, 55, blend);
+    camera.fov = THREE.MathUtils.lerp(peekFov, 50, blend);
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld(true);
   }
@@ -921,11 +922,11 @@ export function createScene({
       setIntroDialogue();
     } else {
       if (introTime < INTRO.firstLineEnd) {
-        setIntroDialogue("BRONDON", "I can't believe they're behind all this.");
+        setIntroDialogue("BRONDON", "They were behind this. All of it.");
       } else {
         setIntroDialogue(
           "BRONDON",
-          "I need to see them face to face. I need to understand why they would do this.",
+          "I need to hear the truth from them.",
         );
       }
     }
@@ -1127,14 +1128,14 @@ export function createScene({
     if (revealTime >= 0) {
       revealTime += dt;
       applyPeekCamera();
-      if (revealTime >= 3) message("Sudoers 5: So you've come, professor.", 0.5);
+      if (revealTime >= 3) message("Sudoers 5: We've been expecting you, Professor.", 0.5);
       if (revealTime >= 6) {
         finished = true;
         onFinished({
           ...entryState,
-          cameraPosition: undefined,
-          cameraQuaternion: undefined,
-          cameraFov: undefined,
+          cameraPosition: camera.position.clone(),
+          cameraQuaternion: camera.quaternion.clone(),
+          cameraFov: camera.fov,
           pilotState: player.captureTransition({ x: 0, y: 0, z: 0 }),
         });
       }

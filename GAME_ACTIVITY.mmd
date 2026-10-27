@@ -1,0 +1,192 @@
+---
+title: "Brondon's Revenge - Game Activity Diagram"
+---
+%%{init: {"theme":"base","htmlLabels":false,"themeVariables":{"fontFamily":"Arial, Helvetica, sans-serif","fontSize":"18px","primaryColor":"#eef6ff","primaryTextColor":"#14263d","primaryBorderColor":"#356491","lineColor":"#42566c","secondaryColor":"#fff5db","tertiaryColor":"#f4f6f8","clusterBkg":"#f8fafc","clusterBorder":"#94a3b8","edgeLabelBackground":"#ffffff"},"flowchart":{"htmlLabels":false,"curve":"linear","nodeSpacing":35,"rankSpacing":50,"diagramPadding":24,"useMaxWidth":false},"securityLevel":"strict"}}%%
+flowchart TB
+    START((Start)) --> BOOT["Load browser game and assets"]
+    BOOT --> INTRO["Play or skip opening camera cinematic"]
+    INTRO --> MENU{"Main menu action?"}
+    MENU -->|Play| MODE{"Choose mode"}
+    MENU -->|Options / credits| OPTIONS["View settings, controls or credits"]
+    OPTIONS --> MENU
+    MENU -->|Don't Play| NOQUIT["Show: YOU DON'T HAVE A CHOICE."]
+    NOQUIT --> MENU
+    MENU -->|Close browser| END((End))
+
+    subgraph OPENING["01 | STORY - PRISON AND CREW CABINS"]
+        STORYLOAD["Prepare campaign assets"] --> READY{"Preparation successful?"}
+        READY -->|No| LOADERROR["Show loading error and retry action"]
+        LOADERROR -->|Retry| STORYLOAD
+        READY -->|Yes| PRISON["Watch or skip prison awakening and Prime's briefing"]
+        PRISON --> RELEASE["Prime breaks the chains"]
+        RELEASE --> CABIN["Interact: one-use transfer to Brondon's cabin"]
+        CABIN --> SEARCH["Explore crew cabins and collect equipment"]
+        SEARCH --> GEAR{"Pistol, teleport crystal and scanner goggles collected?"}
+        GEAR -->|No| HINT["Attempted wing exit gives a missing-item hint"]
+        HINT --> SEARCH
+        GEAR -->|Yes| BULKHEAD["Leave through forward bulkhead"]
+    end
+    MODE -->|Story| STORYLOAD
+
+    subgraph STEALTH["02 | DECK ONE - STEALTH AND VENT MAZE"]
+        DECK["Enter Deck One stealth route"] --> SNEAK["Traverse passage, storage and hangar; evade patrols"]
+        SNEAK --> SAFE{"Route survived?"}
+        SAFE -->|No| STEALTHRETRY["Death presentation; restart stealth checkpoint"]
+        STEALTHRETRY --> SNEAK
+        SAFE -->|Yes| LADDER["Main airlock locked: climb ceiling-vent ladder"]
+        LADDER --> MAZE["Navigate vent maze and moving sensors"]
+        MAZE --> SENSOR{"Detected by a sensor?"}
+        SENSOR -->|Yes| PAD["Return to last blue checkpoint pad"]
+        PAD --> MAZE
+        SENSOR -->|No| VENTCARD{"Vent keycard recovered and exit reached?"}
+        VENTCARD -->|No| MAZE
+        VENTCARD -->|Yes| DROP["Collect first keycard; drop into surveillance hub"]
+    end
+    BULKHEAD --> DECK
+
+    subgraph SURVEILLANCE["03 | SURVEILLANCE - SEVEN KEYCARDS IN TOTAL"]
+        HUB["Open crowbar chest in camera hub"] --> HUBCHOICE{"Choose hub interaction"}
+        HUBCHOICE -->|Unfinished camera feed: E| FEED{"Choose a minigame - any order"}
+        FEED -->|Cargo hold| CARGO["Clear cargo stacks with crowbar"]
+        FEED -->|Target range| RANGE["Use goggles; solve letter-order targets"]
+        FEED -->|Bloomstick Tennis| TENNIS["Recover Bloomstick; clear three batting lanes"]
+        FEED -->|Rust chamber| RUST["Solve corrosion, teleport and load puzzle"]
+        FEED -->|Rust chamber 2| RUST2["Solve counterweight, trampoline and plate puzzle"]
+        FEED -->|Reactor Sequencer| REACTOR["Solve reactor sequencing puzzle"]
+        CARGO & RANGE & TENNIS & RUST & RUST2 & REACTOR --> ROOMRESULT{"Room outcome?"}
+        ROOMRESULT -->|Not solved / local failure| ROOMRETRY["Continue or retry current room; use local recovery"]
+        ROOMRETRY --> FEED
+        ROOMRESULT -->|Return early: R| HUBCHOICE
+        ROOMRESULT -->|Solved| CHEST["Collect keycard from reward chest once"]
+        CHEST --> RETURNHUB["Press R to return to camera hub"]
+        RETURNHUB --> HUBCHOICE
+        HUBCHOICE -->|Elevator reader: E| SWIPE{"All seven keycards collected?"}
+        SWIPE -->|No: missing / rejected card| REJECT["Elevator stays locked; finish remaining rooms"]
+        REJECT --> HUBCHOICE
+        SWIPE -->|Yes: last collected card accepted| ELEVATOR["Unlock elevator; ride to Bay 13"]
+    end
+    DROP --> HUB
+
+    subgraph ESCAPE["04 | BAY WARDEN AND SHUTTLE ESCAPE"]
+        WARDENINTRO["Bay Warden versus introduction"] --> WARDEN["Fight Warden; use cover, weapons and teleport"]
+        WARDEN --> WARDENRESULT{"Fight outcome?"}
+        WARDENRESULT -->|Player defeated| WARDENRETRY["Retry boss checkpoint; skip introduction"]
+        WARDENRETRY --> WARDEN
+        WARDENRESULT -->|Warden defeated| HANGAR["Descend to Hangar 14"]
+        HANGAR --> QTE["Escape Scavenger Swarm: timed shoot, crowbar, dodge and spin"]
+        QTE --> ESCAPERESULT{"Timed escape survived?"}
+        ESCAPERESULT -->|No| ESCAPERETRY["Restart hangar escape checkpoint"]
+        ESCAPERETRY --> QTE
+        ESCAPERESULT -->|Yes| LAUNCH["Board shuttle and launch"]
+    end
+    ELEVATOR --> WARDENINTRO
+
+    subgraph FLIGHT["05 | SPACE FLIGHT AND PLANETARY DESCENT"]
+        INTERCEPT["Fight interceptor blockade"] --> SCRAMBLER["Complete side-scrolling Scrambler section"]
+        SCRAMBLER --> ARMOR["Destroy capital-ship armour generators"]
+        ARMOR --> TOPDOWN["Complete top-down Red Scrambler section"]
+        TOPDOWN --> CORE["Attack exposed reactor core"]
+        CORE --> FLIGHTRESULT{"Sortie outcome?"}
+        FLIGHTRESULT -->|Hull destroyed during any flight phase| FLIGHTRETRY["Restart sortie / active flight checkpoint"]
+        FLIGHTRETRY --> FLIGHTCHECKPOINT{"Resume saved flight phase"}
+        FLIGHTCHECKPOINT -->|Initial sortie| INTERCEPT
+        FLIGHTCHECKPOINT -->|Scrambler| SCRAMBLER
+        FLIGHTCHECKPOINT -->|Armour| ARMOR
+        FLIGHTCHECKPOINT -->|Red Scrambler| TOPDOWN
+        FLIGHTCHECKPOINT -->|Reactor| CORE
+        FLIGHTRESULT -->|Core destroyed| DESCENT["Escape, planetary descent and crash / rescue sequence"]
+    end
+    LAUNCH --> INTERCEPT
+
+    subgraph PLANET["06 | JUNGLE AND FACILITY"]
+        JUNGLE["Explore landing site and jungle route"] --> DETOUR{"Take optional waterfall detour?"}
+        DETOUR -->|Yes| SPIDER["Fight Rogue Spider Bot in sealed cave arena"]
+        SPIDER --> SPIDERRESULT{"Miniboss defeated?"}
+        SPIDERRESULT -->|No / player defeated| GROUNDRETRY["Respawn at exterior landing checkpoint"]
+        GROUNDRETRY --> JUNGLE
+        SPIDERRESULT -->|Yes| ACHIEVEMENT["Unseal arena; award BEHIND THE FALLS achievement"]
+        ACHIEVEMENT --> PATH["Follow trail and bridge; deal with enemies and sentinels"]
+        DETOUR -->|No| PATH
+        PATH --> GROUNDRESULT{"Reach facility alive?"}
+        GROUNDRESULT -->|No: combat / river shark death| GROUNDRETRY
+        GROUNDRESULT -->|Yes| FACILITY["Enter facility; explore atrium and photograph reveal"]
+        FACILITY --> FACILITYACTION{"Next activity?"}
+        FACILITYACTION -->|Walk back outside| PATH
+        FACILITYACTION -->|Defeated inside| FACILITYRETRY["Restart facility checkpoint"]
+        FACILITYRETRY --> FACILITY
+        FACILITYACTION -->|Climb to office / observation deck and peek| REVEAL["Reveal Sudoers 5"]
+    end
+    DESCENT --> JUNGLE
+
+    subgraph FINALE["07 | SUDOERS 5 FINALE AND COMPLETION"]
+        FINALINTRO["Story confrontation; roof opens; mechs transform"]
+        FINALINTRO --> ROOFTOP["Fight Final Verdict on rooftop as Prime Frame"]
+        ROOFTOP --> ROOFRESULT{"Rooftop phase survived?"}
+        ROOFRESULT -->|No| ROOFRETRY["Retry final-boss rooftop checkpoint"]
+        ROOFRETRY --> ROOFTOP
+        ROOFRESULT -->|Yes| PLANETBREAK["Planet-breaker cinematic; Earth destroyed; transition to orbit"]
+        PLANETBREAK --> ORBIT["Continue orbital duel"]
+        ORBIT --> ORBITRESULT{"Orbital fight outcome?"}
+        ORBITRESULT -->|Player defeated| ORBITRETRY["Retry orbital checkpoint"]
+        ORBITRETRY --> ORBIT
+        ORBITRESULT -->|Enemy defeated| FINISHER["Play input-independent final execution cinematic"]
+        FINISHER --> EPILOGUE["Epilogue and rolling credits"]
+        EPILOGUE --> COMPLETE["Mark normal campaign complete; persist cabin-computer unlock"]
+    end
+    REVEAL --> FINALINTRO
+    COMPLETE --> MENU
+
+    subgraph ARCADE["ARCADE MODE | BRONDON'S MUSEUM"]
+        CHARACTER["Select Brondon or Brendan"] --> MUSEUM["Enter Museum; choose a painting / stage"]
+        MUSEUM --> ARCADEBRIEF["Read stage rules; choose hangar difficulty; press Start"]
+        ARCADEBRIEF --> RUN["Controller-ready Arcade; sprint enabled; bottom-centre HUD; camera cutscenes skipped; PNG record; waterfall fenced with 4 regular enemies max"]
+        RUN --> ARCADEOUTCOME{"Stage outcome?"}
+        ARCADEOUTCOME -->|Death / failure| ARCADERESTART["Retry stage or its checkpoint; record retry"]
+        ARCADERESTART --> RUN
+        ARCADEOUTCOME -->|Completed| RESULTS["Show stage statistics and grade; Escape QTE is ungraded"]
+        RESULTS -->|Camera Room only| RECORDSHEET["Optional styled record-sheet download"]
+        RECORDSHEET --> RESULTS
+        RESULTS --> RESULTACTION{"Results action?"}
+        RESULTACTION -->|Play again| ARCADEBRIEF
+        RESULTACTION -->|Return to Museum| MUSEUM
+        MUSEUM -->|Interact with blue exit light| ARCADEEXIT{"Confirm return to Main Menu? No progress saved"}
+        ARCADEEXIT -->|Cancel| MUSEUM
+    end
+    MODE -->|Arcade| CHARACTER
+    ARCADEEXIT -->|Confirm| MENU
+
+    subgraph SHARED["SHARED ON-FOOT ACTIVITY | REPEATS WITHIN PLAYABLE STORY / ARCADE STAGES"]
+        TICK["Read keyboard, mouse, touch or controller input"] --> ACTION{"Player action / state?"}
+        ACTION -->|Move| MOVE["Walk, sprint, crouch, jump, slide or climb when state permits"]
+        ACTION -->|Interact| INTERACT["Use nearby doors, chests, pickups, monitors or puzzle objects"]
+        ACTION -->|Fight| COMBAT["Use equipped weapon; resolve hits, damage and pickups"]
+        ACTION -->|Teleport / goggles| TOOLS["Use crystal marker or scanner when available"]
+        ACTION -->|V| CAMERA["Toggle first / third person; enforce wall clearance"]
+        ACTION -->|Hold Tab| WHEEL["Pause gameplay; aim within weapon wheel"]
+        WHEEL --> WHEELRESULT{"Release / cancel?"}
+        WHEELRESULT -->|Release over weapon| EQUIP["Equip unlocked weapon or Unarmed; resume"]
+        WHEELRESULT -->|Centre dead zone / Escape| KEEP["Keep current weapon; resume"]
+        ACTION -->|Pause menu| PAUSE["Freeze gameplay; show maps, controls, display or sound"]
+        PAUSE --> PAUSEACTION{"Menu action?"}
+        PAUSEACTION -->|Resume| TICK
+        PAUSEACTION -->|Main Menu| CONFIRM{"Confirm discarding current run?"}
+        CONFIRM -->|Cancel| PAUSE
+        MOVE & INTERACT & COMBAT & TOOLS & CAMERA & EQUIP & KEEP --> UPDATE["Step physics; update animation, camera, HUD and audio; render"]
+        UPDATE --> TICK
+    end
+    SNEAK -. Shared activity; stage-specific rules take precedence .-> TICK
+    CONFIRM -->|Confirm| MENU
+
+    LEGEND["READING GUIDE: rectangles = activities; diamonds = decisions; labelled arrows = outcomes.<br/>Chapter flow is an activity abstraction, not a frame-by-frame state machine.<br/>Retries return to each stage's actual checkpoint; optional routes and room revisits preserve their own progress.<br/>Developer shortcuts and removed legacy scenes are excluded."]:::note
+
+    classDef decision fill:#fff4d6,stroke:#9a6a12,stroke-width:2px,color:#3b2a0c;
+    classDef retry fill:#fff0ee,stroke:#b34d43,color:#5c211c;
+    classDef reward fill:#e9f8ee,stroke:#338451,stroke-width:2px,color:#17452b;
+    classDef cinematic fill:#f0ecff,stroke:#7b60b0,color:#34224e;
+    classDef note fill:#ffffff,stroke:#94a3b8,stroke-dasharray:4 4,color:#334155,font-size:16px;
+    classDef terminal fill:#203b56,stroke:#203b56,color:#ffffff,stroke-width:3px;
+    class MENU,MODE,READY,GEAR,SAFE,SENSOR,VENTCARD,HUBCHOICE,FEED,ROOMRESULT,SWIPE,WARDENRESULT,ESCAPERESULT,FLIGHTRESULT,FLIGHTCHECKPOINT,DETOUR,SPIDERRESULT,GROUNDRESULT,FACILITYACTION,ROOFRESULT,ORBITRESULT,ARCADEOUTCOME,RESULTACTION,ARCADEEXIT,ACTION,WHEELRESULT,PAUSEACTION,CONFIRM decision;
+    class LOADERROR,STEALTHRETRY,PAD,ROOMRETRY,REJECT,WARDENRETRY,ESCAPERETRY,FLIGHTRETRY,GROUNDRETRY,FACILITYRETRY,ROOFRETRY,ORBITRETRY,ARCADERESTART retry;
+    class CHEST,ELEVATOR,ACHIEVEMENT,COMPLETE,RESULTS reward;
+    class INTRO,PRISON,RELEASE,CABIN,WARDENINTRO,DESCENT,REVEAL,FINALINTRO,PLANETBREAK,FINISHER,EPILOGUE cinematic;
+    class START,END terminal;

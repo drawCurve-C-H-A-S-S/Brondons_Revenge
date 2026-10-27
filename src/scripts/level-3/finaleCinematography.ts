@@ -15,7 +15,6 @@ import {
   FINISHER_EXECUTION,
   FINISHER_EXCHANGE,
   FINISHER_RIFLE,
-  DONUS_RETURN,
   activeStudent,
   cinematicProgress,
   samplePlanetSurface,
@@ -45,7 +44,7 @@ export interface FinaleCameraContext {
   pilotFace: THREE.Vector3;
   pilotCamera: THREE.Vector3;
   ship: THREE.Object3D;
-  mothership: THREE.Object3D;
+  remembrance?: { position: THREE.Vector3; target: THREE.Vector3 };
   bomb: THREE.Vector3;
   heroChest: THREE.Vector3;
   enemyChest: THREE.Vector3;
@@ -82,7 +81,7 @@ export function createFinaleCamera(
     lastRotation = rotation.clone();
   const stageRight = V(Math.sin(FINALE_BATTLE_YAW), 0, Math.cos(FINALE_BATTLE_YAW));
   const stageFront = new THREE.Vector3().crossVectors(stageRight, V(0, 1, 0));
-  const previousTarget = new THREE.Vector3();
+  const previousTarget = new THREE.Vector3(), lastTarget = new THREE.Vector3();
   const stablePosition = position.clone();
   const shakeRotation = new THREE.Quaternion();
   const shakeAngles = new THREE.Euler();
@@ -272,11 +271,11 @@ export function createFinaleCamera(
             focus =
               actor?.position.clone().add(V(0, 1.45, 0)) ??
               local(FACILITY_OFFICE_SEATS[index].x, 1.45, FACILITY_OFFICE_SEATS[index].z);
-          const drift = reducedMotion ? 0 : Math.sin(t * 0.4) * 0.25;
+          const drift = reducedMotion ? 0 : Math.sin(t * 0.28) * 0.1;
           frame(
             focus
               .clone()
-              .add(V(index % 2 ? -1.7 + drift : 1.7 + drift, 0.12, 3.6)),
+              .add(V(-1.35 + drift, 0.08, 3.8)),
             focus,
             39,
           );
@@ -410,14 +409,15 @@ export function createFinaleCamera(
           );
         }
       } else if (phase === "heroTransform") {
-        if (t < HERO_TRANSFORM.launch + 0.2) {
+        const liftoffEnd = HERO_TRANSFORM.launch + 1.6;
+        if (t < HERO_TRANSFORM.launch) {
           id += "-prime";
           frame(
             human.clone().add(V(-2, 1.5, -2.9)),
             human.clone().add(V(0, 1.3, 0)),
             48,
           );
-        } else if (t < 2.8) {
+        } else if (t < liftoffEnd) {
           id += "-forest-liftoff";
           const ship = context.ship.position;
           frame(
@@ -428,7 +428,7 @@ export function createFinaleCamera(
           );
         } else if (t < HERO_TRANSFORM.arrival) {
           id += "-ship-flyby";
-          const p = smooth(t, 2.8, HERO_TRANSFORM.arrival);
+          const p = smooth(t, liftoffEnd, HERO_TRANSFORM.arrival);
           const ship = context.ship.position;
           frame(
             ship.clone().add(V(12 - p * 5, 4 + p * 2, 20)),
@@ -630,7 +630,29 @@ export function createFinaleCamera(
           .clone()
           .lerp(enemy.position, 0.5)
           .add(V(0, 9, 0));
-        if (beat.shot === "evade") {
+        if (beat.shot === "challenge") {
+          const enemySpeaking = clock < duration / 2;
+          id += enemySpeaking ? "-ambition" : "-vengeance";
+          const actor = enemySpeaking ? enemy : hero;
+          const envelope = new THREE.Box3().setFromPoints([
+            actor.position.clone().add(V(0, -0.5, 0)),
+            enemySpeaking ? context.enemyFace : context.heroFace,
+            enemySpeaking ? context.enemyBladeTip : context.heroBladeTip,
+            enemySpeaking ? context.enemyChest : context.heroBladeBase,
+          ]).expandByScalar(3);
+          const focus = envelope.getCenter(new THREE.Vector3());
+          const vertical = THREE.MathUtils.degToRad(40 / 2);
+          const horizontal = Math.atan(Math.tan(vertical) * Math.max(0.35, camera.aspect));
+          const distance = envelope.getSize(new THREE.Vector3()).length() * 0.58 /
+            Math.sin(Math.min(vertical, horizontal));
+          const drift = reducedMotion ? 0 : cinematicProgress(clock % (duration / 2), 0, duration / 2);
+          frame(
+            focus.clone().addScaledVector(stageFront, distance)
+              .addScaledVector(stageRight, (enemySpeaking ? -1 : 1) * distance * (0.18 - drift * 0.04))
+              .add(V(0, -2.2, 0)),
+            focus, 40,
+          );
+        } else if (beat.shot === "evade") {
           if (clock < 0.38) {
             id += "-threat";
             frame(
@@ -762,17 +784,12 @@ export function createFinaleCamera(
             5 - p * 3, -4 + p * 6, 48, 46,
           );
         } else if (beat.shot === "reactor") {
-          if (clock < 0.95) {
-            id += "-verdict-crouching";
-            stageFrame(enemy.position.clone().add(V(0, 6.5, 0)), -9, 2, 27, 45);
-          } else {
-            id += "-last-light";
-            const push = reducedMotion ? 0 : cinematicProgress(clock, 0.95, duration);
-            stageFrame(
-              context.heroChest.clone().lerp(context.heroBladeTip, 0.25),
-              8 - push * 3, -3 + push * 2, 43 - push * 4, 42,
-            );
-          }
+          id += "-revenge-charge";
+          const push = reducedMotion ? 0 : cinematicProgress(clock, 0, duration);
+          stageFrame(
+            context.heroChest.clone().lerp(context.heroBladeTip, 0.25),
+            8 - push * 3, -3 + push * 2, 43 - push * 4, 42,
+          );
         } else if (beat.shot === "finalCut") {
           const timing = FINISHER_EXECUTION;
           if (clock < timing.vanish) {
@@ -835,45 +852,18 @@ export function createFinaleCamera(
           const focus = hero.position.clone().add(V(0, 6, 0));
           frame(focus.clone().add(V(9 + t, 3, 22 + t)), focus, 47);
         }
-      } else if (phase === "victory") {
-        if (t < DONUS_RETURN.dance) {
+      } else if (phase === "victory" || phase === "credits" || phase === "done") {
+        if (context.remembrance) {
+          id += "-remorse-low-angle";
+          frame(context.remembrance.position, context.remembrance.target, 44);
+        } else {
           id += "-last-cut";
           const focus = hero.position
             .clone()
             .lerp(enemy.position, 0.5)
             .add(V(0, 8, 0));
           frame(focus.clone().add(V(17, 13, 52)), focus, 55);
-        } else if (t < DONUS_RETURN.appear) {
-          id += "-dance";
-          const drift = reducedMotion
-            ? 0
-            : Math.sin((t - DONUS_RETURN.dance) * 0.35) * 4;
-          frame(
-            hero.position.clone().add(V(4 + drift, 9, 33)),
-            hero.position.clone().add(V(0, 8, 0)),
-            44,
-          );
-        } else if (t < DONUS_RETURN.arrival) {
-          id += "-mothership";
-          frame(
-            hero.position.clone().add(V(50, 26, 110)),
-            hero.position.clone().add(V(25, 10, -12)),
-            54,
-          );
-        } else {
-          id += "-end";
-          const focus = hero.position
-            .clone()
-            .lerp(context.mothership.position, 0.4)
-            .add(V(0, 8, 0));
-          frame(focus.clone().add(V(24, 14, 100)), focus, 54);
         }
-      } else if (phase === "credits" || phase === "done") {
-        const focus = hero.position
-          .clone()
-          .lerp(context.mothership.position, 0.4)
-          .add(V(0, 8, 0));
-        frame(focus.clone().add(V(24, 14, 100 + t * 0.18)), focus, 54);
       } else {
         const special = context.special;
         if (special) {
@@ -962,11 +952,9 @@ export function createFinaleCamera(
         const firstShot = !shotId;
         lastPosition.copy(camera.position);
         lastRotation.copy(camera.quaternion);
+        lastTarget.copy(previousTarget);
         lastFov = camera.fov;
-        const editorialCut =
-          phase === "reveal" ||
-          phase === "finisher" ||
-          (phase === "victory" && id.endsWith("-mothership"));
+        const editorialCut = phase === "victory" && id.endsWith("-remorse-low-angle");
         const locationCut =
           (phase === "rupture" &&
             (id.includes("-brendan") ||
@@ -987,8 +975,10 @@ export function createFinaleCamera(
         phase === "defeat" ||
         (phase === "rupture" && t >= PLANET_RUPTURE.forest)
           ? 0.65
+          : phase === "reveal"
+            ? 0.85
           : phase === "finisher"
-            ? 0.16
+            ? context.finisher.beat.shot === "challenge" ? 0.65 : 0.16
             : phase === "ground" || phase === "space"
               ? 0.28
               : 0.32;
@@ -996,6 +986,7 @@ export function createFinaleCamera(
       if (transition < 1) {
         const blend = smooth(transition, 0, 1);
         position.lerpVectors(lastPosition, position.clone(), blend);
+        target.lerpVectors(lastTarget, target.clone(), blend);
         rotation.slerpQuaternions(lastRotation, rotation.clone(), blend);
         fov = THREE.MathUtils.lerp(lastFov, fov, blend);
       } else if (
@@ -1090,6 +1081,7 @@ export function createFinaleCamera(
         position.z = Math.min(position.z, FACILITY.z + FACILITY_OFFICE.front - lensMargin);
         frame(position, target, fov, frameRoll);
       }
+      previousTarget.copy(target);
       camera.position.copy(position);
       camera.quaternion.copy(rotation);
       camera.fov = fov;

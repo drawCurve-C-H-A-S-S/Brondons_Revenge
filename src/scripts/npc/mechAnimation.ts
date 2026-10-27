@@ -23,7 +23,8 @@ export type MechPoseName =
   | "reactor"
   | "bomb"
   | "skyCharge"
-  | "afterCut";
+  | "afterCut"
+  | "mourn";
 const SLOTS = [
   "hips",
   "spine",
@@ -207,6 +208,18 @@ function mechPose(move: MechPoseName, p: number, secondSlash = false): RigPose {
     const breathe = Math.sin(p * Math.PI * 2);
     pose.spine = [0.06 + breathe * 0.025, -0.08, 0];
     pose.head = [-0.04, 0.08 + breathe * 0.02, 0];
+  } else if (move === "mourn") {
+    const bend = smooth(p, 0, 1);
+    pose.spine = [0.32 * bend, 0, 0];
+    pose.head = [0.38 * bend, 0, 0];
+    pose.leftLeg = [-1.05 * bend, 0, 0.1];
+    pose.rightLeg = [-0.95 * bend, 0, -0.1];
+    pose.leftKnee = [1.65 * bend, 0, 0];
+    pose.rightKnee = [1.6 * bend, 0, 0];
+    pose.leftArm = [-0.55 * bend, 0, -0.25];
+    pose.rightArm = [-0.55 * bend, 0, 0.25];
+    pose.leftElbow = [0, 0, -0.65 * bend];
+    pose.rightElbow = [0, 0, 0.65 * bend];
   } else if (move === "walk") {
     const stride = Math.sin(p * Math.PI * 2),
       left = Math.max(0, -stride),

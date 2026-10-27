@@ -102,6 +102,7 @@ export function createFinaleStudents(loadModel = loadSubjectModel) {
     mode: keyof Student["actions"] | "";
   };
   const students: Student[] = [];
+  let animations: readonly THREE.AnimationClip[] = [];
   let disposed = false,
     sourceResources: ReturnType<typeof captureFinaleResources> | null = null,
     chairResources: ReturnType<typeof captureFinaleResources> | null = null;
@@ -109,6 +110,7 @@ export function createFinaleStudents(loadModel = loadSubjectModel) {
     badges: THREE.MeshBasicMaterial[] = [];
   const loaded = Promise.all([loadModel(), loadVergilsChair()]).then(
     ([asset, chairAsset]) => {
+      animations = asset.animations;
       sourceResources = captureFinaleResources(asset.scene);
       chairResources = captureFinaleResources(chairAsset.scene);
       if (disposed) {
@@ -191,6 +193,14 @@ export function createFinaleStudents(loadModel = loadSubjectModel) {
     furniture,
     students,
     loaded,
+    getCreditsCast() {
+      return students.map((student, index) => ({
+        name: SUDOERS_5[index].name,
+        model: student.model,
+        animations,
+        pose: student.actions.pose.getClip(),
+      }));
+    },
     animate(index: number, mode: keyof Student["actions"], time: number, dt = 0) {
       const student = students[index];
       if (!student) return;

@@ -320,7 +320,7 @@ export function createFinaleMech(
       bladeMaterial.color.copy(plate.emissive).lerp(new THREE.Color(0xffffff), 0.5);
       bladeMaterial.emissive.copy(plate.emissive);
       cyan.color.copy(plate.emissive);
-      orange.color.copy(gem.emissive);
+      orange.color.set(side === "hero" ? gem.emissive : FRAME_COLORS.enemy);
       sheath.material = swordMetal;
       sheath.customDepthMaterial = undefined;
     } else {
@@ -591,6 +591,7 @@ export function createFinaleMech(
         .find((clip): clip is THREE.AnimationClip => !!clip);
     if (isMeleeStrike(move)) return find(SWORD_ATTACK_CLIPS[move]);
     if (move === "guard" || move === "clash") return find("Sword_Block");
+    if (move === "mourn") return find("Fixing_Kneeling", "Crouch_Idle_Loop");
     if (move === "slide") return find("Slide_Tackle");
     if (move === "jab") return find("Punch_Jab");
     if (move === "cross") return find("Punch_Cross");
@@ -832,7 +833,9 @@ export function createFinaleMech(
                           clip.duration
                         : clamp(time / Math.max(0.01, duration), 0, 1) *
                           clip.duration;
-        if (custom && (move === "skyCharge" || move === "reactor")) {
+        if (move === "mourn") {
+          nativeAction.time = Math.min(0.7, clip.duration) * cinematicProgress(time, 0, 1.6);
+        } else if (custom && (move === "skyCharge" || move === "reactor")) {
           nativeAction.time = clip.duration * 0.35;
         } else if (custom && (move === "evade" || move === "boost")) {
           const flight = clamp(time / Math.max(duration, 0.01), 0, 1);
@@ -966,7 +969,7 @@ export function createFinaleMech(
           gunHeld ? gunGrip : gunHolsterGrip,
         );
       }
-      sword.visible = build > 0.65 && move !== "defeat" && dissolve < 0.9;
+      sword.visible = build > 0.65 && move !== "defeat" && move !== "mourn" && dissolve < 0.9;
       scabbard.visible = build > 0.65 && move !== "defeat" && dissolve < 0.99;
       blade.visible = leftEdge.visible = rightEdge.visible = !swordStowed;
       blade.scale.y = leftEdge.scale.y = rightEdge.scale.y = 1;

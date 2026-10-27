@@ -2,6 +2,7 @@ export type MuseumWall = "north" | "south" | "west" | "east";
 export type PaintingTheme =
   | "stealth"
   | "vents"
+  | "surveillance"
   | "cargo"
   | "range"
   | "archive"
@@ -52,61 +53,33 @@ export const MUSEUM_EXHIBITS: readonly MuseumExhibit[] = [
   {
     id: 1.1,
     title: "DECK ONE HANGAR",
-    caption: "Stealth stage",
+    caption: "Three difficulties / exit ladder",
     wall: "north",
     theme: "stealth",
     kind: "eyeDrone",
     sceneKeys: [],
   },
   {
-    id: 1.2,
-    title: "VENT MAZE",
-    caption: "Minigame stage",
+    id: 1.25,
+    title: "CAMERA ROOM",
+    caption: "Speedrun / printable record",
     wall: "north",
-    theme: "vents",
+    theme: "surveillance",
     kind: "cctv",
-    sceneKeys: [],
-  },
-  {
-    id: 5,
-    title: "CARGO HOLD",
-    caption: "Minigame stage",
-    wall: "north",
-    theme: "cargo",
-    kind: "crates",
-    sceneKeys: ["stage2-infiltration"],
-  },
-  {
-    id: 6,
-    title: "TARGET RANGE",
-    caption: "Minigame stage",
-    wall: "north",
-    theme: "range",
-    kind: "target",
-    sceneKeys: ["stage2-infiltration"],
-  },
-  {
-    id: 1.3,
-    title: "BLOOMSTICK TENNIS",
-    caption: "20 consecutive returns",
-    wall: "north",
-    theme: "archive",
-    kind: "bloomstick",
-    sceneKeys: ["stage2-armory"],
-  },
-  {
-    id: 1.4,
-    title: "RUST CHAMBER",
-    caption: "Minigame stage",
-    wall: "north",
-    theme: "rust",
-    kind: "ironBars",
-    sceneKeys: ["stage2-infiltration"],
+    sceneKeys: [
+      "stage2-infiltration",
+      "scene5",
+      "scene6",
+      "stage2-armory",
+      "stage2-rust",
+      "stage2-rust2",
+      "stage2-reactor",
+    ],
   },
   {
     id: 13,
     title: "BAY WARDEN",
-    caption: "Boss fight, all phases",
+    caption: "Time + health / finisher QTE",
     wall: "north",
     theme: "warden",
     kind: "warden",
@@ -115,7 +88,7 @@ export const MUSEUM_EXHIBITS: readonly MuseumExhibit[] = [
   {
     id: 14,
     title: "QTE ESCAPE",
-    caption: "Escape stage",
+    caption: "Escape QTE / ungraded",
     wall: "north",
     theme: "escape",
     kind: "scavenger",
@@ -133,21 +106,12 @@ export const MUSEUM_EXHIBITS: readonly MuseumExhibit[] = [
   {
     id: 17,
     title: "BRIDGE AND WATERFALL",
-    caption: "Jungle stage",
+    caption: "Endless ambush / waterfall warden",
     wall: "east",
     theme: "jungle",
     kind: "dino",
     sceneKeys: [],
     lift: 0.7,
-  },
-  {
-    id: 20,
-    title: "AI RESEARCH FACILITY",
-    caption: "Facility stage",
-    wall: "east",
-    theme: "facility",
-    kind: "terminal",
-    sceneKeys: ["scene17"],
   },
   {
     id: 21,

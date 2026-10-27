@@ -42,6 +42,7 @@ interface RustChamber2Options {
   entryState?: PlayerTransitionState;
   preview?: boolean;
   deferActivation?: boolean;
+  skipCinematics?: boolean;
   loot?: CameraRoomProgress;
   hasReturnMarker?: () => boolean;
   onRestart?: () => Promise<boolean>;
@@ -65,7 +66,12 @@ const PAD = { minX: 29, maxX: 37, minZ: 7, maxZ: 15 };
 const PAD_TOP = -3.6;
 const LAUNCH_TARGET_X = 57;
 const BUTTON = new THREE.Vector3(62.2, 1.15, CHASM_Z);
-const DIR_TOGGLE = new THREE.Vector3(56, 1.8, 21.7);
+const DIR_TOGGLE = new THREE.Vector3(
+  (CHASM_X0 + CHASM_X1) / 2,
+  2,
+  DEPTH - 0.55,
+);
+const LAUNCH_COLORS = { east: 0xff4fa3, west: 0x35e0ff };
 const WEST_LAUNCH_X = 8;
 const FLOOR_PLATE = new THREE.Vector3(58, 0.06, 11);
 const SPAWN = { x: 3, z: 11, yaw: -Math.PI / 2 };
@@ -105,11 +111,80 @@ function signTexture(title: string, lines: string[], color: string) {
   return texture;
 }
 
+function splitDeckHintTexture() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1536;
+  canvas.height = 1024;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Unable to draw the split-deck wall hint");
+  context.fillStyle = "#101b22";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.strokeStyle = "#b99b71";
+  context.lineWidth = 6;
+  context.strokeRect(24, 24, 1488, 976);
+  context.fillStyle = "#dfbd87";
+  context.font = "bold 28px monospace";
+  context.fillText("RUST BAY 02 / COUNTERWEIGHT TRANSFER", 72, 90);
+  context.fillStyle = "#fff1d8";
+  context.font = "bold 64px monospace";
+  context.fillText("THE SPLIT DECK", 72, 176);
+  context.fillStyle = "#c8d7dc";
+  context.font = "italic 30px monospace";
+  context.fillText("Across the rust, let crystal fly;", 72, 244);
+  context.fillText("A matching glow will guide it high.", 72, 288);
+  const steps = [
+    ["01", "BANK THE CRYSTAL", "Throw onto the mat; press T after it lands."],
+    [
+      "02",
+      "FREE THE COUNTERWEIGHT",
+      "Across the gap: break orange, then press E.",
+    ],
+    [
+      "03",
+      "TIME THE SHOT",
+      "Shoot the blue link as the load swings over the mat.",
+    ],
+    [
+      "04",
+      "OPEN THE GLASS DOOR",
+      "Carry the landed load with E; set it on the plate.",
+    ],
+    [
+      "05",
+      "BOUNCE BACK FOR THE KEYCARD",
+      "Shoot the wall beacon, then bank another crystal.",
+    ],
+  ];
+  steps.forEach(([number, title, detail], index) => {
+    const y = 370 + index * 106;
+    context.fillStyle = "#dfbd87";
+    context.font = "bold 36px monospace";
+    context.fillText(number, 72, y);
+    context.fillStyle = "#fff1d8";
+    context.font = "bold 34px monospace";
+    context.fillText(title, 164, y);
+    context.fillStyle = "#c8d7dc";
+    context.font = "30px monospace";
+    context.fillText(detail, 164, y + 42);
+  });
+  context.fillStyle = "#ff4fa3";
+  context.fillRect(72, 934, 20, 20);
+  context.font = "bold 28px monospace";
+  context.fillText("PINK / FAR DECK", 108, 956);
+  context.fillStyle = "#35e0ff";
+  context.fillRect(800, 934, 20, 20);
+  context.fillText("CYAN / ENTRANCE", 836, 956);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 /** The split rust deck retains the branch's counterweight and crystal-bank puzzle. */
 export function createScene({
   entryState,
   preview = false,
   deferActivation = false,
+  skipCinematics = false,
   loot = { cleared: new Set<string>(), rewardCollected: false },
   hasReturnMarker,
   onRestart,
@@ -203,7 +278,7 @@ export function createScene({
   };
   let presentation: Presentation | null = null;
   function beginPresentation(kind: Presentation["kind"]) {
-    if (preview || !active || disposed || presentation || melting) return;
+    if (skipCinematics || preview || !active || disposed || presentation || melting) return;
     presentation = {
       kind,
       time: 0,
@@ -400,23 +475,15 @@ export function createScene({
   rustWater.mesh.name = "RustChamber2CorrosiveWater";
   scene.add(rustWater.mesh);
   const hintPoster = new THREE.Mesh(
-    new THREE.PlaneGeometry(5, 1.67),
-    new THREE.MeshStandardMaterial({
-      map: signTexture(
-        "THE SPLIT DECK",
-        [
-          "Pink banks crystal and load.",
-          "E frees the cradle; shoot blue on its swing.",
-          "Carry the landed load onto the floor plate.",
-        ],
-        "#e1ccb0",
-      ),
-      roughness: 0.92,
+    new THREE.PlaneGeometry(6.6, 4.4),
+    new THREE.MeshBasicMaterial({
+      map: splitDeckHintTexture(),
+      toneMapped: false,
     }),
   );
   hintPoster.name = "RustChamber2HintPoster";
-  hintPoster.position.set(6, 1.9, 0.24);
-  box([5.2, 1.87, 0.12], [6, 1.9, 0.15], worn, false);
+  hintPoster.position.set(9.5, 2.7, 0.24);
+  box([6.9, 4.7, 0.12], [9.5, 2.7, 0.15], worn, false);
   scene.add(hintPoster);
 
   // ---- Pendulum: rust cradle holds the load against the west wall; the button on the far ledge drops it.
@@ -631,9 +698,16 @@ export function createScene({
       cubeBody.wakeUp();
     },
   );
-  // Wall beacon on the right-hand wall: shooting it vectors the pad. The head, ring and
-  // backplate live on the breakable root so pistol traces actually register the hit.
-  let toggleHead!: THREE.Mesh, toggleRing!: THREE.Mesh;
+  // Keep the entire beacon on the hit root, clear of the wall from either shore.
+  const toggleHeadMaterial = new THREE.MeshStandardMaterial({
+    color: 0x220a12,
+    emissive: LAUNCH_COLORS.east,
+    emissiveIntensity: 1.8,
+  });
+  const toggleRingMaterial = new THREE.MeshBasicMaterial({
+    color: LAUNCH_COLORS.east,
+    toneMapped: false,
+  });
   const dirToggle = breakables.add(
     "rust2:dir",
     "pistol",
@@ -650,25 +724,20 @@ export function createScene({
         );
         backplate.position.z = 0.22;
         root.add(backplate);
-        toggleHead = new THREE.Mesh(
+        const toggleHead = new THREE.Mesh(
           new THREE.SphereGeometry(0.26, 14, 12),
-          new THREE.MeshStandardMaterial({
-            color: 0x220a12,
-            emissive: 0xff4fa3,
-            emissiveIntensity: 1.8,
-          }),
+          toggleHeadMaterial,
         );
         root.add(toggleHead);
-        toggleRing = new THREE.Mesh(
+        const toggleRing = new THREE.Mesh(
           new THREE.TorusGeometry(0.46, 0.05, 8, 24),
-          new THREE.MeshBasicMaterial({ color: 0xff4fa3, toneMapped: false }),
+          toggleRingMaterial,
         );
         toggleRing.position.z = 0.1;
         root.add(toggleRing);
       },
     },
   );
-  let toggleHits = dirToggle.hitsRemaining;
   breakables.restoreBroken(loot.cleared);
   const broken = (id: string) =>
     breakables.objects.some((item) => item.id === id && item.broken);
@@ -710,8 +779,7 @@ export function createScene({
   syncLink();
   syncCable();
 
-  const padMat = new BreakableMaterial("crowbar", 0xff4fa3);
-  padMat.color.setHex(0xe783c3);
+  const padMat = new BreakableMaterial("crowbar", LAUNCH_COLORS.east);
   padMat.roughness = 0.9;
   padMat.metalness = 0;
   padMat.name = "PinkTrampolineFabric";
@@ -721,7 +789,7 @@ export function createScene({
   if (!weave) throw new Error("Unable to draw the trampoline fabric");
   weave.fillStyle = "#ffffff";
   weave.fillRect(0, 0, 128, 128);
-  weave.strokeStyle = "#b6a7b1";
+  weave.strokeStyle = "#b6b6b6";
   weave.lineWidth = 1;
   for (let line = 0; line < 128; line += 8) {
     weave.beginPath();
@@ -849,9 +917,29 @@ export function createScene({
     padMat.hit(1);
     if (!preview) playSfx("bounce", 0.2);
   }
-  const padLight = new THREE.PointLight(0xff4fa3, 0, 10, 2);
+  const padLight = new THREE.PointLight(LAUNCH_COLORS.east, 0, 10, 2);
   padLight.position.set(0, 0.8, 0);
   padGroup.add(padLight);
+  function syncLaunchAppearance() {
+    const color = plateEast ? LAUNCH_COLORS.east : LAUNCH_COLORS.west;
+    toggleHeadMaterial.emissive.setHex(color);
+    toggleRingMaterial.color.setHex(color);
+    padMat.color.setHex(color);
+    padMat.setGlowColor(color);
+    padLight.color.setHex(color);
+  }
+  syncLaunchAppearance();
+  const damageToggle = dirToggle.damage;
+  dirToggle.damage = (amount, weapon) => {
+    if (!damageToggle(amount, weapon)) return false;
+    plateEast = !plateEast;
+    syncLaunchAppearance();
+    say(
+      plateEast ? "Trampoline launches east." : "Trampoline launches west.",
+      2,
+    );
+    return true;
+  };
   function launchVelocity(
     x: number,
     y: number,
@@ -998,7 +1086,7 @@ export function createScene({
   );
   resetConsole.root.name = "RustChamber2RebuildControl";
   resetConsole.root.position.set(1.1, 1.1, 15);
-  resetConsole.root.rotation.y = Math.PI / 2;
+  resetConsole.root.rotation.y = -Math.PI / 2;
   scene.add(resetConsole.root);
   box([0.16, 1.15, 0.8], [0.6, 1.35, 15], ship.dark);
   scene.add(new THREE.HemisphereLight(0xffd8b2, 0x65503b, 2.4));
@@ -1129,7 +1217,6 @@ export function createScene({
     if (holding()) player.setBoxHandling(false);
     loot.cleared.clear();
     breakables.reset();
-    toggleHits = dirToggle.hitsRemaining;
     buttonUsed = false;
     buttonPress = 0;
     recallTimer = -1;
@@ -1141,6 +1228,7 @@ export function createScene({
     padSurface.scale.set(1, 1, 1);
     deformTrampoline(0);
     plateEast = true;
+    syncLaunchAppearance();
     doorLift = 0;
     doorL.position.z = 9.55;
     doorR.position.z = 12.45;
@@ -1303,7 +1391,9 @@ export function createScene({
       else focus.y += 0.3;
     } else {
       const across = reducedMotion?.matches
-        ? state.time < 0.8 ? 0 : 1
+        ? state.time < 0.8
+          ? 0
+          : 1
         : THREE.MathUtils.smootherstep(state.time, 0.5, 1.5);
       shot.position.lerpVectors(
         new THREE.Vector3(FLOOR_PLATE.x - 4, 3.2, FLOOR_PLATE.z + 5),
@@ -1316,7 +1406,8 @@ export function createScene({
     const blend = reducedMotion?.matches
       ? 1
       : THREE.MathUtils.smootherstep(state.time, 0, 0.35) *
-        (1 - THREE.MathUtils.smootherstep(state.time, duration - 0.35, duration));
+        (1 -
+          THREE.MathUtils.smootherstep(state.time, duration - 0.35, duration));
     camera.position.lerpVectors(state.position, shot.position, blend);
     camera.quaternion.slerpQuaternions(state.rotation, shot.quaternion, blend);
     camera.fov = THREE.MathUtils.lerp(state.fov, 56, blend);
@@ -1329,7 +1420,7 @@ export function createScene({
     if (holding()) releaseCube();
     const p = player.body.position;
     melting = {
-      time: 0,
+      time: skipCinematics ? 3.2 : 0,
       position: new THREE.Vector3(p.x, p.y, p.z),
       camera: camera.position.clone(),
     };
@@ -1646,14 +1737,6 @@ export function createScene({
       rustWater.update(clock);
       if (!melting && !preview) physics.step(frame, player, thirdPerson);
       breakables.update(frame);
-      if (dirToggle.hitsRemaining !== toggleHits) {
-        toggleHits = dirToggle.hitsRemaining;
-        plateEast = !plateEast;
-        say(
-          plateEast ? "Trampoline launches east." : "Trampoline launches west.",
-          2,
-        );
-      }
 
       updateCubeLoss(frame);
 
@@ -1699,8 +1782,7 @@ export function createScene({
         if (presentation) {
           presentation.time += frame;
           if (
-            presentation.time >=
-            (presentation.kind === "release" ? 2.6 : 3.2)
+            presentation.time >= (presentation.kind === "release" ? 2.6 : 3.2)
           )
             endPresentation();
         }
@@ -1718,12 +1800,6 @@ export function createScene({
       padMat.update(frame);
       wireMat.opacity = 0.5 + 0.3 * Math.sin(clock * 2.2);
       wireMat.color.setHex(complete() ? 0x57ff9f : 0x35e0ff);
-      (toggleHead.material as THREE.MeshStandardMaterial).emissive.setHex(
-        plateEast ? 0xff4fa3 : 0x35e0ff,
-      );
-      (toggleRing.material as THREE.MeshBasicMaterial).color.setHex(
-        plateEast ? 0xff4fa3 : 0x35e0ff,
-      );
       buttonCap.position.y = BUTTON.y + 0.06 - buttonPress * 0.07;
       buttonPress = Math.max(0, buttonPress - frame * 3);
       const loaded = complete();
@@ -1741,7 +1817,6 @@ export function createScene({
         if (wasHolding) player.setBoxHandling(false);
         breakables.reset();
         breakables.restoreBroken(loot.cleared);
-        toggleHits = dirToggle.hitsRemaining;
         buttonUsed = false;
         recallTimer = -1;
         lostTimer = -1;

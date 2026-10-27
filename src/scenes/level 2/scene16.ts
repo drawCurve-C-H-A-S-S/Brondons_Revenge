@@ -591,7 +591,7 @@ export function createScene({
               : t < 17
                 ? "THE HATCH IS OPENING"
                 : t < 23
-                  ? "Brendan: Donus's experiments fused me with the escape ship. I can still feel its engines in my head."
+                  ? "Brendan: Donus fused my mind with a battleship. I can still feel its engines in my head."
                   : t < 30
                     ? "Brendan: The facility is ahead. Follow the stone path across the bridge. That waterfall hides a cave—but I can't leave the ship's signal."
                     : "FOLLOW THE STONE PATH THROUGH THE JUNGLE";

@@ -17,6 +17,8 @@ import {
   JUNGLE_PATH,
   JUNGLE_ROUTE,
   JUNGLE_ENTRY_YAW,
+  ARCADE_JUNGLE_SPAWN,
+  ARCADE_JUNGLE_ROUTE,
   type RescueArrival,
   type WaterfallCharacterContact,
 } from "../../scripts/global/rescueSite.js";
@@ -52,6 +54,8 @@ import {
 export function createScene({
   entryState,
   fromFacility = false,
+  arcadeMode = false,
+  onArcadeComplete,
   onRespawn,
   onFinished,
   loadModel = loadToolModel,
@@ -61,17 +65,177 @@ export function createScene({
   entryState?: RescueArrival;
   onRespawn: (state: RescueArrival) => void;
   fromFacility?: boolean;
+  arcadeMode?: boolean;
+  onArcadeComplete?: () => void;
   onFinished?: (state: RescueArrival) => void;
   loadModel?: typeof loadToolModel;
   loadDinosaur?: typeof loadDinoModel;
   loadShark?: typeof loadSharkModel;
 }) {
-  const spawn = RESCUE_SITE.player;
-  const spawnYaw = JUNGLE_ENTRY_YAW;
+  const spawn = arcadeMode ? ARCADE_JUNGLE_SPAWN : RESCUE_SITE.player;
+  const spawnYaw = arcadeMode
+    ? Math.atan2(
+        spawn.x - ARCADE_JUNGLE_ROUTE[1].x,
+        spawn.z - ARCADE_JUNGLE_ROUTE[1].z,
+      )
+    : JUNGLE_ENTRY_YAW;
+  const patrolRoute = arcadeMode ? ARCADE_JUNGLE_ROUTE : JUNGLE_ROUTE;
+  const arcadeEnemyLimit = 4,
+    arcadeAttackLimit = 4,
+    trailHalfWidth = 3.5;
+  const arcadeTrail = arcadeMode
+    ? ARCADE_JUNGLE_ROUTE.filter((point, index) => index % 8 === 0 && point.x > -84)
+        .map((point) => point.clone())
+    : [];
+  if (arcadeMode) arcadeTrail.push(new THREE.Vector3(-84, 0, 17));
+  function nearestTrail(position: { x: number; z: number }) {
+    let x = spawn.x, z = spawn.z, squared = Infinity;
+    for (let i = 1; i < arcadeTrail.length; i++) {
+      const a = arcadeTrail[i - 1], b = arcadeTrail[i];
+      const dx = b.x - a.x, dz = b.z - a.z;
+      const t = THREE.MathUtils.clamp(
+        ((position.x - a.x) * dx + (position.z - a.z) * dz) / (dx * dx + dz * dz),
+        0, 1,
+      );
+      const px = a.x + dx * t, pz = a.z + dz * t;
+      const distance = (position.x - px) ** 2 + (position.z - pz) ** 2;
+      if (distance < squared) {
+        x = px;
+        z = pz;
+        squared = distance;
+      }
+    }
+    return { x, z, squared };
+  }
+  function onArcadeTrail(position: { x: number; z: number }, margin = 0) {
+    if (
+      position.x >= -106 + margin && position.x <= -84 &&
+      position.z >= 9 + margin && position.z <= 25 - margin
+    ) return true;
+    const first = arcadeTrail[0], next = arcadeTrail[1];
+    if ((position.x - first.x) * (next.x - first.x) +
+        (position.z - first.z) * (next.z - first.z) < 0) return false;
+    return nearestTrail(position).squared <= (trailHalfWidth - margin) ** 2;
+  }
   const physics = createScenePhysics(),
     physicsWorld = physics.world;
-  const site = createRescueSite(physics, { culling: true }),
+  const site = createRescueSite(physics, {
+      culling: true,
+      includeNarrativeProps: !arcadeMode,
+      arcadeTrail: arcadeMode,
+    }),
     { scene, door, ship, pod, boy } = site;
+  if (arcadeMode) {
+    for (const prop of [ship.root, pod, boy]) {
+      site.releasePropCulling(prop);
+      prop.visible = false;
+    }
+    door.setLocked(true);
+    const steel = new THREE.MeshStandardMaterial({
+      color: 0x35444c,
+      roughness: 0.55,
+      metalness: 0.8,
+    });
+    const warning = new THREE.MeshStandardMaterial({
+      color: 0xe9b83b,
+      roughness: 0.7,
+    });
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 32;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Cannot create the Arcade trail fence");
+    context.fillStyle = "#75877b";
+    context.fillRect(0, 0, 32, 32);
+    context.clearRect(4, 4, 24, 24);
+    const fenceTexture = new THREE.CanvasTexture(canvas);
+    fenceTexture.wrapS = fenceTexture.wrapT = THREE.RepeatWrapping;
+    fenceTexture.repeat.set(10, 6);
+    const fenceMaterial = new THREE.MeshStandardMaterial({
+      color: 0x879a8b,
+      map: fenceTexture,
+      alphaTest: 0.5,
+      side: THREE.DoubleSide,
+      roughness: 0.9,
+    });
+    const boxGeometry = new THREE.BoxGeometry(1, 1, 1);
+    const left: THREE.Vector3[] = [], right: THREE.Vector3[] = [];
+    arcadeTrail.forEach((point, index) => {
+      const before = arcadeTrail[Math.max(0, index - 1)];
+      const after = arcadeTrail[Math.min(arcadeTrail.length - 1, index + 1)];
+      const incoming = point.clone().sub(before);
+      const outgoing = after.clone().sub(point);
+      if (!incoming.lengthSq()) incoming.copy(outgoing);
+      if (!outgoing.lengthSq()) outgoing.copy(incoming);
+      incoming.normalize();
+      outgoing.normalize();
+      const normal = new THREE.Vector3(-incoming.z, 0, incoming.x);
+      const miter = normal.clone().add(new THREE.Vector3(-outgoing.z, 0, outgoing.x)).normalize();
+      miter.multiplyScalar(trailHalfWidth / Math.max(0.5, miter.dot(normal)));
+      left.push(point.clone().add(miter));
+      right.push(point.clone().sub(miter));
+    });
+    const rearOffset = arcadeTrail[0].clone().sub(arcadeTrail[1]).normalize().multiplyScalar(0.6);
+    left[0].add(rearOffset);
+    right[0].add(rearOffset);
+    const walls: Array<[THREE.Vector3, THREE.Vector3]> = [];
+    for (let i = 1; i < arcadeTrail.length; i++)
+      walls.push([left[i - 1], left[i]], [right[i - 1], right[i]]);
+    walls.push([left[0], right[0]]);
+    for (const [ax, az, bx, bz] of [
+      [-106, 9, -84, 9], [-106, 25, -84, 25], [-106, 9, -106, 25],
+      [-84, 9, -84, 13.5], [-84, 20.5, -84, 25],
+    ])
+      walls.push([new THREE.Vector3(ax, 0, az), new THREE.Vector3(bx, 0, bz)]);
+    let gateIndex = 0, gateDistance = Infinity;
+    walls.forEach(([a, b], index) => {
+      const distance = Math.hypot(
+        (a.x + b.x) / 2 - RESCUE_SITE.bridge.x,
+        (a.z + b.z) / 2 - RESCUE_SITE.bridge.z,
+      );
+      if (distance < gateDistance) {
+        gateIndex = index;
+        gateDistance = distance;
+      }
+    });
+    walls.forEach(([a, b], index) => {
+      const gate = index === gateIndex;
+      const wall = new THREE.Group();
+      wall.name = gate ? "ArcadeBridgeGate" : "ArcadeTrailFence";
+      wall.position.copy(a).add(b).multiplyScalar(0.5);
+      wall.rotation.y = -Math.atan2(b.z - a.z, b.x - a.x);
+      const panel = new THREE.Mesh(boxGeometry, gate ? steel : fenceMaterial);
+      panel.scale.set(a.distanceTo(b) + 0.12, 5, 0.35);
+      panel.position.y = 2.5;
+      wall.add(panel);
+      if (gate)
+        for (const y of [0.6, 2.5, 4.4]) {
+          const brace = new THREE.Mesh(boxGeometry, warning);
+          brace.scale.set(panel.scale.x, 0.18, 0.4);
+          brace.position.y = y;
+          wall.add(brace);
+        }
+      scene.add(wall);
+      site.trackStaticBody(physics.addBoxFromMesh(panel));
+    });
+    const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x64695e, roughness: 1 });
+    const floors = new THREE.InstancedMesh(boxGeometry, floorMaterial, arcadeTrail.length - 1);
+    floors.name = "ArcadeTrailSafetyDeck";
+    const matrix = new THREE.Matrix4(), rotation = new THREE.Quaternion();
+    for (let i = 1; i < arcadeTrail.length; i++) {
+      const a = arcadeTrail[i - 1], b = arcadeTrail[i];
+      const size = new THREE.Vector3(trailHalfWidth * 2 + 0.4, 0.3, a.distanceTo(b) + 0.4);
+      const position = a.clone().add(b).multiplyScalar(0.5).setY(-0.13);
+      const yaw = Math.atan2(b.x - a.x, b.z - a.z);
+      rotation.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+      matrix.compose(position, rotation, size);
+      floors.setMatrixAt(i - 1, matrix);
+      const body = physics.addBox(size, position);
+      body.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+      body.aabbNeedsUpdate = true;
+      site.trackStaticBody(body);
+    }
+    scene.add(floors);
+  }
   const doorwayVoid = new THREE.Mesh(
     new THREE.PlaneGeometry(3, 3.2),
     new THREE.MeshBasicMaterial({
@@ -143,9 +307,9 @@ export function createScene({
     RESCUE_SITE.player.x - boy.position.x,
     RESCUE_SITE.player.z - boy.position.z,
   );
-  site.setImpact(30);
+  site.setImpact(arcadeMode ? -1 : 30);
   ship.update(0);
-  for (const prop of [ship.root, pod]) {
+  for (const prop of arcadeMode ? [] : [ship.root, pod]) {
     prop.updateMatrixWorld(true);
     const body = new CANNON.Body({ mass: 0, material: physics.solidMaterial });
     body.position.copy(
@@ -178,11 +342,11 @@ export function createScene({
     physicsWorld.addBody(body);
     site.trackStaticBody(body);
   }
-  const brendanBody = physics.addBox(
+  const brendanBody = arcadeMode ? null : physics.addBox(
     { x: 0.55, y: 1.75, z: 0.55 },
     { x: RESCUE_SITE.boy.x, y: 0.875, z: RESCUE_SITE.boy.z },
   );
-  site.trackStaticBody(brendanBody);
+  if (brendanBody) site.trackStaticBody(brendanBody);
   // Use the final render camera, including third-person offsets, without advancing simulation.
   scene.onBeforeRender = (_renderer, _scene, viewCamera) =>
     site.updateVisibility(viewCamera, player.body.position);
@@ -215,11 +379,12 @@ export function createScene({
     player,
     camera,
     arena: site.waterfall,
-    defeated: entryState?.waterfallDefeated,
+    defeated: arcadeMode ? false : entryState?.waterfallDefeated,
     achievementUnlocked: entryState?.waterfallAchievementUnlocked,
+    onDefeated: arcadeMode ? finishArcadeRun : undefined,
     loadModel,
   });
-  const landSquad = createRiverAmbushers(scene, [125, 125, 125], loadModel);
+  const landSquad = createRiverAmbushers(scene, arcadeMode ? [] : [125, 125, 125], loadModel);
   const sentries = landSquad.actors.map((actor, index) => {
     const home = JUNGLE_PATH.getPointAt([0.63, 0.74, 0.84][index]);
     actor.root.name = `PostBridgeSpiderBot${index + 1}`;
@@ -261,7 +426,19 @@ export function createScene({
     dinoLoadError = false,
     defeatedPatrols = 0;
   let dinoReady: Promise<void> | null = null;
-  let playerRoute = site.nearestPathPoint(
+  function nearestPatrolPoint(x: number, z: number) {
+    if (!arcadeMode) return site.nearestPathPoint(x, z);
+    let index = 0, distance = Infinity;
+    patrolRoute.forEach((point, candidate) => {
+      const squared = (point.x - x) ** 2 + (point.z - z) ** 2;
+      if (squared < distance) {
+        index = candidate;
+        distance = squared;
+      }
+    });
+    return { index, distance: Math.sqrt(distance) };
+  }
+  let playerRoute = nearestPatrolPoint(
     player.body.position.x,
     player.body.position.z,
   );
@@ -274,7 +451,7 @@ export function createScene({
     start: THREE.Vector3;
     attackIndex: number;
   }> = [];
-  const sharkReady = loadShark()
+  const sharkReady = arcadeMode ? Promise.resolve() : loadShark()
     .then((asset) => {
       if (disposed) {
         releaseTemplate(asset.scene);
@@ -363,9 +540,12 @@ export function createScene({
     steeringClock: number;
     steering: THREE.Vector3;
     animationClock: number;
+    boundsClock: number;
+    suspended: boolean;
     legs?: [THREE.Object3D, THREE.Object3D];
     gaitClock: number;
-    kind: "robot" | "dino";
+    kind: "robot" | "quad" | "eye" | "dino";
+    muzzle: THREE.Object3D;
     radius: number;
     maxHealth: number;
     attackDamage: number;
@@ -416,11 +596,14 @@ export function createScene({
   ) {
     const dino = kind === "dino",
       radius = dino ? 0.75 : 0.42,
-      maxHealth = dino ? 150 : 75;
+      maxHealth = dino ? 150 : kind === "quad" ? 125 : kind === "eye" ? 50 : 75;
     const root = new THREE.Group(),
       model = clone(template);
     root.name = `Jungle-${kind}-${index}`;
     root.add(model);
+    const muzzle = new THREE.Object3D();
+    muzzle.position.set(0, kind === "eye" ? 1.3 : 0.9, 0.45);
+    if (arcadeMode) root.add(muzzle);
     root.visible = false;
     scene.add(root);
     root.traverse((node) => {
@@ -452,6 +635,19 @@ export function createScene({
       }
     } else {
       for (const clip of clips) actions.set(clip.name, mixer.clipAction(clip));
+      if (arcadeMode) {
+        const aliases: Array<[string, RegExp]> = [
+          ["Idle", /idle|hover/i],
+          ["Run", /run|walk|fly/i],
+          ["Attack", /attack|shoot/i],
+          ["Hit", /hit|hurt/i],
+          ["TurnOff", /death|die|shutdown|turn.?off/i],
+        ];
+        for (const [name, pattern] of aliases) {
+          const clip = clips.find((clip) => pattern.test(clip.name));
+          if (!actions.has(name) && clip) actions.set(name, mixer.clipAction(clip));
+        }
+      }
       if (!actions.has("Idle") && actions.has("Walk"))
         actions.set("Idle", actions.get("Walk")!);
       if (!actions.has("Run") && actions.has("Walk"))
@@ -472,11 +668,12 @@ export function createScene({
       action: "",
       ring,
       kind,
+      muzzle,
       radius,
       maxHealth,
-      attackDamage: dino ? 10000 : 12,
+      attackDamage: dino ? (arcadeMode ? 24 : 10000) : kind === "quad" ? 18 : 12,
       attackRange: dino ? 1.2 : 1.6,
-      attackDuration: dino ? 0 : 0.85,
+      attackDuration: dino ? (arcadeMode ? 0.8 : 0) : 0.85,
       phase: "dormant",
       health: maxHealth,
       timer: 0,
@@ -484,10 +681,12 @@ export function createScene({
       struck: false,
       navigationClock: 0,
       goal: new THREE.Vector3(),
-      speed: dino ? 5.2 : 3.2 + index * 0.25,
+      speed: dino ? (arcadeMode ? 4.2 : 5.2) : 3.2 + index * 0.25,
       steeringClock: 0,
       steering: new THREE.Vector3(),
       animationClock: 0,
+      boundsClock: 0,
+      suspended: false,
       gaitClock: 0,
       legs:
         dino &&
@@ -519,8 +718,11 @@ export function createScene({
         },
       );
   }
-  const patrolReady = loadModel("Enemy_Trilobite")
-    .then((gltf) => {
+  function addRobotTemplate(
+    gltf: Awaited<ReturnType<typeof loadModel>>,
+    kind: "robot" | "quad" | "eye",
+    count: number,
+  ) {
       if (disposed) {
         releaseTemplate(gltf.scene);
         return;
@@ -529,29 +731,45 @@ export function createScene({
         bounds = new THREE.Box3().setFromObject(template),
         size = bounds.getSize(new THREE.Vector3());
       template.scale.multiplyScalar(
-        1.65 / Math.max(size.x, size.y, size.z, 0.001),
+        (kind === "eye" ? 1.1 : 1.65) / Math.max(size.x, size.y, size.z, 0.001),
       );
       bounds.setFromObject(template);
       const center = bounds.getCenter(new THREE.Vector3());
       template.position.set(
         template.position.x - center.x,
-        template.position.y - bounds.min.y,
+        template.position.y - bounds.min.y + (kind === "eye" ? 0.85 : 0),
         template.position.z - center.z,
       );
-      for (let i = 0; i < 4; i++)
-        addEnemy(template, gltf.animations, "robot", i);
+      for (let i = 0; i < count; i++)
+        addEnemy(template, gltf.animations, kind, i);
       template.visible = false;
-      template.name = "JunglePatrolTemplate";
+      template.name =
+        kind === "robot" ? "JunglePatrolTemplate" : `JunglePatrolTemplate-${kind}`;
       scene.add(template);
       templates.push(template);
+  }
+  const patrolReady = loadModel("Enemy_Trilobite")
+    .then((gltf) => {
+      addRobotTemplate(gltf, "robot", arcadeMode ? 1 : 4);
       patrolLoaded = true;
     })
     .catch((error) => {
       if (!disposed) {
         patrolLoadError = true;
         console.error("[Scene 17] Could not load jungle patrols:", error);
+        if (arcadeMode) throw error;
       }
     });
+  const arcadePatrolReady = arcadeMode
+    ? Promise.all([
+        loadModel("Enemy_QuadShell").then((asset) => addRobotTemplate(asset, "quad", 1)),
+        loadModel("Enemy_EyeDrone").then((asset) => addRobotTemplate(asset, "eye", 1)),
+      ]).catch((error) => {
+        patrolLoadError = true;
+        console.error("[Arcade jungle] Could not prepare the mixed enemy roster:", error);
+        throw error;
+      })
+    : Promise.resolve();
   function loadDinosaurs() {
     if (dinoReady || dinoLoadError) return;
     dinoReady = loadDinosaur()
@@ -585,7 +803,7 @@ export function createScene({
           ? pelvis.getWorldPosition(new THREE.Vector3())
           : bounds.getCenter(new THREE.Vector3());
         template.position.set(-anchor.x, -bounds.min.y, -anchor.z);
-        for (let i = 0; i < 2; i++)
+        for (let i = 0; i < (arcadeMode ? 1 : 2); i++)
           addEnemy(template, gltf.animations, "dino", i);
         template.visible = false;
         template.name = "JungleDinoTemplate";
@@ -596,9 +814,11 @@ export function createScene({
         if (!disposed) {
           dinoLoadError = true;
           console.error("[Scene 17] Could not load dinosaur:", error);
+          if (arcadeMode) throw error;
         }
       });
   }
+  if (arcadeMode) loadDinosaurs();
   function inDinoTerritory(x: number, z: number) {
     return (
       site.distanceToSafePath(x, z) > 7 &&
@@ -702,33 +922,82 @@ export function createScene({
         )
       )
         continue;
-      enemy.body.type = CANNON.Body.DYNAMIC;
-      enemy.body.updateMassProperties();
-      enemy.body.position.set(point.x, enemy.radius + 0.08, point.z);
-      enemy.body.velocity.set(0, 0, 0);
-      enemy.body.force.set(0, 0, 0);
-      site.activatePhysicsNear(enemy.body.position);
-      enemy.body.collisionResponse = true;
-      enemy.body.aabbNeedsUpdate = true;
-      enemy.body.wakeUp();
-      enemy.motor.reset();
-      physicsWorld.addBody(enemy.body);
-      enemy.root.position.set(point.x, 0.08, point.z);
-      enemy.root.rotation.y = Math.atan2(p.x - point.x, p.z - point.z);
-      enemy.root.visible = true;
-      enemy.health = enemy.maxHealth;
-      enemy.phase = "spawning";
-      enemy.timer = 1.1;
-      enemy.cooldown = 1.2;
-      enemy.navigationClock = 0;
-      enemy.goal.copy(JUNGLE_ROUTE[index]);
-      enemy.steeringClock = 0;
-      enemy.steering.set(0, 0, 0);
-      enemy.animationClock = 0;
-      enemy.action = "";
-      animateJungleEnemy(enemy, "Idle");
-      enemy.mixer.update(0);
-      enemy.ring.visible = true;
+      deployEnemy(enemy, point, JUNGLE_ROUTE[index]);
+      return true;
+    }
+    return false;
+  }
+  function deployEnemy(enemy: JungleEnemy, point: THREE.Vector3, goal: THREE.Vector3) {
+    const p = player.body.position;
+    enemy.body.type = CANNON.Body.DYNAMIC;
+    enemy.body.updateMassProperties();
+    enemy.body.position.set(point.x, enemy.radius + 0.08, point.z);
+    enemy.body.velocity.set(0, 0, 0);
+    enemy.body.force.set(0, 0, 0);
+    site.activatePhysicsNear(enemy.body.position);
+    enemy.body.collisionResponse = true;
+    enemy.body.aabbNeedsUpdate = true;
+    enemy.body.wakeUp();
+    enemy.motor.reset();
+    physicsWorld.addBody(enemy.body);
+    enemy.root.position.set(point.x, 0.08, point.z);
+    enemy.root.rotation.set(0, Math.atan2(p.x - point.x, p.z - point.z), 0);
+    enemy.root.visible = true;
+    enemy.health = enemy.maxHealth;
+    enemy.phase = "spawning";
+    enemy.timer = 1.1;
+    enemy.cooldown = 1.2;
+    enemy.navigationClock = 0;
+    enemy.goal.copy(goal);
+    enemy.steeringClock = 0;
+    enemy.steering.set(0, 0, 0);
+    enemy.animationClock = 0;
+    enemy.boundsClock = 0;
+    enemy.suspended = false;
+    enemy.action = "";
+    animateJungleEnemy(enemy, "Idle");
+    enemy.mixer.update(0);
+    enemy.ring.visible = true;
+  }
+  let arcadeSpawnSequence = 0;
+  function spawnArcadeEnemy() {
+    const kinds: JungleEnemy["kind"][] = ["robot", "quad", "eye", "dino"];
+    const available = enemies.filter((enemy) => enemy.phase === "dormant");
+    const enemy = available.find(
+      (candidate) => candidate.kind === kinds[arcadeSpawnSequence % kinds.length],
+    ) ?? available[0];
+    if (!enemy) return false;
+    const p = player.body.position;
+    const inArena = site.waterfall.contains(p);
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const index = THREE.MathUtils.clamp(
+        playerRoute.index + (Math.random() < 0.55 ? 1 : -1) * (12 + Math.floor(Math.random() * 22)),
+        0,
+        patrolRoute.length - 1,
+      );
+      const point = patrolRoute[index].clone();
+      const angle = Math.random() * Math.PI * 2;
+      if (inArena) {
+        const radius = 5 + Math.random() * 5;
+        point.set(p.x + Math.cos(angle) * radius, 0, p.z + Math.sin(angle) * radius);
+      } else {
+        point.x += Math.cos(angle) * 3;
+        point.z += Math.sin(angle) * 3;
+      }
+      const distance = Math.hypot(point.x - p.x, point.z - p.z);
+      if (
+        distance < (inArena ? 5 : 9) ||
+        distance > 25 ||
+        !onArcadeTrail(point, enemy.radius + 0.3) ||
+        (inArena && !site.waterfall.contains(point)) ||
+        !site.isWalkable(point.x, point.z, enemy.radius + 0.3) ||
+        enemies.some((other) =>
+          other.phase !== "dormant" &&
+          Math.hypot(other.body.position.x - point.x, other.body.position.z - point.z) < other.radius + enemy.radius + 1,
+        )
+      ) continue;
+      deployEnemy(enemy, point, patrolRoute[index]);
+      arcadeSpawnSequence++;
       return true;
     }
     return false;
@@ -745,6 +1014,7 @@ export function createScene({
       player.getHealth() <= 0 ||
       enemy.phase === "dormant" ||
       enemy.phase === "dying" ||
+      enemy.suspended ||
       !Number.isFinite(amount) ||
       amount <= 0 ||
       (weapon !== "pistol" &&
@@ -754,7 +1024,7 @@ export function createScene({
         weapon !== "tackle")
     )
       return false;
-    if (enemy.kind === "dino") return false;
+    if (enemy.kind === "dino" && !arcadeMode) return false;
     enemy.health = Math.max(0, enemy.health - amount);
     enemy.ring.visible = false;
     emitComicEffect(scene, enemy.health === 0 ? "clank" : "hit", {
@@ -772,6 +1042,10 @@ export function createScene({
       enemy.body.force.set(0, 0, 0);
       enemy.body.updateMassProperties();
       animateJungleEnemy(enemy, "TurnOff", true);
+      if (enemy.kind === "dino") {
+        enemy.mixer.stopAllAction();
+        enemy.root.rotation.z = 1.35;
+      }
       defeatedPatrols++;
     } else if (enemy.phase !== "stunned") {
       enemy.phase = "hit";
@@ -805,6 +1079,7 @@ export function createScene({
     enemy.root.rotation.z = 0;
     enemy.ring.visible = false;
     enemy.phase = "dormant";
+    enemy.suspended = false;
     enemy.mixer.stopAllAction();
     enemy.action = "";
   }
@@ -814,7 +1089,7 @@ export function createScene({
       completed ||
       sharkClock >= 0 ||
       miniboss.isCinematic() ||
-      site.waterfall.locked ||
+      (!arcadeMode && site.waterfall.locked) ||
       deathClock > 0 ||
       !player.isEnabled() ||
       player.getHealth() <= 0
@@ -825,8 +1100,25 @@ export function createScene({
       Math.hypot(p.x - RESCUE_SITE.clearing.x, p.z - RESCUE_SITE.clearing.z) <
       27;
     const nearFacility = Math.hypot(p.x, p.z - RESCUE_SITE.doorZ) < 21;
-    const inTerritory = inDinoTerritory(p.x, p.z);
-    if (inTerritory) {
+    const inTerritory = !arcadeMode && inDinoTerritory(p.x, p.z);
+    const attackBudget = arcadeMode
+      ? arcadeAttackLimit - (miniboss.getStatus().phase === "fight" ? 1 : 0)
+      : Infinity;
+    const attackSlots = arcadeMode
+      ? new Set(enemies.filter((enemy) =>
+          !enemy.suspended && enemy.phase !== "dormant" && enemy.phase !== "dying",
+        ).sort((a, b) =>
+          Math.hypot(a.body.position.x - p.x, a.body.position.z - p.z) -
+          Math.hypot(b.body.position.x - p.x, b.body.position.z - p.z),
+        ).slice(0, attackBudget))
+      : null;
+    if (arcadeMode) {
+      spawnClock -= dt;
+      const active = enemies.filter((enemy) => enemy.phase !== "dormant").length;
+      if (spawnClock <= 0 && active < arcadeEnemyLimit) {
+        spawnClock = spawnArcadeEnemy() ? 2.5 : 1;
+      }
+    } else if (inTerritory) {
       loadDinosaurs();
       dinoSpawnClock -= dt;
       const active = enemies.filter(
@@ -840,6 +1132,7 @@ export function createScene({
       }
     }
     if (
+      !arcadeMode &&
       patrolLoaded &&
       !nearLanding &&
       !nearFacility &&
@@ -862,6 +1155,30 @@ export function createScene({
         p.x - enemy.body.position.x,
         p.z - enemy.body.position.z,
       );
+      if (arcadeMode && enemy.phase !== "dying") {
+        if (distance > 38) {
+          if (!enemy.suspended) {
+            if (enemy.body.world === physicsWorld) physicsWorld.removeBody(enemy.body);
+            enemy.body.velocity.set(0, 0, 0);
+            enemy.root.visible = false;
+            enemy.suspended = true;
+          }
+          continue;
+        }
+        if (enemy.suspended) {
+          enemy.suspended = false;
+          enemy.root.visible = true;
+          site.activatePhysicsNear(enemy.body.position);
+          physicsWorld.addBody(enemy.body);
+          enemy.body.wakeUp();
+          enemy.motor.reset();
+        }
+      }
+      const canAttack = !attackSlots || attackSlots.has(enemy);
+      if (!canAttack && enemy.phase === "attacking") {
+        enemy.phase = "chasing";
+        animateJungleEnemy(enemy, "Run");
+      }
       if (enemy.phase === "dying") {
         enemy.body.velocity.set(0, 0, 0);
         enemy.timer -= dt;
@@ -880,12 +1197,12 @@ export function createScene({
         }
         continue;
       }
-      if (enemy.kind === "dino") {
+      if (!arcadeMode && enemy.kind === "dino" && enemy.phase !== "spawning" && enemy.phase !== "hit") {
         if (distance > 48) {
           retireJungleEnemy(enemy);
           continue;
         }
-        if (!inTerritory || site.distanceToSafePath(p.x, p.z) <= 5) {
+        if (!arcadeMode && (!inTerritory || site.distanceToSafePath(p.x, p.z) <= 5)) {
           enemy.motor.drive(0, 0, 0);
           enemy.mixer.stopAllAction();
           enemy.action = "";
@@ -895,7 +1212,10 @@ export function createScene({
           distance < enemy.radius + player.radius + 0.35 &&
           Math.abs(p.y - enemy.body.position.y) < 1.4
         ) {
-          player.takeDamage(enemy.attackDamage);
+          if (!arcadeMode || enemy.cooldown <= 0) {
+            player.takeDamage(enemy.attackDamage);
+            enemy.cooldown = 1.5;
+          }
           enemy.motor.drive(0, 0, 0);
           continue;
         }
@@ -907,7 +1227,7 @@ export function createScene({
         animateJungleEnemy(enemy, "Run");
         continue;
       }
-      if (distance > 62) {
+      if (!arcadeMode && distance > 62) {
         retireJungleEnemy(enemy);
         continue;
       }
@@ -924,7 +1244,7 @@ export function createScene({
         }
         continue;
       }
-      if (nearLanding || p.z < RESCUE_SITE.doorZ) {
+      if (!arcadeMode && (nearLanding || p.z < RESCUE_SITE.doorZ)) {
         enemy.motor.drive(0, 0, 0);
         enemy.phase = "chasing";
         animateJungleEnemy(enemy, "Idle");
@@ -936,6 +1256,18 @@ export function createScene({
         enemy.body.position.z,
       );
       const target = new THREE.Vector3(p.x, p.y + 0.35, p.z);
+      if (enemy.kind === "eye" && distance < 18 && clearSight(eye, target)) {
+        enemy.root.rotation.y = Math.atan2(p.x - eye.x, p.z - eye.z);
+        if (canAttack && enemy.cooldown <= 0) {
+          fire({ muzzle: enemy.muzzle, aim: target }, 26);
+          enemy.cooldown = 2.2;
+        }
+        if (distance < 9) {
+          enemy.motor.drive(0, 0, 0);
+          animateJungleEnemy(enemy, "Idle");
+          continue;
+        }
+      }
       if (enemy.phase === "attacking") {
         enemy.motor.drive(0, 0, 0);
         enemy.timer -= dt;
@@ -955,6 +1287,7 @@ export function createScene({
         continue;
       }
       if (
+        canAttack &&
         distance < enemy.attackRange &&
         enemy.cooldown <= 0 &&
         clearSight(eye, target)
@@ -975,17 +1308,17 @@ export function createScene({
         if (distance < 12 && clearSight(eye, target))
           enemy.goal.set(p.x, 0, p.z);
         else {
-          const nearest = site.nearestPathPoint(eye.x, eye.z),
+          const nearest = nearestPatrolPoint(eye.x, eye.z),
             advance =
               nearest.distance > 2.1
                 ? 0
                 : Math.sign(playerRoute.index - nearest.index) * 3;
           enemy.goal.copy(
-            JUNGLE_ROUTE[
+            patrolRoute[
               THREE.MathUtils.clamp(
                 nearest.index + advance,
                 0,
-                JUNGLE_ROUTE.length - 1,
+                patrolRoute.length - 1,
               )
             ],
           );
@@ -1197,9 +1530,10 @@ export function createScene({
       ...enemies
         .filter(
           (enemy) =>
-            enemy.kind !== "dino" &&
+            (arcadeMode || enemy.kind !== "dino") &&
             enemy.phase !== "dormant" &&
-            enemy.phase !== "dying",
+            enemy.phase !== "dying" &&
+            !enemy.suspended,
         )
         .map((enemy): DamageTarget => ({
           root: enemy.root,
@@ -1216,13 +1550,13 @@ export function createScene({
           knockDown: () => sentry.actor.knockDown(),
         })),
       ...turrets
-        .filter((turret) => turret.health > 0)
+        .filter((turret) => !arcadeMode && turret.health > 0)
         .map((turret): DamageTarget => ({
           root: turret.root,
           damage: (amount, weapon) => damageTurret(turret, amount, weapon),
         })),
       ...miniboss.getDamageTargets(),
-      { ...site.getBrendanTarget(), body: brendanBody },
+      ...(brendanBody ? [{ ...site.getBrendanTarget(), body: brendanBody }] : []),
     ];
   }
   function updateSentries(dt: number) {
@@ -1389,7 +1723,7 @@ export function createScene({
       disposed ||
       completed ||
       sharkClock >= 0 ||
-      site.waterfall.locked ||
+      (!arcadeMode && site.waterfall.locked) ||
       deathClock > 0 ||
       !player.isEnabled() ||
       player.getHealth() <= 0
@@ -1399,7 +1733,7 @@ export function createScene({
     const p = player.body.position,
       distance = Math.hypot(p.x, p.z - RESCUE_SITE.doorZ);
     if (!alerted && distance < 34 && p.z > RESCUE_SITE.doorZ) alerted = true;
-    const exposed = alerted && distance < 65 && p.z > RESCUE_SITE.doorZ + 0.1;
+    const exposed = !arcadeMode && alerted && distance < 65 && p.z > RESCUE_SITE.doorZ + 0.1;
     for (const turret of turrets) {
       if (turret.health <= 0) continue;
       if (!exposed) {
@@ -1516,11 +1850,60 @@ export function createScene({
     }
   }
   const physicsFocus: Array<{ x: number; y: number; z: number }> = [];
+  function constrainArcadePlayer() {
+    if (!arcadeMode || completed || miniboss.isCinematic()) return;
+    const p = player.body.position, velocity = player.body.velocity;
+    const beforeX = p.x, beforeY = p.y, beforeZ = p.z;
+    const margin = player.radius + 0.2;
+    if (p.x < -84) {
+      p.x = Math.max(-106 + margin, p.x);
+      p.z = THREE.MathUtils.clamp(p.z, 9 + margin, 25 - margin);
+      if (p.x !== beforeX && velocity.x < 0) velocity.x = 0;
+      if (p.z !== beforeZ && velocity.z * (beforeZ - p.z) > 0) velocity.z = 0;
+    } else {
+      const closest = nearestTrail(p);
+      const distance = Math.sqrt(closest.squared);
+      const radius = trailHalfWidth - margin;
+      if (distance > radius) {
+        const nx = (p.x - closest.x) / distance;
+        const nz = (p.z - closest.z) / distance;
+        p.x = closest.x + nx * radius;
+        p.z = closest.z + nz * radius;
+        const outward = velocity.x * nx + velocity.z * nz;
+        if (outward > 0) {
+          velocity.x -= nx * outward;
+          velocity.z -= nz * outward;
+        }
+      }
+      const first = arcadeTrail[0], next = arcadeTrail[1];
+      const length = first.distanceTo(next);
+      const dx = (next.x - first.x) / length, dz = (next.z - first.z) / length;
+      const behind = (p.x - first.x) * dx + (p.z - first.z) * dz;
+      const rearLimit = -(0.6 - player.radius - 0.175);
+      if (behind < rearLimit) {
+        p.x -= dx * (behind - rearLimit);
+        p.z -= dz * (behind - rearLimit);
+        const backward = velocity.x * dx + velocity.z * dz;
+        if (backward < 0) {
+          velocity.x -= dx * backward;
+          velocity.z -= dz * backward;
+        }
+      }
+    }
+    if (p.y < player.radius + 0.02) {
+      p.y = player.radius + 0.02;
+      velocity.y = Math.max(0, velocity.y);
+    }
+    if (p.x !== beforeX || p.y !== beforeY || p.z !== beforeZ) {
+      player.body.aabbNeedsUpdate = true;
+      physicsWorld.broadphase.dirty = true;
+    }
+  }
   function syncNearbyPhysics() {
     physicsFocus.length = 0;
     physicsFocus.push(player.body.position);
     for (const enemy of enemies)
-      if (enemy.phase !== "dormant") physicsFocus.push(enemy.body.position);
+      if (enemy.phase !== "dormant" && !enemy.suspended) physicsFocus.push(enemy.body.position);
     for (const sentry of sentries)
       if (sentry.active) physicsFocus.push(sentry.body.position);
     for (const bolt of bolts)
@@ -1539,6 +1922,7 @@ export function createScene({
     },
     afterPhysicsStep() {
       miniboss.afterPhysicsStep();
+      constrainArcadePlayer();
       for (const sentry of sentries)
         if (sentry.active) {
           if (sentry.actor.health > 0) sentry.motor.readSupport();
@@ -1549,7 +1933,7 @@ export function createScene({
           );
         }
       for (const enemy of enemies)
-        if (enemy.phase !== "dormant") {
+        if (enemy.phase !== "dormant" && !enemy.suspended) {
           if (enemy.phase !== "dying") enemy.motor.readSupport();
           enemy.root.position.set(
             enemy.body.position.x,
@@ -1564,6 +1948,7 @@ export function createScene({
     if (completed || deathClock > 0 || sharkClock >= 0)
       return;
     const nearBoy =
+      !arcadeMode &&
       arrivalClock < 7 &&
       Math.hypot(
         player.body.position.x - boy.position.x,
@@ -1576,7 +1961,7 @@ export function createScene({
     }
     if (nearBoy && caption)
       caption.textContent =
-        "Brendan: Donus fused me with my ship during its experiments. I can guide you from here. Follow the stone path; the waterfall may hide something.";
+        "Brendan: Donus linked my mind to a battleship. I can still guide you from here. Follow the stone path; there's a cave behind the waterfall.";
     if (status)
       status.textContent =
         patrolLoadError || dinoLoadError || sharkLoadError
@@ -1585,7 +1970,9 @@ export function createScene({
             ? "WATERFALL WARDEN / DEFEAT IT TO UNSEAL THE ARENA"
             : miniboss.getStatus().achievementUnlocked
               ? "SECRET FOUND / BEHIND THE FALLS"
-              : "FACILITY APPROACH / FOLLOW THE STONE PATH\nWaterfall detour optional. Spider bots patrol beyond the bridge.";
+              : arcadeMode
+                ? "ARCADE / FOLLOW THE STONE TRAIL TO THE WATERFALL\nBridge sealed. Mixed enemy waves continue until the Warden falls."
+                : "FACILITY APPROACH / FOLLOW THE STONE PATH\nWaterfall detour optional. Spider bots patrol beyond the bridge.";
   }
   function captureArrival(): RescueArrival {
     const reward = miniboss.getStatus();
@@ -1596,6 +1983,16 @@ export function createScene({
       bossImmunityCollected: false,
       pilotState: player.captureTransition({ x: 0, y: 0, z: 0 }),
     };
+  }
+  function finishArcadeRun() {
+    if (!arcadeMode || completed) return;
+    completed = true;
+    stopDefense();
+    freezePlayer();
+    status?.classList.add("hidden");
+    prompt?.classList.add("hidden");
+    caption?.classList.add("hidden");
+    onArcadeComplete?.();
   }
   function finish(state: PlayerTransitionState) {
     const arrival = {
@@ -1613,7 +2010,7 @@ export function createScene({
     caption?.classList.add("hidden");
     onFinished?.(arrival);
   }
-  door.setTrigger(finish);
+  if (!arcadeMode) door.setTrigger(finish);
   function entryViewCamera() {
     if (sharkClock >= 0) return sharkViewCamera();
     return miniboss.applyCinematicCamera();
@@ -1773,6 +2170,8 @@ export function createScene({
     ready: Promise.all([
       site.ready,
       patrolReady,
+      arcadePatrolReady,
+      ...(arcadeMode && dinoReady ? [dinoReady] : []),
       landSquad.ready,
       sharkReady,
       miniboss.ready,
@@ -1780,11 +2179,18 @@ export function createScene({
     cutsceneManager: null,
     minimap: { radius: 48, floor: 0, prepare: site.prepareMinimap },
     get robots() {
-      return enemies.filter((enemy) => enemy.kind === "robot");
+      return enemies.filter((enemy) => enemy.kind !== "dino");
     },
     get dinosaurs() {
       return enemies.filter((enemy) => enemy.kind === "dino");
     },
+    getArcadeObjective: () => arcadeMode
+      ? `FOLLOW THE FENCED TRAIL / DEFEAT THE WATERFALL WARDEN / ENEMIES ${enemies.filter((enemy) => enemy.phase !== "dormant").length}/${arcadeEnemyLimit}`
+      : "",
+    canPlaceMarker: (position: { x: number; y: number; z: number }) =>
+      arcadeMode && (!onArcadeTrail(position, player.radius + 0.2) || position.y > 1.5 || position.y < -0.1)
+        ? "Place the marker on the protected Arcade trail or inside the waterfall arena."
+        : null,
     getDamageTargets: (): DamageTarget[] =>
       completed ||
       sharkClock >= 0 ||
@@ -1903,9 +2309,10 @@ export function createScene({
       );
       animationDelta = dt;
       waterfallContact.headY = player.getHeadY();
-      site.setBrendanActivity(
-        arrivalClock < 7 && !fromFacility ? "talk" : "ambient",
-      );
+      if (!arcadeMode)
+        site.setBrendanActivity(
+          arrivalClock < 7 && !fromFacility ? "talk" : "ambient",
+        );
       site.update(dt, waterfallContact);
       updateWaterfallAudio(
         Math.hypot(
@@ -1913,12 +2320,14 @@ export function createScene({
           player.body.position.z - site.waterfall.center.z,
         ),
       );
-      brendanBody.position.set(
-        boy.position.x,
-        boy.position.y + 0.875,
-        boy.position.z,
-      );
-      brendanBody.aabbNeedsUpdate = true;
+      if (brendanBody) {
+        brendanBody.position.set(
+          boy.position.x,
+          boy.position.y + 0.875,
+          boy.position.z,
+        );
+        brendanBody.aabbNeedsUpdate = true;
+      }
       physicsWorld.broadphase.dirty = true;
       if (deathClock > 0) {
         if (sharkClock >= 0) updateSharkSwarm(dt);
@@ -1941,8 +2350,9 @@ export function createScene({
       miniboss.update(dt);
       updateSharks(dt);
       const p = player.body.position;
-      playerRoute = site.nearestPathPoint(p.x, p.z);
+      playerRoute = nearestPatrolPoint(p.x, p.z);
       if (
+        !arcadeMode &&
         p.y - player.radius < RESCUE_SITE.riverY + 0.05 &&
         Math.abs(p.z - RESCUE_SITE.riverZ) < RESCUE_SITE.riverHalfWidth &&
         p.x > -79.5 &&
@@ -1953,7 +2363,7 @@ export function createScene({
       }
       if (Math.abs(p.x) < 5 && Math.abs(p.z - RESCUE_SITE.doorZ) < 10)
         doorLatched = true;
-      door.update(dt, player, doorLatched);
+      door.update(dt, player, !arcadeMode && doorLatched);
       if (completed) return;
       syncNearbyPhysics();
       physics.step(dt, player, thirdPerson);
@@ -1968,7 +2378,7 @@ export function createScene({
           }
         }
       for (const enemy of enemies)
-        if (enemy.phase !== "dormant") {
+        if (enemy.phase !== "dormant" && !enemy.suspended) {
           const near =
             Math.hypot(
               enemy.body.position.x - p.x,
@@ -1982,7 +2392,8 @@ export function createScene({
             Math.hypot(
               enemy.body.position.x - p.x,
               enemy.body.position.z - p.z,
-            ) < 28 ||
+            ) < 28 && !arcadeMode ||
+            (arcadeMode && enemy.animationClock >= 1 / 30) ||
             enemy.animationClock >= 1 / 15
           ) {
             const animationDt = enemy.animationClock;
@@ -1998,15 +2409,21 @@ export function createScene({
               enemy.legs[0].rotateX(swing);
               enemy.legs[1].rotateX(-swing);
             }
-            if (enemy.kind === "robot") {
-              // Raycasting and melee use cached skinned bounds, which must follow the current pose.
+            enemy.boundsClock -= animationDt;
+            if ((!arcadeMode || enemy.boundsClock <= 0) && (arcadeMode || enemy.kind !== "dino")) {
+              // Arcade refreshes conservative hit bounds at 10 Hz rather than skinning twice per frame.
               enemy.root.updateMatrixWorld(true);
               enemy.root.traverse((node) => {
                 if (!(node instanceof THREE.SkinnedMesh)) return;
                 node.skeleton.update();
                 node.computeBoundingBox();
-                node.computeBoundingSphere();
+                if (arcadeMode && node.boundingBox) {
+                  node.boundingBox.expandByScalar(0.2);
+                  node.boundingSphere ??= new THREE.Sphere();
+                  node.boundingBox.getBoundingSphere(node.boundingSphere);
+                } else node.computeBoundingSphere();
               });
+              enemy.boundsClock = 0.1;
             }
           }
         }

@@ -9,7 +9,7 @@ import {
 import { BAY_THIRTEEN_MAP } from "../level 1 stage 2/stageTwoLayout.js";
 import * as CANNON from "cannon-es";
 import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
-import { loadBoyModel, preloadBossModels } from "../../core/loader.js";
+import { loadBrendanModel, preloadBossModels } from "../../core/loader.js";
 import {
   createScenePhysics,
   PHYSICS,
@@ -37,6 +37,7 @@ import {
 } from "../../scripts/npc/mechBaymaxBoss.js";
 import { preloadMusic } from "../../helpers/audio/bufferedMusic.js";
 import { MUSIC_URLS } from "../../helpers/audio/gameMusic.js";
+import { createWardenFinisher } from "../../scripts/npc/wardenFinisher.js";
 
 export const BOSS_ENTRY_SECONDS = 7;
 export const BOSS_VERSUS_SECONDS = 2.6;
@@ -60,9 +61,10 @@ export function createScene({
   checkpoint = false,
   startAtPhaseFour = false,
   onDefeated,
+  onFinisherComplete,
   onDescend,
   onRespawn,
-  loadBoy = loadBoyModel,
+  loadBoy = loadBrendanModel,
   loadDrone,
   loadBoss,
   renderer,
@@ -73,6 +75,7 @@ export function createScene({
   checkpoint?: boolean;
   startAtPhaseFour?: boolean;
   onDefeated?: () => void;
+  onFinisherComplete?: () => void;
   onRespawn?: (phaseFour?: boolean) => void;
   onDescend?: (state: PlayerTransitionState) => void;
   loadBoy?: () => Promise<GLTF>;
@@ -532,8 +535,10 @@ export function createScene({
       | "lift"
       | "bossReturn"
       | "gravityIntro"
+      | "finisher"
       | null = defeated || checkpoint || startAtPhaseFour ? null : "entry",
     cinematicTime = 0;
+  let defeatedThroughFinisher = false;
   let versus: ReturnType<typeof createHangarVersus> | null = null;
   let arenaSupplyTime = 0,
     supplyNoticeTime = 0;
@@ -570,15 +575,17 @@ export function createScene({
   const shotStart = new THREE.Vector3(),
     shotRotation = new THREE.Quaternion();
   let shotFov = 70,
+    shotEntryFov = 70,
     returnClock = 0,
     returnFov = 70;
   const returnPosition = new THREE.Vector3(),
     returnRotation = new THREE.Quaternion();
   const revealOrigin = new THREE.Vector3();
-  function captureShot() {
+  function captureShot(keepGameplayLens = false) {
     shotStart.copy(camera.position);
     shotRotation.copy(camera.quaternion);
-    shotFov = returnClock > 0 ? shotFov : camera.fov;
+    shotEntryFov = camera.fov;
+    if (!keepGameplayLens) shotFov = returnClock > 0 ? shotFov : camera.fov;
     returnClock = 0;
     orbitShot = null;
   }
@@ -687,6 +694,8 @@ export function createScene({
       subtitles.textContent === line;
     if (subtitles.textContent !== text && !formatted)
       subtitles.textContent = text;
+    subtitles.classList.toggle("prime-line", speaker === "PRIME");
+    subtitles.classList.toggle("prime-top-left", speaker === "PRIME");
     subtitles.classList.remove("hidden");
   }
   // --- Phase 4 HUD (thruster heat + entanglement pips) and near-miss slow-mo / camera state. ---
@@ -695,6 +704,48 @@ export function createScene({
   const phase4Pips = document.getElementById("phase4-entangle-pips");
   // Round 1 change 2d: centre-screen flashing "gravity offline" warning shown during the intro.
   const warningEl = document.getElementById("phase4-warning");
+  const overridePanel = document.createElement("div");
+  overridePanel.setAttribute("aria-hidden", "true");
+  overridePanel.style.cssText = "position:fixed;display:none;pointer-events:none;z-index:45;width:220px;padding:12px 14px;background:#0c101bee;border:2px solid #d85172;box-shadow:4px 4px 0 #070a12;color:#f5e8ed;font:12px/1.5 monospace;letter-spacing:.08em;text-align:left";
+  const overrideHeading = document.createElement("strong"),
+    overrideStatus = document.createElement("div"),
+    overrideTrack = document.createElement("div"),
+    overrideFill = document.createElement("div");
+  overrideHeading.textContent = "DONUS // OVERRIDE";
+  overrideHeading.style.color = "#fa728e";
+  overrideTrack.style.cssText = "height:4px;margin-top:8px;background:#303044";
+  overrideFill.style.cssText = "height:100%;width:0;background:#fa728e";
+  overrideTrack.appendChild(overrideFill);
+  overridePanel.append(overrideHeading, overrideStatus, overrideTrack);
+  document.body.appendChild(overridePanel);
+  const overridePoint = new THREE.Vector3();
+  let overridePaused = false;
+  function drawDonusOverride() {
+    const active = !disposed && !deathClock && !cleared && !overridePaused && !document.hidden &&
+      !document.body.classList.contains("quick-menu-open") &&
+      (cinematic === "bossReturn" ||
+       (cinematic === "gravityIntro" && cinematicTime < PHASE4_RULES.possessionSeconds + 2.2));
+    overridePanel.style.display = "none";
+    if (!active) return;
+    camera.updateMatrixWorld(true);
+    boss.head.getWorldPosition(overridePoint);
+    overridePoint.y += 1.7;
+    overridePoint.project(camera);
+    if (overridePoint.z < -1 || overridePoint.z > 1 ||
+        Math.abs(overridePoint.x) > 0.9 || Math.abs(overridePoint.y) > 0.94) return;
+    const progress = cinematic === "bossReturn" ? 0 :
+      THREE.MathUtils.clamp(cinematicTime / PHASE4_RULES.possessionSeconds, 0, 1);
+    overrideStatus.textContent = cinematic === "bossReturn" ? "ESTABLISHING REMOTE LINK" :
+      progress < 1 ? `OVERRIDING SYSTEMS ${Math.floor(progress * 100)}%` : "CONTROL SEIZED";
+    overrideFill.style.width = `${progress * 100}%`;
+    overridePanel.style.display = "block";
+    overridePanel.style.left = `${(overridePoint.x * 0.5 + 0.5) * window.innerWidth}px`;
+    overridePanel.style.top = `${(-overridePoint.y * 0.5 + 0.5) * window.innerHeight}px`;
+    const glitch = progress > 0 && progress < 1 ? Math.sin(cinematicTime * 43) * 1.5 : 0;
+    overridePanel.style.transform = `translate(-50%, -100%) translateX(${glitch}px)`;
+    overridePanel.style.opacity = String(cinematic === "bossReturn" ? 1 :
+      1 - THREE.MathUtils.smoothstep(cinematicTime, PHASE4_RULES.possessionSeconds + 1.2, PHASE4_RULES.possessionSeconds + 2.2));
+  }
   const NEAR_MISS = { duration: 0.4, slowMo: 0.45, fovPunch: 9, offset: 0.14 };
   let nearMissClock = 0,
     nearMissSide = 1,
@@ -744,38 +795,6 @@ export function createScene({
     spin: number;
   } | null = null;
   let landed: { mesh: THREE.Group; destination: THREE.Vector3 } | null = null;
-  const throwHud = document.createElement("div");
-  throwHud.id = "boss-teleport-prompt";
-  throwHud.style.cssText =
-    "position:fixed;left:50%;top:58%;transform:translate(-50%,-50%) rotate(-1deg);" +
-    "z-index:30;pointer-events:none;max-width:min(82vw,340px);padding:10px 16px;" +
-    "border:1px solid rgba(194,133,255,.38);border-radius:12px 3px 12px 3px;" +
-    "background:rgba(28,12,44,.38);box-shadow:3px 3px 0 rgba(0,0,0,.18);" +
-    "font:600 clamp(12px,1.2vw,16px) 'Comic Sans MS',system-ui,sans-serif;" +
-    "color:#e8d4ff;text-align:center;text-shadow:0 1px 3px #120920;opacity:.84;display:none;";
-  const throwPrime = document.createElement("div");
-  throwPrime.dataset.primeHint = "true";
-  const throwSpeaker = document.createElement("span");
-  throwSpeaker.textContent = "Prime:";
-  throwSpeaker.style.color = "#7fe3ff";
-  const throwDialogue = document.createElement("span");
-  throwDialogue.textContent = " We need to teleport behind it.";
-  throwPrime.append(throwSpeaker, throwDialogue);
-  const throwControls = document.createElement("div");
-  throwControls.style.cssText =
-    "display:flex;align-items:center;justify-content:center;gap:7px;margin-top:5px;font-size:12px;";
-  const throwKey = document.createElement("span");
-  const throwLabel = document.createElement("div");
-  const throwBar = document.createElement("div");
-  throwBar.style.cssText =
-    "width:170px;height:6px;margin:6px auto 0;border:1px solid #bd77ff;background:rgba(20,6,40,.35);border-radius:6px;overflow:hidden;";
-  const throwFill = document.createElement("div");
-  throwFill.style.cssText =
-    "height:100%;width:0%;background:linear-gradient(90deg,#8d38e5,#e0b3ff);";
-  throwBar.appendChild(throwFill);
-  throwControls.append(throwKey, throwLabel);
-  throwHud.append(throwPrime, throwControls, throwBar);
-  document.body.appendChild(throwHud);
   const throwTemp = new THREE.Vector3(),
     throwDirection = new THREE.Vector3(),
     throwFrom = new THREE.Vector3();
@@ -910,10 +929,13 @@ export function createScene({
           -0.05,
         );
         player.clearZeroGTaps();
-        if (boss.onPlayerTeleport())
-          showPhaseNotice(
-            "Prime: He's confused! Shoot the blue target on his back!",
-          );
+        if (boss.onPlayerTeleport() && finisher.start()) {
+          captureShot();
+          freeze();
+          cinematic = "finisher";
+          cinematicTime = 0;
+          subtitles?.classList.add("hidden");
+        }
       }
     }
     if (teleportFx >= TELEPORT_OUT + TELEPORT_IN) {
@@ -957,21 +979,11 @@ export function createScene({
     if (landed) landed.mesh.rotation.y += dt * 2;
     if (qHeld)
       throwCharge = Math.min(1, throwCharge + dt / THROW.chargeSeconds);
-    throwHud.style.display = active ? "block" : "none";
-    if (active) {
-      throwFill.style.width = `${Math.round(throwCharge * 100)}%`;
-      renderDirectionalPrompt(
-        throwKey,
-        landed ? ["KeyT"] : throwCooldown > 0 || qHeld ? [] : ["KeyQ"],
-      );
-      throwLabel.textContent = landed
-        ? "TELEPORT"
-        : throwCooldown > 0
-          ? "RECHARGING"
-          : qHeld
-            ? inputHint("Click to throw")
-            : "HOLD TO CHARGE";
-    }
+    finisher.teleportCue(
+      !active ? null : landed ? "teleport" : crystal ? "flight"
+        : throwCooldown > 0 ? "recharging" : qHeld ? "charging" : "hold",
+      throwCharge,
+    );
     if (!crystal) return;
     crystal.life -= dt;
     crystal.spin += dt * 9;
@@ -1039,7 +1051,8 @@ export function createScene({
     cleared = true;
     door.setLocked(false);
     consoleBody.collisionResponse = true;
-    release();
+    player.setPosition(revealPlayerKneel.x, player.radius, revealPlayerKneel.z);
+    returnToBattle();
     subtitles?.classList.add("hidden");
     skipButton.classList.add("hidden");
     onDefeated?.();
@@ -1051,16 +1064,18 @@ export function createScene({
       !disposed && cinematic === "reveal" && cinematicTime >= 3.5,
   });
   // --- Defeat cutscene: the Warden splits in half, Branden walks out, then the shell self-destructs. ---
-  const BLAST_AT = 21,
-    WALK_AWAY_AT = 17,
-    KNEEL_AT = BLAST_AT + 1.8,
-    DISSOLVE_AT = BLAST_AT + 7.6,
-    DISSOLVE_SECONDS = 4.2,
-    STAND_AT = BLAST_AT + 12.5,
-    REVEAL_END = BLAST_AT + 17.5;
-  const BLAST_SLOWMO_SECONDS = 1.6,
+  let approachEnd = 8.4,
+    BLAST_AT = 30.8,
+    WALK_AWAY_AT = 26,
+    KNEEL_AT = BLAST_AT + 3.2,
+    DISSOLVE_AT = BLAST_AT + 11.5,
+    STAND_AT = BLAST_AT + 16.5,
+    REVEAL_END = BLAST_AT + 24;
+  const DISSOLVE_SECONDS = 4.2,
+    REVEAL_LEAP_SECONDS = 1.7,
+    BLAST_SLOWMO_SECONDS = 1.6,
     BLAST_FRONT_SPEED = 9,
-    BRANDEN_FALL_SECONDS = 1.1,
+    BRANDEN_FALL_SECONDS = 2,
     BRANDEN_DISSOLVE_COLOR = 0xff2438;
   let brendanImpactAt = BLAST_AT,
     revealDelta = 0;
@@ -1075,13 +1090,102 @@ export function createScene({
     revealBrendanStart = new THREE.Vector3();
   const revealPlayerEnd = new THREE.Vector3(),
     revealBrendanEnd = new THREE.Vector3(),
-    brendanDeathPosition = new THREE.Vector3();
+    brendanDeathPosition = new THREE.Vector3(),
+    revealPlayerEntry = new THREE.Vector3(),
+    revealPlayerSafe = new THREE.Vector3(),
+    revealPlayerKneel = new THREE.Vector3(),
+    revealShoveStart = new THREE.Vector3(),
+    revealShoveContact = new THREE.Vector3(),
+    revealCameraPosition = new THREE.Vector3(),
+    revealCameraFocus = new THREE.Vector3();
+  let revealWalkPath: THREE.Vector3[] = [],
+    revealWalkLength = 0,
+    revealLandingSeconds = 0,
+    revealApproachWalkEnd = 0,
+    revealReturnAt = 0,
+    emergeAt = 3.6,
+    emergeEnd = 8,
+    kneelReady = KNEEL_AT + 1.2,
+    lastWordsAt = BLAST_AT + 4,
+    promiseAt = BLAST_AT + 8.9;
   const tmpA = new THREE.Vector3(),
     tmpB = new THREE.Vector3();
   let boyClips: THREE.AnimationClip[] = [],
     boyAction: THREE.AnimationAction | null = null,
     boyClipName = "",
-    boyDead = false;
+    boyDead = false,
+    boyDeathEntry = 0;
+  let boyPushChains: { hand: THREE.Object3D; joints: THREE.Object3D[] }[] = [];
+  const boyPushSamples = new Map<THREE.Object3D, THREE.Quaternion>();
+  let pushRigWarning = false;
+  const pushGrip = new THREE.Vector3(), pushJoint = new THREE.Vector3(),
+    pushFrom = new THREE.Vector3(), pushTo = new THREE.Vector3(),
+    pushChest = new THREE.Vector3(), pushForward = new THREE.Vector3(),
+    pushRight = new THREE.Vector3();
+  const pushParentRotation = new THREE.Quaternion(),
+    pushWorldRotation = new THREE.Quaternion(),
+    pushAdjustment = new THREE.Quaternion();
+  function applyBoyPushContact(brondon: THREE.Object3D) {
+    if (!boy || boyClipName !== "push") return;
+    const weight = THREE.MathUtils.smoothstep(cinematicTime, BLAST_AT - 0.55, BLAST_AT - 0.4) *
+      (1 - THREE.MathUtils.smoothstep(cinematicTime, BLAST_AT - 0.22, BLAST_AT - 0.05));
+    if (weight <= 0) return;
+    const chest = brondon.getObjectByName("spine_03");
+    if (!chest) {
+      if (!pushRigWarning) console.error("[Scene 13] The push contact needs Brondon's spine_03 bone");
+      pushRigWarning = true;
+      return;
+    }
+    brondon.updateWorldMatrix(true, true);
+    boy.updateWorldMatrix(true, true);
+    chest.getWorldPosition(pushChest);
+    pushForward.set(0, 0, 1).transformDirection(brondon.matrixWorld);
+    pushRight.set(1, 0, 0).transformDirection(brondon.matrixWorld);
+    pushChest.addScaledVector(pushForward, 0.26);
+    boyPushChains.forEach((chain, index) => {
+      pushGrip.copy(pushChest).addScaledVector(pushRight, index === 0 ? 0.16 : -0.16);
+      // The authored shove supplies the pose; contact correction ends as Brondon leaves his hands.
+      for (let iteration = 0; iteration < 4; iteration++)
+        for (const joint of chain.joints) {
+          if (!joint.parent) continue;
+          if (!boyPushSamples.has(joint)) boyPushSamples.set(joint, joint.quaternion.clone());
+          joint.getWorldPosition(pushJoint);
+          chain.hand.getWorldPosition(pushFrom).sub(pushJoint).normalize();
+          pushTo.copy(pushGrip).sub(pushJoint).normalize();
+          pushAdjustment.setFromUnitVectors(pushFrom, pushTo);
+          joint.getWorldQuaternion(pushWorldRotation);
+          joint.parent.getWorldQuaternion(pushParentRotation).invert();
+          pushWorldRotation.premultiply(pushAdjustment).premultiply(pushParentRotation);
+          joint.quaternion.slerp(pushWorldRotation, weight * 0.7);
+          joint.updateWorldMatrix(false, true);
+        }
+    });
+  }
+  function prepareBoyDeathPose() {
+    if (!boy || !boyMixer) return;
+    const crouch = boyClips.find((clip) => clip.name === "Crouch_Idle_Loop");
+    const death = boyClips.find((clip) => clip.name === "Death01");
+    const hips = boy.getObjectByName("pelvis");
+    if (!crouch || !death || !hips)
+      throw new Error("Branden's rig needs crouching, Death01 and a pelvis bone");
+    const crouchAction = boyMixer.clipAction(crouch).play();
+    crouchAction.paused = true;
+    crouchAction.time = 0.2;
+    boyMixer.update(0);
+    boy.updateMatrixWorld(true);
+    const height = hips.getWorldPosition(new THREE.Vector3()).y;
+    crouchAction.stop();
+    const deathAction = boyMixer.clipAction(death).play();
+    deathAction.paused = true;
+    for (let frame = 0; frame <= 90; frame++) {
+      boyDeathEntry = frame / 90 * death.duration;
+      deathAction.time = boyDeathEntry;
+      boyMixer.update(0);
+      boy.updateMatrixWorld(true);
+      if (hips.getWorldPosition(new THREE.Vector3()).y <= height) break;
+    }
+    boyMixer.stopAllAction();
+  }
   const boyDissolveUniforms = {
     defeatTime: { value: 0 },
     defeatBlend: { value: 0 },
@@ -1097,8 +1201,11 @@ export function createScene({
       if (existing) return existing;
       boyOriginalMaterials.add(original);
       const material = original.clone();
-      material.customProgramCacheKey = () => "branden-red-disintegration";
-      material.onBeforeCompile = (shader) => {
+      const previousCompile = original.onBeforeCompile;
+      const previousKey = original.customProgramCacheKey();
+      material.customProgramCacheKey = () => `${previousKey}-branden-red-disintegration`;
+      material.onBeforeCompile = (shader, renderContext) => {
+        previousCompile.call(material, shader, renderContext);
         Object.assign(shader.uniforms, boyDissolveUniforms);
         shader.vertexShader =
           "varying vec3 defeatPosition;\n" +
@@ -1142,33 +1249,44 @@ export function createScene({
   let revealBlasted = false,
     revealShake = 0,
     previousLocalClipping: boolean | null = null;
-  function playBoy(name: "walk" | "talk" | "idle" | "death") {
+  function playBoy(name: "walk" | "jog" | "crouchWalk" | "crouch" | "push" | "talk" | "idle" | "death") {
     if (!boyMixer || boyClipName === name) return;
     const pattern =
       name === "walk"
         ? /^Walk_Loop$/i
+        : name === "jog"
+          ? /^Jog_Fwd_Loop$/i
+        : name === "crouchWalk"
+          ? /^Crouch_Fwd_Loop$/i
+        : name === "crouch"
+          ? /^Crouch_Idle_Loop$/i
+        : name === "push"
+          ? /^Push_Loop$/i
         : name === "talk"
           ? /Idle_Talking/i
           : name === "death"
             ? /^Death01$/i
             : /^Idle_Loop$/i;
-    const clip =
-      boyClips.find((item) => pattern.test(item.name)) ??
-      boyClips.find((item) => /idle/i.test(item.name));
-    if (!clip) return;
+    const clip = boyClips.find((item) => pattern.test(item.name));
+    if (!clip) throw new Error(`Branden's rig is missing the ${name} animation`);
+    const previousName = boyClipName;
     boyClipName = name;
     if (name === "talk") playSfx("brendan", 0.8);
     const next = boyMixer.clipAction(clip);
     next.reset();
     next.setLoop(
       name === "death" ? THREE.LoopOnce : THREE.LoopRepeat,
-      Infinity,
+      name === "death" ? 1 : Infinity,
     );
     next.clampWhenFinished = name === "death";
     next.timeScale =
       name === "death" ? clip.duration / BRANDEN_FALL_SECONDS : 1;
     if (boyAction && boyAction !== next)
-      next.crossFadeFrom(boyAction, name === "death" ? 0.06 : 0.25, false);
+      next.crossFadeFrom(
+        boyAction,
+        name === "death" ? 0.2 : previousName === "crouchWalk" && name === "idle" ? 0.55 : 0.25,
+        false,
+      );
     next.play();
     boyAction = next;
   }
@@ -1207,50 +1325,6 @@ export function createScene({
   );
   blastRing.rotation.x = -Math.PI / 2;
   blastGroup.add(blastCore, blastFlash, blastRing);
-  const shieldMaterial = new THREE.MeshBasicMaterial({
-    color: 0x6fd8ff,
-    transparent: true,
-    opacity: 0,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
-  const shieldBubble = new THREE.Mesh(blastSphereGeometry, shieldMaterial);
-  shieldBubble.visible = false;
-  shieldBubble.frustumCulled = false;
-  scene.add(shieldBubble);
-  const shieldLatticeMaterial = new THREE.MeshBasicMaterial({
-    color: 0x9fe8ff,
-    wireframe: true,
-    transparent: true,
-    opacity: 0,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  const shieldLattice = new THREE.Mesh(
-    new THREE.IcosahedronGeometry(1, 2),
-    shieldLatticeMaterial,
-  );
-  shieldLattice.visible = false;
-  shieldLattice.frustumCulled = false;
-  scene.add(shieldLattice);
-  const shieldRingMaterial = new THREE.MeshBasicMaterial({
-    color: 0x6fd8ff,
-    transparent: true,
-    opacity: 0,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
-  const shieldRing = new THREE.Mesh(
-    new THREE.RingGeometry(0.85, 1, 48),
-    shieldRingMaterial,
-  );
-  shieldRing.rotation.x = -Math.PI / 2;
-  shieldRing.visible = false;
-  scene.add(shieldRing);
-  const shieldLight = new THREE.PointLight(0x6fd8ff, 0, 14, 1.6);
-  scene.add(shieldLight);
   const shrapnelGeometry = new THREE.BoxGeometry(1, 1, 1),
     shrapnelMaterial = new THREE.MeshStandardMaterial({
       color: 0x1a1224,
@@ -1436,32 +1510,148 @@ export function createScene({
     burst.mesh.position.copy(position);
     emitSparks(position, 6, 7);
   }
+  function defeatWalkPath(start: THREE.Vector3, end: THREE.Vector3) {
+    const obstacles = [
+      { x: revealOrigin.x, z: revealOrigin.z, halfX: 9.5, halfZ: 4.4 },
+      ...covers.filter((cover) => cover.intact()).map((cover) => ({
+        x: cover.position.x, z: cover.position.z, halfX: 2.4, halfZ: 2.4,
+      })),
+    ];
+    const nodes = [start.clone().setY(0), end.clone().setY(0)];
+    for (const obstacle of obstacles)
+      for (const [x, z] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) {
+        const point = new THREE.Vector3(
+          obstacle.x + x * (obstacle.halfX + 0.15),
+          0,
+          obstacle.z + z * (obstacle.halfZ + 0.15),
+        );
+        if (Math.abs(point.x) < 18.5 && Math.abs(point.z) < 22.5)
+          nodes.push(point);
+      }
+    const visible = (a: THREE.Vector3, b: THREE.Vector3) => obstacles.every((o) => {
+      const dx = b.x - a.x, dz = b.z - a.z;
+      if (a === nodes[0] &&
+          Math.abs(a.x - o.x) < o.halfX && Math.abs(a.z - o.z) < o.halfZ)
+        return (a.x - o.x) * dx + (a.z - o.z) * dz >= 0;
+      let enter = 0, leave = 1;
+      for (const [from, delta, min, max] of [
+        [a.x, dx, o.x - o.halfX, o.x + o.halfX],
+        [a.z, dz, o.z - o.halfZ, o.z + o.halfZ],
+      ]) {
+        if (Math.abs(delta) < 1e-6) {
+          if (from < min || from > max) return true;
+        } else {
+          const first = (min - from) / delta, last = (max - from) / delta;
+          enter = Math.max(enter, Math.min(first, last));
+          leave = Math.min(leave, Math.max(first, last));
+          if (enter > leave) return true;
+        }
+      }
+      return leave < 1e-6 || enter > 1 - 1e-6;
+    });
+    const distances = nodes.map(() => Infinity), previous = nodes.map(() => -1);
+    const pending = new Set(nodes.map((_, i) => i));
+    distances[0] = 0;
+    while (pending.size) {
+      let nearest = -1;
+      for (const i of pending)
+        if (nearest < 0 || distances[i] < distances[nearest]) nearest = i;
+      if (nearest < 0 || !Number.isFinite(distances[nearest])) break;
+      pending.delete(nearest);
+      if (nearest === 1) break;
+      for (const i of pending) {
+        if (!visible(nodes[nearest], nodes[i])) continue;
+        const distance = distances[nearest] + nodes[nearest].distanceTo(nodes[i]);
+        if (distance < distances[i]) {
+          distances[i] = distance;
+          previous[i] = nearest;
+        }
+      }
+    }
+    if (!Number.isFinite(distances[1]))
+      throw new Error("The victory walk has no clear route to the lift");
+    const path: THREE.Vector3[] = [];
+    for (let i = 1; i >= 0; i = previous[i]) path.unshift(nodes[i]);
+    return { path, length: distances[1] };
+  }
+  function defeatFloor(x: number, z: number) {
+    if (Math.abs(x) > 2.5 || z >= -12) return 0;
+    return z < -21 ? 3 : (-12 - z) / 3;
+  }
+  function sampleDefeatWalk(distance: number, position: THREE.Vector3) {
+    position.copy(revealWalkPath[0]);
+    for (let i = 1; i < revealWalkPath.length; i++) {
+      const from = revealWalkPath[i - 1], to = revealWalkPath[i];
+      const length = from.distanceTo(to);
+      if (distance <= length || i === revealWalkPath.length - 1) {
+        position.lerpVectors(from, to, THREE.MathUtils.clamp(distance / Math.max(length, 1e-6), 0, 1));
+        return to.clone().sub(from);
+      }
+      distance -= length;
+    }
+    return revealD;
+  }
   function setupDefeatCutscene() {
     const origin = revealOrigin;
-    // The robot always dies facing the stairs (-z) so the vertical cut runs cleanly along the room axis.
-    revealD.set(0, 0, -1);
-    revealR.set(-1, 0, 0);
+    if (defeatedThroughFinisher)
+      revealD.set(Math.sin(boss.getYaw()), 0, Math.cos(boss.getYaw()));
+    else revealD.set(0, 0, -1);
+    revealR.set(revealD.z, 0, -revealD.x);
+    const playerDistance = defeatedThroughFinisher ? 3.6 : 4.8;
+    const friendDistance = defeatedThroughFinisher ? 2.6 : 3.6;
     revealBrendanStart
       .copy(origin)
-      .addScaledVector(revealD, 3.6)
+      .addScaledVector(revealD, friendDistance)
       .addScaledVector(revealR, 0.5);
     revealPlayerStart
       .copy(origin)
-      .addScaledVector(revealD, 5.2)
-      .addScaledVector(revealR, -2.2);
+      .addScaledVector(revealD, playerDistance)
+      .addScaledVector(revealR, -1.1);
     revealBrendanEnd
       .copy(origin)
-      .addScaledVector(revealD, 4.9)
+      .addScaledVector(revealD, friendDistance + 1.1)
       .addScaledVector(revealR, 0.5);
     revealPlayerEnd
       .copy(origin)
-      .addScaledVector(revealD, 7.3)
-      .addScaledVector(revealR, -2.2);
-    brendanDeathPosition.copy(revealBrendanEnd).addScaledVector(revealD, 2);
-    tmpA.copy(origin).setY(3);
-    tmpB.copy(revealBrendanEnd).setY(1);
-    brendanImpactAt =
-      BLAST_AT + Math.max(0, tmpA.distanceTo(tmpB) - 1) / BLAST_FRONT_SPEED;
+      .addScaledVector(revealD, playerDistance + 1)
+      .addScaledVector(revealR, -1.1);
+    revealPlayerEntry.copy(player.body.position);
+    emergeAt = defeatedThroughFinisher ? 0.65 : 3.6;
+    emergeEnd = emergeAt + (defeatedThroughFinisher ? 3.4 : 4.4);
+    if (defeatedThroughFinisher) {
+      revealWalkPath = [revealPlayerEntry.clone().setY(0), revealPlayerStart.clone()];
+      revealWalkLength = 0;
+      revealLandingSeconds = revealApproachWalkEnd = REVEAL_LEAP_SECONDS;
+    } else {
+      const route = defeatWalkPath(revealPlayerEntry, revealPlayerStart);
+      revealWalkPath = route.path;
+      revealWalkLength = route.length;
+      revealLandingSeconds = THREE.MathUtils.clamp(
+        (revealPlayerEntry.y - player.radius - defeatFloor(revealPlayerEntry.x, revealPlayerEntry.z)) / 6, 0, 2,
+      );
+      revealApproachWalkEnd = revealLandingSeconds + revealWalkLength / 1.8;
+    }
+    approachEnd = Math.max(emergeEnd + 0.55, revealApproachWalkEnd + 0.45);
+    WALK_AWAY_AT = approachEnd + 17.6;
+    BLAST_AT = WALK_AWAY_AT + 2.6;
+    KNEEL_AT = BLAST_AT + 1.35;
+    revealPlayerSafe.copy(revealPlayerEnd).addScaledVector(revealR, -0.15).addScaledVector(revealD, 3.3);
+    revealShoveStart.copy(revealPlayerStart).lerp(
+      revealPlayerEnd, 1 - 1.3 / (BLAST_AT - WALK_AWAY_AT),
+    );
+    revealShoveContact.copy(revealShoveStart).addScaledVector(revealD, -0.95);
+    brendanDeathPosition.copy(revealShoveContact).addScaledVector(revealD, 0.35);
+    revealPlayerKneel.copy(brendanDeathPosition).addScaledVector(revealR, -0.85);
+    kneelReady = KNEEL_AT + Math.max(0.85, revealPlayerSafe.distanceTo(revealPlayerKneel) / 4.2);
+    lastWordsAt = kneelReady + 0.3;
+    promiseAt = lastWordsAt + 4.9;
+    DISSOLVE_AT = promiseAt + 2.6;
+    STAND_AT = DISSOLVE_AT + DISSOLVE_SECONDS + 0.8;
+    revealReturnAt = STAND_AT + 1.2;
+    REVEAL_END = revealReturnAt + 0.25;
+    revealCameraPosition.copy(shotStart);
+    revealCameraFocus.set(0, 0, -1).applyQuaternion(shotRotation).multiplyScalar(5).add(shotStart);
+    brendanImpactAt = BLAST_AT + 0.9;
     revealDelta = 0;
     revealBlasted = false;
     revealShake = 0;
@@ -1477,12 +1667,12 @@ export function createScene({
     }
     halves = boss.createSplitHalves() ?? [];
     halfGlows = halves.map((half) => {
-      half.group.rotation.set(0, Math.PI, 0);
+      half.group.rotation.copy(boss.root.rotation);
       scene.add(half.group);
       const glow = new THREE.Mesh(
         new THREE.PlaneGeometry(3.6, 6.4),
         new THREE.MeshBasicMaterial({
-          color: 0xb45cff,
+          color: 0xfa3858,
           transparent: true,
           opacity: 0,
           blending: THREE.AdditiveBlending,
@@ -1495,14 +1685,13 @@ export function createScene({
       half.group.add(glow);
       return glow;
     });
-    player.setPosition(revealPlayerStart.x, player.radius, revealPlayerStart.z);
-    player.setRotation(Math.atan2(revealD.x, revealD.z) + Math.PI);
     if (boy) {
       boy.visible = false;
       boy.position.copy(boyOrigin).add(origin);
       boy.rotation.set(0, Math.atan2(revealD.x, revealD.z), 0);
     }
-    playBoy("walk");
+    playBoy("crouchWalk");
+    updateReveal(0);
   }
   function disposeDefeatCutscene() {
     for (const half of halves) half.dispose();
@@ -1520,10 +1709,6 @@ export function createScene({
     blastGroup.visible = false;
     shrapnelInstances.visible = false;
     sparkInstances.visible = false;
-    shieldBubble.visible = false;
-    shieldLattice.visible = false;
-    shieldRing.visible = false;
-    shieldLight.intensity = 0;
     shrapnel.forEach((piece) => {
       piece.mesh.visible = false;
     });
@@ -1540,27 +1725,14 @@ export function createScene({
   }
   function revealSubtitle(t: number) {
     const lines: Array<[number, number, string]> = [
-      [
-        8.2,
-        11.4,
-        "Branden: Thank you, Brondon. Donus put me inside this machine.",
-      ],
-      [
-        11.4,
-        14.4,
-        "Branden: The students are on the nearest planet. We have to go.",
-      ],
-      [14.4, 15.8, "Brondon: Let's go."],
-      [BLAST_AT - 0.9, BLAST_AT + 0.9, "Prime: Shield deployed!"],
-      [BLAST_AT + 1.8, BLAST_AT + 3.8, "Branden: Save them..."],
-      [BLAST_AT + 4.0, BLAST_AT + 6.2, "Brondon: Stay with me, Branden!"],
-      [BLAST_AT + 6.8, BLAST_AT + 9.2, "Prime: Oh no... he's gone."],
-      [BLAST_AT + 9.6, BLAST_AT + 12, "Brondon: ...Branden..."],
-      [
-        BLAST_AT + 12.8,
-        BLAST_AT + 16.6,
-        "Brondon: Donus... I'll make you pay. But first, the others.",
-      ],
+      [approachEnd, approachEnd + 4.2, "Branden: Brondon... thank you. Donus fused me with my own mining bot."],
+      [approachEnd + 4.2, approachEnd + 9.8, "Branden: He wants to do this to every human. He already turned Brendan into a battleship."],
+      [approachEnd + 9.8, approachEnd + 15, "Branden: The students are on the planet below. He took them there to experiment on them."],
+      [approachEnd + 15, WALK_AWAY_AT, "Brondon: Then that's where we're going. Come on."],
+      [WALK_AWAY_AT + 0.15, BLAST_AT - 0.65, "Donus: Not so fast."],
+      [BLAST_AT - 0.55, BLAST_AT + 0.5, "Branden: Look out!"],
+      [lastWordsAt, promiseAt - 0.2, "Branden: Save the students... They're the future."],
+      [promiseAt, DISSOLVE_AT, "Brondon: I will. I promise."],
     ];
     const line = lines.find(([from, to]) => t >= from && t < to);
     if (!subtitles) return;
@@ -1570,55 +1742,72 @@ export function createScene({
   }
   function updateReveal(dt: number) {
     const t = cinematicTime;
+    const facePlayer = (yaw: number) => {
+      const current = player.getState().yaw;
+      const turn = Math.atan2(Math.sin(yaw - current), Math.cos(yaw - current));
+      player.setRotation(current + turn * (1 - Math.exp(-dt * 9)), 0);
+    };
     revealSubtitle(t);
     // Halves: crack glows, slide apart, shake, then vanish in the blast.
     const crack = THREE.MathUtils.smoothstep(t, 0.6, 2.4),
-      slide = THREE.MathUtils.smootherstep(t, 2.4, 5.2);
+      slide = defeatedThroughFinisher
+        ? THREE.MathUtils.smootherstep(t, 0, 0.85)
+        : THREE.MathUtils.smootherstep(t, 2.4, 5.2);
     const shake =
       t < WALK_AWAY_AT
         ? 0
-        : Math.min(1, (t - WALK_AWAY_AT) / (BLAST_AT - WALK_AWAY_AT)) * 0.1;
+        : Math.min(1, (t - WALK_AWAY_AT) / (BLAST_AT - WALK_AWAY_AT)) * 0.24;
     for (let i = 0; i < halves.length; i++) {
       const half = halves[i];
       half.group.visible = t < BLAST_AT;
       if (!half.group.visible) continue;
       const base = half.side;
+      half.group.rotation.copy(boss.root.rotation);
+      const facing = Math.atan2(revealD.x, revealD.z);
+      half.group.rotation.y += Math.atan2(
+        Math.sin(facing - boss.root.rotation.y),
+        Math.cos(facing - boss.root.rotation.y),
+      ) * THREE.MathUtils.smootherstep(t, 0, 2.4);
+      half.group.rotation.z += base * slide * (defeatedThroughFinisher ? -0.24 : -0.75);
       half.group.position.set(
         revealOrigin.x,
         boss.root.position.y,
         revealOrigin.z,
       );
-      tmpA.set(base, 0, 0).applyQuaternion(half.group.quaternion);
+      const fallen = half.bounds.clone().applyMatrix4(
+        new THREE.Matrix4().makeRotationFromQuaternion(half.group.quaternion),
+      );
+      half.group.position.y = THREE.MathUtils.lerp(boss.root.position.y, 0.06 - fallen.min.y, slide);
+      tmpA.set(base, 0, 0).applyAxisAngle(cameraUp, half.group.rotation.y);
       half.group.position.addScaledVector(
         tmpA,
-        slide * 1.5 + Math.sin(t * 90 + i) * shake * 0.5,
+        slide * 2.4 + Math.sin(t * 90 + i) * shake * 0.5,
       );
       half.group.position.y += Math.sin(t * 77 + i * 2) * shake * 0.4;
       half.plane.setFromNormalAndCoplanarPoint(
         tmpB.set(base, 0, 0).applyQuaternion(half.group.quaternion),
         half.group.position,
       );
-      half.group.rotation.z = base * slide * -0.07;
       const glow = halfGlows[i];
       (glow.material as THREE.MeshBasicMaterial).opacity =
         (1 - slide * 0.5) * crack * (0.6 + Math.sin(t * 16) * 0.2);
       glow.position.x = 0;
       glow.visible = t < BLAST_AT;
     }
-    // Branden: walks out between the halves at a steady pace, talks, drifts toward the lift edge, and is caught by the blast.
+    // The rescue, shove and collapse all use clips from Brendan's authored rig.
     if (boy && !boy.userData.disintegrated) {
-      boy.visible = t >= 3.6 && t < DISSOLVE_AT + DISSOLVE_SECONDS;
+      boy.visible = t >= emergeAt && t < DISSOLVE_AT + DISSOLVE_SECONDS;
       const forward = Math.atan2(revealD.x, revealD.z);
       let yaw = forward,
         walkSpeed = 0;
-      if (t < 8.0) {
-        const k = THREE.MathUtils.clamp((t - 3.6) / 4.4, 0, 1);
+      if (t < emergeEnd) {
+        const k = THREE.MathUtils.clamp((t - emergeAt) / (emergeEnd - emergeAt), 0, 1);
         tmpA.copy(revealOrigin).lerp(revealBrendanStart, k);
-        walkSpeed = revealOrigin.distanceTo(revealBrendanStart) / 4.4;
-        playBoy(k < 1 ? "walk" : "talk");
+        walkSpeed = revealOrigin.distanceTo(revealBrendanStart) / (emergeEnd - emergeAt);
+        playBoy(k < 1 ? "crouchWalk" : "idle");
       } else if (t < WALK_AWAY_AT) {
         tmpA.copy(revealBrendanStart);
-        playBoy("talk");
+        playBoy(t >= approachEnd && t < approachEnd + 15 ? "talk" : "idle");
         yaw = Math.atan2(
           revealPlayerStart.x - tmpA.x,
           revealPlayerStart.z - tmpA.z,
@@ -1630,31 +1819,39 @@ export function createScene({
             revealBrendanEnd,
             (t - WALK_AWAY_AT) / (BLAST_AT - WALK_AWAY_AT),
           );
-        playBoy("walk");
         walkSpeed =
           revealBrendanStart.distanceTo(revealBrendanEnd) /
           (BLAST_AT - WALK_AWAY_AT);
-        yaw = forward + Math.PI * THREE.MathUtils.smootherstep(
-          t, BLAST_AT - 0.8, BLAST_AT,
-        );
+        if (t >= BLAST_AT - 1.2) {
+          const shove = THREE.MathUtils.smootherstep(t, BLAST_AT - 1.2, BLAST_AT - 0.55);
+          tmpA.lerp(revealShoveContact, shove);
+          playBoy(t < BLAST_AT - 0.55 ? "jog" : "push");
+          yaw = Math.atan2(revealPlayerSafe.x - tmpA.x, revealPlayerSafe.z - tmpA.z);
+        } else playBoy("walk");
+      } else if (t < BLAST_AT + 0.35) {
+        tmpA.copy(revealShoveContact);
+        playBoy("push");
+        yaw = Math.atan2(revealPlayerSafe.x - tmpA.x, revealPlayerSafe.z - tmpA.z);
       } else if (t < brendanImpactAt) {
-        tmpA.copy(revealBrendanEnd);
-        playBoy("idle");
-        yaw = forward + Math.PI;
+        tmpA.copy(revealShoveContact)
+          .lerp(brendanDeathPosition, THREE.MathUtils.smootherstep(t, BLAST_AT + 0.35, brendanImpactAt));
+        playBoy("crouch");
+        yaw = forward;
       } else {
         const flight = THREE.MathUtils.clamp(
           (t - brendanImpactAt) / BRANDEN_FALL_SECONDS, 0, 1,
         );
-        tmpA.copy(revealBrendanEnd).lerp(
-          brendanDeathPosition, 1 - (1 - flight) ** 3,
-        );
-        tmpA.y = 4 * 0.65 * flight * (1 - flight);
-        boy.rotation.z = -Math.sin(flight * Math.PI) * 0.16;
+        tmpA.copy(brendanDeathPosition);
+        boy.rotation.z = 0;
         playBoy("death");
-        yaw = forward + Math.PI;
+        yaw = forward;
+        if (boyAction) {
+          boyAction.paused = true;
+          boyAction.time = THREE.MathUtils.lerp(boyDeathEntry, boyAction.getClip().duration, flight);
+        }
       }
-      if (boyClipName === "walk" && boyAction)
-        boyAction.timeScale = THREE.MathUtils.clamp(walkSpeed / 1.4, 0.4, 1.1);
+      if ((boyClipName === "walk" || boyClipName === "crouchWalk") && boyAction)
+        boyAction.timeScale = THREE.MathUtils.clamp(walkSpeed / (boyClipName === "crouchWalk" ? 0.85 : 1.4), 0.2, 1.4);
       // Ease the facing so turns never snap.
       let delta = yaw - boy.rotation.y;
       delta = Math.atan2(Math.sin(delta), Math.cos(delta));
@@ -1677,26 +1874,63 @@ export function createScene({
         if (t >= DISSOLVE_AT + DISSOLVE_SECONDS) finishBoyDisintegration();
       }
     }
-    // Brondon: waits, walks to the lift edge beside Branden, then is shielded, drops to his knees and mourns.
-    const walking = t >= WALK_AWAY_AT && t < BLAST_AT;
+    const walking = t >= WALK_AWAY_AT && t < BLAST_AT - 1.3;
     const walkK = THREE.MathUtils.clamp(
       (t - WALK_AWAY_AT) / (BLAST_AT - WALK_AWAY_AT),
       0,
       1,
     );
     tmpB.copy(revealPlayerStart).lerp(revealPlayerEnd, walkK);
+    if (defeatedThroughFinisher && t < approachEnd) {
+      const p = THREE.MathUtils.clamp(t / REVEAL_LEAP_SECONDS, 0, 1);
+      tmpB.lerpVectors(revealPlayerEntry, revealPlayerStart, THREE.MathUtils.smootherstep(p, 0, 1));
+      const feet = revealPlayerEntry.y - player.radius;
+      const apex = Math.min(12, Math.max(0, feet) + 1.8);
+      tmpB.y = p < 0.38
+        ? THREE.MathUtils.lerp(feet, apex, 1 - (1 - p / 0.38) ** 2)
+        : THREE.MathUtils.lerp(apex, 0, ((p - 0.38) / 0.62) ** 2);
+      facePlayer(Math.atan2(tmpB.x - revealBrendanStart.x, tmpB.z - revealBrendanStart.z));
+    } else if (t < approachEnd) {
+      const direction = sampleDefeatWalk(Math.max(0, t - revealLandingSeconds) * 1.8, tmpB);
+      tmpB.y = defeatFloor(tmpB.x, tmpB.z) + THREE.MathUtils.lerp(
+        revealPlayerEntry.y - player.radius - defeatFloor(revealPlayerEntry.x, revealPlayerEntry.z), 0,
+        THREE.MathUtils.smootherstep(t, 0, Math.max(0.01, revealLandingSeconds)),
+      );
+      if (t < revealApproachWalkEnd)
+        facePlayer(Math.atan2(-direction.x, -direction.z));
+      else
+        facePlayer(Math.atan2(tmpB.x - revealBrendanStart.x, tmpB.z - revealBrendanStart.z));
+    } else if (t >= BLAST_AT - 1.3 && t < BLAST_AT - 0.35) {
+      tmpB.copy(revealShoveStart);
+    } else if (t >= BLAST_AT - 0.35 && t < KNEEL_AT) {
+      tmpB.copy(revealShoveStart).lerp(
+        revealPlayerSafe,
+        THREE.MathUtils.smootherstep(t, BLAST_AT - 0.35, BLAST_AT + 0.9),
+      );
+      const flight = THREE.MathUtils.clamp((t - BLAST_AT + 0.35) / 1.25, 0, 1);
+      tmpB.y = Math.sin(flight * Math.PI) * 1.35;
+    } else if (t >= KNEEL_AT && t < STAND_AT) {
+      tmpB.copy(revealPlayerSafe).lerp(
+        revealPlayerKneel,
+        THREE.MathUtils.smootherstep(t, KNEEL_AT, kneelReady),
+      );
+    } else if (t >= STAND_AT) {
+      tmpB.copy(revealPlayerKneel);
+    }
     if (
       Math.abs(player.body.position.x - tmpB.x) > 1e-5 ||
-      Math.abs(player.body.position.z - tmpB.z) > 1e-5
+      Math.abs(player.body.position.z - tmpB.z) > 1e-5 ||
+      Math.abs(player.body.position.y - player.radius - tmpB.y) > 1e-5
     )
-      player.setPosition(tmpB.x, player.radius, tmpB.z);
-    if (t >= BLAST_AT && t < STAND_AT) {
+      player.setPosition(tmpB.x, player.radius + tmpB.y, tmpB.z);
+    if (t >= BLAST_AT - 1.3 && t < brendanImpactAt) {
+      facePlayer(Math.atan2(tmpB.x - revealShoveContact.x, tmpB.z - revealShoveContact.z));
+    } else if (t >= BLAST_AT) {
       tmpA.copy(brendanDeathPosition).sub(tmpB);
-      player.setRotation(Math.atan2(-tmpA.x, -tmpA.z));
-    } else if (t >= STAND_AT || walking)
-      player.setRotation(Math.atan2(-revealD.x, -revealD.z));
-    else
-      player.setRotation(
+      facePlayer(Math.atan2(-tmpA.x, -tmpA.z));
+    } else if (walking) facePlayer(Math.atan2(-revealD.x, -revealD.z));
+    else if (t >= approachEnd)
+      facePlayer(
         Math.atan2(
           revealBrendanStart.x - tmpB.x,
           revealBrendanStart.z - tmpB.z,
@@ -1721,10 +1955,10 @@ export function createScene({
     // Self-destruct.
     if (!revealBlasted && t >= BLAST_AT) {
       revealBlasted = true;
+      playSfx("explosion", 0.9);
       revealShake = 1;
       blastGroup.visible = true;
       blastGroup.position.set(revealOrigin.x, 3, revealOrigin.z);
-      shieldBubble.visible = true;
       scorch.visible = true;
       scorch.position.set(revealOrigin.x, 0.03, revealOrigin.z);
       emitSparks(tmpA.set(revealOrigin.x, 3, revealOrigin.z), 70, 22);
@@ -1794,11 +2028,10 @@ export function createScene({
         fireball.mesh.visible = age > 0 && age < lifetime;
         if (!fireball.mesh.visible) continue;
         if (fireball.impact) {
-          const travel = THREE.MathUtils.smoothstep(
-            t, BLAST_AT, brendanImpactAt,
-          );
-          fireball.mesh.position.copy(revealBrendanEnd).sub(revealOrigin);
-          fireball.mesh.position.y = -2;
+          const travel = THREE.MathUtils.smoothstep(t, BLAST_AT, BLAST_AT + 0.18);
+          fireball.mesh.position.copy(boy?.position ?? brendanDeathPosition);
+          fireball.mesh.position.y += 0.85;
+          fireball.mesh.position.sub(blastGroup.position);
           fireball.mesh.position.multiplyScalar(travel);
           fireball.mesh.scale.setScalar(
             fireball.size * (1 - Math.exp(-age * 6)),
@@ -1867,39 +2100,6 @@ export function createScene({
       }
       cloud.instanceMatrix.needsUpdate = true;
     }
-    // Prime's shield: raised just before the blast, with a hex lattice, a ground ring and a cyan glow so it reads clearly.
-    const shieldAge = t - (BLAST_AT - 0.8);
-    if (shieldAge > 0 && t < BLAST_AT + 10.5) {
-      const fadeOut =
-        t > BLAST_AT + 9 ? Math.max(0, 1 - (t - BLAST_AT - 9) / 1.5) : 1;
-      const raise = THREE.MathUtils.smootherstep(shieldAge, 0, 0.5);
-      const flare = 1 + Math.max(0, 1 - shieldAge * 2) * 0.8;
-      shieldBubble.visible = true;
-      shieldBubble.position.set(tmpB.x, player.radius + 0.85, tmpB.z);
-      shieldBubble.scale.setScalar(
-        (1.55 + Math.sin(t * 10) * 0.04) * (0.4 + raise * 0.6) * flare,
-      );
-      shieldMaterial.opacity =
-        raise * fadeOut * (0.28 + Math.sin(t * 14) * 0.06);
-      shieldLatticeMaterial.opacity =
-        raise * fadeOut * (0.75 + Math.sin(t * 9) * 0.15);
-      shieldLattice.position.copy(shieldBubble.position);
-      shieldLattice.scale.copy(shieldBubble.scale).multiplyScalar(1.02);
-      shieldLattice.rotation.y = t * 0.5;
-      shieldLattice.visible = true;
-      shieldRing.position.set(tmpB.x, 0.06, tmpB.z);
-      shieldRing.visible = true;
-      shieldRing.scale.setScalar(1.3 + Math.max(0, 0.6 - shieldAge) * 3);
-      shieldRingMaterial.opacity = raise * fadeOut * 0.8;
-      shieldLight.position.set(tmpB.x, 1.4, tmpB.z);
-      shieldLight.intensity =
-        60 * raise * fadeOut * (1 + Math.max(0, 1 - shieldAge * 2));
-    } else {
-      shieldBubble.visible = false;
-      shieldLattice.visible = false;
-      shieldRing.visible = false;
-      shieldLight.intensity = 0;
-    }
     consoleRoot.position.y =
       -1.5 * (1 - THREE.MathUtils.smoothstep(t, STAND_AT, REVEAL_END));
     if (t >= REVEAL_END) finishVictoryDialogue();
@@ -1920,23 +2120,34 @@ export function createScene({
       .multiplyScalar(0.5);
     const corpseMid = brendanDeathPosition
       .clone()
-      .add(revealPlayerEnd)
+      .add(revealPlayerKneel)
       .multiplyScalar(0.5);
-    if (t < 8.4) {
-      const k = THREE.MathUtils.smoothstep(t, 0, 8.4);
-      focus = new THREE.Vector3(origin.x, 3.2, origin.z).addScaledVector(
-        revealD,
-        k * 1.8,
-      );
-      desired = new THREE.Vector3(origin.x, 3.4 - k * 1.4, origin.z)
-        .addScaledVector(revealD, 12 - k * 4)
-        .addScaledVector(revealR, 4.5 - k * 2);
+    if (t < approachEnd) {
+      const k = THREE.MathUtils.smoothstep(t, emergeAt, approachEnd);
+      if (defeatedThroughFinisher) {
+        const pan = THREE.MathUtils.smootherstep(t, 0.7, emergeEnd - 0.15);
+        const friend = (boy?.position ?? revealOrigin).clone().add(new THREE.Vector3(0, 1.05, 0));
+        focus = new THREE.Vector3().copy(player.body.position)
+          .add(new THREE.Vector3(0, 1.05, 0)).lerp(friend, pan * 0.85);
+        desired = focus.clone()
+          .addScaledVector(revealR, 5.6 - pan * 1.6)
+          .addScaledVector(revealD, 2.5 - pan)
+          .add(new THREE.Vector3(0, 2.1 - pan * 1.5, 0));
+      } else {
+        focus = new THREE.Vector3().copy(player.body.position)
+          .lerp(tmpA.copy(origin).addScaledVector(revealD, 2.4), 0.45).setY(2.2 - k * 0.8);
+        const distance = Math.max(9 - k * 3, new THREE.Vector3().copy(player.body.position).distanceTo(origin) * 0.9);
+        desired = focus.clone()
+          .addScaledVector(revealD, distance)
+          .addScaledVector(revealR, 6 - k * 2)
+          .setY(3.2 - k * 1.3);
+      }
     } else if (t < WALK_AWAY_AT) {
       const mid = revealBrendanStart
           .clone()
           .add(revealPlayerStart)
           .multiplyScalar(0.5),
-        k = (t - 8.4) / (WALK_AWAY_AT - 8.4);
+        k = (t - approachEnd) / (WALK_AWAY_AT - approachEnd);
       focus = mid.clone().setY(1.35);
       desired = mid
         .clone()
@@ -1951,15 +2162,20 @@ export function createScene({
         .addScaledVector(revealR, 4.4)
         .addScaledVector(revealD, -1.5)
         .setY(1.6);
-    } else if (t < KNEEL_AT + 0.4) {
-      // Side-on framing keeps the expanding blast and Branden's knockback visible together.
-      const k = THREE.MathUtils.smoothstep(t, BLAST_AT, KNEEL_AT + 0.4);
-      focus = origin.clone().lerp(revealBrendanEnd, 0.65).setY(1.35);
+    } else if (t < brendanImpactAt + 0.45) {
+      const push = THREE.MathUtils.smootherstep(t, BLAST_AT - 0.35, BLAST_AT + 0.9);
+      focus = revealShoveContact.clone()
+        .lerp(new THREE.Vector3().copy(player.body.position), 0.35)
+        .setY(1.15 + Math.max(0, player.body.position.y - player.radius) * 0.35);
       desired = focus.clone()
-        .addScaledVector(revealR, 8.5 - k)
-        .addScaledVector(revealD, 2)
-        .setY(2.2);
-      focus.lerp(tmpA.copy(brendanDeathPosition).setY(0.7), k * 0.4);
+        .addScaledVector(revealR, 3.8 + push * 2.2)
+        .addScaledVector(revealD, -0.4)
+        .setY(1.6 + push * 0.4);
+    } else if (t < kneelReady) {
+      focus = new THREE.Vector3().copy(player.body.position)
+        .lerp(brendanDeathPosition, 0.4).setY(0.95);
+      desired = focus.clone().addScaledVector(revealR, 4.2)
+        .addScaledVector(revealD, -1.8).setY(1.8);
     } else if (t < DISSOLVE_AT + DISSOLVE_SECONDS) {
       // Hold Branden in frame through the entire red dissolve before cutting to Brondon.
       const k = THREE.MathUtils.smoothstep(
@@ -1973,29 +2189,36 @@ export function createScene({
         .setY(1.35 - k * 0.2);
     } else if (t < STAND_AT) {
       // Close-up on Brondon's face as he makes his vow.
-      focus = revealPlayerEnd.clone().setY(1.0);
-      desired = revealPlayerEnd
+      focus = revealPlayerKneel.clone().setY(1.0);
+      desired = revealPlayerKneel
         .clone()
         .addScaledVector(revealR, -1.5)
         .addScaledVector(revealD, -1.3)
         .setY(1.2);
     } else {
       const k = THREE.MathUtils.smoothstep(t, STAND_AT, REVEAL_END);
-      focus = revealPlayerEnd.clone().setY(1.0 + k * 0.5);
-      desired = revealPlayerEnd
+      focus = new THREE.Vector3().copy(player.body.position).setY(1.0 + k * 0.5);
+      desired = focus
         .clone()
         .addScaledVector(revealR, -(1.5 + k * 2.5))
         .addScaledVector(revealD, -1.3 - k * 2)
         .setY(1.3 + k * 0.5);
     }
-    camera.position.copy(clearCamera(focus, desired));
+    const blend = 1 - Math.exp(-Math.max(0, revealDelta) * 3);
+    revealCameraPosition.lerp(clearCamera(focus, desired), blend);
+    revealCameraFocus.lerp(focus, blend);
+    camera.position.copy(revealCameraPosition);
     if (revealShake > 0)
       camera.position.add(
         tmpA
           .set(Math.sin(t * 61), Math.sin(t * 47 + 1), Math.sin(t * 53 + 2))
           .multiplyScalar(0.18 * revealShake),
       );
-    camera.lookAt(focus);
+    camera.lookAt(revealCameraFocus);
+    const entry = THREE.MathUtils.smootherstep(t, 0, 1.4);
+    camera.quaternion.slerpQuaternions(shotRotation, camera.quaternion.clone(), entry);
+    camera.fov = THREE.MathUtils.lerp(shotEntryFov, 58, entry);
+    camera.updateProjectionMatrix();
   }
   // Round 1 change 2: a separate hold-to-skip instance for the phase-4 intro. The existing
   // skipButton/skipHold stay wired to the victory reveal and are left byte-for-byte unchanged.
@@ -2072,6 +2295,8 @@ export function createScene({
     player,
     () => {
       bossVictory = true;
+      captureShot(cinematic === "finisher");
+      player.setZeroGMode(false);
       cinematic = "reveal";
       cinematicTime = 0;
       freeze();
@@ -2201,6 +2426,39 @@ export function createScene({
       },
     },
   );
+  const finisher = createWardenFinisher(
+    scene, camera, player, boss,
+    () => {
+      defeatedThroughFinisher = true;
+      boss.completeFinisher();
+      onFinisherComplete?.();
+    },
+    () => {
+      if (onRespawn) {
+        cinematic = "finisher";
+        respawnAtPhaseFour = true;
+        deathClock = 1.2;
+        freeze();
+        showSubtitle("WARDEN FINISHER MISSED / RESTARTING CHECKPOINT");
+      } else {
+        boss.cancelFinisher();
+        cinematic = null;
+        returnToBattle();
+        showPhaseNotice("Prime: The opening is gone. Teleport behind him again.", 3);
+      }
+    },
+    clearCamera,
+    (text) => {
+      if (text) {
+        if (phaseNoticeTime > 0 && !cinematic) return;
+        phaseNoticeTime = 0;
+        showSubtitle(`Prime: ${text}`);
+      } else if (subtitles && (subtitles.dataset.dialogueSpeaker === "PRIME" ||
+                              subtitles.textContent?.startsWith("Prime:"))) {
+        subtitles.classList.add("hidden");
+      }
+    },
+  );
   if (defeated) boss.dispose();
   else if (startAtPhaseFour) {
     door.setLocked(true);
@@ -2217,7 +2475,8 @@ export function createScene({
         return;
       }
       boy = gltf.scene;
-      boy.name = "FreedBoy";
+      boy.name = "Branden";
+      boy.userData.preserveComicAppearance = true;
       const bounds = new THREE.Box3().setFromObject(boy),
         height = bounds.getSize(new THREE.Vector3()).y;
       boy.scale.multiplyScalar(1.75 / Math.max(height, 0.01));
@@ -2235,17 +2494,24 @@ export function createScene({
       prepareBoyDisintegration();
       boy.visible = !cleared && cinematic === "reveal";
       boyMixer = new THREE.AnimationMixer(boy);
+      prepareBoyDeathPose();
+      const branden = boy;
+      boyPushChains = ["l", "r"].map((side) => {
+        const hand = branden.getObjectByName(`hand_${side}`);
+        const lower = branden.getObjectByName(`lowerarm_${side}`);
+        const upper = branden.getObjectByName(`upperarm_${side}`);
+        if (!hand || !lower || !upper)
+          throw new Error(`Branden's push animation needs the ${side} arm chain`);
+        return { hand, joints: [lower, upper] };
+      });
       if (cleared) finishBoyDisintegration();
-      else if (cinematic === "reveal") playBoy("walk");
-      else {
-        const idle = gltf.animations.find((clip) => /idle/i.test(clip.name));
-        if (idle) boyMixer.clipAction(idle).play();
-      }
+      else if (cinematic === "reveal") playBoy("crouchWalk");
+      else playBoy("idle");
     })
     .catch((error) => {
       if (!disposed) {
         boyError = true;
-        console.error("[Scene 13] Failed to load boy.glb:", error);
+        console.error("[Scene 13] Failed to load Branden's character rig:", error);
       }
     });
   // Sample both sides of the action; clamp and sweep the winning camera against the room.
@@ -2542,6 +2808,10 @@ export function createScene({
     camera.updateProjectionMatrix();
   }
   function applyCinematicCamera() {
+    if (cinematic === "finisher") {
+      finisher.camera(frameDt);
+      return true;
+    }
     if (droneCutscene) {
       const dc = droneCutscene;
       if (!orbitShot || orbitShot.kind !== "drone")
@@ -2589,8 +2859,12 @@ export function createScene({
         .add(new THREE.Vector3(10.5, 5.6, -12));
       camera.position.copy(clearCamera(focus, desired));
       camera.lookAt(focus);
-      camera.fov = 64;
+      const blend = THREE.MathUtils.smootherstep(cinematicTime, 0, 1.2);
+      camera.position.lerpVectors(shotStart, camera.position.clone(), blend);
+      camera.quaternion.slerpQuaternions(shotRotation, camera.quaternion.clone(), blend);
+      camera.fov = THREE.MathUtils.lerp(shotFov, 64, blend);
       camera.updateProjectionMatrix();
+      drawDonusOverride();
       return true;
     }
     if (cinematic === "gravityIntro") {
@@ -2619,6 +2893,12 @@ export function createScene({
           PHASE4_RULES.possessionSeconds + PHASE4_RULES.introEndAt,
         ),
       );
+      const blend = THREE.MathUtils.smootherstep(cinematicTime, 0, 1.1);
+      camera.position.lerpVectors(shotStart, camera.position.clone(), blend);
+      camera.quaternion.slerpQuaternions(shotRotation, camera.quaternion.clone(), blend);
+      camera.fov = THREE.MathUtils.lerp(shotEntryFov, camera.fov, blend);
+      camera.updateProjectionMatrix();
+      drawDonusOverride();
       return true;
     }
     if (!cinematic) return false;
@@ -2657,6 +2937,10 @@ export function createScene({
       dt *= 0.3;
     revealDelta = cinematic === "reveal" ? dt : 0;
     cinematicTime += dt;
+    if (cinematic === "finisher") {
+      if (teleportFx < 0) finisher.update(dt);
+      return;
+    }
     if (cinematic === "bossReturn") return;
     // Round 1 change 2: phase-4 intro beats (taunt, dim, beacons, warning, player line, then drift-up).
     if (cinematic === "gravityIntro") {
@@ -2683,13 +2967,13 @@ export function createScene({
           introTime < R.introTauntAt + R.introTauntSeconds
         ) {
           showSubtitle(
-            "Donus: Hahaha. You thought destroying my weapons meant you'd won? I control this entire ship, including its gravity.",
+            "Donus: This machine is mine now. So is this ship. Let's see how you fight without gravity.",
           );
         } else if (
           introTime >= R.introPlayerLineAt &&
           introTime < R.introPlayerLineAt + R.introPlayerLineSeconds
         ) {
-          showSubtitle("Brondon: Oh no... oh no, no, no.");
+          showSubtitle("Brondon: Prime, keep us clear of the walls.");
         } else subtitles.classList.add("hidden");
       }
       if (introTime >= R.introEndAt) finishPhase4Intro();
@@ -2865,7 +3149,7 @@ export function createScene({
       boss.beginZeroGBarrage();
       return;
     }
-    captureShot();
+    captureShot(cinematic === "bossReturn");
     cinematic = "gravityIntro";
     cinematicTime = 0;
     introDimStarted = false;
@@ -2875,6 +3159,7 @@ export function createScene({
   function finishPhase4Intro() {
     if (cinematic !== "gravityIntro") return; // idempotent: natural end and hold-to-skip both call this
     cinematic = null;
+    overridePanel.style.display = "none";
     introSkipButton.classList.add("hidden");
     if (warningEl) warningEl.classList.add("hidden");
     // Guarantee the end-state even on an early skip: beacons on, bay lights dimmed.
@@ -2890,6 +3175,8 @@ export function createScene({
     phaseNoticeTime = 0;
   }
   function updateHud() {
+    if (cinematic !== "bossReturn" && cinematic !== "gravityIntro")
+      overridePanel.style.display = "none";
     const s = boss.getStatus();
     hud?.classList.toggle(
       "hidden",
@@ -2928,7 +3215,7 @@ export function createScene({
       );
     prevZeroGActive = s.zeroGActive;
   }
-  const assetsReady = Promise.all([ready, boss.ready]).then(async () => {
+  const assetsReady = Promise.all([ready, boss.ready, finisher.ready]).then(async () => {
     if (disposed || !renderer || defeated) return;
     try {
       await boss.prepareRendering(renderer, camera);
@@ -2977,6 +3264,12 @@ export function createScene({
       })),
     hasBossVictory: () => bossVictory,
     getMusicTrack: () => "ship" as const,
+    getControllerPhase: () => cinematic === "finisher" ? "finisher" : cinematic ?? "combat",
+    setMenuPaused(paused: boolean) {
+      overridePaused = paused;
+      finisher.pause(paused);
+      if (paused) overridePanel.style.display = "none";
+    },
     isCinematic: () => cinematic !== null || droneCutscene !== null,
     getCinematicDelta: () => cinematicDelta,
     getHologramTransition: () =>
@@ -2997,15 +3290,53 @@ export function createScene({
             isMoving:
               (cinematic === "entry" && cinematicTime < 5.8) ||
               (cinematic === "reveal" &&
-                cinematicTime >= WALK_AWAY_AT &&
-                cinematicTime < BLAST_AT),
-            isOnGround: true,
+                ((cinematicTime >= revealLandingSeconds && cinematicTime < revealApproachWalkEnd) ||
+                 (cinematicTime >= WALK_AWAY_AT && cinematicTime < BLAST_AT - 1.3) ||
+                 (cinematicTime >= KNEEL_AT && cinematicTime < kneelReady))),
+            sprinting: cinematic === "reveal" && cinematicTime >= KNEEL_AT && cinematicTime < kneelReady,
+            isOnGround: cinematic === "finisher"
+              ? finisher.stage === "cut" || finisher.stage === "slash"
+              : cinematic !== "reveal" ||
+                (cinematicTime >= revealLandingSeconds &&
+                 !(cinematicTime >= BLAST_AT - 0.35 && cinematicTime < BLAST_AT + 0.9)),
             jumping: false,
             climbing: false,
             velocityY: 0,
           }
         : null,
     getCinematicPose: () => {
+      if (cinematic === "finisher") return finisher.pose();
+      if (cinematic === "reveal") {
+        const t = cinematicTime;
+        if (defeatedThroughFinisher && t < REVEAL_LEAP_SECONDS)
+          return t < 0.3
+            ? { clip: "Jump_Start" as const, time: t, duration: 0.3, loop: false }
+            : t < 1.3
+              ? { clip: "Jump_Loop" as const, time: t - 0.3, loop: true }
+              : { clip: "Jump_Land" as const, time: t - 1.3, duration: 0.4, loop: false };
+        if (t < revealLandingSeconds)
+          return { clip: "Jump_Land" as const, time: t, duration: revealLandingSeconds, loop: false };
+        if (t < revealApproachWalkEnd)
+          return { clip: "Walk_Loop" as const, time: (t - revealLandingSeconds) * 1.8 / 1.4, loop: true };
+        if (t >= WALK_AWAY_AT && t < BLAST_AT - 1.3)
+          return { clip: "Walk_Loop" as const, time: (t - WALK_AWAY_AT) * revealPlayerStart.distanceTo(revealPlayerEnd) / (BLAST_AT - WALK_AWAY_AT) / 1.4, loop: true };
+        if (t >= BLAST_AT - 0.35 && t < BLAST_AT + 0.9) {
+          const flight = THREE.MathUtils.clamp((t - BLAST_AT + 0.35) / 1.25, 0, 1);
+          return { clip: "Hit_Chest" as const, time: t - BLAST_AT + 0.35, loop: false,
+            bodyPitch: -Math.sin(flight * Math.PI) * 0.35 };
+        }
+        if (t >= BLAST_AT + 0.9 && t < KNEEL_AT)
+          return { clip: "Jump_Land" as const, time: t - BLAST_AT - 0.9, loop: false };
+        if (t >= KNEEL_AT && t < kneelReady)
+          return { clip: "Sprint_Loop" as const, time: t - KNEEL_AT, loop: true };
+        if (t >= kneelReady && t < STAND_AT)
+          return { clip: "Fixing_Kneeling" as const, time: Math.min(0.7, t - kneelReady), loop: false };
+        if (t >= STAND_AT && t < STAND_AT + 1.2)
+          return { clip: "Fixing_Kneeling" as const, time: 0.7 * (1 - (t - STAND_AT) / 1.2), loop: false };
+        if (t >= revealReturnAt)
+          return { clip: "Idle_Loop" as const, time: t - revealReturnAt, loop: true };
+        return { clip: "Idle_Loop" as const, time: t, loop: true };
+      }
       if (cinematic === "lift" && cinematicTime < 1.1)
         return {
           clip: "Interact" as const,
@@ -3013,24 +3344,6 @@ export function createScene({
           duration: 1.1,
           loop: false,
         };
-      if (
-        cinematic === "reveal" &&
-        cinematicTime >= BLAST_AT &&
-        cinematicTime < STAND_AT
-      ) {
-        return cinematicTime < KNEEL_AT
-          ? {
-              clip: "Hit_Chest" as const,
-              time: cinematicTime - BLAST_AT,
-              loop: false,
-            }
-          : {
-              clip: "Crouch_Idle_Loop" as const,
-              time: cinematicTime,
-              loop: true,
-              bodyPitch: -0.12,
-            };
-      }
       if (!droneCutscene) return undefined;
       const clock = droneCutscene.clock;
       if (droneCutscene.stage === "incoming") {
@@ -3054,7 +3367,19 @@ export function createScene({
       };
     },
     applyCinematicCamera,
-    updateCinematicCharacter(character: { model: THREE.Object3D } | null) {
+    updateCinematicCharacter(character: {
+      model: THREE.Object3D;
+      weapon?: { socket: THREE.Object3D | null };
+    } | null) {
+      finisher.character(character);
+      if (cinematic === "reveal" && character) {
+        applyBoyPushContact(character.model);
+        if (character.weapon?.socket) character.weapon.socket.visible = false;
+        for (const name of ["bloomstick", "crowbar"]) {
+          const weapon = character.model.getObjectByName(name);
+          if (weapon) weapon.visible = false;
+        }
+      }
       if (cinematic === "versus" && character)
         versus?.capture(character.model, [boss.root]);
     },
@@ -3151,6 +3476,8 @@ export function createScene({
     },
     restartAtCheckpoint() {
       if (!onRespawn || disposed) return false;
+      overridePanel.style.display = "none";
+      finisher.stop();
       if (!deathClock) {
         markPhaseFour();
         deathClock = 0.01;
@@ -3163,6 +3490,8 @@ export function createScene({
         markPhaseFour();
         deathClock = 2.5;
         boss.dispose();
+        finisher.stop();
+        overridePanel.style.display = "none";
         freeze();
         phase4Hud?.classList.add("hidden");
         if (cinematic === "gravityIntro") cinematic = null;
@@ -3271,6 +3600,9 @@ export function createScene({
         boss.updateVisuals(cinematicDelta);
       }
       if (boy?.visible && !boyDead) {
+        // Restore authored samples before the mixer; unchanged tracks may otherwise retain the contact IK.
+        boyPushSamples.forEach((rotation, joint) => joint.quaternion.copy(rotation));
+        boyPushSamples.clear();
         boyMixer?.update(cinematicDelta);
         if (
           boyClipName === "death" &&
@@ -3357,6 +3689,8 @@ export function createScene({
       skipButton.remove();
       introSkip.dispose();
       introSkipButton.remove(); // round 1 change 2: the phase-4 intro skip control
+      overridePanel.remove();
+      finisher.dispose();
       window.removeEventListener("keydown", onKey);
       prompt?.classList.add("hidden");
       window.removeEventListener("keydown", onThrowKey, true);
@@ -3366,7 +3700,6 @@ export function createScene({
       document.body.classList.remove("p4-bars-right", "p4-bars-aside");
       landed?.mesh.removeFromParent();
       landed = null;
-      throwHud.remove();
       crystal?.mesh.removeFromParent();
       crystal = null;
       hud?.classList.add("hidden");
@@ -3393,7 +3726,6 @@ export function createScene({
       boss.dispose();
       disposeDefeatCutscene();
       blastGroup.removeFromParent();
-      shieldBubble.removeFromParent();
       shrapnelInstances.removeFromParent();
       shrapnelInstances.dispose();
       blastSphereGeometry.dispose();
@@ -3401,14 +3733,6 @@ export function createScene({
       blastFlashMaterial.dispose();
       blastRingMaterial.dispose();
       blastRing.geometry.dispose();
-      shieldMaterial.dispose();
-      shieldLatticeMaterial.dispose();
-      shieldRingMaterial.dispose();
-      shieldLattice.geometry.dispose();
-      shieldRing.geometry.dispose();
-      shieldLattice.removeFromParent();
-      shieldRing.removeFromParent();
-      shieldLight.removeFromParent();
       shrapnelGeometry.dispose();
       shrapnelMaterial.dispose();
       blastLight.removeFromParent();

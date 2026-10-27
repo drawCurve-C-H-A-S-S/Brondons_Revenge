@@ -24,6 +24,7 @@ import {
   type DisplayKind,
 } from "./museumExhibits.js";
 import { createEscapeShip } from "../../scripts/items/createEscapeShip.js";
+import { cachedAssetUrl } from "../../core/assetCache.js";
 import {
   MUSEUM_EXHIBITS,
   MUSEUM_HALL,
@@ -34,6 +35,7 @@ import {
 } from "./museumCatalog.js";
 import fireVertexShader from "../../shaders/vert/fireExplosion.vert.glsl?raw";
 import fireFragmentShader from "../../shaders/frag/fireExplosion.frag.glsl?raw";
+import rollGifUrl from "../../assets/surveillance/ROLL.gif?url";
 
 export type MuseumCharacter = "brondon" | "brendan";
 interface MuseumOptions {
@@ -758,6 +760,48 @@ export function createScene({
   shipLabel.rotation.y = Math.PI;
   scene.add(shipLabel);
 
+  figureReady.push(
+    import("../level 2/scene15.js").then(({ createBossMesh }) => {
+      if (disposed) return;
+      const capitalShip = createBossMesh().root;
+      capitalShip.name = "MuseumEnemyCapitalShip";
+      capitalShip.rotation.y = Math.PI * 0.75;
+      const bounds = new THREE.Box3().setFromObject(capitalShip);
+      const size = bounds.getSize(new THREE.Vector3());
+      capitalShip.scale.multiplyScalar(9 / Math.max(size.x, size.y, size.z));
+      bounds.setFromObject(capitalShip);
+      bounds.getSize(size);
+      const center = bounds.getCenter(new THREE.Vector3());
+      const x = HX - size.x / 2 - 2;
+      const z = -HZ + size.z / 2 + 2;
+      capitalShip.position.set(x - center.x, 0.22 - bounds.min.y, z - center.z);
+      capitalShip.traverse((node) => {
+        if (node instanceof THREE.Mesh)
+          node.castShadow = node.receiveShadow = true;
+      });
+      scene.add(capitalShip);
+      box([size.x + 1, 0.22, size.z + 1], [x, 0.11, z], darkStone, false);
+      physics.addBox(
+        size,
+        new THREE.Vector3(x, 0.22 + size.y / 2, z),
+      );
+      const texture = createComicLabel("LEVEL 2 / ENEMY CAPITAL SHIP");
+      disposables.push(() => texture.dispose());
+      const label = new THREE.Mesh(
+        new THREE.PlaneGeometry(3.6, 0.85),
+        new THREE.MeshBasicMaterial({
+          map: texture,
+          transparent: true,
+          toneMapped: false,
+        }),
+      );
+      const inset = Math.max(size.x, size.z) / 2 + 0.75;
+      label.position.set(x - inset / Math.SQRT2, 0.65, z + inset / Math.SQRT2);
+      label.rotation.y = -Math.PI / 4;
+      scene.add(label);
+    }),
+  );
+
   // Opposite corner: enemy showcase on stands, each with a comic label (not to scale).
   const showcase: Array<{ kind: DisplayKind; label: string }> = [
     { kind: "enemyFighter", label: "ENEMY FIGHTER" },
@@ -817,7 +861,7 @@ export function createScene({
     );
   });
 
-  // Interactive telescope under the oculus: look through it to see Donus.
+  // Interactive telescope under the oculus.
   const SCOPE_POS = { x: -20, z: 8 };
   const telescope = new THREE.Group();
   telescope.position.set(SCOPE_POS.x, 0, SCOPE_POS.z);
@@ -834,7 +878,7 @@ export function createScene({
         darkStone,
       );
     leg.position.set(Math.cos(angle) * 0.38, 0.8, Math.sin(angle) * 0.38);
-    leg.rotation.set(Math.sin(angle) * 0.24, 0, -Math.cos(angle) * 0.24);
+    leg.rotation.set(-Math.sin(angle) * 0.4, 0, Math.cos(angle) * 0.4);
     telescope.add(leg);
   }
   const mount = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 12), brass);
@@ -863,7 +907,7 @@ export function createScene({
   eyepiece.position.y = -0.62;
   tubePivot.add(eyepiece);
   physics.addBox(
-    { x: 1.0, y: 1.8, z: 1.0 },
+    { x: 1.6, y: 1.8, z: 1.6 },
     new THREE.Vector3(SCOPE_POS.x, 0.9, SCOPE_POS.z),
   );
   const scopeLabelTexture = createComicLabel("TELESCOPE");
@@ -882,111 +926,50 @@ export function createScene({
   const scopeView = document.createElement("div");
   scopeView.style.cssText =
     "position:fixed;inset:0;z-index:140;display:none;align-items:center;justify-content:center;background:#000;cursor:pointer";
-  const scopeCanvas = document.createElement("canvas");
-  scopeCanvas.width = scopeCanvas.height = 720;
-  scopeCanvas.style.cssText =
-    "height:min(92vh,92vw);width:min(92vh,92vw);border-radius:50%;box-shadow:0 0 0 10px #3a2a10,0 0 0 16px #b98a3a,0 0 60px #000 inset";
+  const scopeFrame = document.createElement("div");
+  scopeFrame.style.cssText =
+    "position:relative;display:flex;align-items:center;justify-content:center;height:min(92vh,92vw);width:min(92vh,92vw);overflow:hidden;border-radius:50%;background:#000;box-shadow:0 0 0 10px #3a2a10,0 0 0 16px #b98a3a,0 0 60px #000 inset";
+  const scopeImage = document.createElement("img");
+  scopeImage.alt = "ROLL animation through the museum telescope";
+  scopeImage.decoding = "async";
+  scopeImage.draggable = false;
+  scopeImage.hidden = true;
+  scopeImage.style.cssText = "width:100%;height:100%;object-fit:contain";
+  const scopeStatus = document.createElement("p");
+  scopeStatus.setAttribute("role", "status");
+  scopeStatus.style.cssText =
+    "position:absolute;max-width:70%;margin:0;text-align:center;color:#f4dd9a;font:700 18px sans-serif";
+  scopeFrame.append(scopeImage, scopeStatus);
   const scopeHint = document.createElement("div");
   scopeHint.textContent = "Press E or Esc to stop looking";
   scopeHint.style.cssText =
     "position:absolute;bottom:18px;left:0;right:0;text-align:center;color:#f4dd9a;font:700 14px sans-serif";
-  scopeView.append(scopeCanvas, scopeHint);
+  scopeView.append(scopeFrame, scopeHint);
   document.body.append(scopeView);
-  function drawScope() {
-    const ctx = scopeCanvas.getContext("2d")!,
-      s = 720;
-    ctx.fillStyle = "#02030c";
-    ctx.fillRect(0, 0, s, s);
-    for (let i = 0; i < 260; i++) {
-      ctx.globalAlpha = 0.3 + Math.random() * 0.7;
-      ctx.fillStyle = Math.random() < 0.2 ? "#ffd9a0" : "#fff";
-      const r = Math.random() * 1.8 + 0.3;
-      ctx.beginPath();
-      ctx.arc(Math.random() * s, Math.random() * s, r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-    ctx.save();
-    ctx.translate(s / 2, s * 0.42);
-    // Donus, the mothership.
-    const hull = ctx.createLinearGradient(0, -50, 0, 50);
-    hull.addColorStop(0, "#9aa7bd");
-    hull.addColorStop(1, "#3b4559");
-    ctx.fillStyle = hull;
-    ctx.strokeStyle = "#0b0b10";
-    ctx.lineWidth = 5;
-    ctx.lineJoin = "round";
-    ctx.beginPath();
-    ctx.moveTo(-210, 0);
-    ctx.lineTo(-120, -50);
-    ctx.lineTo(120, -50);
-    ctx.lineTo(210, 0);
-    ctx.lineTo(120, 50);
-    ctx.lineTo(-120, 50);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#5b6a85";
-    ctx.beginPath();
-    ctx.moveTo(-70, -50);
-    ctx.lineTo(-40, -95);
-    ctx.lineTo(60, -95);
-    ctx.lineTo(90, -50);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#ff3b3b";
-    ctx.beginPath();
-    ctx.arc(-135, 0, 14, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#ffd23a";
-    for (let x = -60; x <= 60; x += 40) {
-      ctx.fillRect(x - 10, -10, 20, 14);
-    }
-    ctx.fillStyle = "#ff9a3a";
-    ctx.beginPath();
-    ctx.moveTo(-210, -20);
-    ctx.lineTo(-260, 0);
-    ctx.lineTo(-210, 20);
-    ctx.closePath();
-    ctx.fill();
-    // Arm holding the sign.
-    ctx.strokeStyle = "#0b0b10";
-    ctx.lineWidth = 12;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(40, 50);
-    ctx.lineTo(40, 120);
-    ctx.stroke();
-    ctx.fillStyle = "#f4ecd8";
-    ctx.lineWidth = 6;
-    ctx.fillRect(-120, 110, 320, 120);
-    ctx.strokeRect(-120, 110, 320, 120);
-    ctx.fillStyle = "#e8262d";
-    ctx.font = "bold 76px Impact, 'Arial Black', sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("YOUR MOM", 40, 172, 300);
-    ctx.restore();
-    ctx.fillStyle = "#f4dd9a";
-    ctx.font = "bold 28px Georgia, serif";
-    ctx.textAlign = "center";
-    ctx.fillText("DONUS", s / 2, s * 0.88);
-    const vignette = ctx.createRadialGradient(
-      s / 2,
-      s / 2,
-      s * 0.36,
-      s / 2,
-      s / 2,
-      s * 0.5,
-    );
-    vignette.addColorStop(0, "rgba(0,0,0,0)");
-    vignette.addColorStop(1, "rgba(0,0,0,0.85)");
-    ctx.fillStyle = vignette;
-    ctx.fillRect(0, 0, s, s);
+  const onScopeLoad = () => {
+    scopeImage.hidden = false;
+    scopeStatus.hidden = true;
+  };
+  const onScopeError = () => {
+    scopeImage.hidden = true;
+    scopeStatus.hidden = false;
+    scopeStatus.textContent = "The telescope image could not load. Close and look again to retry.";
+    console.error("[Museum] Could not load the telescope animation:", rollGifUrl);
+  };
+  scopeImage.addEventListener("load", onScopeLoad);
+  scopeImage.addEventListener("error", onScopeError);
+  function loadScopeImage() {
+    scopeImage.hidden = true;
+    scopeStatus.hidden = false;
+    scopeStatus.textContent = "Loading telescope view...";
+    scopeImage.src = cachedAssetUrl(rollGifUrl);
   }
-  disposables.push(() => scopeView.remove());
+  disposables.push(() => {
+    scopeImage.removeEventListener("load", onScopeLoad);
+    scopeImage.removeEventListener("error", onScopeError);
+    scopeImage.removeAttribute("src");
+    scopeView.remove();
+  });
 
   // The player.
   const spawnFrame =
@@ -1018,6 +1001,7 @@ export function createScene({
   let avatarMixer: THREE.AnimationMixer | null = null;
   let idleAction: THREE.AnimationAction | undefined,
     walkAction: THREE.AnimationAction | undefined,
+    runAction: THREE.AnimationAction | undefined,
     activeAction: THREE.AnimationAction | undefined;
   const avatarReady =
     character === "brendan"
@@ -1043,6 +1027,7 @@ export function createScene({
             };
             idleAction = find("Idle_Loop", "Idle");
             walkAction = find("Walk_Loop", "Jog_Fwd_Loop", "Walk");
+            runAction = find("Sprint_Loop", "Run_Loop", "Jog_Fwd_Loop", "Run");
             activeAction = idleAction;
             idleAction?.play();
             avatar.visible = true;
@@ -1071,11 +1056,14 @@ export function createScene({
     if (looking === value) return;
     looking = value;
     if (value) {
-      drawScope();
+      loadScopeImage();
       player.disable();
       player.clearInput();
       prompt?.classList.add("hidden");
-    } else player.enable();
+    } else {
+      scopeImage.removeAttribute("src");
+      player.enable();
+    }
     scopeView.style.display = value ? "flex" : "none";
   }
   scopeView.addEventListener("click", () => setLooking(false));
@@ -1197,7 +1185,9 @@ export function createScene({
       lastPosition.set(position.x, 0, position.z);
       avatar.position.set(position.x, position.y - player.radius, position.z);
       avatar.rotation.y = player.getState().yaw + Math.PI;
-      const next = speed > 0.6 ? (walkAction ?? idleAction) : idleAction;
+      const next = speed > 0.6
+        ? (player.getState().sprinting ? runAction ?? walkAction : walkAction) ?? idleAction
+        : idleAction;
       if (next && next !== activeAction) {
         activeAction?.fadeOut(0.2);
         next.reset().fadeIn(0.2).play();
@@ -1274,7 +1264,10 @@ export function createScene({
         } else if (nearScope) {
           prompt.textContent = inputHint("E / Look through the telescope");
           prompt.classList.remove("hidden");
-        } else prompt.classList.add("hidden");
+        } else {
+          prompt.textContent = inputHint("WASD / Move; hold Shift to sprint; E / enter a screen");
+          prompt.classList.remove("hidden");
+        }
       }
     },
     minimap: { bounds: { minX: -HX, maxX: HX, minZ: -HZ, maxZ: HZ }, floor: 0 },

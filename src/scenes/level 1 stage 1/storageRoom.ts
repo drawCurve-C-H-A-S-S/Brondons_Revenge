@@ -224,6 +224,9 @@ export async function preloadAssets() {
 
 export function createScene({
   onComplete,
+  arcadeDifficulty,
+  onArcadeComplete,
+  onArcadeRetry,
   hintsEnabled = true,
   restoreCheckpoint = false,
   openingEntry = false,
@@ -235,6 +238,9 @@ export function createScene({
   fromCameraRoom = false,
 }: {
   onComplete?: (presentation?: Promise<void>) => Promise<boolean>;
+  arcadeDifficulty?: "easy" | "medium" | "hard";
+  onArcadeComplete?: () => void;
+  onArcadeRetry?: () => void;
   hintsEnabled?: boolean;
   restoreCheckpoint?: boolean;
   openingEntry?: boolean;
@@ -617,6 +623,7 @@ export function createScene({
     };
   }
   function setStealthCrouch(enabled: boolean) {
+    enabled = enabled && !arcadeDifficulty;
     stealthCrouchEnabled = enabled;
     if (!enabled) {
       stealthSprintActive = false;
@@ -936,6 +943,23 @@ export function createScene({
   function startLadder(ladder: (typeof hangar.ladders)[number]) {
     if (alarmAge > 0 || cinematic || climbing) return;
     const down = player.body.position.y > deckY + 2.8;
+    if (arcadeDifficulty && ladder.id === "VentAccessLadder" && !down) {
+      const remaining = director.actors.filter(
+        (actor) =>
+          !actor.reserve &&
+          actor.mode !== "down" &&
+          (arcadeDifficulty === "hard" ||
+            (arcadeDifficulty === "medium" && actor.kind === "eye")),
+      );
+      if (remaining.length > 0) {
+        droneCaptionTime = 4;
+        if (subtitle) {
+          subtitle.textContent = `EXIT LADDER LOCKED / ${remaining.length} required targets remaining`;
+          subtitle.classList.remove("hidden");
+        }
+        return;
+      }
+    }
     const start = new THREE.Vector3().copy(player.body.position);
     fastClimb = player
       .captureTransition({ x: 0, y: 0, z: 0 })
@@ -1125,6 +1149,7 @@ export function createScene({
   }
 
   function resetEncounter() {
+    if (arcadeDifficulty) onArcadeRetry?.();
     endPeek(false);
     elapsed =
       suspicion =
@@ -1644,7 +1669,7 @@ export function createScene({
     );
     player.body.aabbNeedsUpdate = true;
     player.updateCamera(0, thirdPerson);
-    if (ladder.id === "VentAccessLadder" && !down)
+    if (ladder.id === "VentAccessLadder" && !down && !arcadeDifficulty)
       transferFade.style.opacity = String(
         THREE.MathUtils.smoothstep(progress, 0.94, 1),
       );
@@ -1652,7 +1677,12 @@ export function createScene({
       player.setClimbing(false);
       climbing = null;
       if (checkpoint) setStealthCrouch(true);
-      if (ladder.id === "VentAccessLadder" && !down && onComplete) {
+      if (ladder.id === "VentAccessLadder" && !down && arcadeDifficulty) {
+        complete = true;
+        transferFade.style.opacity = "0";
+        lock(true);
+        onArcadeComplete?.();
+      } else if (ladder.id === "VentAccessLadder" && !down && onComplete) {
         transferThroughDoor("stage-two");
       } else {
         transferFade.style.opacity = "0";
@@ -2215,6 +2245,22 @@ export function createScene({
 
   return {
     roomId: "stage1-storage",
+    setArcadeDifficulty(value: "easy" | "medium" | "hard") {
+      if (arcadeDifficulty) arcadeDifficulty = value;
+    },
+    getArcadeObjective() {
+      if (!arcadeDifficulty) return "";
+      const targets = director.actors.filter(
+        (actor) =>
+          !actor.reserve &&
+          (arcadeDifficulty === "hard" ||
+            (arcadeDifficulty === "medium" && actor.kind === "eye")),
+      );
+      const cleared = targets.filter((actor) => actor.mode === "down").length;
+      return targets.length
+        ? `${arcadeDifficulty.toUpperCase()} / TARGETS ${cleared}/${targets.length} / EXIT LADDER`
+        : "EASY / REACH THE EXIT LADDER";
+    },
     handlesPlayerDeath: true,
     scene,
     camera,

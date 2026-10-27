@@ -136,6 +136,7 @@ export async function preloadBossModels() {
   await Promise.all([
     modelTemplate(bossModelUrl),
     modelTemplate(subjectModelUrl),
+    modelTemplate(brendanModelUrl),
     toolTemplate("Enemy_EyeDrone"),
   ]);
 }

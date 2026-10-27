@@ -40,6 +40,11 @@ export function shouldPauseFinale(
     (state.blurred && (phase === "ground" || phase === "space"))
   );
 }
+export const FINALE_CREDITS = Object.freeze({
+  roll: 90,
+  walkIn: 5,
+  pose: 5,
+});
 export const FINALE_DURATION = Object.freeze({
   reveal: FINALE_REVEAL.end,
   enemyTransform: FACILITY_ROOF_SEQUENCE.end,
@@ -48,7 +53,7 @@ export const FINALE_DURATION = Object.freeze({
   rupture: PLANET_RUPTURE.orbit + 0.4,
   defeat: 6,
   victory: 18,
-  credits: 90,
+  credits: FINALE_CREDITS.roll + FINALE_CREDITS.walkIn + FINALE_CREDITS.pose,
 });
 export const FINALE_CUES: readonly FinaleCue[] = [
   { phase: "reveal", id: "lights", at: 2 },
@@ -87,8 +92,6 @@ export const FINALE_CUES: readonly FinaleCue[] = [
   { phase: "defeat", id: "signal-flatline", at: 4.2 },
   { phase: "victory", id: "reactor-cut", at: 0.3 },
   { phase: "victory", id: "sudoers-burst", at: 3.2 },
-  { phase: "victory", id: "donus-restored", at: 9.2 },
-  { phase: "victory", id: "the-end", at: 14 },
 ];
 
 export function createFinaleDirector(

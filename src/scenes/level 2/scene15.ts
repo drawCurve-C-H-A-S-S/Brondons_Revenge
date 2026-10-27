@@ -187,7 +187,7 @@ function createFighterMesh(openingInterceptor = false) {
   return { root, eye };
 }
 
-function createBossMesh(): Boss {
+export function createBossMesh(): Boss {
   const root = new THREE.Group();
   root.name = "CapitalShip";
   root.scale.setScalar(10.5);

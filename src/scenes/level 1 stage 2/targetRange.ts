@@ -47,6 +47,7 @@ export function createScene({
   remoteVisit = false,
   preview = false,
   deferActivation = false,
+  skipCinematics = false,
   loot,
   hasReturnMarker,
   onRestart,
@@ -60,6 +61,7 @@ export function createScene({
   remoteVisit?: boolean;
   preview?: boolean;
   deferActivation?: boolean;
+  skipCinematics?: boolean;
   loot?: CameraRoomProgress;
   hasReturnMarker?: () => boolean;
   onRestart?: () => Promise<boolean>;
@@ -555,6 +557,10 @@ export function createScene({
       )
         return false;
       if (letter !== RANGE_WORD[sequence.length]) {
+        if (skipCinematics) {
+          resetRange();
+          return true;
+        }
         exploding = true;
         blastTime = 0;
         playSfx("explosion", 0.2);
@@ -770,6 +776,22 @@ export function createScene({
     onBackTrigger = callback;
   }
 
+  function resetRange() {
+    exploding = false;
+    blast.visible = false;
+    blastLight.intensity = 0;
+    sequence = "";
+    breakables.reset();
+    teleportPlayer(
+      player,
+      { x: 0, y: spawnY, z: spawnZ },
+      remoteVisit ? Math.PI : 0,
+      entranceState,
+    );
+    player.clearInput();
+    if (active) player.enable();
+    tell("Range reset. Read the poem and try again.");
+  }
   function updatePhysics(dt: number, thirdPerson: boolean = false) {
     if (disposed) return;
     dt = Number.isFinite(dt)
@@ -790,20 +812,7 @@ export function createScene({
       blastLight.intensity = 90 * Math.sin(progress * Math.PI);
       breakables.update(dt);
       if (progress === 1) {
-        exploding = false;
-        blast.visible = false;
-        blastLight.intensity = 0;
-        sequence = "";
-        breakables.reset();
-        teleportPlayer(
-          player,
-          { x: 0, y: spawnY, z: spawnZ },
-          remoteVisit ? Math.PI : 0,
-          entranceState,
-        );
-        player.clearInput();
-        if (active) player.enable();
-        tell("Range reset. Read the poem and try again.");
+        resetRange();
       }
       return;
     }

@@ -5,7 +5,7 @@ import {
 } from "../../helpers/audio/AudioManager.js";
 import { playSfx } from "../../helpers/audio/sfx.js";
 import { DUEL } from "../npc/mechDuel.js";
-import { FINALE_DURATION } from "../global/finaleDirector.js";
+import { FINALE_CREDITS } from "../global/finaleDirector.js";
 import { createComicEffectArtwork } from "../global/comicEffects.js";
 import { isControllerActive, inputHint } from "../player/gamepadInput.js";
 import { setInputHint } from "../global/inputPrompts.js";
@@ -22,9 +22,9 @@ export function createFinalePresentation(
     <header class="finale-objective"><span>FINAL CHAPTER</span><strong></strong><small></small></header>
     <button type="button" class="scene-dialogue-skip finale-skip hidden">Hold Enter to skip</button>
     <div class="finale-speed-lines" aria-hidden="true"></div>
-    <section class="finale-player-status" aria-label="Prime Frame status">
+    <section class="finale-player-status" aria-label="Opus status">
       <div class="finale-status-heading"><strong>BRONDON</strong><span class="finale-health-value">1000 / 1000</span></div>
-      <meter class="finale-integrity" min="0" max="1000" value="1000" aria-label="Prime Frame integrity"></meter>
+      <meter class="finale-integrity" min="0" max="1000" value="1000" aria-label="Opus integrity"></meter>
     </section>
     <nav class="finale-controls" aria-label="Combat controls">
       <div class="finale-control-group finale-control-movement">
@@ -39,9 +39,9 @@ export function createFinalePresentation(
         <span class="finale-control ready" data-control="slide"><kbd data-input-key="KeyC">C</kbd><small><b>SLIDE</b></small></span>
       </div>
       <div class="finale-control-group finale-control-systems">
-        <span class="finale-control finale-control-charge ready" data-control="rifle"><kbd data-input-key="KeyF">F</kbd><small><b>RIFLE</b><em>READY</em></small></span>
+        <span class="finale-control finale-control-charge ready" data-control="rifle" aria-label="Branden's Tears rifle salvo"><kbd data-input-key="KeyF">F</kbd><small><b>TEARS</b><em>READY</em></small></span>
         <span class="finale-control finale-control-charge ready" data-control="guard"><kbd data-input-key="KeyR">R</kbd><small><b>SHIELD</b><em>READY</em></small></span>
-        <span class="finale-control finale-control-charge ready" data-control="special"><kbd data-input-key="KeyE">E</kbd><small><b>LAST LIGHT</b><em>READY</em></small></span>
+        <span class="finale-control finale-control-charge ready" data-control="special" aria-label="Brendan's Will blade-wave ultimate"><kbd data-input-key="KeyE">E</kbd><small><b>WILL</b><em>READY</em></small></span>
       </div>
     </nav>
     <div class="finale-tell" role="status" aria-live="polite"></div><div class="finale-title" aria-live="polite"></div>
@@ -61,8 +61,8 @@ export function createFinalePresentation(
       </div>
       <div class="finale-touch-actions">
         <button data-key="Space" aria-label="Boost">BOOST</button><button data-key="KeyJ" aria-label="Sword attack">SWORD</button>
-        <button data-key="KeyR" aria-label="Hold to raise the shield">SHIELD</button><button data-key="KeyF" aria-label="Draw the rifle and fire a salvo">RIFLE</button>
-        <button data-key="KeyE" aria-label="Blade-wave ultimate">ULTIMATE</button>
+        <button data-key="KeyR" aria-label="Hold to raise the shield">SHIELD</button><button data-key="KeyF" aria-label="Branden's Tears rifle salvo">TEARS</button>
+        <button data-key="KeyE" aria-label="Brendan's Will blade-wave ultimate">WILL</button>
         <button data-key="KeyC" aria-label="Grounded slide tackle">SLIDE</button>
       </div>
     </nav>`;
@@ -373,9 +373,11 @@ export function createFinalePresentation(
       get(".finale-result span").textContent = kicker;
       retry.hidden = !canRetry;
     },
-    credits(time: number) {
+    credits(time: number, castReady = false) {
       credits.hidden = time < 0;
-      const progress = Math.min(1, Math.max(0, time) / FINALE_DURATION.credits);
+      credits.dataset.castReady = String(castReady);
+      roll.hidden = time >= FINALE_CREDITS.roll;
+      const progress = Math.min(1, Math.max(0, time) / FINALE_CREDITS.roll);
       const travel =
         window.innerHeight + roll.scrollHeight + window.innerHeight * 0.25;
       roll.style.transform = `translate(-50%, ${window.innerHeight - progress * travel}px)`;

@@ -352,7 +352,7 @@ export const STUDENT_TIMELINE = Object.freeze(
   })),
 );
 export const HERO_TRANSFORM = Object.freeze({
-  launch: 1.1,
+  launch: 2.8,
   arrival: 6.2,
   disassemble: 6.4,
   materialize: 6.7,
@@ -407,10 +407,10 @@ export const DONUS_RETURN = Object.freeze({
   arrival: 15.2,
 });
 export const SPECIAL_MOVE_NAMES = {
-  missiles: "STARFALL SALVO",
-  overdrive: "LAST LIGHT",
-  verdict: "FINAL VERDICT",
-  orbitalCut: "ECLIPSE REND",
+  missiles: "BRANDEN'S TEARS",
+  overdrive: "BRENDAN'S WILL",
+  verdict: "REBEL",
+  orbitalCut: "ECLIPSE",
 } as const;
 export function isNamedSpecialMove(
   move: string,
@@ -422,6 +422,7 @@ export interface FinisherBeat {
   duration: number;
   action: number;
   shot:
+    | "challenge"
     | "evade"
     | "parry"
     | "countershot"
@@ -513,6 +514,7 @@ export const FINISHER_RIFLE = Object.freeze({
   spacing: (0.14 / RIFLE_SEQUENCE.swordReady) * rifleDuration,
 });
 export const FINISHER_BEATS: readonly FinisherBeat[] = Object.freeze([
+  { id: "challenge", duration: 6, action: 6, shot: "challenge" },
   { id: "evade", duration: 2.8, action: 0.9, shot: "evade" },
   { id: "parry", duration: 2.2, action: 0.9, shot: "parry" },
   {
@@ -743,10 +745,11 @@ const shotTime = (shot: FinisherBeat["shot"], offset = 0) =>
   FINISHER_TIMELINE.find((entry) => entry.beat.shot === shot)!.start +
   offset * (shot === "exchange" ? FINISHER_EXCHANGE.tempo : 1);
 const heroMotion: MotionKey[] = [
-  { at: 0, point: [-14, 0, 0] },
-  { at: 0.44, point: [-14.3, -0.15, 0.7] },
-  { at: 1.05, point: [-15.2, -1.7, 5.4] },
-  { at: 1.85, point: [-13.1, -0.8, 4.1] },
+  { at: 0, point: [-14, 0, 0], stop: true },
+  { at: shotTime("evade"), point: [-14, 0, 0], stop: true },
+  { at: shotTime("evade", 0.44), point: [-14.3, -0.15, 0.7] },
+  { at: shotTime("evade", 1.05), point: [-15.2, -1.7, 5.4] },
+  { at: shotTime("evade", 1.85), point: [-13.1, -0.8, 4.1] },
   { at: shotTime("parry"), point: [-9.8, 0, 1.2] },
   { at: shotTime("parry", 0.9), point: [-8, 0, 0] },
   { at: shotTime("parry", 1.55), point: [-8.8, 0.35, 1] },
@@ -784,9 +787,10 @@ const heroMotion: MotionKey[] = [
   { at: shotTime("finalCut", FINISHER_EXECUTION.dash), point: [-9, 16, -2], stop: true },
 ];
 const enemyMotion: MotionKey[] = [
-  { at: 0, point: [14, 1, -2] },
-  { at: 0.9, point: [13.5, 1, -2] },
-  { at: 1.85, point: [9.5, 0.4, -0.8] },
+  { at: 0, point: [14, 1, -2], stop: true },
+  { at: shotTime("evade"), point: [14, 1, -2], stop: true },
+  { at: shotTime("evade", 0.9), point: [13.5, 1, -2] },
+  { at: shotTime("evade", 1.85), point: [9.5, 0.4, -0.8] },
   { at: shotTime("parry"), point: [5.6, 0.1, 0] },
   { at: shotTime("parry", 0.9), point: [3.6, 0, 0] },
   { at: shotTime("parry", 1.55), point: [5.2, 0.25, -0.6] },
@@ -914,7 +918,12 @@ export function sampleFinisher(beat: FinisherBeat, clock: number) {
     cinematicProgress(clock, start, action - 0.04) *
     (1 - cinematicProgress(clock, action + 0.16, end));
 
-  if (beat.shot === "evade") {
+  if (beat.shot === "challenge") {
+    heroPose = "skyCharge";
+    enemyPose = "verdict";
+    heroPoseProgress = 0.6 + p * 0.08;
+    enemyPoseProgress = 0.52 + p * 0.06;
+  } else if (beat.shot === "evade") {
     heroPose = "evade";
     enemyPose = "verdict";
     heroRoll = -Math.sin(p * Math.PI) * 0.085;

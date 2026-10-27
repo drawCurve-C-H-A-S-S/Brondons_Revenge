@@ -101,6 +101,7 @@ export interface CinematicPose {
     | "Float_Loop"
     | "Ladder_Climb_Loop"
     | "Crouch_Idle_Loop"
+    | "Fixing_Kneeling"
     | "Interact"
     | "Silent_Takedown"
     | "Idle_Loop"
@@ -963,6 +964,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
   // Sample the authored aiming pose once to calibrate the hand-local grip.
   const hand = model.getObjectByName("hand_r");
   const middleFinger = model.getObjectByName("middle_01_r");
+  const curledMiddleFinger = model.getObjectByName("middle_03_r");
   const upperRoot = model.getObjectByName("spine_01");
   const aimClip = THREE.AnimationClip.findByName(clips, "Pistol_Aim_Neutral");
   const holdClip = THREE.AnimationClip.findByName(clips, "Pistol_Idle_Loop");
@@ -1024,7 +1026,11 @@ export async function loadCharacter(loader?: GLTFLoader) {
     sampler.update(0);
     model.updateMatrixWorld(true);
     const palm = hand.getWorldPosition(new THREE.Vector3());
-    if (middleFinger)
+    if (middleFinger && curledMiddleFinger)
+      palm
+        .copy(middleFinger.getWorldPosition(new THREE.Vector3()))
+        .lerp(curledMiddleFinger.getWorldPosition(new THREE.Vector3()), 0.5);
+    else if (middleFinger)
       palm.lerp(middleFinger.getWorldPosition(new THREE.Vector3()), 0.65);
     socket.position.copy(hand.worldToLocal(palm));
     const forward = model
@@ -2014,9 +2020,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
       0,
       1,
     );
-    hologramUniforms.hologramColor.value.set(
-      state.hologramColor ?? 0x2d8fff,
-    );
+    hologramUniforms.hologramColor.value.set(state.hologramColor ?? 0x2d8fff);
     model.visible = state.opacity > 0;
   }
 
@@ -2051,6 +2055,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
   return {
     model,
     mixer,
+    animations: clips,
     update,
     setFacing,
     setHologramTransition,
