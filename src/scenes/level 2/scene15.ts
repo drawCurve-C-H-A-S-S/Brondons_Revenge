@@ -1,6 +1,7 @@
 import { playSfx } from "../../helpers/audio/sfx.js";
 import * as THREE from "three";
 import * as CANNON from "cannon-es";
+import { isActionPressed } from "../../scripts/player/inputManager.js";
 import { createScenePhysics } from "../../helpers/physics/scenePhysics.js";
 import { disposeRoom } from "../../scripts/global/shipRoom.js";
 import {
@@ -973,11 +974,6 @@ export function createScene({
   function onKeyDown(event: KeyboardEvent) {
     if (disposed || transferred || interactiveTarget(event) || inputBlocked())
       return;
-    if (event.code === "Escape" && !event.repeat) {
-      event.preventDefault();
-      setPaused(!paused);
-      return;
-    }
     if (
       phase === "versus" &&
       !paused &&
@@ -1002,7 +998,6 @@ export function createScene({
       shields.activate();
       return;
     }
-    if (event.code === "KeyV") toggleView();
     if (event.code === "Space" && rollCd <= 0) {
       const x =
         Number(keys.has("KeyD") || keys.has("ArrowRight")) -
@@ -2780,7 +2775,16 @@ export function createScene({
     }),
     updatePhysics(dt: number) {
       if (disposed || transferred) return;
+      // Check pause action (Escape)
+      if (isActionPressed("pause") && !inputBlocked()) {
+        setPaused(!paused);
+        return;
+      }
       if (paused || inputBlocked()) return;
+      // Check view toggle action (KeyV)
+      if (isActionPressed("viewToggle")) {
+        toggleView();
+      }
       let remaining = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, 0.1));
       // Bounded substeps preserve dodge and projectile behavior across render rates.
       while (remaining > 0 && !disposed && !transferred) {

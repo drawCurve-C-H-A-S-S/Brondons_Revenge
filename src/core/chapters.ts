@@ -27,7 +27,7 @@ const FIELD_NOTES = [
   "Interaction prompts appear when an object is within reach.",
   "You can pause whenever you need a break.",
   "Adjust the audio and display settings for a comfortable experience.",
-  "When a skip prompt appears, hold its control to skip the cinematic.",
+  "When a skip prompt appears, press its control to skip the cinematic.",
 ] as const;
 
 export const LOADING_CHAPTERS = {

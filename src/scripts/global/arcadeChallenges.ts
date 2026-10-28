@@ -45,7 +45,7 @@ export function arcadeChallenge(id: number): {
               "The bridge is sealed by a metal gate. Take the waterfall route instead.",
               "Stay inside the fenced trail. The starting boundary stops backtracking; the waterfall detour is protected from the water.",
               "Up to 4 regular enemies can be alive anywhere. Enemies left behind still count; defeated enemies are replaced one at a time.",
-              "Up to 4 enemies may attack at once, including the Waterfall Warden. Hold Shift (controller: sprint trigger) to run.",
+              "Up to 4 enemies may attack at once, including the Waterfall Warden. Shift (controller: sprint) toggles run.",
               "Defeat the Waterfall Warden to finish. Your grade combines time and health: 60% health remaining, 40% speed. Retries lower the grade.",
             ],
     };

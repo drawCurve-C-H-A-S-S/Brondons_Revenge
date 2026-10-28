@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { Player } from "../player/player.js";
 import { setInputHint } from "./inputPrompts.js";
+import { isActionPressed } from "../player/inputManager.js";
 
 export interface CameraVisitOptions {
   title: string;
@@ -110,20 +111,6 @@ export function createCameraVisitUI({
       )
     )
       return;
-    if (event.code === "KeyE") {
-      if (!nearLockedExit()) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      lockedNotice = true;
-      setInputHint(
-        help,
-        "Locked. Press R to return to the camera room.",
-        "foot",
-        true,
-      );
-      help.classList.remove("hidden");
-      return;
-    }
     event.preventDefault();
     event.stopImmediatePropagation();
     void restartVisit();
@@ -170,6 +157,25 @@ export function createCameraVisitUI({
       if (!near && lockedNotice) {
         help.classList.add("hidden");
         lockedNotice = false;
+      }
+      // Check interact action for locked exit notice
+      if (
+        isActionPressed("interact") &&
+        visible &&
+        canInteract() &&
+        player.isEnabled() &&
+        !document.hidden &&
+        !document.body.classList.contains("quick-menu-open") &&
+        nearLockedExit()
+      ) {
+        lockedNotice = true;
+        setInputHint(
+          help,
+          "Locked. Press R to return to the camera room.",
+          "foot",
+          true,
+        );
+        help.classList.remove("hidden");
       }
     },
     dispose() {

@@ -3,6 +3,7 @@ import {
   CSS3DObject,
   CSS3DRenderer,
 } from "three/addons/renderers/CSS3DRenderer.js";
+import { isActionPressed } from "../player/inputManager.js";
 
 export const FACILITY_WEBSITE_URL = "https://fla.capitalsigma.biz/";
 
@@ -86,10 +87,6 @@ export function createFacilityBrowser(
   function onKey(event: KeyboardEvent) {
     if (!state) return;
     event.stopImmediatePropagation();
-    if (event.code === "Escape" || event.code === "KeyE") {
-      event.preventDefault();
-      leave();
-    }
   }
   window.addEventListener("keydown", onKey, true);
   function applyCamera() {
@@ -219,6 +216,14 @@ export function createFacilityBrowser(
       if (!state) return;
       state.time += dt;
       applyCamera();
+      // Check for leave action (Escape or KeyE)
+      if (
+        state.phase === "active" &&
+        (isActionPressed("cancel") || isActionPressed("interact"))
+      ) {
+        leave();
+        return;
+      }
       if (state.phase === "opening" && state.time >= 0.95) {
         state.phase = "active";
         state.screen.object.element.style.pointerEvents = "auto";

@@ -2,6 +2,7 @@ import { playSfx } from "../../helpers/audio/sfx.js";
 /** Scene 7 - Cafeteria / Galley */
 import * as THREE from "three";
 import * as CANNON from "cannon-es";
+import { isActionPressed } from "../../scripts/player/inputManager.js";
 import comicVert from "../../shaders/vert/comic.vert.glsl?raw";
 import comicFrag from "../../shaders/frag/comic.frag.glsl?raw";
 import {
@@ -743,12 +744,6 @@ export function createScene({
     onLadderTrigger = callback;
   }
   function onKeyDown(event: KeyboardEvent) {
-    if (event.code === "Space" && climbing && !event.repeat) {
-      event.preventDefault();
-      climbBoost = true;
-      player.clearInput();
-      return;
-    }
     if (
       event.code !== "KeyE" ||
       event.repeat ||
@@ -777,6 +772,11 @@ export function createScene({
     dt = Number.isFinite(dt)
       ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime))
       : 0;
+    // Check jump action for climb boost
+    if (isActionPressed("jump") && climbing) {
+      climbBoost = true;
+      player.clearInput();
+    }
     physics.step(dt, player, thirdPerson);
     breakables.update(dt);
     const px = player.body.position.x,

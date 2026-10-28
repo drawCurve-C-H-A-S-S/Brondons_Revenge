@@ -7,6 +7,7 @@ import {
   controllerButtonLabel,
   inputHint,
 } from "../../scripts/player/gamepadInput.js";
+import { isActionPressed } from "../../scripts/player/inputManager.js";
 
 export interface InspectionTarget {
   screen: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
@@ -207,12 +208,6 @@ export function createInspectionView(
     )
       return;
     if (event.ctrlKey || event.altKey || event.metaKey) return;
-    if (event.code === "Escape" || event.code === "KeyE") {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      leave();
-      return;
-    }
     if (event.target instanceof HTMLElement && controls.contains(event.target))
       return;
     if (!canInput() || event.code === "Tab") return;
@@ -258,6 +253,14 @@ export function createInspectionView(
       state.time += dt;
       state.target.display.update(dt);
       updateInstructions();
+      // Check for leave action (Escape or KeyE)
+      if (
+        state.phase === "active" &&
+        (isActionPressed("cancel") || isActionPressed("interact"))
+      ) {
+        leave();
+        return;
+      }
       if (state.phase === "opening" && state.time >= 0.95) {
         state.phase = "active";
         state.target.display.focus(true);

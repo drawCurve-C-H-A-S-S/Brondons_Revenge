@@ -1213,10 +1213,6 @@
               Connected controllers (0)
             </button>
           </div>
-          <label id="pause-prime-settings" for="prime-hints-toggle">
-            <span>Prime hints (all levels)</span>
-            <input id="prime-hints-toggle" type="checkbox" checked />
-          </label>
         </div>
         <div class="controls-group">
           <div
@@ -1225,58 +1221,19 @@
             role="region"
             aria-label="Controller settings"
           >
-            <label class="controller-device-label" for="controller-device"
-              >Controller to configure</label
-            >
             <select
               id="controller-device"
-              aria-label="Controller to configure"
+              aria-label="Select a controller"
               disabled
             ></select>
             <fieldset id="controller-type-options">
-              <legend>Button-label layout</legend>
-              <p>
-                Detected automatically for each connected device. Override the
-                layout if your adapter reports the wrong controller type.
-              </p>
-              <div
-                class="controller-type-buttons"
-                role="group"
-                aria-label="Controller type"
-              >
-                <button
-                  class="menu-button"
-                  type="button"
-                  data-controller-type="switch"
-                  aria-pressed="false"
-                >
-                  Switch
-                </button>
-                <button
-                  class="menu-button"
-                  type="button"
-                  data-controller-type="xbox"
-                  aria-pressed="false"
-                >
-                  Xbox
-                </button>
-                <button
-                  class="menu-button"
-                  type="button"
-                  data-controller-type="playstation"
-                  aria-pressed="false"
-                >
-                  PlayStation
-                </button>
-                <button
-                  class="menu-button"
-                  type="button"
-                  data-controller-type="generic"
-                  aria-pressed="false"
-                >
-                  Other / Generic
-                </button>
-              </div>
+              <legend>Button prompt override</legend>
+              <select id="controller-type-select" aria-label="Controller type">
+                <option value="switch">Switch</option>
+                <option value="xbox">Xbox</option>
+                <option value="playstation">PlayStation</option>
+                <option value="generic">Other / Generic</option>
+              </select>
             </fieldset>
             <p id="controller-status" role="status" aria-live="polite">
               Plug in a controller, then press a button to let the browser
@@ -1288,33 +1245,6 @@
                 >Swap A/B for this controller</span
               >
             </label>
-            <div id="controller-setup" class="hidden">
-              <p>
-                Calibration covers only the buttons used for gameplay, menus and
-                skipping cinematics, plus both sticks. Stick clicks, system
-                buttons and unused extras are not required. Release all buttons
-                and center both sticks before starting.
-              </p>
-              <p
-                id="controller-setup-step"
-                role="status"
-                aria-live="polite"
-              ></p>
-              <button
-                id="controller-setup-start"
-                class="menu-button"
-                type="button"
-              >
-                Calibrate game controls
-              </button>
-              <button
-                id="controller-setup-cancel"
-                class="menu-button hidden"
-                type="button"
-              >
-                Cancel calibration
-              </button>
-            </div>
           </div>
           <p id="pause-controls-description"></p>
           <div
@@ -1330,6 +1260,29 @@
               <path d="M3 5.5 8 10.5 13 5.5" />
             </svg>
           </p>
+        </div>
+        <div class="controls-group" id="controller-calibration-group">
+          <div id="controller-setup" class="hidden">
+            <p
+              id="controller-setup-step"
+              role="status"
+              aria-live="polite"
+            ></p>
+            <button
+              id="controller-setup-start"
+              class="menu-button"
+              type="button"
+            >
+              Calibrate game controls
+            </button>
+            <button
+              id="controller-setup-cancel"
+              class="menu-button hidden"
+              type="button"
+            >
+              Cancel calibration
+            </button>
+          </div>
         </div>
         <button type="button" data-pause-back class="menu-button">Back</button>
       </section>
@@ -1373,7 +1326,7 @@
         class="pause-panel hidden"
         aria-label="Display settings"
       >
-        <div class="sound-slider-group menu-tilt">
+        <div class="display-control-group menu-tilt">
           <label for="menu-font-select">Menu font</label>
           <select id="menu-font-select">
             <option value="normal" selected>Normal (Scene 1 Sefa)</option>
@@ -1381,19 +1334,19 @@
             <option value="comic-sans">Comic Sans</option>
           </select>
         </div>
-        <div class="sound-slider-group menu-tilt">
+        <div class="display-control-group menu-tilt">
           <label for="comic-look-toggle"
             >Comic Look
             <input id="comic-look-toggle" type="checkbox" />
           </label>
         </div>
-        <div class="sound-slider-group menu-tilt">
+        <div class="display-control-group menu-tilt">
           <label for="outlines-toggle"
             >Outlines
             <input id="outlines-toggle" type="checkbox" />
           </label>
         </div>
-        <div class="sound-slider-group menu-tilt">
+        <div class="display-control-group menu-tilt">
           <label for="bloom-level"
             >Bloom
             <output id="bloom-level-value" for="bloom-level">0%</output></label
@@ -1407,22 +1360,28 @@
             value="0"
           />
         </div>
-        <div class="sound-slider-group menu-tilt">
+        <div class="display-control-group menu-tilt">
           <label for="interface-visibility-toggle"
             >Hide HUD (/)
             <input id="interface-visibility-toggle" type="checkbox" />
           </label>
         </div>
-        <div class="sound-slider-group menu-tilt">
+        <div class="display-control-group menu-tilt">
           <label for="fps-counter-toggle"
             >Show FPS
             <input id="fps-counter-toggle" type="checkbox" />
           </label>
         </div>
-        <div class="sound-slider-group menu-tilt">
+        <div class="display-control-group menu-tilt">
           <label for="perf-timers-toggle"
             >Perf timers
             <input id="perf-timers-toggle" type="checkbox" />
+          </label>
+        </div>
+        <div class="display-control-group menu-tilt">
+          <label for="prime-hints-toggle"
+            >Prime hints (all levels)
+            <input id="prime-hints-toggle" type="checkbox" checked />
           </label>
         </div>
         <button type="button" data-pause-back class="menu-button">Back</button>

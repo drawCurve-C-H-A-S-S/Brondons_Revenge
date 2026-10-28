@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import * as CANNON from "cannon-es";
 import { loadToolModel } from "../../core/loader.js";
+import { isActionPressed } from "../player/inputManager.js";
 import { createGroundMotor } from "../../helpers/physics/scenePhysics.js";
 import { createHangarVersus } from "../global/hangarVersus.js";
 import { disposeRoom } from "../global/shipRoom.js";
@@ -332,20 +333,6 @@ export function createWaterfallMiniboss({
       body.position.z,
     );
   }
-  const onKey = (event: KeyboardEvent) => {
-    if (
-      event.code === "KeyE" &&
-      !event.repeat &&
-      assetError &&
-      arena.contains(player.body.position) &&
-      !document.hidden &&
-      !document.body.classList.contains("quick-menu-open")
-    ) {
-      event.preventDefault();
-      void load();
-    }
-  };
-  window.addEventListener("keydown", onKey);
   return {
     root,
     body,
@@ -386,6 +373,16 @@ export function createWaterfallMiniboss({
       mixer?.update(dt);
       achievementTime = Math.max(0, achievementTime - dt);
       achievement.classList.toggle("hidden", achievementTime === 0);
+      // Check interact action for loading
+      if (
+        isActionPressed("interact") &&
+        assetError &&
+        arena.contains(player.body.position) &&
+        !document.hidden &&
+        !document.body.classList.contains("quick-menu-open")
+      ) {
+        void load();
+      }
       if (
         phase === "dormant" &&
         arena.contains(player.body.position) &&

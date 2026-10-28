@@ -1,5 +1,6 @@
 /** Scene 8 - A cramped maintenance vent between the galley and deck below. */
 import * as THREE from "three";
+import { isActionPressed } from "../../scripts/player/inputManager.js";
 import {
   createPlayer,
   type PlayerTransitionState,
@@ -295,20 +296,6 @@ export function createScene({
   }
   function onKeyDown(event: KeyboardEvent) {
     if (
-      event.code === "Space" &&
-      climbing &&
-      !handoffStarted &&
-      !event.repeat
-    ) {
-      event.preventDefault();
-      handoffStarted = true;
-      player.setClimbing(false);
-      player.setLookLocked(false);
-      player.clearInput();
-      destination?.(true);
-      return;
-    }
-    if (
       event.code !== "KeyE" ||
       event.repeat ||
       climbing ||
@@ -324,6 +311,14 @@ export function createScene({
     dt = Number.isFinite(dt)
       ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime))
       : 0;
+    // Check jump action for climb handoff
+    if (isActionPressed("jump") && climbing && !handoffStarted) {
+      handoffStarted = true;
+      player.setClimbing(false);
+      player.setLookLocked(false);
+      player.clearInput();
+      destination?.(true);
+    }
     advanceCargo(puzzle, dt);
     gates[10].setProgress(puzzle.gates[10] ? 1 : 0);
     gates[11].setProgress(puzzle.gates[11] ? 1 : 0);

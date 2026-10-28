@@ -3,6 +3,7 @@ import {
   createPlayer,
   type PlayerTransitionState,
 } from "../../scripts/player/player.js";
+import { isActionPressed } from "../../scripts/player/inputManager.js";
 import {
   createScenePhysics,
   PHYSICS,
@@ -163,17 +164,6 @@ export function createScene({
     puzzle.exitUnlocked ? "solved" : puzzle.revealed ? "ready" : "hidden";
   const prompt = document.getElementById("interact-prompt"),
     status = document.getElementById("loading-bay-status");
-  function onKey(event: KeyboardEvent) {
-    if (
-      event.code === "KeyE" &&
-      !event.repeat &&
-      !event.defaultPrevented &&
-      player.isEnabled() &&
-      !document.body.classList.contains("quick-menu-open")
-    )
-      cargo.interact();
-  }
-  window.addEventListener("keydown", onKey);
   return {
     roomId: "transfer-passage",
     scene,
@@ -208,6 +198,13 @@ export function createScene({
       dt = Number.isFinite(dt)
         ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime))
         : 0;
+      if (
+        isActionPressed("interact") &&
+        player.isEnabled() &&
+        !document.body.classList.contains("quick-menu-open")
+      ) {
+        cargo.interact();
+      }
       advanceCargo(puzzle, dt);
       cargo.update(dt);
       physics.step(dt, player, thirdPerson);

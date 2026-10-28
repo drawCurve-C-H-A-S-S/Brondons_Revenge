@@ -1,4 +1,7 @@
 export type WeaponId = "unarmed" | "pistol" | "crowbar" | "bloomstick";
+import { isActionPressed } from "../player/inputManager.js";
+import { getControllerButtonForAction } from "../player/inputActions.js";
+
 export interface WeaponWheelEntry {
   id: WeaponId;
   label: string;
@@ -116,7 +119,7 @@ export function createWeaponWheel(options: WeaponWheelOptions) {
     root.classList.toggle("locked-pointer", !!document.pointerLockElement);
     options.setPaused(true);
     root.querySelector(".ww-hint")!.innerHTML = isControllerActive()
-      ? `Hold <kbd>${controllerButtonLabel("l")}</kbd> &nbsp; Right stick to select &nbsp; Release to equip<br>Unarmed to holster &nbsp; / &nbsp; ${controllerMenuLabel("back")} to cancel`
+      ? `Hold <kbd>${controllerButtonLabel(getControllerButtonForAction("weaponWheel") ?? "zl")}</kbd> &nbsp; Right stick to select &nbsp; Release to equip<br>Unarmed to holster &nbsp; / &nbsp; ${controllerMenuLabel("back")} to cancel`
       : "Hold <kbd>Tab</kbd> &nbsp; Aim to select &nbsp; Release to equip<br>Unarmed to holster &nbsp; / &nbsp; Esc to cancel";
     return true;
   }

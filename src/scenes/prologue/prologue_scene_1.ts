@@ -4,6 +4,7 @@ import {
   isControllerEvent,
   inputHint,
 } from "../../scripts/player/gamepadInput.js";
+import { isActionPressed } from "../../scripts/player/inputManager.js";
 import {
   createScenePhysics,
   PHYSICS,
@@ -1005,23 +1006,6 @@ export function createScene({
     if (document.hidden || document.body.classList.contains("quick-menu-open"))
       return;
     if (event.repeat) return;
-    if (playable && exitTime < 0 && !finished && event.code === "KeyE") {
-      event.preventDefault();
-      exitTime = 0;
-      player.disable();
-      player.clearInput();
-      exitPrompt.style.display = "none";
-      overlay.classList.add("hidden");
-      return;
-    }
-    if (
-      !dialogueActive ||
-      (event.code !== "Space" &&
-        !(event.code === "KeyE" && isControllerEvent(event)))
-    )
-      return;
-    event.preventDefault();
-    advanceDialogue();
   }
 
   if (!preview) {
@@ -1220,6 +1204,26 @@ export function createScene({
     chainTime += frame;
     cuffMaterial.uniforms.hologramTime.value = chainTime;
     skipHold.update(frame);
+    // Check interact action for exit or dialogue
+    if (isActionPressed("interact")) {
+      if (playable && exitTime < 0 && !finished) {
+        exitTime = 0;
+        player.disable();
+        player.clearInput();
+        exitPrompt.style.display = "none";
+        overlay.classList.add("hidden");
+        return;
+      }
+      if (dialogueActive) {
+        advanceDialogue();
+        return;
+      }
+    }
+    // Check jump action for advancing dialogue (Space)
+    if (isActionPressed("jump") && dialogueActive) {
+      advanceDialogue();
+      return;
+    }
     if (playable) {
       if (exitTime >= 0) {
         exitTime += frame;

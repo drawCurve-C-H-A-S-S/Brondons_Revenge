@@ -2,6 +2,7 @@ import { playSfx } from "../../helpers/audio/sfx.js";
 import * as THREE from "three";
 import * as CANNON from "cannon-es";
 import { loadToolModel, preloadToolModel } from "../../core/loader.js";
+import { isActionPressed } from "../../scripts/player/inputManager.js";
 import {
   createScenePhysics,
   PHYSICS,
@@ -527,7 +528,6 @@ export function createScene({
   let stealthSprintRemaining = STEALTH_SPRINT_SECONDS;
   let stealthSprintRechargeDelay = 0;
   let stealthSprintActive = false;
-  let stealthSprintHeld = false;
   let stealthCrouchEnabled = false;
   let caught = false;
   let caughtTime = 0;
@@ -671,7 +671,7 @@ export function createScene({
         stopStealthSprint();
     } else if (stealthSprintRechargeDelay > 0)
       stealthSprintRechargeDelay = Math.max(0, stealthSprintRechargeDelay - dt);
-    else if (!stealthSprintHeld)
+    else
       stealthSprintRemaining = Math.min(
         STEALTH_SPRINT_SECONDS,
         stealthSprintRemaining + dt,
@@ -1184,7 +1184,6 @@ export function createScene({
     stealthSprintRemaining = STEALTH_SPRINT_SECONDS;
     stealthSprintRechargeDelay = 0;
     stealthSprintActive = false;
-    stealthSprintHeld = false;
     stealthCrouchEnabled = false;
     runMeter.classList.add("hidden");
     player.setClimbing(false);
@@ -1325,8 +1324,8 @@ export function createScene({
       (event.code === "ShiftLeft" || event.code === "ShiftRight") &&
       checkpoint
     ) {
-      stealthSprintHeld = true;
-      startStealthSprint();
+      if (stealthSprintActive) stopStealthSprint();
+      else startStealthSprint();
       return;
     }
     if (climbing && event.code === "Space") {
@@ -1338,11 +1337,6 @@ export function createScene({
       if (event.code === "KeyR") {
         event.preventDefault();
         transferThroughDoor(doorwayTransfer.destination);
-      } else if (event.code === "KeyE") {
-        event.preventDefault();
-        blockedTransfer = doorwayTransfer.destination;
-        doorwayTransfer = null;
-        subtitle?.classList.add("hidden");
       }
       return;
     }
@@ -1351,10 +1345,7 @@ export function createScene({
       (isControllerEvent(event) &&
         ((peeking && event.code === "Space") ||
           (!caught && event.code === "KeyR")));
-    if (event.code === "KeyE") {
-      event.preventDefault();
-      interact();
-    } else if (hide && peeking) {
+    if (hide && peeking) {
       event.preventDefault();
       endPeek(false);
     } else if (
@@ -1375,13 +1366,6 @@ export function createScene({
     }
   }
   window.addEventListener("keydown", onKey);
-  function onKeyUp(event: KeyboardEvent) {
-    if (event.code === "ShiftLeft" || event.code === "ShiftRight") {
-      stealthSprintHeld = false;
-      stopStealthSprint();
-    }
-  }
-  window.addEventListener("keyup", onKeyUp);
   function resetFastClimb() {
     fastClimb = false;
   }
@@ -1391,7 +1375,6 @@ export function createScene({
   window.addEventListener("keyup", onClimbKeyUp);
   function onStealthBlur() {
     resetFastClimb();
-    stealthSprintHeld = false;
     stopStealthSprint();
   }
   window.addEventListener("blur", onStealthBlur);
@@ -1840,6 +1823,16 @@ export function createScene({
     if (player.getHealth() <= 0 && !caught) {
       if (checkpoint) finishCapture();
       else eliminateInCorridor();
+    }
+    // Check interact action
+    if (isActionPressed("interact")) {
+      if (doorwayTransfer?.error) {
+        blockedTransfer = doorwayTransfer.destination;
+        doorwayTransfer = null;
+        subtitle?.classList.add("hidden");
+      } else {
+        interact();
+      }
     }
     const frame = Number.isFinite(dt)
       ? Math.max(0, Math.min(dt, PHYSICS.maxFrameTime))
@@ -2518,7 +2511,6 @@ export function createScene({
       menuPaused = value;
       if (value) {
         fastClimb = false;
-        stealthSprintHeld = false;
         stopStealthSprint();
         skipHold.reset();
       }

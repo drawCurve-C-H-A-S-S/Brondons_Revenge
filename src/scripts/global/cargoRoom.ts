@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { createPlayer, type PlayerTransitionState } from "../player/player.js";
+import { isActionPressed } from "../player/inputManager.js";
 import {
   createScenePhysics,
   PHYSICS,
@@ -170,16 +171,6 @@ export function createCargoRoom(
     pressed = false;
   const prompt = document.getElementById("interact-prompt"),
     status = document.getElementById("loading-bay-status");
-  function onKey(event: KeyboardEvent) {
-    if (
-      event.code === "KeyE" &&
-      !event.repeat &&
-      player.isEnabled() &&
-      !cinematic.isCinematic()
-    )
-      cargo.interact();
-  }
-  window.addEventListener("keydown", onKey);
   return {
     roomId: `scene${id}`,
     scene,
@@ -216,6 +207,13 @@ export function createCargoRoom(
         status?.classList.add("hidden");
         cinematic.update(dt);
         return;
+      }
+      if (
+        isActionPressed("interact") &&
+        player.isEnabled() &&
+        !cinematic.isCinematic()
+      ) {
+        cargo.interact();
       }
       advanceCargo(puzzle, dt);
       cargo.update(dt);
@@ -255,7 +253,6 @@ export function createCargoRoom(
     dispose() {
       if (disposed) return;
       disposed = true;
-      window.removeEventListener("keydown", onKey);
       prompt?.classList.add("hidden");
       status?.classList.add("hidden");
       cinematic.dispose();

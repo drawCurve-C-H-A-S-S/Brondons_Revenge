@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { isActionPressed } from "../scripts/player/inputManager.js";
 
 const MOVE_KEYS = new Set([
   "KeyW",
@@ -84,6 +85,11 @@ export class FreeCameraController {
 
   update(dt: number) {
     if (!this.active) return;
+    // Check cancel action (Escape) to exit free camera
+    if (isActionPressed("cancel")) {
+      this.exit();
+      return;
+    }
     const frame = THREE.MathUtils.clamp(
       Number.isFinite(dt) ? dt : 0,
       0,
@@ -134,12 +140,6 @@ export class FreeCameraController {
 
   private onKeyDown = (event: KeyboardEvent) => {
     if (!this.active) return;
-    if (event.code === "Escape") {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      this.exit();
-      return;
-    }
     if (!MOVE_KEYS.has(event.code)) return;
     event.preventDefault();
     event.stopImmediatePropagation();

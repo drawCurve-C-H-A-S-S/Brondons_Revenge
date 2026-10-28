@@ -21,6 +21,8 @@ import {
   getControllerMovement,
   resetControllerInput,
 } from "./gamepadInput.js";
+import { isActionPressed, isActionDown } from "./inputManager.js";
+import type { InputAction } from "./inputActions.js";
 import {
   playJumpSound,
   playLandingSound,
@@ -391,61 +393,7 @@ export function createPlayer({
     ) {
       turnRemaining = e.code === "KeyA" ? ventTurnAngle : -ventTurnAngle;
     }
-    if (
-      !sliding &&
-      !floating &&
-      !boxHandling &&
-      !crouchForced &&
-      !ventMode &&
-      e.code === "Space" &&
-      !keys[e.code] &&
-      !e.repeat
-    )
-      jumpQueued = true;
-    if (
-      !floating &&
-      !boxHandling &&
-      e.code === "KeyC" &&
-      !crouchForced &&
-      !keys[e.code] &&
-      !e.repeat
-    ) {
-      const forwardSpeed =
-        -playerBody.velocity.x * Math.sin(yaw) -
-        playerBody.velocity.z * Math.cos(yaw);
-      const runningForward =
-        sideScrollDepth === null &&
-        keys.KeyW &&
-        !keys.KeyS &&
-        (keys.ShiftLeft || keys.ShiftRight) &&
-        !crouching &&
-        !ventMode;
-      if (
-        !sliding &&
-        runningForward &&
-        isOnGround &&
-        forwardSpeed > moveSpeed * 1.05 &&
-        slideCooldown <= 0
-      ) {
-        sliding = true;
-        playSlideSound(0.6);
-        slideTime = 0;
-        slideYaw = yaw;
-        slideEntrySpeed = forwardSpeed;
-        jumpQueued = false;
-        actionRequest = null;
-        actionRequestLife = 0;
-      } else if (!sliding && !runningForward) {
-        crouching = !crouching;
-        playCrouchSound(0.3);
-        syncCollider();
-      }
-    }
-    // Sprint with Shift key
-    if (e.code === "ShiftLeft" || e.code === "ShiftRight") {
-      if (!sprinting) playSprintSound(0.25);
-      sprinting = true;
-    }
+    // Jump, crouch, and sprint are now handled by the action system in updateCamera
     const action = ACTION_KEYS[e.code];
     if (
       !sliding &&
@@ -466,9 +414,6 @@ export function createPlayer({
   function onKeyUp(e: KeyboardEvent) {
     blockedKeys.delete(e.code);
     keys[e.code] = false;
-    if (e.code === "ShiftLeft" || e.code === "ShiftRight") {
-      sprinting = !!(keys["ShiftLeft"] || keys["ShiftRight"]);
-    }
   }
 
   function clearInput() {
@@ -836,10 +781,8 @@ export function createPlayer({
       turnRemaining -= turn;
       if (Math.abs(turnRemaining) < 1e-6) turnRemaining = 0;
     }
-    sprinting =
-      (!crouchForced || ventMode) &&
-      !boxHandling &&
-      !!(keys["ShiftLeft"] || keys["ShiftRight"]);
+    // Sprint is a persistent toggle; forced crouch and box carrying cancel it.
+    if ((crouchForced && !ventMode) || boxHandling) sprinting = false;
     const moveDir = getMoveDirection();
     let moveStrength = moveDir
       ? Math.min(1, Math.hypot(moveDir.x, moveDir.z))
@@ -1122,6 +1065,53 @@ export function createPlayer({
 
   function updateCamera(dt: number, thirdPerson: boolean = false) {
     if (!enabled) return;
+    
+    // Check action system for discrete inputs (works for both keyboard and controller)
+    // Skip if in special modes that handle these actions differently
+    if (!zeroGMode && !climbing) {
+      if (isActionPressed("jump") && !sliding && !floating && !boxHandling && !crouchForced && !ventMode && isOnGround) {
+        jumpQueued = true;
+      }
+      if (isActionPressed("crouch") && !floating && !boxHandling && !crouchForced) {
+        const forwardSpeed =
+          -playerBody.velocity.x * Math.sin(yaw) -
+          playerBody.velocity.z * Math.cos(yaw);
+        const runningForward =
+          sideScrollDepth === null &&
+          keys.KeyW &&
+          !keys.KeyS &&
+          sprinting &&
+          !crouching &&
+          !ventMode;
+        if (
+          !sliding &&
+          runningForward &&
+          isOnGround &&
+          forwardSpeed > moveSpeed * 1.05 &&
+          slideCooldown <= 0
+        ) {
+          sliding = true;
+          playSlideSound(0.6);
+          slideTime = 0;
+          slideYaw = yaw;
+          slideEntrySpeed = forwardSpeed;
+          jumpQueued = false;
+          actionRequest = null;
+          actionRequestLife = 0;
+        } else if (!sliding && !runningForward) {
+          crouching = !crouching;
+          playCrouchSound(0.3);
+          syncCollider();
+        }
+      }
+    }
+    if (!zeroGMode && !climbing && !ventMode) {
+      if (isActionPressed("sprint")) {
+        sprinting = !sprinting;
+        if (sprinting) playSprintSound(0.25);
+      }
+    }
+    
     syncCollider();
     // Expire action requests after one character-update cycle (physics.step
     // calls this once per render frame, before the character update).

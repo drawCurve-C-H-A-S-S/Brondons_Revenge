@@ -124,6 +124,14 @@ import {
 } from "./scripts/player/gamepadInput.js";
 import { getControlsReference } from "./scripts/player/controlsReference.js";
 import { renderControllerBinding } from "./scripts/player/controllerIcons.js";
+import { inputManager, isActionPressed } from "./scripts/player/inputManager.js";
+import {
+  loadMappings,
+  resetMappings,
+  setControllerButton,
+  setKeyboardKey,
+  type InputAction,
+} from "./scripts/player/inputActions.js";
 import {
   createInputPromptObserver,
   formatDialogue,
@@ -142,6 +150,16 @@ import { createGameMusic, MUSIC_URLS } from "./helpers/audio/gameMusic.js";
 import { loadToolModel, yieldToMainThread } from "./core/loader.js";
 
 configureAssetCache(GAME_ASSET_URLS);
+loadMappings();
+
+window.addEventListener(
+  "keydown",
+  (event) => handleRemapKeyDown(event),
+  true,
+);
+window.addEventListener("keydown", (event) => inputManager.onKeyDown(event));
+window.addEventListener("keyup", (event) => inputManager.onKeyUp(event));
+
 const openingMusicReady = preloadMusic(MUSIC_URLS.loading);
 void openingMusicReady.catch((error) =>
   console.error("[Opening] Soundtrack preparation failed:", error),
@@ -1103,13 +1121,13 @@ const lessons: Record<string, Omit<ControlCard, "key" | "scene">> = {
     title: "Stealth movement",
     lines: [
       "Stay crouched in the hangar · C keeps you low",
-      "Hold Shift for up to 5 seconds of normal RUN",
-      "Release Shift to recharge RUN beside the UNSEEN meter",
+      "Shift toggles RUN bursts of up to 5 seconds",
+      "RUN recharges beside the UNSEEN meter when not sprinting",
     ],
     touch: [
       "Stay crouched in the hangar",
-      "Hold SPRINT for up to 5 seconds of normal RUN",
-      "Release SPRINT to recharge the RUN meter",
+      "SPRINT toggles RUN bursts of up to 5 seconds",
+      "RUN recharges when not sprinting",
     ],
   },
   pistol: {
@@ -1146,7 +1164,7 @@ const lessons: Record<string, Omit<ControlCard, "key" | "scene">> = {
   vent: {
     title: "Vent maze",
     lines: [
-      "WASD / arrows move · Hold Shift crouch sprint",
+      "WASD / arrows move · Shift toggles crouch sprint",
       "Green sensors safe · blue pads checkpoint",
       "E climb ladder · Hold Space climb fast",
     ],
@@ -1475,8 +1493,6 @@ function setupViewToggle() {
       event.preventDefault();
       dismissControls();
     }
-    // Scenes with their own camera input consume V themselves.
-    if (event.code === "KeyV" && !currentSceneData?.toggleView) toggleView();
   });
 }
 function canToggleView() {
@@ -3573,6 +3589,9 @@ let shipMap: ReturnType<typeof createShipMap> | null = null;
 let shipMapLayout: ShipMapLayout | undefined;
 let controlsReturnScreen: "home" | "scenes" = "home";
 let controlsTab: InputMode = "keyboard";
+let assignControlsMode = false;
+let assignControlsIndex = 0;
+let assignControlsActions: InputAction[] = [];
 let lastControllerStatus: ControllerStatus | null = null;
 // Memory only: survives menus and scene changes, but resets on browser refresh.
 let developerUnlocked = false;
@@ -3683,13 +3702,19 @@ function syncControlsScrollHint() {
   const text = hint.querySelector("span");
   if (text) text.textContent = atEnd ? "Scroll up for earlier controls" : "Scroll for more controls";
 }
+const calibrateStartButton = document.getElementById(
+  "controller-setup-start",
+) as HTMLButtonElement | null;
+const calibrateCancelButton = document.getElementById(
+  "controller-setup-cancel",
+) as HTMLButtonElement | null;
 function renderControlsReference() {
   const devices = lastControllerStatus?.controllers ?? [];
   document.getElementById("pause-controls-description")!.textContent =
     controlsTab === "keyboard"
       ? "Complete keyboard and mouse controls for every chapter. Use any device to switch gameplay prompts automatically."
       : devices.length
-        ? "Complete controls for every connected controller. Devices and button labels update as controllers connect or disconnect."
+        ? ""
         : "No controller detected. Connect one and press a button to make it visible to the browser. Keyboard and mouse remain available.";
   const entries = getControlsReference(devices)
     .filter(
@@ -3699,15 +3724,50 @@ function renderControlsReference() {
       const section = document.createElement("section");
       section.className = "pause-control-device";
       section.dataset.deviceId = device.id;
-      const heading = document.createElement("h2");
-      heading.id = `pause-control-${device.id}`;
-      heading.textContent = device.title;
-      section.setAttribute("aria-labelledby", heading.id);
-      section.appendChild(heading);
-      const connection = document.createElement("p");
-      connection.className = "control-device-connection";
-      connection.textContent = `${device.name}${device.active ? " · Active input" : ""}${device.ready ? "" : " · Calibrate before playing"}`;
-      section.appendChild(connection);
+      if (device.id !== "keyboard") {
+        const heading = document.createElement("h2");
+        heading.id = `pause-control-${device.id}`;
+        heading.textContent = device.title;
+        section.setAttribute("aria-labelledby", heading.id);
+        section.appendChild(heading);
+      }
+      const buttonRow = document.createElement("div");
+      buttonRow.className = "controls-button-row";
+      const assignBtn = document.createElement("button");
+      assignBtn.type = "button";
+      assignBtn.className = "menu-button controls-assign-button";
+      if (assignControlsMode) {
+        const currentAction = assignControlsActions[assignControlsIndex];
+        assignBtn.textContent = `Press a key/button for: ${formatActionName(currentAction)}`;
+        assignBtn.classList.add("controls-assign-listening");
+      } else {
+        assignBtn.textContent = "Assign controls";
+      }
+      assignBtn.addEventListener("click", () => {
+        if (assignControlsMode) {
+          cancelAssignControls();
+        } else {
+          startAssignControls();
+        }
+      });
+      buttonRow.appendChild(assignBtn);
+      const resetBtn = document.createElement("button");
+      resetBtn.type = "button";
+      resetBtn.className = "menu-button controls-reset-button";
+      resetBtn.textContent = "Reset to defaults";
+      resetBtn.addEventListener("click", () => {
+        resetMappings();
+        renderControlsReference();
+      });
+      buttonRow.appendChild(resetBtn);
+      section.appendChild(buttonRow);
+      const setupHome = document.getElementById("controller-setup");
+      if (device.id !== "keyboard") {
+        if (calibrateStartButton) buttonRow.insertBefore(calibrateStartButton, resetBtn);
+        if (calibrateCancelButton) buttonRow.insertBefore(calibrateCancelButton, resetBtn);
+      } else if (setupHome && calibrateStartButton && calibrateCancelButton) {
+        setupHome.append(calibrateStartButton, calibrateCancelButton);
+      }
       for (const group of device.groups) {
         const entry = document.createElement("section");
         entry.className = "pause-control-entry";
@@ -3716,9 +3776,10 @@ function renderControlsReference() {
         const rows = document.createElement("dl");
         rows.className = "control-bindings";
         for (const row of group.rows) {
-          const action = document.createElement("dt");
-          action.textContent = row.action;
+          const actionDt = document.createElement("dt");
+          actionDt.textContent = row.action;
           const binding = document.createElement("dd");
+          binding.className = "control-binding-cell";
           if (device.controllerType && row.controllerBinding !== null)
             renderControllerBinding(
               binding,
@@ -3727,7 +3788,14 @@ function renderControlsReference() {
               device.swapAB,
             );
           else binding.textContent = row.binding;
-          rows.append(action, binding);
+          if (
+            assignControlsMode &&
+            row.remapAction === assignControlsActions[assignControlsIndex]
+          ) {
+            actionDt.classList.add("controls-action-highlight");
+            binding.classList.add("controls-action-highlight");
+          }
+          rows.append(actionDt, binding);
         }
         entry.append(title, rows);
         section.appendChild(entry);
@@ -3739,6 +3807,85 @@ function renderControlsReference() {
   list.replaceChildren(...entries);
   list.scrollTop = scrollTop;
   requestAnimationFrame(syncControlsScrollHint);
+}
+function formatActionName(action: InputAction): string {
+  const names: Record<InputAction, string> = {
+    jump: "Jump",
+    attack: "Attack",
+    interact: "Interact",
+    sprint: "Sprint",
+    crouch: "Crouch",
+    viewToggle: "Toggle view",
+    weaponWheel: "Weapon wheel",
+    dodge: "Dodge",
+    pause: "Pause",
+    map: "Map",
+    confirm: "Confirm",
+    cancel: "Cancel",
+    menuUp: "Menu up",
+    menuDown: "Menu down",
+    menuLeft: "Menu left",
+    menuRight: "Menu right",
+    menuNavigate: "Menu navigate",
+  };
+  return names[action] ?? action;
+}
+function startAssignControls() {
+  assignControlsMode = true;
+  assignControlsIndex = 0;
+  assignControlsActions = [
+    "jump",
+    "attack",
+    "interact",
+    "sprint",
+    "crouch",
+    "viewToggle",
+    "weaponWheel",
+    "dodge",
+    "pause",
+    "map",
+    "confirm",
+    "cancel",
+  ];
+  renderControlsReference();
+}
+function cancelAssignControls() {
+  assignControlsMode = false;
+  assignControlsIndex = 0;
+  assignControlsActions = [];
+  renderControlsReference();
+}
+function advanceAssignControls() {
+  assignControlsIndex++;
+  if (assignControlsIndex >= assignControlsActions.length) {
+    cancelAssignControls();
+  } else {
+    renderControlsReference();
+  }
+}
+function handleAssignInput(code: string, isController: boolean) {
+  if (!assignControlsMode) return false;
+  const action = assignControlsActions[assignControlsIndex];
+  if (isController) {
+    setControllerButton(code as any, action);
+  } else {
+    setKeyboardKey(code, action);
+  }
+  advanceAssignControls();
+  return true;
+}
+function handleRemapKeyDown(event: KeyboardEvent) {
+  if (!assignControlsMode) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    cancelAssignControls();
+    return;
+  }
+  if (handleAssignInput(event.code, false)) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
 }
 function renderControllerStatus(status: ControllerStatus) {
   lastControllerStatus = status;
@@ -3766,6 +3913,9 @@ function renderControllerStatus(status: ControllerStatus) {
     .getElementById("controller-controls-settings")!
     .classList.toggle("hidden", controlsTab !== "controller");
   document
+    .getElementById("controller-calibration-group")!
+    .classList.toggle("hidden", controlsTab !== "controller");
+  document
     .getElementById("pause-controls-list")!
     .setAttribute(
       "aria-labelledby",
@@ -3787,22 +3937,20 @@ function renderControllerStatus(status: ControllerStatus) {
         return option;
       }),
     );
+    if (!status.controllers.length) {
+      const emptyOption = document.createElement("option");
+      emptyOption.value = "";
+      emptyOption.textContent = "Select a controller";
+      deviceSelect.appendChild(emptyOption);
+    }
   }
   deviceSelect.value = status.index === null ? "" : String(status.index);
   deviceSelect.disabled = !!status.setupStep || !status.controllers.length;
-  for (const button of document.querySelectorAll<HTMLButtonElement>(
-    "button[data-controller-type]",
-  )) {
-    button.setAttribute(
-      "aria-pressed",
-      String(button.dataset.controllerType === status.type),
-    );
-    button.disabled = !!status.setupStep;
-  }
+  const typeSelect = document.getElementById("controller-type-select") as HTMLSelectElement;
+  typeSelect.value = status.type ?? "generic";
+  typeSelect.disabled = !!status.setupStep;
   const connection = document.getElementById("controller-status")!;
-  connection.textContent = status.name
-    ? `${status.name} — ${status.message}`
-    : status.message;
+  connection.textContent = status.name ? "" : status.message;
   connection.dataset.ready = String(status.ready);
   document
     .getElementById("controller-layout-options")!
@@ -3817,14 +3965,14 @@ function renderControllerStatus(status: ControllerStatus) {
         : "Swap A/B for this controller";
   document
     .getElementById("controller-setup")!
-    .classList.toggle("hidden", !status.canSetup);
+    .classList.toggle("hidden", !status.setupStep);
   document.getElementById("controller-setup-start")!.textContent =
     "Calibrate game controls";
   document.getElementById("controller-setup-step")!.textContent =
     status.setupStep ?? "";
   document
     .getElementById("controller-setup-start")!
-    .classList.toggle("hidden", !!status.setupStep);
+    .classList.toggle("hidden", !status.canSetup || !!status.setupStep);
   document
     .getElementById("controller-setup-cancel")!
     .classList.toggle("hidden", !status.setupStep);
@@ -4009,6 +4157,18 @@ function setupControllerInput() {
       controllerNoticeTime = popupDuration(5);
     },
     onMenuAction: controllerMenuAction,
+    onRawButtonPress: (buttonIndex) => {
+      if (assignControlsMode) {
+        const buttonNames = [
+          "a", "b", "x", "y", "l", "r", "zl", "zr", "minus", "plus",
+          "leftStick", "rightStick", "up", "down", "left", "right",
+        ];
+        const buttonName = buttonNames[buttonIndex];
+        if (buttonName && ["a", "b", "x", "y", "l", "r", "zl", "zr", "minus", "plus", "leftStick", "rightStick", "up", "down", "left", "right"].includes(buttonName)) {
+          handleAssignInput(buttonName, true);
+        }
+      }
+    },
     onMapNavigate: (input, delta) =>
       shipMap?.navigateWithController(input, delta),
     aimWheel: (x, y) => weaponWheel.aimFromStick(x, y),
@@ -4027,16 +4187,14 @@ function setupControllerInput() {
         Number((event.currentTarget as HTMLSelectElement).value),
       );
     });
-  for (const button of document.querySelectorAll<HTMLButtonElement>(
-    "button[data-controller-type]",
-  )) {
-    button.addEventListener("click", () => {
-      const type = button.dataset.controllerType;
-      if (!type || !isControllerType(type))
+  document
+    .getElementById("controller-type-select")!
+    .addEventListener("change", (event) => {
+      const type = (event.currentTarget as HTMLSelectElement).value;
+      if (!isControllerType(type))
         throw new Error("Invalid controller type selection");
       controllerInput!.setControllerType(type);
     });
-  }
   document
     .getElementById("controller-setup-start")!
     .addEventListener("click", () => controllerInput!.beginSetup());
@@ -4069,7 +4227,10 @@ function setupControllerInput() {
 }
 function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
   if (cinematicLoading.active && screen !== null) return;
-  if (screen !== "controls") controllerInput?.cancelSetup();
+  if (screen !== "controls") {
+    controllerInput?.cancelSetup();
+    if (assignControlsMode) cancelAssignControls();
+  }
   weaponWheel.close();
   if (screen === "developer" && developerUnlocked) screen = "scenes";
   if (screen === menuScreen) return;
@@ -4170,9 +4331,6 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
     document
       .getElementById("pause-home")!
       .classList.toggle("hidden", screen !== "home");
-    document
-      .getElementById("pause-prime-settings")!
-      .classList.toggle("hidden", screen !== "controls");
     (
       document.getElementById("prime-hints-toggle") as HTMLInputElement
     ).checked = getPrimeHintsEnabled();
@@ -4959,6 +5117,9 @@ function setupSceneQuickMenu() {
   window.addEventListener("scroll", updateSoundSliderRotations, {
     passive: true,
   });
+  document
+    .getElementById("pause-sound-panel")!
+    .addEventListener("scroll", updateSoundSliderRotations, { passive: true });
   updateSoundSliderRotations();
   pauseMenu.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -5174,28 +5335,7 @@ function setupSceneQuickMenu() {
         event.stopImmediatePropagation();
         return;
       }
-      if (
-        event.code === "KeyM" &&
-        !editing &&
-        !event.ctrlKey &&
-        !event.altKey &&
-        !event.metaKey
-      ) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        if (!event.repeat) {
-          if (menuScreen === "credits") backFromMenu();
-          else setPauseMenu(quickMenuOpen ? null : "home");
-        }
-        return;
-      }
       if (!quickMenuOpen) return;
-      if (event.code === "Escape") {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        if (!event.repeat) backFromMenu();
-        return;
-      }
       if (
         menuScreen === "scenes" &&
         ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.code)
@@ -5349,6 +5489,29 @@ function animate() {
 
   controllerInput?.update(delta);
   updateControllerMenuFocus();
+  
+  // Check global actions (pause, view toggle)
+  const editing =
+    document.activeElement instanceof HTMLElement &&
+    document.activeElement.closest(
+      'input:not([type="range"]), textarea, select, [contenteditable="true"]',
+    );
+  if (!editing && !document.body.classList.contains("facility-browser-open")) {
+    if (isActionPressed("pause")) {
+      if (menuScreen === "credits") backFromMenu();
+      else setPauseMenu(quickMenuOpen ? null : "home");
+    }
+    if (isActionPressed("map") && canViewShipMap()) {
+      setPauseMenu("map");
+    }
+    if (isActionPressed("cancel") && quickMenuOpen) {
+      backFromMenu();
+    }
+    if (isActionPressed("viewToggle") && !currentSceneData?.toggleView) {
+      toggleView();
+    }
+  }
+  
   if (!openingReady) return;
   if (controllerNoticeTime > 0) {
     controllerNoticeTime = Math.max(
@@ -5614,6 +5777,8 @@ function animate() {
     updateComicEffects(scene, activeCamera, delta, renderer);
     renderGameplayFrame(scene, activeCamera);
   }
+
+  inputManager.endFrame();
 }
 
 animate();

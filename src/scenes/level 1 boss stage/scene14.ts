@@ -3,6 +3,7 @@ import { BAY_FOURTEEN_MAP } from "../level 1 stage 2/stageTwoLayout.js";
 import * as CANNON from "cannon-es";
 import { clone } from "three/addons/utils/SkeletonUtils.js";
 import { loadToolModel } from "../../core/loader.js";
+import { isActionPressed } from "../../scripts/player/inputManager.js";
 import {
   createScenePhysics,
   PHYSICS,
@@ -753,15 +754,6 @@ export function createScene({
     )
       return;
     pressed.add(event.code);
-    if (phase === "arrival" && assetError && event.code === "KeyE") {
-      void loadCrowd();
-      return;
-    }
-    if (phase === "aboard" && event.code === "KeyE") {
-      event.preventDefault();
-      beginLaunch();
-      return;
-    }
     if (phase !== "prompt" || !QTE_SEQUENCE.includes(event.code as EscapeKey))
       return;
     event.preventDefault();
@@ -1671,6 +1663,17 @@ export function createScene({
         document.body.classList.contains("quick-menu-open")
       )
         return;
+      // Check interact action for phase-specific handlers
+      if (isActionPressed("interact")) {
+        if (phase === "arrival" && assetError) {
+          void loadCrowd();
+          return;
+        }
+        if (phase === "aboard") {
+          beginLaunch();
+          return;
+        }
+      }
       const realDt = dt;
       const frameStart = new THREE.Vector3().copy(player.body.position);
       const slowMotion =

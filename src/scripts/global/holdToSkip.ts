@@ -1,5 +1,3 @@
-export const SKIP_HOLD_SECONDS = 1.1;
-
 export function createHoldToSkip({
   button,
   onSkip,
@@ -11,19 +9,16 @@ export function createHoldToSkip({
   isAvailable?: () => boolean;
   isPaused?: () => boolean;
 }) {
-  let held = false,
-    elapsed = 0,
-    completed = false,
+  let completed = false,
     disposed = false;
   button.classList.add("hold-to-skip");
-  button.textContent = "Hold Enter to skip";
-  button.title = "Hold Enter for 1.1 seconds to skip";
+  button.textContent = "Press Enter to skip";
+  button.title = "Press Enter to skip";
   button.setAttribute("aria-label", button.title);
   button.setAttribute("aria-keyshortcuts", "Enter");
 
   function reset() {
-    held = completed = false;
-    elapsed = 0;
+    completed = false;
     button.style.setProperty("--skip-progress", "0");
   }
   function available() {
@@ -49,21 +44,19 @@ export function createHoldToSkip({
       return;
     }
     event.preventDefault();
-    if (!event.repeat && !completed) held = true;
-  }
-  function onKeyUp(event: KeyboardEvent) {
-    if (event.code === "Enter" || event.code === "NumpadEnter") reset();
+    if (!completed) {
+      completed = true;
+      onSkip();
+    }
   }
   function onClick(event: MouseEvent) {
     event.preventDefault();
     if (available() && !completed) {
       completed = true;
-      held = false;
       onSkip();
     }
   }
   window.addEventListener("keydown", onKeyDown);
-  window.addEventListener("keyup", onKeyUp);
   window.addEventListener("blur", reset);
   document.addEventListener("visibilitychange", reset);
   button.addEventListener("click", onClick);
@@ -71,35 +64,18 @@ export function createHoldToSkip({
 
   return {
     reset,
-    update(delta: number) {
-      button.textContent = inputHint("Hold Enter to skip");
-      button.title = inputHint("Hold Enter for 1.1 seconds to skip");
+    update(_delta: number) {
+      button.textContent = inputHint("Press Enter to skip");
+      button.title = inputHint("Press Enter to skip");
       button.setAttribute("aria-label", button.title);
       if (!available()) {
         reset();
-        return;
-      }
-      if (!held || completed) return;
-      elapsed = Math.min(
-        SKIP_HOLD_SECONDS,
-        elapsed +
-          (Number.isFinite(delta) ? Math.max(0, Math.min(delta, 0.1)) : 0),
-      );
-      button.style.setProperty(
-        "--skip-progress",
-        String(elapsed / SKIP_HOLD_SECONDS),
-      );
-      if (elapsed >= SKIP_HOLD_SECONDS) {
-        completed = true;
-        held = false;
-        onSkip();
       }
     },
     dispose() {
       disposed = true;
       reset();
       window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", reset);
       document.removeEventListener("visibilitychange", reset);
       button.removeEventListener("click", onClick);

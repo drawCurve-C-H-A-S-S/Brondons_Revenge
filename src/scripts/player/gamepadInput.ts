@@ -1,3 +1,12 @@
+import {
+  getActionForKey,
+  getControllerButtonForAction,
+  getControllerMapping,
+  getKeysForAction,
+  type InputAction,
+} from "./inputActions";
+import { setControllerAction, clearControllerActions } from "./inputManager";
+
 export type InputMode = "keyboard" | "controller";
 const CONTROLLER_TYPES = ["switch", "xbox", "playstation", "generic"] as const;
 export type ControllerType = (typeof CONTROLLER_TYPES)[number];
@@ -24,6 +33,8 @@ const BUTTONS = [
   "zr",
   "minus",
   "plus",
+  "leftStick",
+  "rightStick",
   "up",
   "down",
   "left",
@@ -92,6 +103,7 @@ interface GamepadInputOptions {
   onNotice: (message: string) => void;
   onMenuAction: (action: ControllerMenuAction) => void;
   onMapNavigate?: (input: ControllerMapInput, delta: number) => void;
+  onRawButtonPress?: (buttonIndex: number) => void;
   aimWheel: (x: number, y: number) => void;
   cancelWheel: () => void;
 }
@@ -160,6 +172,8 @@ const profiles: Record<
       zr: "ZR",
       minus: "-",
       plus: "+",
+      leftStick: "L3",
+      rightStick: "R3",
       ...directionalLabels,
     },
   },
@@ -176,8 +190,10 @@ const profiles: Record<
       r: "RB",
       zl: "LT",
       zr: "RT",
-      minus: "View",
-      plus: "Menu",
+      minus: "Select",
+      plus: "Start",
+      leftStick: "LS",
+      rightStick: "RS",
       ...directionalLabels,
     },
   },
@@ -196,6 +212,8 @@ const profiles: Record<
       zr: "R2",
       minus: "Create / Share",
       plus: "Options",
+      leftStick: "L3",
+      rightStick: "R3",
       ...directionalLabels,
     },
   },
@@ -214,6 +232,8 @@ const profiles: Record<
       zr: "Button 8 (right trigger)",
       minus: "Button 9 (Back)",
       plus: "Button 10 (Start)",
+      leftStick: "Button 11 (left stick)",
+      rightStick: "Button 12 (right stick)",
       ...directionalLabels,
     },
   },
@@ -250,12 +270,31 @@ export function controllerMenuLabel(
     swapAB,
   );
 }
+// {jump}-style placeholders resolve through the remap layer so hints and the
+// controls reference follow reassigned buttons; {b}-style ones stay physical.
+const actionLabelTokens: Partial<Record<string, InputAction>> = {
+  jump: "jump",
+  attack: "attack",
+  interact: "interact",
+  sprint: "sprint",
+  crouch: "crouch",
+  viewToggle: "viewToggle",
+  weaponWheel: "weaponWheel",
+  dodge: "dodge",
+  map: "map",
+  pause: "pause",
+};
 export function controllerText(
   text: string,
   type: ControllerType = controllerType ?? "generic",
   swapAB = controllerSwapAB,
 ) {
-  return text.replace(/\{([a-z]+)\}/g, (_, value: string) => {
+  return text.replace(/\{([a-zA-Z]+)\}/g, (_, value: string) => {
+    const action = actionLabelTokens[value];
+    if (action) {
+      const mapped = getControllerButtonForAction(action);
+      return mapped ? controllerButtonLabel(mapped, type, swapAB) : value;
+    }
     const button = BUTTONS.find((button) => button === value);
     if (!button) throw new Error(`Unknown controller button in hint: ${value}`);
     return controllerButtonLabel(button, type, swapAB);
@@ -287,6 +326,8 @@ const standardLayout: ControllerLayout = {
     zr: { button: 7 },
     minus: { button: 8 },
     plus: { button: 9 },
+    leftStick: { button: 10 },
+    rightStick: { button: 11 },
     up: { button: 12 },
     down: { button: 13 },
     left: { button: 14 },
@@ -297,26 +338,9 @@ const standardLayout: ControllerLayout = {
   rightX: { axis: 2, sign: 1, neutral: 0 },
   rightY: { axis: 3, sign: 1, neutral: 0 },
 };
-const footKeys: Partial<Record<ControllerButton, string>> = {
-  b: "Space",
-  r: "KeyE",
-  y: "KeyC",
-  x: "KeyV",
-  zl: "ShiftLeft",
-  l: "Tab",
-  zr: "KeyN",
-  minus: "Enter",
-  up: "KeyT",
-  down: "KeyQ",
-  left: "KeyR",
-  right: "Digit9",
-};
-const contextKeys: Record<
-  ControllerContext,
-  Partial<Record<ControllerButton, string>>
+const contextKeys: Partial<
+  Record<ControllerContext, Partial<Record<ControllerButton, string>>>
 > = {
-  foot: footKeys,
-  platformer: footKeys,
   inspection: { r: "KeyE", b: "Escape", left: "KeyR" },
   cinematic: { r: "KeyE", b: "Space", left: "KeyR", minus: "Enter" },
   flight: { b: "Space", r: "Enter", x: "KeyV", minus: "Enter" },
@@ -353,6 +377,96 @@ const contextKeys: Record<
     minus: "Enter",
   },
 };
+
+const contextActions: Partial<
+  Record<ControllerContext, Partial<Record<ControllerButton, InputAction>>>
+> = {
+  inspection: { r: "interact", b: "cancel" },
+  cinematic: { r: "interact", b: "jump", minus: "confirm" },
+  flight: { b: "jump", r: "confirm", x: "viewToggle", minus: "confirm" },
+  finale: {
+    a: "attack",
+    x: "attack",
+    zl: "attack",
+    b: "jump",
+    r: "interact",
+    y: "crouch",
+    minus: "confirm",
+  },
+  "finale-qte": {
+    a: "attack",
+    x: "attack",
+    zl: "attack",
+    b: "jump",
+    r: "interact",
+    y: "attack",
+    minus: "confirm",
+  },
+  escape: {
+    a: "attack",
+    x: "attack",
+    b: "cancel",
+    y: "attack",
+    r: "interact",
+    minus: "confirm",
+  },
+};
+
+// On foot, button -> action comes from the remap layer so "Assign controls"
+// drives gameplay instead of a second hardcoded table.
+const footActionSet: InputAction[] = [
+  "jump",
+  "attack",
+  "interact",
+  "sprint",
+  "crouch",
+  "viewToggle",
+  "weaponWheel",
+  "map",
+  "dodge",
+];
+function footButtonActions(): Partial<Record<ControllerButton, InputAction>> {
+  const result: Partial<Record<ControllerButton, InputAction>> = {};
+  for (const [button, action] of Object.entries(getControllerMapping()))
+    if (action && (footActionSet as string[]).includes(action))
+      result[button as ControllerButton] = action;
+  return result;
+}
+function contextButtonActions(
+  kind: ControllerContext,
+): Partial<Record<ControllerButton, InputAction>> {
+  if (kind === "foot" || kind === "platformer") return footButtonActions();
+  return contextActions[kind] ?? {};
+}
+function wheelButton(): ControllerButton {
+  return getControllerButtonForAction("weaponWheel") ?? "zl";
+}
+
+// D-pad utilities keep fixed synthesized keys: T/Q teleport device, R hide / retry, 9 dance.
+const dpadSynthKeys: Partial<Record<ControllerButton, string>> = {
+  up: "KeyT",
+  down: "KeyQ",
+  left: "KeyR",
+  right: "Digit9",
+};
+// Features that listen for specific keys regardless of the keyboard mapping:
+// Tab is the weapon wheel's hold-to-equip key, N toggles goggles, and attack
+// fires through synthesized mouse clicks rather than a key.
+const actionSynthKeys: Partial<Record<InputAction, string[]>> = {
+  attack: [],
+  dodge: ["KeyN"],
+  weaponWheel: ["Tab"],
+};
+function footSynthKeys(
+  button: ControllerButton,
+  action: InputAction | undefined,
+): string[] {
+  const dpad = dpadSynthKeys[button];
+  if (dpad) return [dpad];
+  if (!action) return [];
+  return actionSynthKeys[action] ?? getKeysForAction(action);
+}
+
 const labels: Record<string, string> = {
   KeyW: "Left stick up",
   KeyS: "Left stick down",
@@ -362,19 +476,19 @@ const labels: Record<string, string> = {
   ArrowDown: "Left stick down",
   ArrowLeft: "Left stick left",
   ArrowRight: "Left stick right",
-  Space: "{b}",
-  KeyE: "{r}",
-  KeyC: "{y}",
-  ShiftLeft: "{zl}",
-  Tab: "{l}",
-  MouseLeft: "{a}",
-  KeyV: "{x}",
-  KeyN: "{zr}",
+  Space: "{jump}",
+  KeyE: "{interact}",
+  KeyC: "{crouch}",
+  ShiftLeft: "{sprint}",
+  Tab: "{weaponWheel}",
+  MouseLeft: "{attack}",
+  KeyV: "{viewToggle}",
+  KeyN: "{dodge}",
   KeyQ: "{down}",
   KeyT: "{up}",
   Digit9: "{right}",
-  KeyM: "{plus}",
-  Escape: "{plus}",
+  KeyM: "{map}",
+  Escape: "{pause}",
   Enter: "{minus}",
   KeyR: "{left}",
 };
@@ -404,6 +518,15 @@ export function controllerLabel(
       KeyO: "y",
     };
     if (escapeLabels[code]) return buttonLabel(escapeLabels[code]);
+  }
+  if (code === "MouseLeft")
+    return buttonLabel(getControllerButtonForAction("attack") ?? "a");
+  if (code === "Enter") return controllerMenuLabel("confirm", type, swapAB);
+  // R doubles as the hide / retry utility, so it keeps its D-pad Left label.
+  if (code !== "KeyR") {
+    const action = getActionForKey(code);
+    const mapped = action ? getControllerButtonForAction(action) : null;
+    if (mapped) return buttonLabel(mapped);
   }
   return controllerText(
     labels[code] ?? code.replace(/^Key|^Digit/, ""),
@@ -470,82 +593,82 @@ export function inputDialogue(
 
 export const CONTROLLER_LESSONS: Record<string, string[]> = {
   quarters: [
-    "Left stick - walk / Hold {zl} - sprint / Right stick - look",
-    "{y} while sprinting forward with {zl} - slide tackle; otherwise toggle crouch",
-    "{a} while unarmed - random punches",
-    "Look at a nameplate to see the room name / {r} - doors, chests and devices",
-    "{x} - first / third person / {plus} - pause and map / Hold {minus} to skip cinematics",
+    "Left stick - walk / {sprint} - sprint (toggle) / Right stick - look",
+    "{crouch} while sprinting forward - slide tackle; otherwise toggle crouch",
+    "{attack} while unarmed - random punches",
+    "Look at a nameplate to see the room name / {interact} - doors, chests and devices",
+    "{viewToggle} - first / third person / {pause} - pause / {map} - ship map / {confirm} to skip cinematics",
     "Look around the crew cabins for useful items before leaving",
   ],
   basics: [
-    "Left stick - walk / Hold {zl} - sprint / Right stick - look",
-    "{b} - jump / {y} - crouch (slide tackle while sprinting forward with {zl}) / {r} - interact",
-    "Hold {l} - weapons / Right stick - select / Release {l} - equip / {a} - attack",
-    "Select Unarmed / {a} - random punches",
-    "{zr} - goggles / D-pad Right - dance / {x} - view / {plus} - pause / Hold {minus} to skip cinematics",
+    "Left stick - walk / {sprint} - sprint (toggle) / Right stick - look",
+    "{jump} - jump / {crouch} - crouch (slide tackle while sprinting forward) / {interact} - interact",
+    "Hold {weaponWheel} - weapons / Right stick - select / Release {weaponWheel} - equip / {attack} - attack",
+    "Select Unarmed to holster / {attack} - random punches",
+    "{dodge} - goggles / D-pad Right - dance / {viewToggle} - view / {pause} - pause / {map} - ship map / {confirm} to skip cinematics",
   ],
   stealth: [
-    "Stay crouched in the hangar / Hold {zl} for up to 5 seconds of normal RUN",
-    "Release {zl} to recharge the RUN meter / Right stick - look",
-    "{r} - interact / Hold {minus} to skip cinematics / {plus} - pause",
+    "Stay crouched in the hangar / {sprint} toggles up to 5 seconds of normal RUN",
+    "Release {sprint} to recharge the RUN meter / Right stick - look",
+    "{interact} - interact / {map} - ship map / {pause} - pause / {confirm} to skip cinematics",
   ],
   pistol: [
-    "Hold {l}, select pistol with the right stick, release {l} to equip",
-    "Select Unarmed to holster / {a} - shoot at your crosshair",
+    "Hold {weaponWheel}, select pistol with the right stick, release {weaponWheel} to equip",
+    "Select Unarmed to holster / {attack} - shoot at your crosshair",
   ],
   crowbar: [
-    "Hold {l}, select crowbar with the right stick, release {l} to equip",
-    "Select Unarmed to holster / {a} - swing",
+    "Hold {weaponWheel}, select crowbar with the right stick, release {weaponWheel} to equip",
+    "Select Unarmed to holster / {attack} - swing",
   ],
   bloomstick: [
-    "Hold {l}, select bloomstick with the right stick, release {l} to equip",
-    "Select Unarmed to holster / {a} - slash",
-    "Left stick up + {a} - sword lunge / left or right + {a} - directional cut / down + {a} - finishing cut",
-    "Up-left + {a} - regular combo / up-right + {a} - heavy combo / neutral {a} - three-cut chain",
+    "Hold {weaponWheel}, select bloomstick with the right stick, release {weaponWheel} to equip",
+    "Select Unarmed to holster / {attack} - slash",
+    "Left stick up + {attack} - sword lunge / left or right + {attack} - directional cut / down + {attack} - finishing cut",
+    "Up-left + {attack} - regular combo / up-right + {attack} - heavy combo / neutral {attack} - three-cut chain",
   ],
   teleport: [
     "Tap D-pad Down - place purple anchor / Hold and release - throw crystal",
     "D-pad Up - teleport to your anchor",
     "D-pad Left - return from a minigame to the camera room",
   ],
-  goggles: ["{zr} - wear / remove scanner goggles"],
+  goggles: ["{dodge} - wear / remove scanner goggles"],
   vent: [
-    "Left stick - move / Hold {zl} - faster crawl",
+    "Left stick - move / {sprint} toggles faster crawl",
     "Explore the branches to find the camera-room exit",
     "Wait for green sensors / Blue pads are checkpoints",
   ],
   cargo: [
-    "{r} - grab / release a nearby box",
+    "{interact} - grab / release a nearby box",
     "Left stick - move while holding it",
   ],
   flight: [
     "Left stick - steer / Right stick - aim",
-    "Hold {a} - fire / {b} - evade / {r} - activate collected shield",
-    "{x} - cockpit / chase camera / {plus} - pause / {minus} - skip VS intro",
+    "Hold {attack} - fire / {b} - evade / {r} - activate collected shield",
+    "{viewToggle} - cockpit / chase camera / {pause} - pause / {confirm} - skip VS intro",
   ],
   flightSide: [
-    "Left stick - move / Hold {a} - fire straight",
+    "Left stick - move / Hold {attack} - fire straight",
     "Stick up / down + {b} - vertical dodge",
   ],
   flightTop: [
-    "Left stick - move / Hold {a} - fire upward",
+    "Left stick - move / Hold {attack} - fire upward",
     "Stick left / right + {b} - lateral dodge",
   ],
   jungle: [
-    "Left stick - walk / Right stick - look / Hold {zl} - sprint / {b} - jump",
-    "{y} while sprinting forward with {zl} - knockdown tackle; otherwise crouch",
-    "{a} while unarmed - random punches",
-    "Hold {l} + right stick - select weapon / {a} - attack / {x} - view",
+    "Left stick - walk / Right stick - look / {sprint} - sprint (toggle) / {jump} - jump",
+    "{crouch} while sprinting forward - knockdown tackle; otherwise crouch",
+    "{attack} while unarmed - random punches",
+    "Hold {weaponWheel} + right stick - select weapon / {attack} - attack / {viewToggle} - view",
   ],
   platformer: [
-    "Left stick - move / {b} - jump / Hold {zl} - sprint / {y} - crouch",
-    "Right stick - aim / Hold {l} + right stick - weapons / {a} - attack / D-pad Left - retry",
+    "Left stick - move / {jump} - jump / {sprint} - sprint (toggle) / {crouch} - crouch",
+    "Right stick - aim / Hold {weaponWheel} + right stick - weapons / {attack} - attack / D-pad Left - retry",
   ],
   finale: [
     "Left stick - move (up / down changes altitude in space)",
-    "{a} - swing reactor blade / {y} - slide tackle and briefly knock the boss down",
+    "{zr} - swing reactor blade / {y} - slide tackle and briefly knock the boss down",
     "{x} - Branden's Tears rifle salvo / Hold {zl} - shield and parry",
-    "{b} - dodge boost / {r} - Brendan's Will (18-second recharge) / {plus} - pause / Hold {minus} - skip intro",
+    "{b} - dodge boost / {r} - Brendan's Will (18-second recharge) / {plus} - pause / {confirm} - skip intro",
     "D-pad Left - retry after defeat",
   ],
 };
@@ -692,7 +815,7 @@ export function createGamepadInput(options: GamepadInputOptions) {
                 ? `Controller setup: follow each prompt using the physical ${profiles[controllerType].name} button labels.`
                 : !layout
                   ? "Controller detected without a standard browser mapping. Center both sticks, release all buttons, then choose Calibrate game controls."
-                  : `${profiles[controllerType].name} layout. ${mode === "controller" ? "Controller input is active." : "Keyboard & mouse active. Use a controller button or stick to switch."}`),
+                  : `${mode === "controller" ? "Controller input is active." : "Keyboard & mouse active. Use a controller button or stick to switch."}`),
       setupStep: setup
         ? `${setup.index + 1} / ${setup.steps.length}: ${setup.error || (setup.wait ? "Release the control and center both sticks" : instruction)}`
         : null,
@@ -741,13 +864,15 @@ export function createGamepadInput(options: GamepadInputOptions) {
     for (const code of [...heldKeys])
       if (!preserveWheel || code !== "Tab") setKey(code, false);
     mouseButton(false, true);
+    clearControllerActions();
     movement = { x: 0, y: 0 };
     cursorX = cursorY = 0;
     navDirection = "";
     navTime = 0;
-    // One-shot actions need a fresh press; held movement, sprint, guard and wheel do not.
+    // One-shot actions need a fresh press; held movement, guard and wheel do not.
+    const wheel = wheelButton();
     for (const button of currentButtons)
-      if (button !== "l" && button !== "zl") blockedButtons.add(button);
+      if (button !== wheel) blockedButtons.add(button);
     resetting = false;
   }
   function setMode(next: InputMode) {
@@ -791,6 +916,13 @@ export function createGamepadInput(options: GamepadInputOptions) {
       const buttons = device.buttons.map(
         (button) => button.pressed || button.value >= 0.55,
       );
+      if (previousInput) {
+        for (let i = 0; i < buttons.length; i++) {
+          if (buttons[i] && !previousInput.buttons[i]) {
+            options.onRawButtonPress?.(i);
+          }
+        }
+      }
       if (
         previousInput &&
         (buttons.some((down, index) => down && !previousInput.buttons[index]) ||
@@ -1031,6 +1163,8 @@ export function createGamepadInput(options: GamepadInputOptions) {
         zr: requiredButton("zr"),
         minus: requiredButton("minus"),
         plus: requiredButton("plus"),
+        leftStick: requiredButton("leftStick"),
+        rightStick: requiredButton("rightStick"),
         up: requiredButton("up"),
         down: requiredButton("down"),
         left: requiredButton("left"),
@@ -1220,10 +1354,10 @@ export function createGamepadInput(options: GamepadInputOptions) {
       movement = { x: 0, y: 0 };
       if (pressed(profile.cancel)) {
         options.cancelWheel();
-        blockedButtons.add("l");
+        blockedButtons.add(wheelButton());
       } else {
         options.aimWheel(look.x, look.y);
-        setKey("Tab", down("l"));
+        setKey("Tab", down(wheelButton()));
       }
       if (!options.getContext().wheelOpen) {
         const resumed = options.getContext();
@@ -1235,28 +1369,45 @@ export function createGamepadInput(options: GamepadInputOptions) {
 
     function applyGameplay(kind: ControllerContext) {
       const epoch = inputEpoch;
-      const desired = new Set<string>();
+      const desiredKeys = new Set<string>();
+      const desiredActions = new Set<InputAction>();
       movement = left;
       if (
         ["foot", "flight", "platformer", "finale", "finale-qte"].includes(kind)
       ) {
-        if (movement.y < -0.25) desired.add("KeyW");
-        if (movement.y > 0.25) desired.add("KeyS");
-        if (movement.x < -0.25) desired.add("KeyA");
-        if (movement.x > 0.25) desired.add("KeyD");
+        if (movement.y < -0.25) desiredKeys.add("KeyW");
+        if (movement.y > 0.25) desiredKeys.add("KeyS");
+        if (movement.x < -0.25) desiredKeys.add("KeyA");
+        if (movement.x > 0.25) desiredKeys.add("KeyD");
       } else movement = { x: 0, y: 0 };
+      const buttonActions = contextButtonActions(kind);
       for (const button of BUTTONS) {
-        const code =
-          kind === "inspection" && button === profile.cancel
-            ? "Escape"
-            : kind === "inspection" && button === "b"
-              ? undefined
-              : contextKeys[kind][button];
-        if (code && down(button)) desired.add(code);
+        const action = buttonActions[button];
+        const codes =
+          kind === "foot" || kind === "platformer"
+            ? footSynthKeys(button, action)
+            : [
+                kind === "inspection" && button === profile.cancel
+                  ? "Escape"
+                  : kind === "inspection" && button === "b"
+                    ? undefined
+                    : contextKeys[kind]?.[button],
+              ].filter((code): code is string => !!code);
+        if (down(button)) {
+          if (action) {
+            desiredActions.add(action);
+            setControllerAction(action, true);
+          }
+          for (const code of codes) desiredKeys.add(code);
+        } else {
+          if (action && previousButtons.has(button)) {
+            setControllerAction(action, false);
+          }
+        }
       }
       for (const code of [...heldKeys])
-        if (!desired.has(code)) setKey(code, false);
-      for (const code of desired) {
+        if (!desiredKeys.has(code)) setKey(code, false);
+      for (const code of desiredKeys) {
         setKey(code, true);
         if (epoch !== inputEpoch) break;
       }
@@ -1290,7 +1441,15 @@ export function createGamepadInput(options: GamepadInputOptions) {
           });
           dispatch(event);
         }
-        mouseButton(down(kind === "inspection" ? profile.confirm : "a"));
+        mouseButton(
+          down(
+            kind === "inspection"
+              ? profile.confirm
+              : kind === "cinematic"
+                ? "a"
+                : (getControllerButtonForAction("attack") ?? "a"),
+          ),
+        );
       }
     }
   }

@@ -1,5 +1,6 @@
 /** Scene 9 - Twin freight lines, gravity restoration, and vent access controls. */
 import * as THREE from "three";
+import { isActionPressed } from "../../scripts/player/inputManager.js";
 import {
   createPlayer,
   type PlayerTransitionState,
@@ -391,19 +392,6 @@ export function createScene({
     return "";
   }
   function onKey(event: KeyboardEvent) {
-    if (event.code === "Space" && !event.repeat && player.isEnabled()) {
-      if (entryTime > 0) {
-        event.preventDefault();
-        releaseLadder();
-        return;
-      }
-      if (returning) {
-        event.preventDefault();
-        climbBoost = true;
-        player.clearInput();
-        return;
-      }
-    }
     if (event.code !== "KeyE" || event.repeat || !canInteract()) return;
     if (near(gravitySwitch.position)) {
       puzzle.gravityRestored = !puzzle.gravityRestored;
@@ -474,6 +462,15 @@ export function createScene({
     updatePhysics(dt: number, thirdPerson = false) {
       if (disposed) return;
       dt = Number.isFinite(dt) ? Math.max(0, Math.min(dt, 0.1)) : 0;
+      // Check jump action for ladder release or climb boost
+      if (isActionPressed("jump") && player.isEnabled()) {
+        if (entryTime > 0) {
+          releaseLadder();
+        } else if (returning) {
+          climbBoost = true;
+          player.clearInput();
+        }
+      }
       if (cinematic.isCinematic()) {
         prompt?.classList.add("hidden");
         status?.classList.add("hidden");

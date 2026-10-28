@@ -1510,18 +1510,31 @@ body.ship-map-open
 #pause-menu #pause-developer-form {
   box-sizing: border-box;
   width: 100%;
-  min-height: 94vh;
+  flex: 1 1 auto;
+  min-height: 0;
   margin: 0;
   gap: 6.5vh;
   align-items: center;
   justify-content: safe center;
-  padding: 7vh 50vw 7vh 0;
+  overflow-y: auto;
+  padding: 7vh 60vw 7vh 0;
+}
+#pause-menu #pause-display-panel,
+#pause-menu #pause-controls-panel {
+  scrollbar-width: none;
+}
+#pause-menu #pause-display-panel {
+  gap: 3.5vh;
+}
+#pause-menu #pause-display-panel::-webkit-scrollbar,
+#pause-menu #pause-controls-panel::-webkit-scrollbar {
+  display: none;
 }
 #pause-menu #pause-sound-panel > *,
 #pause-menu #pause-display-panel > *,
 #pause-menu #pause-controls-panel > *,
 #pause-menu #pause-developer-form > * {
-  width: min(360px, 26vw);
+  width: min(520px, 38vw);
 }
 #pause-menu #pause-sound-panel > button,
 #pause-menu #pause-display-panel > button,
@@ -1538,7 +1551,7 @@ body.ship-map-open
   background: var(--comic-paper);
   padding: 16px;
 }
-#pause-display-panel .sound-slider-group {
+#pause-sound-panel .sound-slider-group {
   position: relative;
   border: 3px solid var(--comic-ink);
   border-radius: 3px;
@@ -1550,7 +1563,16 @@ body.ship-map-open
   position: relative;
   z-index: 1;
 }
-#pause-display-panel .sound-slider-group > * {
+#pause-display-panel .display-control-group {
+  position: relative;
+  border: 3px solid var(--comic-ink);
+  border-radius: 3px;
+  box-shadow: 3px 3px 0 var(--comic-ink);
+  background: var(--comic-paper);
+  padding: 16px;
+  box-sizing: border-box;
+}
+#pause-display-panel .display-control-group > * {
   position: relative;
   z-index: 1;
 }
@@ -4215,6 +4237,44 @@ body.touch-device .space-health-heading {
   margin: 0;
   overflow-wrap: anywhere;
 }
+.control-binding-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.controls-button-row {
+  display: flex;
+  gap: 10px;
+  margin: 4px 0 10px;
+  flex-wrap: wrap;
+}
+.controls-assign-button {
+  font: 700 13px/1 var(--comic-body);
+  padding: 8px 16px;
+  min-height: 0;
+}
+.controls-assign-button.controls-assign-listening {
+  background: var(--comic-ink);
+  color: var(--comic-paper);
+  border-color: var(--comic-ink);
+  animation: controls-remap-pulse 0.8s ease-in-out infinite alternate;
+}
+@keyframes controls-remap-pulse {
+  from { opacity: 0.7; }
+  to { opacity: 1; }
+}
+.controls-reset-button {
+  font: 700 12px/1 var(--comic-body);
+  padding: 6px 14px;
+  min-height: 0;
+}
+.controls-action-highlight {
+  background: rgba(255, 153, 26, 0.2);
+  outline: 2px solid var(--comic-orange, #ff991a);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
 .controller-binding-icon {
   display: inline-flex;
   width: 2.25em;
@@ -4245,10 +4305,18 @@ body.touch-device .space-health-heading {
   color: var(--comic-ink);
   font: 600 13px/1.4 var(--comic-body);
 }
-.controller-type-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+#controller-controls-settings {
+  margin-top: -1.5vh;
+}
+#controller-type-select {
+  width: 100%;
+  max-width: 100%;
+  min-height: 40px;
+  margin-bottom: 12px;
+  border: 2px solid var(--comic-ink);
+  background: var(--comic-paper);
+  color: var(--comic-ink);
+  font: 600 13px/1.4 var(--comic-body);
 }
 @media (max-width: 560px) {
   .control-bindings {
@@ -4284,6 +4352,7 @@ body.touch-device .space-health-heading {
 #pause-menu #pause-controls-panel button:not([data-pause-back]) {
   min-height: 6vh;
   padding: 1.5vh 1.5vw;
+  background: rgba(247, 251, 255, 0.9);
 }
 #controller-status,
 #controller-setup-step {
@@ -5733,6 +5802,18 @@ body[data-scene="scene1"] #menu-buttons .title-icon-btn:is(:hover, :focus-visibl
   transform: translateY(-50%);
   rotate: none;
 }
+#pause-menu[data-screen="display"] #pause-display-panel button[data-pause-back] {
+  transform: translateY(-50%);
+  rotate: none;
+}
+#pause-menu[data-screen="sound"] #pause-sound-panel button[data-pause-back] {
+  transform: translateY(-50%);
+  rotate: none;
+}
+#pause-menu[data-screen="scenes"] #pause-developer-form button[data-pause-back] {
+  transform: translateY(-50%);
+  rotate: none;
+}
 #pause-menu[data-screen="controls"] #pause-controls-panel {
   gap: 2vh;
 }
@@ -5893,8 +5974,8 @@ html[data-menu-font="comic-sans"] #menu-buttons :is(.menu-btn, .character-card) 
   }
   100% {
     opacity: 1;
-    scale: 1;
-    rotate: 0deg;
+    scale: none;
+    rotate: none;
   }
 }
 @keyframes comic-caption-open {

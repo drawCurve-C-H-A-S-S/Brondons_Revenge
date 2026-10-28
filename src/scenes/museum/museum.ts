@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { loadBrendanModel, loadPlayerModel } from "../../core/loader.js";
+import { isActionPressed } from "../../scripts/player/inputManager.js";
 import {
   createScenePhysics,
   PHYSICS,
@@ -1098,50 +1099,6 @@ export function createScene({
       target.closest('input, textarea, select, [contenteditable="true"]')
     )
       return;
-    if (looking) {
-      if (event.code === "KeyE" || event.code === "Escape") {
-        if (event.code === "KeyE") event.preventDefault();
-        setLooking(false);
-      }
-      return;
-    }
-    if (
-      event.code === "KeyE" &&
-      !event.repeat &&
-      active &&
-      !paused &&
-      !entering &&
-      nearMainMenu
-    ) {
-      event.preventDefault();
-      player.clearInput();
-      onReturnToMainMenu();
-      return;
-    }
-    if (
-      event.code === "KeyE" &&
-      !event.repeat &&
-      active &&
-      !paused &&
-      !focus &&
-      !entering &&
-      nearScope
-    ) {
-      event.preventDefault();
-      setLooking(true);
-      return;
-    }
-    if (
-      event.code !== "KeyE" ||
-      event.repeat ||
-      !active ||
-      paused ||
-      !focus ||
-      entering
-    )
-      return;
-    event.preventDefault();
-    void enter(focus);
   };
   window.addEventListener("keydown", onKey, true);
 
@@ -1202,6 +1159,21 @@ export function createScene({
       const frame = Number.isFinite(dt)
         ? THREE.MathUtils.clamp(dt, 0, PHYSICS.maxFrameTime)
         : 0;
+      // Check interact and cancel actions
+      if (isActionPressed("interact") || isActionPressed("cancel")) {
+        if (looking) {
+          setLooking(false);
+        } else if (isActionPressed("interact")) {
+          if (!entering && nearMainMenu) {
+            player.clearInput();
+            onReturnToMainMenu();
+          } else if (!focus && !entering && nearScope) {
+            setLooking(true);
+          } else if (focus && !entering) {
+            void enter(focus);
+          }
+        }
+      }
       physics.step(frame, player, thirdPerson);
       time += frame;
       fireTime.value = time;
@@ -1265,7 +1237,7 @@ export function createScene({
           prompt.textContent = inputHint("E / Look through the telescope");
           prompt.classList.remove("hidden");
         } else {
-          prompt.textContent = inputHint("WASD / Move; hold Shift to sprint; E / enter a screen");
+          prompt.textContent = inputHint("WASD / Move; Shift toggles sprint; E / enter a screen");
           prompt.classList.remove("hidden");
         }
       }

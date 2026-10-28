@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { preloadToolModel } from "../../core/loader.js";
 import { addCabinInk, createCabinCelMaterial } from "../../core/comicShading.js";
+import { isActionPressed } from "../../scripts/player/inputManager.js";
 import {
   createScenePhysics,
   PHYSICS,
@@ -988,19 +989,10 @@ export function createScene({
     )
       return;
     if (inspection.active || browser?.active) return;
-    if (passageFailed && (event.code === "KeyR" || event.code === "KeyE")) {
+    if (passageFailed && event.code === "KeyR") {
       event.preventDefault();
-      if (event.code === "KeyR") {
-        if (passagePrepared) transferToPassage();
-        else prepareBulkhead();
-      } else {
-        passageFailed = false;
-        passageBlocked = true;
-        loading.classList.add("hidden");
-        showNotice(
-          "Transfer cancelled. Walk back through the bulkhead to the hallway.",
-        );
-      }
+      if (passagePrepared) transferToPassage();
+      else prepareBulkhead();
       return;
     }
     if (!cinematic && lastDoorError && event.code === "KeyR") {
@@ -1013,18 +1005,6 @@ export function createScene({
       loadForCinematic(cinematic);
       return;
     }
-    if (
-      event.code !== "KeyE" ||
-      cinematic ||
-      passageTransferring ||
-      !player.isEnabled()
-    )
-      return;
-    target = findTarget();
-    if (!target || target.kind === "sign") return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    interact(target);
   }
   window.addEventListener("keydown", onKey);
 
@@ -1195,6 +1175,22 @@ export function createScene({
     const frame = Number.isFinite(dt) ? THREE.MathUtils.clamp(dt, 0, 0.1) : 0;
     lastDelta = frame;
     clock += frame;
+    // Check interact action
+    if (isActionPressed("interact")) {
+      if (passageFailed) {
+        passageFailed = false;
+        passageBlocked = true;
+        loading.classList.add("hidden");
+        showNotice(
+          "Transfer cancelled. Walk back through the bulkhead to the hallway.",
+        );
+      } else if (!cinematic && !passageTransferring && player.isEnabled()) {
+        const target = findTarget();
+        if (target && target.kind !== "sign") {
+          interact(target);
+        }
+      }
+    }
     if (computerReminderTime > 0) {
       computerReminderTime = Math.max(0, computerReminderTime - frame);
       if (computerReminderTime === 0) subtitle.classList.add("hidden");
