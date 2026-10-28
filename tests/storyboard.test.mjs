@@ -1,31 +1,57 @@
 import assert from "node:assert/strict";
-import { readFile, access } from "node:fs/promises";
-import { test } from "node:test";
+import { readFileSync, existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
+import { runInNewContext } from "node:vm";
+import test from "node:test";
 
-const pageUrl = new URL("../storyboard/index.html", import.meta.url);
+const root = fileURLToPath(new URL("../", import.meta.url));
+const read = (path) => readFileSync(resolve(root, path), "utf8");
+const topics = runInNewContext(
+  `${read("storyboard/topics.js")}\ndevlogTopics;`,
+);
+const compact = (value) => value.replace(/\s+/g, "");
 
-test("the discussion outline covers all ten sections in the 4:50 script", async () => {
-  const html = await readFile(pageUrl, "utf8");
-  assert.equal([...html.matchAll(/<article id="/g)].length, 10);
-  const durations = [...html.matchAll(/\/ (\d+) seconds<\/span>/g)].map(
-    (match) => Number(match[1]),
-  );
-  assert.equal(durations.length, 10);
-  assert.equal(
-    durations.reduce((total, seconds) => total + seconds, 0),
-    290,
-  );
-  assert.match(html, /09 \/ 3:50-4:35 \/ 45 seconds/);
-  assert.doesNotMatch(html, /<video\b|<img\b|<script\b|shots\/|id="animatic"/);
+test("every devlog card has a unique, directly addressable chapter and artwork", () => {
+  assert.equal(topics.length, 9);
+  assert.equal(new Set(topics.map((topic) => topic.id)).size, topics.length);
+  for (const topic of topics) {
+    const html = read(`storyboard/${topic.id}.html`);
+    assert.ok(html.includes(`data-page="${topic.id}"`), topic.id);
+    assert.ok(html.includes('href="index.html"'), topic.id);
+    assert.ok(html.includes('src="topics.js" defer'), topic.id);
+    assert.ok(html.includes('src="devlog.js" defer'), topic.id);
+    assert.match(html, /<noscript\b/, topic.id);
+    assert.ok(existsSync(resolve(root, "src/assets/loading", topic.image)));
+    assert.ok(topic.intro && topic.footage && topic.note);
+    assert.ok(topic.paragraphs.length >= 2);
+  }
 });
 
-test("discussion links resolve to real topics and source files", async () => {
-  const html = await readFile(pageUrl, "utf8");
-  for (const [, href] of html.matchAll(/href="([^"]+)"/g)) {
-    if (href.startsWith("#")) {
-      assert.ok(html.includes(`id="${href.slice(1)}"`), href);
-    } else {
-      await access(new URL(href, pageUrl));
+test("every displayed code excerpt exists in its linked game source", () => {
+  for (const topic of topics) {
+    assert.ok(topic.snippets.length >= 2, topic.id);
+    for (const snippet of topic.snippets) {
+      assert.ok(snippet.title && snippet.explanation && snippet.symbol);
+      assert.ok(
+        compact(read(snippet.file)).includes(compact(snippet.code)),
+        `${topic.id}: ${snippet.title} must match ${snippet.file}`,
+      );
     }
+  }
+});
+
+test("the music chapter uses existing playable game audio files", () => {
+  for (const file of ["Stealth1.ogg", "Planetbfm.ogg"]) {
+    assert.ok(existsSync(resolve(root, "src/assets/bgm", file)));
+    assert.ok(read("storyboard/devlog.js").includes(file));
+  }
+});
+
+test("the hub provides direct chapter links even without JavaScript", () => {
+  const index = read("storyboard/index.html");
+  assert.match(index, /Brondon's Revenge\s*<span>Devlog<\/span>/);
+  for (const topic of topics) {
+    assert.ok(index.includes(`href="${topic.id}.html"`), topic.id);
   }
 });

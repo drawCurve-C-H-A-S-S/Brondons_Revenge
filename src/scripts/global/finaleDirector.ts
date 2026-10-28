@@ -4,6 +4,8 @@ import {
   FINALE_REVEAL,
   FINISHER_DURATION,
   HERO_TRANSFORM,
+  HERO_REVENGE,
+  heroRevengeTime,
   PLANET_RUPTURE,
 } from "./finaleChoreography.js";
 
@@ -17,6 +19,7 @@ export type FinalePhase =
   | "heroTransform"
   | "versus"
   | "rupture"
+  | "revenge"
   | "defeat"
   | "victory"
   | "credits"
@@ -51,6 +54,7 @@ export const FINALE_DURATION = Object.freeze({
   heroTransform: 17,
   versus: 4.6,
   rupture: PLANET_RUPTURE.orbit + 0.4,
+  revenge: HERO_REVENGE.duration - heroRevengeTime("revenge", 0),
   defeat: 6,
   victory: 18,
   credits: FINALE_CREDITS.roll + FINALE_CREDITS.walkIn + FINALE_CREDITS.pose,
@@ -88,6 +92,16 @@ export const FINALE_CUES: readonly FinaleCue[] = [
   { phase: "rupture", id: "planet-burst", at: PLANET_RUPTURE.burst },
   { phase: "rupture", id: "brondon-grief", at: PLANET_RUPTURE.cockpit },
   { phase: "rupture", id: "orbit-lock", at: PLANET_RUPTURE.orbit },
+  {
+    phase: "rupture",
+    id: "revenge-shout",
+    at: PLANET_RUPTURE.returnToDuel + HERO_REVENGE.shout,
+  },
+  {
+    phase: "revenge",
+    id: "revenge-burst",
+    at: HERO_REVENGE.burst - heroRevengeTime("revenge", 0),
+  },
   { phase: "defeat", id: "execution", at: 1.8 },
   { phase: "defeat", id: "signal-flatline", at: 4.2 },
   { phase: "victory", id: "reactor-cut", at: 0.3 },
@@ -172,6 +186,8 @@ export function createFinaleDirector(
       change("ground");
     else if (phase === "rupture" && phaseTime >= FINALE_DURATION.rupture) {
       duel.enterSpace();
+      change("revenge");
+    } else if (phase === "revenge" && phaseTime >= FINALE_DURATION.revenge) {
       change("space");
     } else if (phase === "victory" && phaseTime >= FINALE_DURATION.victory)
       change("credits");
@@ -228,9 +244,13 @@ export function createFinaleDirector(
           "Finale timing requires finite, nonnegative values",
         );
       }
-      if (paused || !assetsReady || phase === "error" || phase === "done")
-        return;
+      if (paused || !assetsReady || phase === "error") return;
       dt = Math.min(dt, 0.1);
+      if (phase === "done") {
+        phaseTime += dt;
+        time += dt;
+        return;
+      }
       const before = phaseTime;
       time += dt;
       phaseTime += dt;

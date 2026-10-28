@@ -452,6 +452,42 @@ function teleportFixture(t, overrides = {}) {
   };
 }
 
+test("controller place and throw are separate while short throws never become placement", (t) => {
+  const f = teleportFixture(t, {
+    getAimDirection: () => ({ x: 0, y: 0, z: -1 }),
+  });
+  f.device.controllerAction("place");
+  assert.equal(f.device.isPlaced(), false);
+  f.device.collect(false);
+  f.device.controllerAction("throw", 0);
+  assert.equal(f.device.isPlaced(), false);
+  assert.ok(f.scene().getObjectByName("ThrownTeleportCrystal"));
+  f.device.controllerAction("place");
+  assert.equal(f.device.isPlaced(), true);
+  const marker = f.device.getState().placementPosition;
+  f.device.controllerAction("throw", 1);
+  assert.deepEqual(f.device.getState().placementPosition, marker);
+  assert.ok(f.scene().getObjectByName("ThrownTeleportCrystal"));
+});
+
+test("controller teleports respect blocked input, boss fights and menus", (t) => {
+  const f = teleportFixture(t, {
+    getAimDirection: () => ({ x: 0, y: 0, z: -1 }),
+  });
+  f.device.collect(false);
+  for (const blocked of [
+    () => f.block(true),
+    () => { f.block(false); f.boss(true); },
+    () => { f.boss(false); document.body.classList.add("quick-menu-open"); },
+  ]) {
+    blocked();
+    f.device.controllerAction("place");
+    f.device.controllerAction("throw", 1);
+    assert.equal(f.device.isPlaced(), false);
+    assert.equal(f.scene().getObjectByName("ThrownTeleportCrystal"), undefined);
+  }
+});
+
 test("Q places only after collection; purple markers work outside scene 4 without extra lights", (t) => {
   const f = teleportFixture(t);
   tap("KeyQ");

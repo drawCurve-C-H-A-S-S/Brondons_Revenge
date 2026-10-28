@@ -1,6 +1,9 @@
 import * as THREE from "three";
 import { preloadToolModel } from "../../core/loader.js";
-import { addCabinInk, createCabinCelMaterial } from "../../core/comicShading.js";
+import {
+  addCabinInk,
+  createCabinCelMaterial,
+} from "../../core/comicShading.js";
 import {
   createScenePhysics,
   PHYSICS,
@@ -50,7 +53,6 @@ import { setInputHint } from "../../scripts/global/inputPrompts.js";
 import { getPrimeHintsEnabled } from "../../scripts/player/primeHints.js";
 import { popupDuration } from "../../scripts/global/popupTiming.js";
 import { createChairSeating } from "../../scripts/player/chairSeating.js";
-import { createFacilityBrowser } from "../../scripts/global/facilityBrowser.js";
 import { playSfx } from "../../helpers/audio/sfx.js";
 
 interface QuartersOptions {
@@ -168,8 +170,10 @@ export function createScene({
     root.traverse((node) => {
       if (!(node instanceof THREE.Mesh)) return;
       const convert = (original: THREE.Material) => {
-        if (!(original instanceof THREE.MeshStandardMaterial) ||
-            original.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile)
+        if (
+          !(original instanceof THREE.MeshStandardMaterial) ||
+          original.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile
+        )
           return original;
         let toon = cabinMaterials.get(original);
         if (!toon) {
@@ -269,68 +273,12 @@ export function createScene({
     player.clearInput();
     player.enable();
   });
-  let computerPending: CabinFurnishings | null = null;
-  let computerMaterial: CabinFurnishings["screen"]["material"] | null = null;
-  let browser: ReturnType<typeof createFacilityBrowser> | null = null;
-  function closeComputer() {
-    if (computerPending && computerMaterial)
-      computerPending.screen.material = computerMaterial;
-    computerMaterial = null;
-    computerPending = null;
-    browser?.dispose();
-    browser?.material.dispose();
-    browser = null;
-  }
-  function openComputer(room: CabinFurnishings) {
-    browser = createFacilityBrowser(
-      () => {
-        player.clearInput();
-        target = null;
-        prompt.classList.add("hidden");
-        roomName.classList.add("hidden");
-        notice.classList.add("hidden");
-        noticeTime = 0;
-        computerReminderTime = 0;
-        subtitle.classList.add("hidden");
-      },
-      () => {
-        closeComputer();
-        player.clearInput();
-        seating.stand();
-      },
-      {
-        url: "https://lamp.ms.wits.ac.za/students/sgroup3928/brondons-revenge/?muted=1",
-        title: "Brondon's Revenge / cabin computer",
-        muted: true,
-      },
-    );
-    computerMaterial = room.screen.material;
-    browser.register(room.screen);
-    room.screen.material = browser.material;
-    browser.open(room.screen, camera);
-  }
   const seating = createChairSeating({
     scene,
     camera,
     player,
     prompt,
-    chairs: () => {
-      const focus = findTarget();
-      return [
-        ...[...interiors.entries()]
-          .filter(
-            ([id]) =>
-              id !== "brondon" ||
-              focus?.kind !== "computer" ||
-              focus.cabin !== id,
-          )
-          .map(([, room]) => ({
-            root: room.chair as THREE.Object3D,
-            yaw: Math.PI,
-          })),
-        ...bathroom.seats,
-      ];
-    },
+    chairs: () => bathroom.seats,
     canInteract: () =>
       active &&
       !disposed &&
@@ -485,6 +433,7 @@ export function createScene({
     const shot = cinematic;
     if (!shot || !shot.ready || shot.error) return;
     if (shot.kind === "arrival") {
+      interiors.get("brondon")!.shatterReturnCrystal(false);
       progress.arrivalSeen = true;
       progress.visited.add("brondon");
     }
@@ -636,12 +585,7 @@ export function createScene({
     updateStatus();
     showInteriors();
     if (next !== "hallway") {
-      const firstVisit = !progress.visited.has(next);
       progress.visited.add(next);
-      if (firstVisit && next !== "brondon")
-        showNotice(
-          `Prime: ${CABIN_BY_ID.get(next)!.occupant}'s room is clear. Check the chest; we may need anything the crew left behind.`,
-        );
     }
   }
   function interactions(): Interaction[] {
@@ -795,21 +739,13 @@ export function createScene({
         return "E / Read expedition poster";
       case "computer":
         return candidate.cabin === "brondon"
-          ? developerAccess
-            ? "E / Sit down and play Brondon's Revenge"
-            : "E / Inspect computer"
+          ? "E / Inspect computer"
           : candidate.cabin === "branden"
-            ? "E / Use computer"
+            ? "E / Inspect computer"
             : "E / Inspect workstation";
     }
   }
   function updateInteractionFocus() {
-    if (browser?.active) {
-      target = null;
-      prompt.classList.add("hidden");
-      roomName.classList.add("hidden");
-      return;
-    }
     if (seating.updateInteractionFocus()) {
       target = null;
       roomName.classList.add("hidden");
@@ -888,19 +824,10 @@ export function createScene({
       case "computer": {
         const room = interiors.get(candidate.cabin!);
         if (candidate.cabin === "brondon" && room) {
-          if (!developerAccess) {
-            caption(
-              "Brondon! Lock in. Your crewmembers need saving, not another gaming session.",
-            );
-            computerReminderTime = popupDuration(9);
-            break;
-          }
-          if (seating.sit({ root: room.chair, yaw: Math.PI }))
-            computerPending = room;
-          else
-            showNotice(
-              "Unable to sit at the computer. Step back and try again.",
-            );
+          caption(
+            "Brondon! Lock in. Your crewmembers need saving, not another gaming session.",
+          );
+          computerReminderTime = popupDuration(9);
         } else if (candidate.cabin === "branden" && room?.desktop) {
           inspect({
             screen: room.screen,
@@ -987,7 +914,7 @@ export function createScene({
       )
     )
       return;
-    if (inspection.active || browser?.active) return;
+    if (inspection.active) return;
     if (passageFailed && (event.code === "KeyR" || event.code === "KeyE")) {
       event.preventDefault();
       if (event.code === "KeyR") {
@@ -1047,6 +974,9 @@ export function createScene({
     shot.time += dt;
     if (shot.kind === "arrival") {
       const t = shot.time;
+      const room = interiors.get("brondon")!;
+      if (t >= HOLOGRAM_TRANSFER_DURATION && room.returnCrystal?.visible)
+        room.shatterReturnCrystal();
       caption(
         t < 5
           ? "The homing beacon brought you back to your cabin. That was its only charge."
@@ -1104,10 +1034,6 @@ export function createScene({
     camera.updateProjectionMatrix();
   }
   function applyCinematicCamera() {
-    if (browser?.active) {
-      browser.applyCamera();
-      return;
-    }
     if (seating.applyCamera()) return;
     if (inspection.active) {
       inspection.applyCamera();
@@ -1201,11 +1127,6 @@ export function createScene({
     }
     skipHold.update(frame);
     seating.update(frame);
-    if (computerPending && !seating.active) computerPending = null;
-    if (computerPending && seating.resting && !browser?.active) {
-      seating.applyCamera();
-      openComputer(computerPending);
-    }
     updateCinematic(frame);
     for (const [id, door] of hull.doors) {
       const p = player.body.position,
@@ -1241,8 +1162,7 @@ export function createScene({
     showInteriors(cinematic?.cabin);
     if (!inspection.active) hull.keypad.update(frame);
     interiors.forEach((room) => room.update(frame, clock));
-    if (browser?.active) browser.update(frame);
-    else if (cinematic) applyCinematicCamera();
+    if (cinematic) applyCinematicCamera();
     else if (inspection.active) {
       inspection.update(frame);
       inspectionCaptionTime = Math.max(0, inspectionCaptionTime - frame);
@@ -1329,11 +1249,8 @@ export function createScene({
           )
         : null,
     isCinematic: () =>
-      cinematic !== null ||
-      inspection.active ||
-      seating.active ||
-      !!browser?.active,
-    hideCharacter: () => inspection.active || !!browser?.active,
+      cinematic !== null || inspection.active || seating.active,
+    hideCharacter: () => inspection.active,
     updateCharacterAppearance: (character: { model: THREE.Object3D } | null) =>
       censor.update(character?.model ?? null, bathroom.isShowering()),
     get ownsWeaponInput() {
@@ -1341,7 +1258,6 @@ export function createScene({
         cinematic !== null ||
         inspection.active ||
         seating.active ||
-        !!browser?.active ||
         passageTransferring
       );
     },
@@ -1362,18 +1278,14 @@ export function createScene({
           }
         : null),
     applyCinematicCamera,
-    renderCinematicOverlay: (renderer: THREE.WebGLRenderer) =>
-      browser?.render(renderer, camera),
     updateInteractionFocus,
     controlsReady: () =>
       !cinematic &&
       !inspection.active &&
       !seating.active &&
-      !browser?.active &&
       !passageTransferring &&
       !paused,
-    hideMinimap: () =>
-      cinematic !== null || inspection.active || !!browser?.active,
+    hideMinimap: () => cinematic !== null || inspection.active,
     setMenuPaused(value: boolean) {
       paused = value;
       player.clearInput();
@@ -1409,7 +1321,6 @@ export function createScene({
       if (disposed) return;
       disposed = true;
       window.removeEventListener("keydown", onKey);
-      closeComputer();
       seating.dispose();
       skipHold.dispose();
       inspection.dispose();

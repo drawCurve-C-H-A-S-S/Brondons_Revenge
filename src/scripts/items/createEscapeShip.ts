@@ -582,7 +582,7 @@ function createSeatedPilot() {
 }
 
 /** Shared pod keeps the boss ejection and planetary pursuit visually continuous. */
-export function createEscapePod() {
+export function createEscapePod(options: { occupant?: boolean; opening?: boolean } = {}) {
   const root = new THREE.Group();
   root.name = "EscapePod";
   const darkMetal = new THREE.MeshStandardMaterial({
@@ -628,6 +628,7 @@ export function createEscapePod() {
   fluid.rotation.x = Math.PI / 2;
   root.add(fluid);
   const occupant = new THREE.Group();
+  occupant.visible = options.occupant !== false;
   const torso = new THREE.Mesh(
     new THREE.CapsuleGeometry(0.3, 0.8, 4, 8),
     silhouetteMat,
@@ -677,6 +678,13 @@ export function createEscapePod() {
   tail.rotation.x = -Math.PI / 2;
   tail.position.z = 2.1;
   root.add(tail);
+  if (options.opening) {
+    const exitDoor = new THREE.Group();
+    exitDoor.name = "PodExitDoor";
+    exitDoor.position.set(1.25, 0, 1.6);
+    root.add(exitDoor);
+    exitDoor.attach(tail);
+  }
   for (const z of [-1.6, 1.6]) {
     const rim = new THREE.Mesh(
       new THREE.CylinderGeometry(1.22, 1.22, 0.12, 24, 1, true),

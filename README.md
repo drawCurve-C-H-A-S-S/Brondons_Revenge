@@ -153,6 +153,8 @@ pause menu; the Museum is still available through the developer scene list.
 At the center of the Museum, beneath the open sky, the prison's blue light
 effect marks the Main Menu exit. Stand in it and press **E** to open the
 no-progress-saved confirmation.
+Only nearby interaction prompts appear in the Museum; there is no persistent
+movement-instructions overlay.
 
 ### Arcade challenges
 
@@ -223,17 +225,22 @@ on exit. Image-load failures show a retry message rather than a blank view.
 ### Menus and display
 
 Scene 1 suppresses automatic controller notices and gameplay control popups;
-controller setup remains available through the pause menu.
+the right stick rotates its mothership view while the left stick/D-pad navigates menus.
+Choosing **Story mode** opens setup before the story: controller calibration,
+display/Prime hints and sound are available before **Begin story**.
 **Sound** is available from the pause menu in every scene, including Scene 1.
 Vertex and fragment GLSL files live in `src/shaders/vert/` and
 `src/shaders/frag/`; shared GLSL chunks remain in `src/shaders/`.
 Player cel-shading fragments are imported by `src/core/loader.ts`, preserving
 the existing model-material application and shading toggle.
-**Display** includes a saved **Menu font** choice: **Normal** keeps Sefa on
+**Display** includes a **Menu font** choice: **Normal** keeps Sefa on
 Scene 1 and the original fonts elsewhere; **Serra (Sefa) everywhere** and
 **Comic Sans** apply their font to all menus. It also includes a **Bloom**
 strength slider, **Hide HUD**,
-**Show FPS** and **Perf timers**. Bloom strength and style are remembered between visits.
+**Show FPS**, **Perf timers** and **Prime hints**. Preferences, including sound,
+reset on page reload; they remain active across menus and scenes for that page session.
+Campaign completion and asset caching are separate and remain persistent.
+Loading screens use Sefa titles and contain no field notes.
 Press **Backslash (\\)** outside a text field to cycle bloom off, bright and soft.
 With **Show FPS** enabled, **Perf timers** adds CPU rendering time and GPU time
 when the browser supports GPU timer queries.
@@ -241,7 +248,8 @@ when the browser supports GPU timer queries.
 planet and finale scenes do not expose it. The normal minimap and its comic
 frame are both circular.
 Weapon and scene control cards dismiss automatically after **12 seconds**,
-or immediately with **H** or their close button. Controller bindings use SVG
+or immediately with **H** or their close button. A newly introduced mechanic immediately replaces an older control card,
+even before its timer expires or **H** is pressed. Controller bindings use SVG
 face buttons, shoulders, triggers, sticks and directional pads both in these
 new-mechanic pop-ups and in the complete Controls menu. The icons follow each
 controller's selected family, calibrated layout and face-button swap.
@@ -265,17 +273,23 @@ printed names. Gameplay uses equivalent positions across families; menus use
 the conventional confirm/back buttons for each family.
 For adapters that reverse the face buttons, use **Swap A/B** or
 **Swap Cross/Circle** under Controller.
+The **Button-label layout** dropdown selects Switch, Xbox, PlayStation, or
+generic labels for the selected controller.
 
 **Calibrate game controls** is available only inside the **Controller** tab,
-never under Keyboard & Mouse. Calibration asks for only the **14 buttons used
+never under Keyboard & Mouse. Calibration asks for only the **15 buttons used
 by the game**: four face buttons, both shoulders and triggers, four D-pad
-directions, and the menu/skip buttons. Both sticks' directions are calibrated
-too, for **18 steps total**. Stick clicks, Home/Guide/PS, Capture/Share/touchpad
-press and unused extra buttons are not requested.
+directions, the menu/skip buttons, and the right-stick click (R3).
+Both sticks' directions are calibrated too, for **19 steps total**.
+Left-stick clicks, Home/Guide/PS, Capture/Share/touchpad press and unused
+extra buttons are not requested.
 Follow the labels for your chosen family; release every button and center both
 sticks before starting. Axis-based triggers and D-pads are supported.
 Calibration and face-button swaps are retained separately for each device and
 controller family for this page session, including reconnects.
+You can cancel halfway with **Escape**, **Cancel calibration**, or by holding
+**any two controller buttons together for one second**. Cancellation discards
+the incomplete setup and retains the previous layout.
 
 | On-foot action | Switch | Xbox | PlayStation |
 | --- | --- | --- | --- |
@@ -283,15 +297,17 @@ controller family for this page session, including reconnects.
 | Jump | B | A | Cross |
 | Toggle crouch / sprinting forward tackle | Y | X | Square |
 | Sprint | Hold ZL | Hold LT | Hold L2 |
-| Shoot / swing / slash | A | B | Circle |
-| Interact / use / collect | R | RB | R1 |
+| Shoot / swing / slash | R | RB | R1 |
+| Interact / use / collect | A | B | Circle |
 | Weapon wheel (right stick selects; release to equip) | Hold L | Hold LB | Hold L1 |
 | Cancel weapon selection / menu back | B | B | Circle |
 | Menu confirm | A | A | Cross |
-| Place teleport anchor / return to it | D-pad Down / Up | D-pad Down / Up | D-pad Down / Up |
-| Dance (keyboard 9) | D-pad Right | D-pad Right | D-pad Right |
+| Place teleport anchor | D-pad Down | D-pad Down | D-pad Down |
+| Throw teleport crystal (hold/release to charge) | D-pad Right | D-pad Right | D-pad Right |
+| Return to teleport anchor | D-pad Up | D-pad Up | D-pad Up |
+| Dance (keyboard 9) | X | Y | Triangle |
 | Scanner goggles | ZR | RT | R2 |
-| Change camera view | X | Y | Triangle |
+| Change camera view | R3 | RS (right-stick click) | R3 |
 | Pause menu | + | Menu | Options |
 | Skip an available cinematic | Hold - | Hold View | Hold Create / Share |
 | Retry an on-foot checkpoint / hide at the storage door | D-pad Left | D-pad Left | D-pad Left |
@@ -329,14 +345,14 @@ M and Escape remain keyboard menu fallbacks in controller mode.
 
 The following combat examples use Switch labels. Xbox and PlayStation use the
 equivalent positions from the table above, and in-game prompts change to match.
-In **flight**, use left stick to steer, right stick to aim, hold A to fire,
-B to evade, R to activate a collected shield, X to change view and + for the menu.
+In **flight**, use left stick to steer, right stick to aim, hold R to fire,
+B to evade, A to activate a collected shield, R3 to change view and + for the menu.
 The arcade flight phases retain their directional dodges with left stick + B.
-During the **hangar escape QTE**, the displayed controls are A (shoot),
-X (crowbar), B (dodge), Y (bloomstick spin), and R (launch).
+During the **hangar escape QTE**, the displayed controls are R (shoot),
+X (crowbar), B (dodge), Y (bloomstick spin), and A (launch).
 
-The **final boss** uses left stick for movement and space altitude, A to swing,
-X for the rifle salvo, hold ZL for shield/parry, B for dodge boost, and R for
+The **final boss** uses left stick for movement and space altitude, R to swing,
+X for the rifle salvo, hold ZL for shield/parry, B for dodge boost, and A for
 Brendan's Will (the existing 18-second recharge). Y performs a grounded slide tackle
 that briefly knocks Sudoers 5 down.
 There is no inventory wheel. Hold - to skip the intro;
@@ -539,8 +555,7 @@ full-screen overlay:
   **Display > Comic Look** toggles the environment's cel lighting and a restrained
   contrast/saturation boost. **Display > Outlines** independently toggles black
   structural and character outlines without changing the lighting.
-  Both settings default to off and save independently. Existing Comic Look
-  preferences initialize the outline setting once to preserve the previous look.
+  Both settings default to off on every page load and operate independently.
   Real lighting, shadows and material detail remain visible beneath the cel bands.
   The minigame stage, puzzle camera feeds and dedicated minigame views bypass this
   treatment and outlines, regardless of the Display preferences.
@@ -601,6 +616,8 @@ accidentally trigger the on-foot punches.
 After the prison prologue, press **E** to let Prime teleport Brondon to his cabin.
 The arrival cinematic establishes his room and the crew passage before handing
 control back to the player. Hold **Enter** to skip the arrival once the room is ready.
+The green homing crystal shatters into falling, fading shards as Brondon finishes
+materializing. Skipping the arrival also consumes it, and it stays spent on revisits.
 Prime describes the living quarters as having no surveillance, without claiming
 they are the ship's only surveillance-free area.
 
@@ -615,6 +632,10 @@ flashbacks; memory and live-feed labels sit in the **bottom-left**. Click or
 press **Space** to reveal a line immediately, then again to advance without
 waiting for its camera shot. Timed narration can still advance automatically.
 Hold **Enter** to skip the whole prologue.
+
+The prologue's closing title and the museum wall use Scene 1's blue-to-red gradient
+logo, menu font and framed **A tale of vengeance** subtitle instead of the old
+yellow/red two-line lettering.
 
 The lab memory first establishes the captive crew, then closes in on Brondon's
 own pod. Prime's shield burst shatters its casing before experimentation can
@@ -671,13 +692,12 @@ breaks the chains, Brondon gets up, and the shorter title reveal leads to the
   showers or on the toilet wall.
   Read from Caleb, Husain, Andre, Sibusiso and Sohrab, their words form a
   deliberately subtle message: **YOU ARE A CHUMP BRONDON**.
-- Look at a nearby chair and press **E** to sit; press **E again** to stand.
-  Trying to play Brondon's cabin computer during an unfinished campaign instead
+- Cabin chairs are not interactable. Branden's and Brendan's computers offer
+  inspection only. Trying to play Brondon's cabin computer instead
   earns a comic-style scolding from Prime: lock in and rescue the crew first.
-  Finishing the campaign and credits permanently unlocks it for subsequent
-  **Play** runs on this browser. Developer-menu visits always keep the static
-  screen, even after completion, and cannot grant the completion unlock.
-  Cabin chairs, surveillance workstations and the equipment archive share the
+  This also applies to developer visits and completed campaigns.
+  Bathroom toilets retain sitting with **E / Relieve yourself at toilet**;
+  press **E again** to stand. Toilets, surveillance workstations and the equipment archive share the
   authored sitting, seated-idle and getting-up animations. Resting restores
   **1 HP every 4 seconds**, never revives a dead player, and pauses with the menu.
   Movement and weapon use are disabled until the get-up animation finishes.
@@ -701,25 +721,17 @@ breaks the chains, Brondon gets up, and the shorter title reveal leads to the
 - In **Branden's room**, use his computer to pan in to the real screen.
   Move its on-screen cursor and click the single **save us** text file, or press
   **Enter** to open it. Branden's local bot left a four-digit maintenance password;
-  Prime reads it out. **E**, **Esc**, or **Step back** returns to exploration.
+  Prime reads it out. Press **E again** or **Step back** to return to exploration.
 - **Brondon's computer** shows a captured picture of the actual **Play / Don't
   Play** menu during an unfinished normal campaign. No iframe or
-  embedded audio is loaded until unlocked. Developer visits (including the
-  `?living-quarters` development preview) unlock the computer immediately.
-  After genuinely finishing the game
-  and credits, subsequent normal **Play** runs also unlock the live game at
-  `https://lamp.ms.wits.ac.za/students/sgroup3928/brondons-revenge/?muted=1`.
-  Press **E** at the unlocked monitor to sit down first, then pan into the game
-  with native browser input. **Close screen**
-  pans back out and plays the get-up animation before returning control.
-  This iframe requests `?muted=1` and disallows autoplay. Embedded copies of this
-  game start both music and effects at zero volume for that flag, without
-  overwriting saved audio settings. The deployed game must include that mute
-  support for the flag to take effect.
+  embedded audio is loaded from this computer. Brondon cannot sit or play there.
 - Use the **number panel beside the forward bulkhead** to zoom in. A glowing
   light pointer tracks the selected button without loading a hand model. Click the digits
   or use the number keys, then **OK / Enter**; **Backspace** erases and **CLR**
-  clears. Incorrect codes leave the door locked and display an error.
+  clears. With a controller, the **D-pad** selects keypad buttons and the confirm
+  button presses them; the right stick remains available as a pointer.
+  Press **E again** (controller interact/back) to step away.
+  Incorrect codes leave the door locked and display an error.
 - Pressing **E** no longer queues the generic Interact gesture for doors,
   posters, computers or chests. Their existing actions and dedicated cinematics
   still run; chair sitting and standing keep their own animations.
@@ -1017,18 +1029,33 @@ recovered during Stage Two.
   **Y** shoots the rear core, which uses the blue ballistic-breakable shader;
   **U** jumps onto the fallen bot; **I** bisects it. Each prompt allows five
   seconds and uses the existing controller button mappings or a touch button.
-  It shares the hangar's letter-prompt styling. **Hold Q** and **Press T**
-  cues appear in the centre, with Prime's directions at the top-left.
+  It shares the hangar's letter-prompt styling. Throwing and teleporting unlock
+  only after **five seconds from the Warden's first barrage shot**, not from
+  the start of his scan. Prime says **"We need to get behind him."** before
+  the **Hold Q + left-click** and **Press T** instructions appear.
   Camera shots follow the aim, core impact, fall, jump and cutting stroke,
-  with slow movement during the input windows. A single travelling slash wave,
+  with continuous arcs, dollies and restrained Dutch angles during input windows.
+  Brondon floats beside the wall with loose, drifting limbs and his revolver ready.
+  Arrival uses his normal idle animation, with no shield. Prime's subdued cyan
+  shield appears only on **U**, propelling him off the wall toward the fallen bot
+  without a bloom boost; the firing shot tracks just behind the barrel.
+  The jump tucks into a three-point landing with impact sound and camera recoil.
+  There are no clank effects during the finisher or its defeat handoff.
+  An expanding slash wave, glowing split edges, sparks, chromatic separation,
   the finale's blade trail and a short impact pause intensify the final cut.
 - The cut flows into Brondon leaping across the split bot while the camera pans
   to Branden emerging crouched on Brendan's authored
   rig, explains the neural experiments, and saves Brondon when Donus detonates
-  the fallen halves. Both remain close to the wreck: Branden makes contact
+  the fallen halves. The camera cuts to a full-screen, in-scene close-up of
+  Branden's face for **2.2 seconds**, then cuts back as he moves to save Brondon.
+  There is no comic strip or separate portrait overlay. Brondon shouts **"Brandennnn!!"**
+  as the explosion goes off. Both remain close to the wreck: Branden makes contact
   before shoving Brondon clear, and the directed fire engulfs Branden during
   the push. There is no Prime shield. Brondon lands and runs back to Branden,
-  then kneels for his promise to save the students before Branden dissolves in red.
+  then kneels as Branden pleads: **"Save the students... They're the future of our
+  research. Don't make it meaningless... I beg you."** Brondon promises before
+  Branden dissolves in red. Only after the dissolve finishes, Brondon says
+  **"I will avenge you."**
   Control resumes at the death spot; there is no scripted walk or teleport to
   the console. The lift remains available for its existing interaction and descent.
 
@@ -1311,6 +1338,22 @@ where Earth used to be. Inside Opus's cockpit, Brondon answers,
 You must die. I will have my revenge!!!" Before the escape, the students declare, "You haven't seen
 the extent of our ambition." Prime announces emergency thrusters and atmospheric
 escape; the bomb has no named special-move callout.
+As the camera pulls out from Brondon's cockpit-face close-up, a **7.2-second
+Opus Magnum power-up cinematic** begins during that same transition and keeps the duel paused:
+Brondon uses Quaternius's **Sword_Idle** animation, keeps his sword in hand,
+and shouts **"AHHHHHH!"** with a locally synthesized voice while charging inside
+a rising golden flame aura. His armour
+plate materials transition to **platelight `#FFE639FF`**, **platemid `#E79937FF`** and
+**plateshad `#9D5700FF`**, with purple gems (`#B202B4`, `#701199`, `#5F0B65`)
+and matching gold/purple sword detailing;
+the rifle also turns gold and remains holstered during the pose. The orbital
+fight resumes after the golden aura fades away completely. The gold armour and
+purple gems persist through the rest of the finale and space/finisher checkpoint
+retries. The mech shield is white before this transformation and yellow afterward,
+independently of the aura. Brondon's personal Prime shield, shield HUD and shield-hit
+feedback are yellow throughout the game. Enemy and ship shields are unchanged. Reduced
+motion disables the aura's flutter and rising particles and removes the impact
+shake. The collapse soundtrack continues through the power-up.
 The final fight uses the shared baked-nebula starfield, fading in over the
 nighttime rooftop and remaining behind the orbital duel and ending. The
 background follows the camera and its stars stay beyond the actors and planet.

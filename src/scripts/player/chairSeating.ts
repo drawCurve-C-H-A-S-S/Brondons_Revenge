@@ -9,6 +9,7 @@ export interface ChairSeat {
   yaw: number;
   /** World-space cushion point, for seats whose proxy has no top face to raycast. */ surface?: () => THREE.Vector3;
   onStand?: () => void;
+  prompt?: string;
 }
 interface SeatingOptions {
   scene: THREE.Scene;
@@ -328,14 +329,15 @@ export function createChairSeating({
       );
     },
     updateInteractionFocus() {
-      if (disposed || !canInteract() || (!sitting && !findChair())) {
+      const chair = !sitting ? findChair() : null;
+      if (disposed || !canInteract() || (!sitting && !chair)) {
         if (ownsPrompt) prompt?.classList.add("hidden");
         ownsPrompt = false;
         return false;
       }
       if (prompt) {
         prompt.textContent = inputHint(
-          sitting ? "E / Stand up" : "E / Sit and rest",
+          sitting ? "E / Stand up" : (chair?.prompt ?? "E / Sit and rest"),
         );
         prompt.classList.remove("hidden");
         ownsPrompt = true;

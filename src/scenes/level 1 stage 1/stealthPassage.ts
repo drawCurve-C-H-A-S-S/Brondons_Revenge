@@ -81,7 +81,7 @@ export function createStealthPassage(
     5,
     roomHeight,
     "LIVING QUARTERS",
-    { doorHeight: 2.5, landingFloor: false },
+    { doorHeight: 2.5, landingFloor: false, sign: false },
   );
   box([1.6, 0.2, 5], [-14.8, -0.1, -2.5], floor);
   box([1.6, 0.16, 5], [-14.8, roomHeight, -2.5], dark).userData.minimap = false;

@@ -615,7 +615,7 @@
             </div>
             <div>
               <dt>Music &amp; soundtrack</dt>
-              <dd>Caleb</dd>
+              <dd>Caleb Steenkamp</dd>
             </div>
             <div>
               <dt>Music production software</dt>
@@ -628,7 +628,7 @@
           <ul class="credit-list">
             <li>
               Brondon &amp; DonfromStreets (Brendan)
-              <p class="credit-detail">Husain</p>
+              <p class="credit-detail">Husain Battey</p>
               <p class="credit-note">
                 New GLB character models: Don.glb (Brondon) and
                 DonfromStreets.glb (Brendan).
@@ -636,7 +636,7 @@
             </li>
             <li>
               Mech model
-              <p class="credit-detail">Husain</p>
+              <p class="credit-detail">Husain Battey</p>
             </li>
             <li>
               <a
@@ -948,7 +948,9 @@
     <!-- Menu buttons -->
     <div id="menu-buttons" class="hidden">
       <div id="menu-title-card" aria-hidden="true">
-        <span class="menu-title-main" data-text="BRONDON'S REVENGE">BRONDON'S REVENGE</span>
+        <span class="menu-title-main" data-text="BRONDON'S REVENGE"
+          >BRONDON'S REVENGE</span
+        >
         <span class="menu-title-kicker">A tale of vengeance</span>
       </div>
       <div id="title-actions" class="menu-actions">
@@ -1038,21 +1040,62 @@
       </div>
     </div>
 
-    <div id="arcade-run-clock" class="hidden" role="timer" aria-label="Arcade run timer"></div>
-    <div id="arcade-briefing" class="hidden" role="dialog" aria-modal="true" aria-labelledby="arcade-briefing-title">
+    <div
+      id="arcade-run-clock"
+      class="hidden"
+      role="timer"
+      aria-label="Arcade run timer"
+    ></div>
+    <div
+      id="arcade-briefing"
+      class="hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="arcade-briefing-title"
+    >
       <div class="arcade-results-card">
         <p class="arcade-results-eyebrow">Arcade / Ready to play?</p>
         <h2 id="arcade-briefing-title"></h2>
         <ul id="arcade-instructions"></ul>
-        <div id="arcade-difficulties" class="arcade-results-actions hidden" role="group" aria-label="Hangar difficulty">
-          <button class="menu-btn" type="button" data-arcade-difficulty="easy" aria-pressed="true">Easy</button>
-          <button class="menu-btn" type="button" data-arcade-difficulty="medium" aria-pressed="false">Medium</button>
-          <button class="menu-btn" type="button" data-arcade-difficulty="hard" aria-pressed="false">Hard</button>
+        <div
+          id="arcade-difficulties"
+          class="arcade-results-actions hidden"
+          role="group"
+          aria-label="Hangar difficulty"
+        >
+          <button
+            class="menu-btn"
+            type="button"
+            data-arcade-difficulty="easy"
+            aria-pressed="true"
+          >
+            Easy
+          </button>
+          <button
+            class="menu-btn"
+            type="button"
+            data-arcade-difficulty="medium"
+            aria-pressed="false"
+          >
+            Medium
+          </button>
+          <button
+            class="menu-btn"
+            type="button"
+            data-arcade-difficulty="hard"
+            aria-pressed="false"
+          >
+            Hard
+          </button>
         </div>
         <p id="arcade-scoring-note"></p>
         <div class="arcade-results-actions">
-          <button id="arcade-start" class="menu-btn" type="button">Start</button>
-          <button id="arcade-briefing-return" class="menu-btn" type="button">Return to Museum</button>
+          <button id="arcade-start" class="menu-btn" type="button">
+            Start
+          </button>
+          <button id="arcade-briefing-return" class="menu-btn" type="button">
+            Return to Museum
+          </button>
         </div>
       </div>
     </div>
@@ -1070,7 +1113,11 @@
         <div class="arcade-grade" id="arcade-grade">S</div>
         <dl class="arcade-stats" id="arcade-stats"></dl>
         <div class="arcade-results-actions">
-          <button id="arcade-download-record" class="menu-btn hidden" type="button">
+          <button
+            id="arcade-download-record"
+            class="menu-btn hidden"
+            type="button"
+          >
             Download record image (PNG)
           </button>
           <button id="arcade-play-again" class="menu-btn" type="button">
@@ -1101,6 +1148,34 @@
     <div id="scene-side-bar"><span>DEVELOPER</span></div>
     <dialog id="pause-menu" aria-labelledby="pause-menu-title">
       <h1 id="pause-menu-title" class="hidden">Pause</h1>
+      <section
+        id="story-setup-panel"
+        class="pause-panel hidden"
+        aria-label="Story setup"
+      >
+        <h2>Before the story begins</h2>
+        <p>
+          Configure your controller, display and Prime hints. Settings reset
+          when you reload the page.
+        </p>
+        <button
+          type="button"
+          class="menu-button"
+          data-story-settings="controls"
+        >
+          Controller &amp; controls
+        </button>
+        <button type="button" class="menu-button" data-story-settings="display">
+          Display &amp; Prime hints
+        </button>
+        <button type="button" class="menu-button" data-story-settings="sound">
+          Sound
+        </button>
+        <button id="story-setup-start" type="button" class="menu-button">
+          Begin story
+        </button>
+        <button type="button" class="menu-button" data-pause-back>Back</button>
+      </section>
       <section id="pause-home" class="pause-panel">
         <button id="pause-resume" type="button" class="menu-button">
           Resume
@@ -1213,10 +1288,6 @@
               Connected controllers (0)
             </button>
           </div>
-          <label id="pause-prime-settings" for="prime-hints-toggle">
-            <span>Prime hints (all levels)</span>
-            <input id="prime-hints-toggle" type="checkbox" checked />
-          </label>
         </div>
         <div class="controls-group">
           <div
@@ -1239,44 +1310,12 @@
                 Detected automatically for each connected device. Override the
                 layout if your adapter reports the wrong controller type.
               </p>
-              <div
-                class="controller-type-buttons"
-                role="group"
-                aria-label="Controller type"
-              >
-                <button
-                  class="menu-button"
-                  type="button"
-                  data-controller-type="switch"
-                  aria-pressed="false"
-                >
-                  Switch
-                </button>
-                <button
-                  class="menu-button"
-                  type="button"
-                  data-controller-type="xbox"
-                  aria-pressed="false"
-                >
-                  Xbox
-                </button>
-                <button
-                  class="menu-button"
-                  type="button"
-                  data-controller-type="playstation"
-                  aria-pressed="false"
-                >
-                  PlayStation
-                </button>
-                <button
-                  class="menu-button"
-                  type="button"
-                  data-controller-type="generic"
-                  aria-pressed="false"
-                >
-                  Other / Generic
-                </button>
-              </div>
+              <select id="controller-type-select" aria-label="Controller type">
+                <option value="switch">Switch</option>
+                <option value="xbox">Xbox</option>
+                <option value="playstation">PlayStation</option>
+                <option value="generic">Other / Generic</option>
+              </select>
             </fieldset>
             <p id="controller-status" role="status" aria-live="polite">
               Plug in a controller, then press a button to let the browser
@@ -1291,9 +1330,15 @@
             <div id="controller-setup" class="hidden">
               <p>
                 Calibration covers only the buttons used for gameplay, menus and
-                skipping cinematics, plus both sticks. Stick clicks, system
-                buttons and unused extras are not required. Release all buttons
-                and center both sticks before starting.
+                skipping cinematics, plus both sticks and the right-stick click
+                (R3). Left-stick clicks, system buttons and unused extras are
+                not required. Release all buttons and center both sticks before
+                starting.
+              </p>
+              <p>
+                Press Escape, choose Cancel calibration, or hold any two
+                controller buttons together for one second to cancel.
+                Unfinished changes are discarded; your previous controls stay.
               </p>
               <p
                 id="controller-setup-step"
@@ -1311,6 +1356,7 @@
                 id="controller-setup-cancel"
                 class="menu-button hidden"
                 type="button"
+                aria-keyshortcuts="Escape"
               >
                 Cancel calibration
               </button>
@@ -1373,6 +1419,12 @@
         class="pause-panel hidden"
         aria-label="Display settings"
       >
+        <div class="sound-slider-group menu-tilt">
+          <label id="pause-prime-settings" for="prime-hints-toggle">
+            <span>Prime hints (all levels)</span>
+            <input id="prime-hints-toggle" type="checkbox" checked />
+          </label>
+        </div>
         <div class="sound-slider-group menu-tilt">
           <label for="menu-font-select">Menu font</label>
           <select id="menu-font-select">

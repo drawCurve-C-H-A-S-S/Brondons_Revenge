@@ -78,8 +78,26 @@ test("the full loading deck includes every chapter image before repeating", () =
   );
   const deck = chapters.createLoadingSlideDeck("game", () => 0.5);
   const seen = new Set();
-  for (let i = 0; i < expectedImages.size; i++) seen.add(deck.next().image);
+  for (let i = 0; i < expectedImages.size; i++) {
+    const slide = deck.next();
+    seen.add(slide.image);
+    assert.equal("tip" in slide, false);
+    assert.equal("tips" in slide.content, false);
+  }
   assert.deepEqual(seen, expectedImages);
+});
+
+test("loading screens have no field notes and keep Sefa chapter titles", async () => {
+  const source = await readFile(
+    new URL("../src/scripts/global/cinematicLoading.ts", import.meta.url),
+    "utf8",
+  );
+  const css = await readFile(
+    new URL("../src/styles/main.css", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(source, /FIELD NOTES|cinematic-loading-tip/);
+  assert.match(css, /\.cinematic-loading h1\s*\{[^}]*font-family:\s*"Sefa"/);
 });
 
 test("developer scene choices include a dedicated epilogue shortcut after the finale", () => {

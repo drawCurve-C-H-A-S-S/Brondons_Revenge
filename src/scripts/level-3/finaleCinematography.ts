@@ -10,6 +10,7 @@ import {
 import {
   FINALE_REVEAL,
   HERO_TRANSFORM,
+  HERO_REVENGE,
   PLANET_RUPTURE,
   RIFLE_SEQUENCE,
   FINISHER_EXECUTION,
@@ -17,6 +18,7 @@ import {
   FINISHER_RIFLE,
   activeStudent,
   cinematicProgress,
+  heroRevengeTime,
   samplePlanetSurface,
   ENEMY_ATTACK_LEAPS,
   type FinisherBeat,
@@ -237,6 +239,7 @@ export function createFinaleCamera(
           FINALE_ROOFTOP.z + z,
         );
       const combat = duelView(context);
+      const revengeTime = heroRevengeTime(phase, t);
       let id = phase as string;
       if (phase === "loading" || phase === "error")
         frame(local(-5, 2.5, 8.1), local(0, 1.3, FACILITY_OFFICE.tableZ), 56);
@@ -494,6 +497,35 @@ export function createFinaleCamera(
         }
       } else if (phase === "versus") {
         frame(combat.position, combat.center, 51);
+      } else if (revengeTime >= 0) {
+        id = "revenge-power-up";
+        const reveal = cinematicProgress(revengeTime, 0, 2.6);
+        const exit = cinematicProgress(
+          revengeTime,
+          HERO_REVENGE.settle,
+          HERO_REVENGE.duration,
+        );
+        const focus = context.heroFace.clone().lerp(context.heroChest, reveal);
+        const portrait = Math.max(1, 1.35 / Math.max(0.5, camera.aspect));
+        const distance = (16 + reveal * 17) * portrait;
+        const front = V(0, 0, 1).applyQuaternion(hero.quaternion);
+        const right = V(1, 0, 0).applyQuaternion(hero.quaternion);
+        const shot = focus
+          .clone()
+          .addScaledVector(front, distance)
+          .addScaledVector(right, distance * 0.2)
+          .add(V(0, -2.4, 0));
+        frame(
+          context.pilotCamera
+            .clone()
+            .lerp(shot, reveal)
+            .lerp(combat.position, exit),
+          context.pilotFace
+            .clone()
+            .lerp(focus, reveal)
+            .lerp(combat.center, exit),
+          40 + reveal * 5 + exit * 9,
+        );
       } else if (phase === "rupture") {
         if (
           t >= PLANET_RUPTURE.facilityCut &&
@@ -596,7 +628,7 @@ export function createFinaleCamera(
             46 + p * 3,
             -0.012,
           );
-        } else if (t < PLANET_RUPTURE.returnToDuel) {
+        } else {
           id += "-cockpit";
           const resolve = cinematicProgress(
             t,
@@ -604,22 +636,6 @@ export function createFinaleCamera(
             PLANET_RUPTURE.returnToDuel,
           );
           frame(context.pilotCamera, context.pilotFace, 43 - resolve * 3);
-        } else {
-          id += "-orbit";
-          const p = cinematicProgress(
-            t,
-            PLANET_RUPTURE.returnToDuel,
-            PLANET_RUPTURE.orbit + 0.4,
-          );
-          const start = context.pilotCamera.clone();
-          const exit = start.clone().sub(context.pilotFace).normalize();
-          frame(
-            start
-              .lerp(combat.position, p)
-              .addScaledVector(exit, Math.sin(p * Math.PI) * 6),
-            context.pilotFace.clone().lerp(combat.center, p),
-            40 + p * 14,
-          );
         }
       } else if (phase === "finisher") {
         const { beat, clock } = context.finisher;

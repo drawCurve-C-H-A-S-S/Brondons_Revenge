@@ -195,7 +195,7 @@ export const ZERO_G_BOSS = Object.freeze({
   backHitsRequired: 3,
   backHitGrace: 0.35,
   turnRate: 0.75,
-  needBehindAfter: 16,
+  needBehindAfter: 5,
   backTargetRadius: 0.6,
   confusionSeconds: 3.5,
 });
@@ -502,6 +502,7 @@ export function createLoadingBayBoss(
     scanFoundClock = -1;
   let zgDroneClock = 0,
     zgLaserClock = 0,
+    zgBarrageClock = -1,
     zgStageClock = 0,
     needBehindSent = false,
     zgBlastClock = -1,
@@ -510,6 +511,7 @@ export function createLoadingBayBoss(
   let backHits = 0,
     backHitGraceUntil = 0,
     finisherDrop = 0,
+    finisherYaw = 0,
     finisherCoreHit = false;
   const scanBeamMaterial = new THREE.MeshBasicMaterial({
     color: 0xb45cff,
@@ -752,7 +754,7 @@ export function createLoadingBayBoss(
   function finishBoss() {
     playBossDefeatSound(0.9);
     if (phase === "droneExplosion") options.onDroneExplosionEnd?.();
-    emitComicEffect(scene, "clank", { source: root });
+    if (phase !== "finisher") emitComicEffect(scene, "clank", { source: root });
     phase = "defeated";
     zeroGActive = false;
     scanBeam.visible = false;
@@ -1880,7 +1882,13 @@ export function createLoadingBayBoss(
             ? 0.5
             : 0;
     const stride = phaseTime * (bossWalking ? 9 : 19);
-    root.rotation.x = phase === "finisher" ? -drop * 1.25 : -drop * 0.16 + run * 0.14;
+    if (phase === "finisher") {
+      // Pitch around the boss's local right axis after yaw, never the world's X axis.
+      root.rotation.set(drop * Math.PI / 2, finisherYaw, 0, "YXZ");
+    } else {
+      root.rotation.order = "XYZ";
+      root.rotation.x = -drop * 0.16 + run * 0.14;
+    }
     root.position.y =
       drop > 0
         ? -drop * 3.4
@@ -1932,6 +1940,8 @@ export function createLoadingBayBoss(
         -windup * 0.7 - run * (0.6 + swing * 0.28),
       );
       setBoneRotation(`kepala.${side}`, _xAxis, drop * 0.4 - run * 0.2);
+      if (phase === "finisher" && !finisherCoreHit)
+        setBoneRotation(`kepala.${side}`, _yAxis, Math.sin(phaseTime * 2.6) * 0.22);
       setBoneRotation(
         `kepala.${side}`,
         _zAxis,
@@ -2334,6 +2344,8 @@ export function createLoadingBayBoss(
     zeroGActive = true;
     phase = "zeroG";
     phaseTime = 0;
+    zgBarrageClock = -1;
+    needBehindSent = false;
     startZeroGScan();
     backHits = 0;
     backHitGraceUntil = 0;
@@ -2585,6 +2597,7 @@ export function createLoadingBayBoss(
     }
   }
   function updateZeroG(dt: number) {
+    if (zgBarrageClock >= 0) zgBarrageClock += dt;
     root.position.x = PHASE4_RULES.bossHoverX;
     root.position.z = PHASE4_RULES.bossHoverZ;
     // Dodge axis: horizontal, perpendicular to the boss -> player line.
@@ -2647,9 +2660,10 @@ export function createLoadingBayBoss(
               ? "spread"
               : "single",
         );
+        if (zgBarrageClock < 0) zgBarrageClock = 0;
         zgLaserClock = ZERO_G_BOSS.laserInterval;
       }
-      if (!needBehindSent && zgStageClock >= ZERO_G_BOSS.needBehindAfter) {
+      if (!needBehindSent && zgBarrageClock + 1e-8 >= ZERO_G_BOSS.needBehindAfter) {
         needBehindSent = true;
         options.onNeedBehind?.();
       }
@@ -3160,10 +3174,16 @@ export function createLoadingBayBoss(
     },
     getRootPosition: (out = new THREE.Vector3()) => out.copy(root.position),
     getYaw: () => root.rotation.y,
-    isTeleportWindow: () => phase === "zeroG",
+    isTeleportWindow: () => phase === "zeroG" && zgBarrageClock + 1e-8 >= ZERO_G_BOSS.needBehindAfter,
     beginFinisher() {
       if (disposed || phase !== "zeroG") return false;
+      finisherYaw = root.rotation.y;
       clearConfusionEffect();
+      confusionEffect = emitComicEffect(scene, "confused", {
+        source: root, anchor: root,
+        position: getHeadWorldPosition().add(new THREE.Vector3(0, 1, 0)),
+        size: 2, duration: 10,
+      });
       removeDrones();
       clearBolts();
       scanBeam.visible = false;
@@ -3176,6 +3196,7 @@ export function createLoadingBayBoss(
     shootFinisherCore() {
       if (phase !== "finisher" || finisherCoreHit) return;
       finisherCoreHit = true;
+      clearConfusionEffect();
       backTargetMaterial.hit(1);
       root.updateMatrixWorld(true);
       burst(backLocal.clone().applyMatrix4(root.matrixWorld));
@@ -3193,6 +3214,7 @@ export function createLoadingBayBoss(
     },
     cancelFinisher() {
       if (phase !== "finisher") return;
+      clearConfusionEffect();
       finisherDrop = 0;
       finisherCoreHit = false;
       backTargetMaterial.reset();
@@ -3250,6 +3272,7 @@ export function createLoadingBayBoss(
       phaseFour,
       zeroGActive,
       zeroGStage: phase === "zeroG" ? zgStage : null,
+      barrageSeconds: Math.max(0, zgBarrageClock),
       entanglement,
       maxEntanglement: PHASE4_RULES.maxEntanglement,
       thrusterHeat: player.getZeroGHeat(),

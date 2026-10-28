@@ -10,7 +10,7 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["src/**/*.{js,ts}"],
+    files: ["src/**/*.{js,ts}", "storyboard/**/*.js"],
     languageOptions: {
       globals: globals.browser,
     },

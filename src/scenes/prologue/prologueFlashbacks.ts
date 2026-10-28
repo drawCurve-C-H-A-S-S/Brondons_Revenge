@@ -81,7 +81,7 @@ export function createPrologueShield() {
   const surface = new THREE.Mesh(
     new THREE.IcosahedronGeometry(1, 3),
     new THREE.MeshBasicMaterial({
-      color: 0x7bdfff,
+      color: 0xffe639,
       transparent: true,
       opacity: 0,
       blending: THREE.AdditiveBlending,
@@ -93,7 +93,7 @@ export function createPrologueShield() {
   const lattice = new THREE.Mesh(
     new THREE.IcosahedronGeometry(1.005, 1),
     new THREE.MeshBasicMaterial({
-      color: 0xb1efff,
+      color: 0xfff3a5,
       transparent: true,
       opacity: 0,
       wireframe: true,

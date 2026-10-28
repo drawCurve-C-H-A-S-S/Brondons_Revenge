@@ -278,8 +278,8 @@ export function applyPlayerCelShading(
       materials.add(material);
       const baseColor =
         material.emissive.getHex() !== 0
-          ? material.emissive.clone()
-          : material.color.clone();
+          ? material.emissive
+          : material.color;
       const unshaded = /faceskin|eyewhites/i.test(material.name);
       const previousCompile = material.onBeforeCompile;
       const previousKey = material.customProgramCacheKey();

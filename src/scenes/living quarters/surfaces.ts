@@ -512,6 +512,23 @@ export function createKeypad({
       return button ? press(button.label) : null;
     },
     key(code) {
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(code)) {
+        const selected = Math.max(0, buttons.findIndex(hovered));
+        const row = Math.floor(selected / 3),
+          column = selected % 3;
+        const nextRow =
+          (row + (code === "ArrowUp" ? -1 : code === "ArrowDown" ? 1 : 0) + 4) %
+          4;
+        const nextColumn =
+          (column +
+            (code === "ArrowLeft" ? -1 : code === "ArrowRight" ? 1 : 0) +
+            3) %
+          3;
+        const button = buttons[nextRow * 3 + nextColumn];
+        cursor.set(button.x + button.width / 2, button.y + button.height / 2);
+        draw();
+        return "handled";
+      }
       const digit = /^(?:Digit|Numpad)([0-9])$/.exec(code);
       const label =
         digit?.[1] ??
@@ -537,6 +554,10 @@ export function createKeypad({
       entry = message = pressed = "";
       messageTime = pressTime = 0;
       focused = false;
+      cursor.set(
+        buttons[0].x + buttons[0].width / 2,
+        buttons[0].y + buttons[0].height / 2,
+      );
       draw();
     },
     update(dt) {

@@ -170,6 +170,32 @@ export class TeleportationDeviceController {
     return this.state.placed;
   }
 
+  controllerAction(action: "place" | "throw", heldSeconds = 0) {
+    if (!Number.isFinite(heldSeconds) || heldSeconds < 0)
+      throw new RangeError("Controller throw duration must be finite and nonnegative");
+    const ctx = this.context();
+    if (
+      !this.state.collected ||
+      document.hidden ||
+      document.body.classList.contains("quick-menu-open") ||
+      !ctx.currentSceneId ||
+      ctx.isInputBlocked() ||
+      ctx.isBossFight()
+    )
+      return;
+    if (action === "place") this.placeDevice();
+    else if (!ctx.getAimDirection || !ctx.getActiveScene())
+      this.showMessage("The crystal cannot be thrown without an active view.");
+    else
+      this.throwDevice(
+        THREE.MathUtils.clamp(
+          (heldSeconds - TELEPORT_THROW.holdSeconds) / TELEPORT_THROW.chargeSeconds,
+          0,
+          1,
+        ),
+      );
+  }
+
   collect(announce = true) {
     if (this.state.collected) return;
     this.state.collected = true;

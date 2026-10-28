@@ -508,19 +508,30 @@ export function createScene({
             ? Math.atan2(p.x - RESCUE_SITE.boy.x, p.z - RESCUE_SITE.boy.z)
             : JUNGLE_ENTRY_YAW,
     );
-    const emerge = THREE.MathUtils.smoothstep(t, 14, 17);
+    const crouchExit = THREE.MathUtils.clamp((t - 14) / 2.5, 0, 1);
+    const emerge = THREE.MathUtils.clamp((t - 16.5) / 1.7, 0, 1);
     site.pod.getObjectByName("PodHatch")!.rotation.z =
       -THREE.MathUtils.smoothstep(t, 13, 14.5) * 1.5;
+    site.pod.getObjectByName("PodExitDoor")!.rotation.y =
+      THREE.MathUtils.smoothstep(t, 13, 14.5) * Math.PI * 0.6;
     site.boy.visible = t >= 14;
     site.pod.updateMatrixWorld(true);
-    const hatchExit = site.pod.localToWorld(
-      new THREE.Vector3(1.2, -0.95, 0.35),
-    );
-    site.boy.position.lerpVectors(hatchExit, RESCUE_SITE.boy, emerge);
-    const walkFacing = Math.atan2(
-      RESCUE_SITE.boy.x - hatchExit.x,
-      RESCUE_SITE.boy.z - hatchExit.z,
-    );
+    const podInterior = site.pod
+      .localToWorld(new THREE.Vector3(0, -0.8, -0.25))
+      .setY(0.12);
+    const hatchExit = site.pod
+      .localToWorld(new THREE.Vector3(0, -0.8, 3.2))
+      .setY(0.12);
+    if (t < 16.5)
+      site.boy.position.lerpVectors(podInterior, hatchExit, crouchExit);
+    else site.boy.position.lerpVectors(hatchExit, RESCUE_SITE.boy, emerge);
+    const walkFacing =
+      t < 16.5
+        ? Math.atan2(hatchExit.x - podInterior.x, hatchExit.z - podInterior.z)
+        : Math.atan2(
+            RESCUE_SITE.boy.x - hatchExit.x,
+            RESCUE_SITE.boy.z - hatchExit.z,
+          );
     const playerFacing = Math.atan2(
       player.body.position.x - site.boy.position.x,
       player.body.position.z - site.boy.position.z,
@@ -531,9 +542,15 @@ export function createScene({
         Math.sin(playerFacing - walkFacing),
         Math.cos(playerFacing - walkFacing),
       ) *
-        THREE.MathUtils.smoothstep(t, 16.5, 17.3);
+        THREE.MathUtils.smoothstep(t, 18.2, 19);
     site.setBrendanActivity(
-      t >= 14 && t < 17 ? "walk" : t >= 17 && t < 30 ? "talk" : "idle",
+      t >= 14 && t < 16.5
+        ? "crouchWalk"
+        : t >= 16.5 && t < 18.2
+          ? "walk"
+          : t >= 18.2 && t < 30
+            ? "talk"
+            : "idle",
     );
     site.update(dt);
     for (let i = 0; i < crashBits.count; i++) {
@@ -593,7 +610,7 @@ export function createScene({
                 : t < 23
                   ? "Brendan: Donus fused my mind with a battleship. I can still feel its engines in my head."
                   : t < 30
-                    ? "Brendan: The facility is ahead. Follow the stone path across the bridge. That waterfall hides a cave—but I can't leave the ship's signal."
+                    ? "Brendan: I need to stay behind and recover. The facility is ahead. Follow the stone path across the bridge."
                     : "FOLLOW THE STONE PATH THROUGH THE JUNGLE";
     groundCamera();
   }

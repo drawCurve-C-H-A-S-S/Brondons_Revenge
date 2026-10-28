@@ -4,6 +4,7 @@ import {
   createEnergyMaterial,
   createBeamMaterial,
   FRAME_COLORS,
+  HERO_REVENGE_PALETTE,
 } from "./finaleMaterials.js";
 import type { MechSide } from "../npc/mechDuel.js";
 import { SUDOERS_5 } from "./finaleActors.js";
@@ -156,7 +157,7 @@ export function createFinaleEffects(
   const shieldGeometry = new THREE.SphereGeometry(1, 36, 24);
   const shieldMaterial = new THREE.ShaderMaterial({
     uniforms: {
-      uColor: { value: new THREE.Color(FRAME_COLORS.hero) },
+      uColor: { value: new THREE.Color(0xffffff) },
       uPower: { value: 0 },
       uBroken: { value: 0 },
       uTime: { value: 0 },
@@ -220,6 +221,46 @@ export function createFinaleEffects(
   aura.name = "FinalVerdictVoidAura";
   aura.visible = false;
   root.add(aura);
+  const revengeMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uPower: { value: 0 },
+      uMotion: { value: reducedMotion ? 0 : 1 },
+      uColor: { value: new THREE.Color(HERO_REVENGE_PALETTE.platelight) },
+    },
+    vertexShader: `uniform float uTime; uniform float uMotion;
+      varying vec3 vNormal; varying vec3 vView; varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        vec3 flame = position;
+        float rise = sin(uv.x * 43.0 + uv.y * 13.0 - uTime * 4.0);
+        flame.xz *= 1.0 + rise * 0.055 * uMotion;
+        flame.y += max(0.0, position.y) * (0.08 + rise * 0.1) * uMotion;
+        vec4 p = modelViewMatrix * vec4(flame, 1.0);
+        vNormal = normalize(normalMatrix * normal);
+        vView = -p.xyz;
+        gl_Position = projectionMatrix * p;
+      }`,
+    fragmentShader: `uniform float uTime; uniform float uPower; uniform vec3 uColor;
+      varying vec3 vNormal; varying vec3 vView; varying vec2 vUv;
+      void main() {
+        float rim = pow(1.0 - abs(dot(normalize(vNormal), normalize(vView))), 1.35);
+        float flow = 0.5 + 0.5 * sin(vUv.x * 55.0 + sin(vUv.y * 18.0 - uTime * 3.0) * 2.0);
+        float flames = pow(flow, 3.0);
+        float fade = pow(max(0.0, sin(vUv.y * 3.14159265)), 0.45);
+        vec3 tint = mix(vec3(1.5, 0.32, 0.015), uColor * 1.8, 0.45 + flames * 0.55);
+        gl_FragColor = vec4(tint, uPower * fade * (0.045 + rim * (0.3 + flames * 0.4)));
+      }`,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+  });
+  const revengeAura = new THREE.Mesh(shieldGeometry, revengeMaterial);
+  revengeAura.name = "PrimeFrameGoldenAura";
+  revengeAura.visible = false;
+  root.add(revengeAura);
   const bladeCharge = new THREE.Mesh(
     beamGeometry,
     createEnergyMaterial(FRAME_COLORS.hero),
@@ -248,7 +289,8 @@ export function createFinaleEffects(
   });
   let slashCursor = 0;
   let lastChargeSpark = -1,
-    lastSpeedFrame = -1;
+    lastSpeedFrame = -1,
+    lastRevengeSpark = -1;
   const projectileSparkFrames = new Array<number>(32).fill(-1);
   const up = new THREE.Vector3(0, 1, 0),
     direction = new THREE.Vector3();
@@ -366,6 +408,32 @@ export function createFinaleEffects(
       aura.scale.set(7.5, 10, 7.5);
       auraMaterial.uniforms.uPower.value = power;
       auraMaterial.uniforms.uTime.value = time;
+    },
+    revengeAura(position: THREE.Vector3, power: number, time: number) {
+      revengeAura.visible = power > 0.01;
+      revengeAura.position.copy(position);
+      revengeAura.scale.set(6.4 + power * 0.8, 9.1 + power * 1.5, 6.4 + power * 0.8);
+      revengeMaterial.uniforms.uPower.value = power * (reducedMotion ? 0.6 : 1);
+      revengeMaterial.uniforms.uTime.value = reducedMotion ? 0 : time;
+      const spark = Math.floor(time * (mobile ? 9 : 18));
+      if (!reducedMotion && power > 0.25 && spark !== lastRevengeSpark) {
+        lastRevengeSpark = spark;
+        for (let i = 0; i < (mobile ? 2 : 4); i++) {
+          const angle = random() * Math.PI * 2;
+          particle(
+            position.clone().add(new THREE.Vector3(
+              Math.cos(angle) * (3 + random() * 2),
+              -7 + random() * 5,
+              Math.sin(angle) * (3 + random() * 2),
+            )),
+            i % 3 ? HERO_REVENGE_PALETTE.platelight : HERO_REVENGE_PALETTE.gemlight,
+            7 + power * 8,
+            0.55 + random() * 0.35,
+            0.16 + random() * 0.16,
+            up,
+          );
+        }
+      }
     },
     chargeBlade(
       from: THREE.Vector3,
@@ -502,6 +570,7 @@ export function createFinaleEffects(
       time: number,
       broken = false,
       side: MechSide = "hero",
+      color = side === "hero" ? 0xffffff : FRAME_COLORS.enemy,
     ) {
       const shield = shields[side],
         material = shield.material;
@@ -509,6 +578,7 @@ export function createFinaleEffects(
       if (!shield.visible) return;
       shield.position.copy(position);
       shield.scale.setScalar(radius);
+      material.uniforms.uColor.value.setHex(color);
       material.uniforms.uPower.value = Math.max(0, Math.min(1, power));
       material.uniforms.uBroken.value = broken ? 1 : 0;
       material.uniforms.uTime.value = time;
@@ -596,6 +666,7 @@ export function createFinaleEffects(
       shieldMaterial.dispose();
       enemyShieldMaterial.dispose();
       auraMaterial.dispose();
+      revengeMaterial.dispose();
       bladeCharge.material.dispose();
       bladeCorona.material.dispose();
       rings.forEach((item) => item.mesh.material.dispose());

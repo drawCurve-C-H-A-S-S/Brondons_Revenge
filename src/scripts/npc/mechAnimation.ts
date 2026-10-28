@@ -24,7 +24,8 @@ export type MechPoseName =
   | "bomb"
   | "skyCharge"
   | "afterCut"
-  | "mourn";
+  | "mourn"
+  | "powerUp";
 const SLOTS = [
   "hips",
   "spine",
@@ -208,6 +209,26 @@ function mechPose(move: MechPoseName, p: number, secondSlash = false): RigPose {
     const breathe = Math.sin(p * Math.PI * 2);
     pose.spine = [0.06 + breathe * 0.025, -0.08, 0];
     pose.head = [-0.04, 0.08 + breathe * 0.02, 0];
+  } else if (move === "powerUp") {
+    const surge = smooth(p, 0.05, 0.3);
+    const settle = smooth(p, 0.78, 1);
+    const strain = Math.sin(p * Math.PI * 10) * Math.sin(p * Math.PI) * 0.018;
+    pose.hips = [0.08 * (1 - surge), 0, 0];
+    pose.spine = [0.2 - surge * 0.46 + settle * 0.3 + strain, 0, 0];
+    pose.spineUpper = [-0.08 * surge, 0, 0];
+    pose.head = [0.12 - surge * 0.5 + settle * 0.34, 0, 0];
+    pose.leftArm = [-0.16, -0.22, -0.62 - surge * 0.18];
+    pose.rightArm = [-0.16, 0.22, 0.62 + surge * 0.18];
+    pose.leftElbow = [0, 0.12, -0.9 + surge * 0.22];
+    pose.rightElbow = [0, -0.12, 0.9 - surge * 0.22];
+    pose.leftHand = [-0.18, 0, -0.12];
+    pose.rightHand = [-0.18, 0, 0.12];
+    pose.leftLeg = [-0.32 + surge * 0.17, 0.12, 0.24];
+    pose.rightLeg = [-0.32 + surge * 0.17, -0.12, -0.24];
+    pose.leftKnee = [0.5 - surge * 0.28, 0, 0];
+    pose.rightKnee = [0.5 - surge * 0.28, 0, 0];
+    pose.leftFoot = [-0.12, -0.12, 0];
+    pose.rightFoot = [-0.12, 0.12, 0];
   } else if (move === "mourn") {
     const bend = smooth(p, 0, 1);
     pose.spine = [0.32 * bend, 0, 0];
@@ -494,6 +515,7 @@ export function createMechAnimator(
     "skyCharge",
     "afterCut",
     "dance",
+    "powerUp",
   ];
   const clips = new Map<string, THREE.AnimationClip>();
   for (const move of moves) {

@@ -32,17 +32,6 @@ export function preloadAudio(source) {
 
 /** @type {Set<(settings: { bgm: number, sfx: number, paused: boolean }) => void>} */
 const settingsListeners = new Set();
-try {
-  const saved = JSON.parse(
-    localStorage.getItem("brondons-revenge-audio") || "{}",
-  );
-  for (const channel of ["bgm", "sfx"]) {
-    if (typeof saved?.[channel] === "number" && Number.isFinite(saved[channel]))
-      volumes[channel] = clamp(saved[channel], 0, 1);
-  }
-} catch {
-  /* Storage is optional; session volume controls still work. */
-}
 
 const mutedEmbed =
   typeof window !== "undefined" &&
@@ -69,11 +58,6 @@ export function setAudioVolume(channel, value) {
   if (!Number.isFinite(value) || (channel !== "bgm" && channel !== "sfx"))
     return;
   volumes[channel] = clamp(value, 0, 1);
-  try {
-    localStorage.setItem("brondons-revenge-audio", JSON.stringify(volumes));
-  } catch {
-    /* Session-only settings. */
-  }
   notifyAudioSettings();
 }
 /** @param {(settings: { bgm: number, sfx: number, paused: boolean }) => void} listener */

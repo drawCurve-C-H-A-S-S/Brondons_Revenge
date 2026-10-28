@@ -385,13 +385,13 @@ export function createRewardChest(
               : reward === "shield" &&
                   player.getShield() >= player.getMaxShield()
                 ? "Shield is full"
-                : `Press E to open chest - ${
-                    reward === "goggles"
-                      ? "scanner goggles"
-                      : reward === "bloomstick"
-                        ? "bloomstick"
-                        : reward === "crowbar"
-                          ? "crowbar"
+                : reward === "crowbar"
+                  ? "Press E to open chest"
+                  : `Press E to open chest - ${
+                      reward === "goggles"
+                        ? "scanner goggles"
+                        : reward === "bloomstick"
+                          ? "bloomstick"
                           : reward === "keycard"
                             ? "keycard"
                             : reward === "aegis"
@@ -399,7 +399,7 @@ export function createRewardChest(
                               : reward === "shield"
                                 ? "+25 shield"
                                 : "+15 HP"
-                  }`,
+                    }`,
       );
       prompt.classList.remove("hidden");
       ownsPrompt = true;

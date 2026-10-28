@@ -236,6 +236,8 @@ function fixture(t, overrides = {}) {
     menu = [],
     keys = [],
     mouse = [];
+  const titleOrbits = [];
+  const teleportActions = [];
   let player,
     wheel,
     epoch = () => "";
@@ -245,6 +247,9 @@ function fixture(t, overrides = {}) {
     onStatus: (state) => status.push(state),
     onNotice: (text) => notices.push(text),
     onMenuAction: (action) => menu.push(action),
+    onTitleOrbit: (x, y, delta) => titleOrbits.push({ x, y, delta }),
+    onTeleportAction: (action, heldSeconds) =>
+      teleportActions.push({ action, heldSeconds }),
     aimWheel: (x, y) => wheel?.aimFromStick(x, y),
     cancelWheel: () => wheel?.close(),
   });
@@ -270,6 +275,8 @@ function fixture(t, overrides = {}) {
     menu,
     keys,
     mouse,
+    titleOrbits,
+    teleportActions,
     cleanups,
     setEpoch: (getter) => {
       epoch = getter;
@@ -370,17 +377,16 @@ test("Nintendo face buttons, shoulders, teleport, goggles and dance map to the r
   f.activate();
   const bindings = [
     [0, "Space"],
-    [5, "KeyE"],
+    [1, "KeyE"],
     [2, "KeyC"],
-    [3, "KeyV"],
+    [3, "Digit9"],
+    [11, "KeyV"],
     [6, "ShiftLeft"],
     [4, "Tab"],
     [7, "KeyN"],
     [8, "Enter"],
     [12, "KeyT"],
-    [13, "KeyQ"],
     [14, "KeyR"],
-    [15, "Digit9"],
   ];
   for (const [button, code] of bindings) {
     f.keys.length = 0;
@@ -399,11 +405,49 @@ test("Nintendo face buttons, shoulders, teleport, goggles and dance map to the r
   assert.deepEqual(f.menu, ["pause"]);
 });
 
+test("D-pad Down only places and D-pad Right always throws, with optional charging", (t) => {
+  const f = fixture(t);
+  f.activate();
+  f.button(13, true);
+  for (let i = 0; i < 90; i++) f.input.update(1 / 60);
+  f.button(13, false);
+  assert.deepEqual(f.teleportActions, [{ action: "place", heldSeconds: 0 }]);
+  f.button(15, true);
+  f.button(15, false);
+  assert.equal(f.teleportActions.at(-1).action, "throw");
+  assert.ok(f.teleportActions.at(-1).heldSeconds < 0.3);
+  f.button(15, true);
+  for (let i = 0; i < 60; i++) f.input.update(1 / 60);
+  f.button(15, false);
+  assert.ok(f.teleportActions.at(-1).heldSeconds >= 1);
+  assert.equal(f.teleportActions.length, 3);
+  assert.ok(f.keys.every((event) => !["KeyQ", "Digit9"].includes(event.code)));
+});
+
+test("menus, scene changes and focus loss cancel charged controller throws", (t) => {
+  const f = fixture(t);
+  f.activate();
+  for (const interrupt of [
+    () => { f.context.menuOpen = true; },
+    () => { f.context.id = "next-room"; },
+    () => f.window.dispatchEvent(new Event("blur")),
+  ]) {
+    f.button(15, true);
+    interrupt();
+    f.input.update(1 / 60);
+    f.button(15, false);
+    f.context.menuOpen = false;
+    f.window.dispatchEvent(new Event("focus"));
+    f.input.update(1 / 60);
+  }
+  assert.deepEqual(f.teleportActions, []);
+});
+
 test("held controls emit one press and one release, not keyboard repeat or auto-mash", (t) => {
   const f = fixture(t);
   f.activate();
   f.button(6, true);
-  f.button(1, true);
+  f.button(5, true);
   for (let i = 0; i < 120; i++) f.input.update(1 / 60);
   assert.equal(
     f.keys.filter(
@@ -414,7 +458,7 @@ test("held controls emit one press and one release, not keyboard repeat or auto-
   assert.equal(f.mouse.filter((event) => event.type === "mousedown").length, 1);
   assert.ok(f.keys.every((event) => !event.repeat));
   f.button(6, false);
-  f.button(1, false);
+  f.button(5, false);
   assert.equal(
     f.keys.filter(
       (event) => event.type === "keyup" && event.code === "ShiftLeft",
@@ -501,7 +545,7 @@ test("physical gameplay keys restore keyboard input automatically without swallo
   assert.equal(f.player.getState().isMoving, true);
 });
 
-test("A drives the real pistol, crowbar and bloomstick document handlers without mouse capture", async (t) => {
+test("R drives the real pistol, crowbar and bloomstick document handlers without mouse capture", async (t) => {
   const f = fixture(t);
   f.attachPlayer();
   f.activate();
@@ -543,21 +587,21 @@ test("A drives the real pistol, crowbar and bloomstick document handlers without
   });
   await pistol.ready;
   pistol.equip();
-  f.button(1, true);
+  f.button(5, true);
   assert.equal(shots, 1);
-  f.button(1, false);
+  f.button(5, false);
   pistol.holster();
   crowbar.equip();
-  f.button(1, true);
+  f.button(5, true);
   assert.equal(f.player.getState().actionRequest, "Sword_Attack");
-  f.button(1, false);
+  f.button(5, false);
   crowbar.holster();
   f.player.clearInput();
   f.input.update(1 / 60);
   bloomstick.equip();
-  f.button(1, true);
+  f.button(5, true);
   assert.equal(f.player.getState().actionRequest, "Sword_Attack");
-  f.button(1, false);
+  f.button(5, false);
   assert.equal(f.document.pointerLockElement, null);
 });
 
@@ -619,7 +663,7 @@ test("blur stops input, then focus and scene changes resume held movement withou
   const f = fixture(t);
   f.activate();
   f.pad.axes[1] = -1;
-  f.button(1, true);
+  f.button(5, true);
   f.window.dispatchEvent(new Event("blur"));
   f.input.update(1 / 60);
   assert.deepEqual(inputModule.getControllerMovement(), { x: 0, y: 0 });
@@ -627,8 +671,8 @@ test("blur stops input, then focus and scene changes resume held movement withou
   f.input.update(1 / 60);
   assert.ok(inputModule.getControllerMovement().y < 0);
   assert.equal(f.mouse.filter((event) => event.type === "mousedown").length, 1);
-  f.button(1, false);
-  f.button(1, true);
+  f.button(5, false);
+  f.button(5, true);
   assert.ok(inputModule.getControllerMovement().y < 0);
   assert.equal(f.mouse.filter((event) => event.type === "mousedown").length, 2);
   f.context.id = "next-scene";
@@ -690,17 +734,85 @@ test("directional QTEs accept left-stick and four-way d-pad inputs", (t) => {
   }
 });
 
+test("menu stick jitter does not restart navigation and repeat timing has a distinct initial delay", (t) => {
+  const f = fixture(t);
+  f.activate();
+  f.context.menuOpen = true;
+  f.input.update(1 / 60);
+  f.pad.axes[1] = 0.8;
+  f.input.update(1 / 60);
+  for (let frame = 0; frame < 18; frame++) {
+    f.pad.axes[1] = frame % 2 ? 0.6 : 0.7;
+    f.input.update(1 / 60);
+  }
+  assert.deepEqual(
+    f.menu,
+    ["down"],
+    "Jitter across the entry threshold cannot cause extra steps",
+  );
+  for (let frame = 0; frame < 12; frame++) f.input.update(1 / 60);
+  assert.equal(
+    f.menu.length,
+    3,
+    "Initial delay is 350ms; subsequent steps are 120ms apart",
+  );
+  f.pad.axes[1] = 0;
+  f.input.update(1 / 60);
+  f.pad.axes[1] = 0.8;
+  f.input.update(1 / 60);
+  assert.equal(
+    f.menu.length,
+    4,
+    "A fresh deliberate push responds immediately",
+  );
+});
+
+test("inspection maps the D-pad to keypad arrows and closes with E, never Escape", (t) => {
+  const f = fixture(t);
+  f.context.kind = "inspection";
+  f.activate();
+  for (const [button, code] of [
+    [12, "ArrowUp"],
+    [13, "ArrowDown"],
+    [14, "ArrowLeft"],
+    [15, "ArrowRight"],
+    [0, "KeyE"],
+  ]) {
+    f.button(button, true);
+    assert.equal(
+      f.keys.findLast((event) => event.type === "keydown").code,
+      code,
+    );
+    f.button(button, false);
+  }
+  assert.ok(f.keys.every((event) => event.code !== "Escape"));
+});
+
+test("title menus forward right-stick dragging without moving the menu selection or firing", (t) => {
+  const f = fixture(t);
+  f.activate();
+  f.context.menuOpen = true;
+  f.pad.axes[2] = 0.8;
+  f.pad.axes[3] = -0.65;
+  f.input.update(1 / 60);
+  const orbit = f.titleOrbits.at(-1);
+  assert.ok(orbit.x > 0 && orbit.y < 0 && orbit.delta > 0);
+  assert.equal(f.menu.length, 0);
+  assert.equal(f.keys.length, 0);
+  assert.equal(f.mouse.length, 0);
+});
+
 test("escape and final-boss mappings use the same displayed controller labels as their real key actions", (t) => {
   const f = fixture(t);
   f.activate();
   f.context.kind = "escape";
   f.input.update(1 / 60);
   for (const [button, code, label] of [
-    [1, "KeyY", "A"],
+    [5, "KeyY", "R"],
     [3, "KeyU", "X"],
     [0, "KeyI", "B"],
     [2, "KeyO", "Y"],
-    [5, "KeyE", "R"],
+    [1, "KeyE", "A"],
   ]) {
     f.button(button, true);
     assert.equal(f.keys.at(-1).code, code);
@@ -710,11 +822,11 @@ test("escape and final-boss mappings use the same displayed controller labels as
   f.context.kind = "finale";
   f.input.update(1 / 60);
   for (const [button, code, label] of [
-    [1, "KeyJ", "A"],
+    [5, "KeyJ", "R"],
     [3, "KeyF", "X"],
     [6, "KeyR", "ZL"],
     [0, "Space", "B"],
-    [5, "KeyE", "R"],
+    [1, "KeyE", "A"],
   ]) {
     f.button(button, true);
     assert.equal(f.keys.at(-1).code, code);
@@ -779,7 +891,7 @@ test("calibration covers only game controls, including swapped buttons, trigger 
   assert.equal(f.input.setMode("controller"), false);
   f.input.beginSetup();
   f.input.update(1 / 60);
-  assert.equal(f.input.getStatus().setupStep, "1 / 18: Press B");
+  assert.equal(f.input.getStatus().setupStep, "1 / 19: Press B");
   const bindings = [
     { button: 3 },
     { button: 0 },
@@ -791,6 +903,7 @@ test("calibration covers only game controls, including swapped buttons, trigger 
     { axis: 5, value: 1 },
     { button: 6 },
     { button: 7 },
+    { button: 8 },
     { axis: 6, value: -1 },
     { axis: 6, value: 0.142857 },
     { axis: 6, value: 0.714286 },
@@ -801,10 +914,10 @@ test("calibration covers only game controls, including swapped buttons, trigger 
     { axis: 1, value: -1 },
   ];
   for (const [index, binding] of bindings.entries()) {
-    assert.ok(f.input.getStatus().setupStep.startsWith(`${index + 1} / 18:`));
+    assert.ok(f.input.getStatus().setupStep.startsWith(`${index + 1} / 19:`));
     assert.doesNotMatch(
       f.input.getStatus().setupStep,
-      /stick click|Home|Capture|extra button/i,
+      /left stick click|Home|Capture|extra button/i,
     );
     if ("button" in binding) {
       f.pad.buttons[binding.button].pressed = true;
@@ -825,9 +938,12 @@ test("calibration covers only game controls, including swapped buttons, trigger 
   );
   assert.equal(f.input.getStatus().ready, true);
   f.activate();
-  f.button(0, true);
-  f.button(0, false);
+  f.button(4, true);
+  f.button(4, false);
   assert.equal(f.mouse.filter((event) => event.type === "mousedown").length, 1);
+  f.button(8, true);
+  f.button(8, false);
+  assert.equal(f.keys.at(-1).code, "KeyV");
   f.pad.axes[2] = 0.5;
   f.input.update(1 / 60);
   assert.ok(inputModule.getControllerMovement().x > 0);
@@ -838,6 +954,53 @@ test("calibration covers only game controls, including swapped buttons, trigger 
   f.pad.axes[4] = 0.8;
   f.input.update(1 / 60);
   assert.equal(f.keys.at(-1).code, "ShiftLeft");
+  f.pad.axes = [...neutral];
+  f.input.update(1 / 60);
+  f.input.beginSetup();
+  f.input.update(1 / 60);
+  f.button(2, true);
+  f.button(2, false);
+  f.input.cancelSetup();
+  assert.equal(f.input.getStatus().ready, true);
+  f.button(4, true);
+  f.button(4, false);
+  assert.equal(f.mouse.filter((event) => event.type === "mousedown").length, 2);
+});
+
+test("Escape cancels incomplete calibration and restores the previous controls", (t) => {
+  const f = fixture(t);
+  f.activate();
+  f.input.beginSetup();
+  f.input.update(1 / 60);
+  f.button(1, true);
+  f.button(1, false);
+  assert.match(f.input.getStatus().setupStep, /^2 \/ 19:/);
+  f.key("Escape");
+  assert.equal(f.input.getStatus().setupStep, null);
+  assert.equal(f.input.getStatus().ready, true);
+  assert.match(f.notices.at(-1), /cancelled.*Previous controls kept/);
+  f.button(0, true);
+  assert.equal(f.keys.at(-1).code, "Space");
+  f.button(0, false);
+  f.button(1, true);
+  assert.equal(f.keys.at(-1).code, "KeyE");
+});
+
+test("a one-second two-button hold cancels calibration without leaking menu actions", (t) => {
+  const f = fixture(t);
+  f.activate();
+  f.context.menuOpen = true;
+  f.input.beginSetup();
+  f.input.update(1 / 60);
+  for (const index of [0, 1])
+    Object.assign(f.pad.buttons[index], { pressed: true, value: 1 });
+  for (let i = 0; i < 19; i++) f.input.update(0.05);
+  assert.notEqual(f.input.getStatus().setupStep, null);
+  f.input.update(0.05);
+  assert.equal(f.input.getStatus().setupStep, null);
+  f.input.update(1 / 60);
+  assert.deepEqual(f.menu, []);
+  assert.equal(f.input.getStatus().ready, true);
 });
 
 test("releasing L immediately restores a continuously held left stick and ZL sprint without centering", (t) => {
@@ -897,11 +1060,7 @@ test("Nintendo button positions and an adapter-specific swap change gameplay and
   f.activate();
   f.button(1, true);
   f.button(1, false);
-  assert.equal(
-    f.mouse.filter((event) => event.type === "mousedown").length,
-    1,
-    "Physical A attacks",
-  );
+  assert.equal(f.keys.at(-1).code, "KeyE", "Physical A interacts");
   f.button(0, true);
   assert.equal(f.keys.at(-1).code, "Space");
   f.button(0, false);
@@ -912,7 +1071,10 @@ test("Nintendo button positions and an adapter-specific swap change gameplay and
   f.button(1, false);
   f.button(0, true);
   f.button(0, false);
-  assert.equal(f.mouse.filter((event) => event.type === "mousedown").length, 2);
+  assert.equal(f.keys.at(-1).code, "KeyE");
+  f.button(5, true);
+  f.button(5, false);
+  assert.equal(f.mouse.filter((event) => event.type === "mousedown").length, 1);
   f.context.menuOpen = true;
   f.input.update(1 / 60);
   f.button(0, true);

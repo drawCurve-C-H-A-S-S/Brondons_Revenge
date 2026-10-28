@@ -49,6 +49,7 @@ const SYNTH_SFX = [
   "droneWhizz",
   "botShot",
   "pew",
+  "revengeShout",
 ] as const;
 type SynthSfxName = (typeof SYNTH_SFX)[number];
 export type SfxName = keyof typeof SFX_URLS | SynthSfxName;
@@ -61,6 +62,7 @@ export const SFX_MIX: Partial<Record<SfxName, number>> = {
   droneWhizz: 0.28,
   botShot: 0.22,
   pew: 0.3,
+  revengeShout: 0.6,
 };
 export const FOOTSTEP_GAIN = 1.45;
 
@@ -77,6 +79,7 @@ const MIN_GAP_MS: Partial<Record<SfxName, number>> = {
   droneWhizz: 160,
   botShot: 65,
   pew: 60,
+  revengeShout: 1000,
 };
 const lastPlayed = new Map<string, number>();
 const synthesized = new Map<SynthSfxName, AudioBuffer>();
@@ -91,7 +94,7 @@ function playSynthSfx(name: SynthSfxName, level: number, rate: number) {
     typeof window.AudioContext !== "function"
   ) {
     if (!synthWarningShown) {
-      console.warn("[Audio] Mechanical and impact effects require Web Audio");
+      console.warn("[Audio] Synthesized sound effects require Web Audio");
       synthWarningShown = true;
     }
     return;
@@ -101,7 +104,9 @@ function playSynthSfx(name: SynthSfxName, level: number, rate: number) {
   let buffer = synthesized.get(name);
   if (!buffer) {
     const duration =
-      name === "servo" || name === "droneWhizz"
+      name === "revengeShout"
+        ? 3.8
+        : name === "servo" || name === "droneWhizz"
         ? 0.65
         : name === "blockBreak"
           ? 0.3
@@ -124,7 +129,9 @@ function playSynthSfx(name: SynthSfxName, level: number, rate: number) {
       const noise = seed / 2147483648 - 1;
       low += (noise - low) * 0.22;
       const frequency =
-        name === "bounce"
+        name === "revengeShout"
+          ? 128 + 62 * Math.sin(progress * Math.PI * 0.7) + Math.sin(t * 37) * 2.5
+          : name === "bounce"
           ? 70 + 370 * Math.exp(-t * 18)
           : name === "servo"
             ? 85 + Math.sin(progress * Math.PI) * 32
@@ -135,12 +142,23 @@ function playSynthSfx(name: SynthSfxName, level: number, rate: number) {
                 : 130 + 1450 * Math.exp(-t * 35);
       phase += (Math.PI * 2 * frequency) / context.sampleRate;
       const envelope =
-        Math.min(1, t * 160) *
-        (name === "servo" || name === "droneWhizz"
-          ? Math.sin(progress * Math.PI) ** 0.7
-          : Math.exp(-progress * 6) * (1 - progress));
+        name === "revengeShout"
+          ? Math.min(1, t * 5) * Math.min(1, (duration - t) * 2.5)
+          : Math.min(1, t * 160) *
+            (name === "servo" || name === "droneWhizz"
+              ? Math.sin(progress * Math.PI) ** 0.7
+              : Math.exp(-progress * 6) * (1 - progress));
       const wave =
-        name === "blockBreak"
+        name === "revengeShout"
+          ? Math.tanh(
+              Math.sin(phase) * 0.35 +
+              Math.sin(phase * 2) * 0.15 +
+              Math.sin(phase * 6) * 0.34 +
+              Math.sin(phase * 9) * 0.24 +
+              Math.sin(phase * 19) * 0.12 +
+              low * 0.16,
+            ) * 0.85
+          : name === "blockBreak"
           ? low * 1.5 + Math.sin(phase) * 0.15
           : name === "servo"
             ? Math.sin(phase) * 0.65 + Math.sin(phase * 3) * 0.16
@@ -157,11 +175,18 @@ function playSynthSfx(name: SynthSfxName, level: number, rate: number) {
   gain.gain.value = level;
   source.connect(gain);
   gain.connect(context.destination);
+  let stopped = false;
   source.onended = () => {
+    stopped = true;
     source.disconnect();
     gain.disconnect();
   };
   source.start();
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    source.stop();
+  };
 }
 
 export function playSfx(name: SfxName, volume = 1, rate = 1) {
@@ -173,8 +198,7 @@ export function playSfx(name: SfxName, volume = 1, rate = 1) {
     Math.min(1, Math.max(0, volume * (SFX_MIX[name] ?? 1))) * getSfxGain();
   if (level <= 0) return;
   if (isSynthSfx(name)) {
-    playSynthSfx(name, level, rate);
-    return;
+    return playSynthSfx(name, level, rate);
   }
   if (typeof Audio === "undefined") return;
   const audio = new Audio(cachedAssetUrl(SFX_URLS[name]));
@@ -185,6 +209,7 @@ export function playSfx(name: SfxName, volume = 1, rate = 1) {
     .catch((error) =>
       console.warn("[Audio] Sound effect playback failed:", name, error),
     );
+  return;
 }
 
 /** Distance-attenuated sfx at a world position, relative to the supplied listener. */

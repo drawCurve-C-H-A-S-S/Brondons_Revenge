@@ -111,6 +111,7 @@ export interface CinematicPose {
     | "Pistol_Shoot"
     | "Sword_Idle"
     | "Sword_Attack"
+    | "Sword_Regular_C"
     | "Roll"
     | "Hit_Chest"
     | "Death01"

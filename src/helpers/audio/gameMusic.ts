@@ -63,13 +63,15 @@ const sceneTracks = new Map<string, BackgroundMusicTrack>([
   ["scene21", "loading"],
 ]);
 
-/** The planetary-collapse film, including Brendan's cutaway, has one music bed. */
+/** The collapse and Brondon's power-up share one uninterrupted music bed. */
 export function finaleMusicTrack(
   phase: FinalePhase,
   _bombDetonated = false,
+  creditsPerformance = false,
 ): BackgroundMusicTrack {
-  if (phase === "credits" || phase === "done") return "credits";
-  if (phase === "rupture") return "broken-chains";
+  if (phase === "credits" || phase === "done")
+    return creditsPerformance ? "puzzle" : "credits";
+  if (phase === "rupture" || phase === "revenge") return "broken-chains";
   if (
     phase === "loading" ||
     phase === "error" ||
@@ -117,6 +119,7 @@ export function createGameMusic() {
     const immediate =
       next === "prologue" ||
       next === "stealth-alert" ||
+      (next === "puzzle" && sceneId === "scene21") ||
       (next === "broken-chains" && sceneId !== "scene21");
     if (background.bgm && !paused && !immediate) {
       background.crossfadeBgm(
@@ -150,7 +153,7 @@ export function createGameMusic() {
         );
       }
       if (id === "scene21") {
-        void preloadMusic(MUSIC_URLS.credits).catch((error) =>
+        void Promise.all([preloadMusic(MUSIC_URLS.credits), preloadMusic(MUSIC_URLS.puzzle)]).catch((error) =>
           console.warn("[Audio] Credits preparation failed:", error),
         );
       }

@@ -836,7 +836,7 @@ test("Defeat fades black particles, reveals the actual boy.glb, thanks player an
   assert.equal(next.scene.getObjectByName("FreedBoy").visible, true);
 });
 
-test("holding Enter skips only the victory dialogue and preserves the unlocked lift exactly once", async (t) => {
+test("Branden's death cannot be skipped and naturally unlocks the lift exactly once", async (t) => {
   let completed = 0;
   const bytes = await readFile(
     new URL("../src/assets/models/bayboss.glb", import.meta.url),
@@ -876,7 +876,10 @@ test("holding Enter skips only the victory dialogue and preserves the unlocked l
   step(data, 0.9);
   assert.equal(completed, 0, "A released hold does not complete");
   hold(1.2);
-  assert.equal(completed, 1);
+  assert.equal(completed, 0, "Enter must not skip Branden's death");
+  assert.equal(data.isCinematic(), true);
+  step(data, 100);
+  assert.equal(completed, 1, "The complete death scene unlocks the lift");
   assert.equal(data.isCinematic(), false);
   assert.equal(data.player.isEnabled(), true);
   assert.equal(data.scene.getObjectByName("BossBlackParticles").visible, false);

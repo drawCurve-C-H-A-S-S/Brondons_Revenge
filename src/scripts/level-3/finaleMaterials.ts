@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { MechSide } from "../npc/mechDuel.js";
 
 export const MECH_HEIGHT = 16;
-const MECH_PALETTES = {
+export const MECH_PALETTES = {
   hero: {
     platelight: 0xdcc8bf,
     platemid: 0xb89494,
@@ -24,6 +24,16 @@ const MECH_PALETTES = {
     gemdark: 0x1a3727,
   },
 } as const;
+export const HERO_REVENGE_PALETTE = Object.freeze({
+  platelight: 0xffe639,
+  platemid: 0xe79937,
+  plateshad: 0x9d5700,
+  innerframelight: MECH_PALETTES.hero.innerframelight,
+  innerframedark: MECH_PALETTES.hero.innerframedark,
+  gemlight: 0xB202B4,
+  gemmid: 0x701199,
+  gemdark: 0x5F0B65,
+});
 export const FRAME_COLORS = {
   hero: MECH_PALETTES.hero.gemlight,
   enemy: 0x864aa5,
@@ -107,6 +117,12 @@ export function createArmorTextures(side?: MechSide) {
 
 export function createIndustrialSkin(side: MechSide) {
   const textures = createArmorTextures(side);
+  const authoredColors = new Map<
+    THREE.MeshStandardMaterial,
+    { base: number; baseColor: THREE.Color; transformed: number }
+  >();
+  const paletteTarget = new THREE.Color();
+  let powerUp = 0;
   const cutStarts = Array.from({ length: 12 }, () => new THREE.Vector4());
   const cutEnds = Array.from({ length: 12 }, () => new THREE.Vector3());
   const cutTimes = new Float64Array(12).fill(-Infinity);
@@ -141,6 +157,7 @@ export function createIndustrialSkin(side: MechSide) {
   const depth = new THREE.MeshDepthMaterial({
     depthPacking: THREE.RGBADepthPacking,
   });
+  const baseColor = material.color.clone();
   type Shader = Parameters<THREE.Material["onBeforeCompile"]>[0];
   const declarations = `
     varying vec3 vArmorP;
@@ -219,11 +236,45 @@ export function createIndustrialSkin(side: MechSide) {
     material,
     depth,
     uniforms,
+    setPowerUp(value: number) {
+      if (!Number.isFinite(value))
+        throw new RangeError("Mech transformation progress must be finite");
+      const progress = side === "hero" ? THREE.MathUtils.clamp(value, 0, 1) : 0;
+      if (progress === powerUp) return;
+      powerUp = progress;
+      for (const [source, colors] of authoredColors) {
+        paletteTarget.setHex(colors.transformed);
+        source.color.lerpColors(colors.baseColor, paletteTarget, progress);
+        source.emissive
+          .setHex(colors.base)
+          .lerp(paletteTarget, progress);
+      }
+      material.color.lerpColors(
+        baseColor,
+        paletteTarget.setHex(HERO_REVENGE_PALETTE.platemid),
+        progress,
+      );
+      uniforms.uFrameGlow.value
+        .setHex(FRAME_COLORS[side])
+        .lerp(paletteTarget.setHex(HERO_REVENGE_PALETTE.gemlight), progress);
+      material.emissive.copy(uniforms.uFrameGlow.value);
+    },
     finishAuthoredMaterial(source: THREE.MeshStandardMaterial) {
       const swatch = Object.entries(MECH_PALETTES[side]).find(([name]) =>
         source.name.toLowerCase().endsWith(name),
-      )?.[1];
-      if (swatch !== undefined) source.emissive.setHex(swatch);
+      );
+      if (swatch) {
+        const name = swatch[0] as keyof typeof HERO_REVENGE_PALETTE;
+        const transformed =
+          side === "hero" ? HERO_REVENGE_PALETTE[name] : swatch[1];
+        const baseColor = source.color.clone();
+        authoredColors.set(source, { base: swatch[1], baseColor, transformed });
+        paletteTarget.setHex(transformed);
+        source.color.lerpColors(baseColor, paletteTarget, powerUp);
+        source.emissive
+          .setHex(swatch[1])
+          .lerp(paletteTarget, powerUp);
+      }
       source.onBeforeCompile = (shader) => inject(shader, true, true);
       source.customProgramCacheKey = () => `finale-authored-finish-${side}-v1`;
       source.needsUpdate = true;
@@ -253,6 +304,7 @@ export function createIndustrialSkin(side: MechSide) {
       }
     },
     dispose() {
+      authoredColors.clear();
       material.dispose();
       depth.dispose();
       textures.dispose();

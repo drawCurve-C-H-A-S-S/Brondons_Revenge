@@ -85,21 +85,11 @@ export function createScreenBloom(
     height = 0,
     last = performance.now();
   // The slider sets the overall amount (0 = off); the style only changes how the glow behaves.
-  const stored = Number(localStorage.getItem("bloomLevel"));
-  let level =
-    Number.isFinite(stored) && localStorage.getItem("bloomLevel") !== null
-      ? THREE.MathUtils.clamp(stored, 0, 1)
-      : 0;
-  let style: Exclude<BloomMode, "off"> =
-    localStorage.getItem("bloomStyle") === "bright" ? "bright" : "soft";
+  let level = 0;
+  let style: Exclude<BloomMode, "off"> = "soft";
   let lastLevel = level || 0.6;
-  const save = () => {
-    localStorage.setItem("bloomLevel", String(level));
-    localStorage.setItem("bloomStyle", style);
-  };
   const listeners = new Set<() => void>();
   const changed = () => {
-    save();
     listeners.forEach((listener) => listener());
   };
 

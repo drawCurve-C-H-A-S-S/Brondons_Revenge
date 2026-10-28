@@ -12,6 +12,7 @@ import { createScenePhysics } from "../../helpers/physics/scenePhysics.js";
 import { createShipInteriorMaterials } from "../../scripts/global/shipInterior.js";
 import { QUARTERS, CABINS } from "./layout.js";
 import { comicNameTexture } from "./furnishings.js";
+import type { ChairSeat } from "../../scripts/player/chairSeating.js";
 
 type Physics = ReturnType<typeof createScenePhysics>;
 
@@ -546,12 +547,7 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
       steel,
       true,
     );
-  const seats: Array<{
-    root: THREE.Object3D;
-    yaw: number;
-    surface?: () => THREE.Vector3;
-    onStand?: () => void;
-  }> = [];
+  const seats: ChairSeat[] = [];
   const OPEN_FOLD = 1.45;
   const crewNames = CABINS.map((cabin) => cabin.occupant);
   const stallDoors: Array<{
@@ -583,6 +579,7 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
     toilet.add(seatTarget);
     seats.push({
       root: seatTarget,
+      prompt: "E / Relieve yourself at toilet",
       yaw: Math.PI,
       surface: () => seatTarget.localToWorld(new THREE.Vector3(0, 0.25, 0)),
       onStand: () => playSfx("toiletFlush", 0.8),

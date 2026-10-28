@@ -37,7 +37,12 @@ import {
 } from "../../scripts/npc/mechBaymaxBoss.js";
 import { preloadMusic } from "../../helpers/audio/bufferedMusic.js";
 import { MUSIC_URLS } from "../../helpers/audio/gameMusic.js";
-import { createWardenFinisher } from "../../scripts/npc/wardenFinisher.js";
+import {
+  createWardenFinisher,
+  WARDEN_SLICE_HANDOFF,
+} from "../../scripts/npc/wardenFinisher.js";
+import { createWardenFrameEffects } from "../../scripts/npc/wardenFrameEffects.js";
+import { createEscapePod } from "../../scripts/items/createEscapeShip.js";
 
 export const BOSS_ENTRY_SECONDS = 7;
 export const BOSS_VERSUS_SECONDS = 2.6;
@@ -706,7 +711,8 @@ export function createScene({
   const warningEl = document.getElementById("phase4-warning");
   const overridePanel = document.createElement("div");
   overridePanel.setAttribute("aria-hidden", "true");
-  overridePanel.style.cssText = "position:fixed;display:none;pointer-events:none;z-index:45;width:220px;padding:12px 14px;background:#0c101bee;border:2px solid #d85172;box-shadow:4px 4px 0 #070a12;color:#f5e8ed;font:12px/1.5 monospace;letter-spacing:.08em;text-align:left";
+  overridePanel.style.cssText =
+    "position:fixed;display:none;pointer-events:none;z-index:45;width:220px;padding:12px 14px;background:#0c101bee;border:2px solid #d85172;box-shadow:4px 4px 0 #070a12;color:#f5e8ed;font:12px/1.5 monospace;letter-spacing:.08em;text-align:left";
   const overrideHeading = document.createElement("strong"),
     overrideStatus = document.createElement("div"),
     overrideTrack = document.createElement("div"),
@@ -721,30 +727,60 @@ export function createScene({
   const overridePoint = new THREE.Vector3();
   let overridePaused = false;
   function drawDonusOverride() {
-    const active = !disposed && !deathClock && !cleared && !overridePaused && !document.hidden &&
+    const active =
+      !disposed &&
+      !deathClock &&
+      !cleared &&
+      !overridePaused &&
+      !document.hidden &&
       !document.body.classList.contains("quick-menu-open") &&
       (cinematic === "bossReturn" ||
-       (cinematic === "gravityIntro" && cinematicTime < PHASE4_RULES.possessionSeconds + 2.2));
+        (cinematic === "gravityIntro" &&
+          cinematicTime < PHASE4_RULES.possessionSeconds + 2.2));
     overridePanel.style.display = "none";
     if (!active) return;
     camera.updateMatrixWorld(true);
     boss.head.getWorldPosition(overridePoint);
     overridePoint.y += 1.7;
     overridePoint.project(camera);
-    if (overridePoint.z < -1 || overridePoint.z > 1 ||
-        Math.abs(overridePoint.x) > 0.9 || Math.abs(overridePoint.y) > 0.94) return;
-    const progress = cinematic === "bossReturn" ? 0 :
-      THREE.MathUtils.clamp(cinematicTime / PHASE4_RULES.possessionSeconds, 0, 1);
-    overrideStatus.textContent = cinematic === "bossReturn" ? "ESTABLISHING REMOTE LINK" :
-      progress < 1 ? `OVERRIDING SYSTEMS ${Math.floor(progress * 100)}%` : "CONTROL SEIZED";
+    if (
+      overridePoint.z < -1 ||
+      overridePoint.z > 1 ||
+      Math.abs(overridePoint.x) > 0.9 ||
+      Math.abs(overridePoint.y) > 0.94
+    )
+      return;
+    const progress =
+      cinematic === "bossReturn"
+        ? 0
+        : THREE.MathUtils.clamp(
+            cinematicTime / PHASE4_RULES.possessionSeconds,
+            0,
+            1,
+          );
+    overrideStatus.textContent =
+      cinematic === "bossReturn"
+        ? "ESTABLISHING REMOTE LINK"
+        : progress < 1
+          ? `OVERRIDING SYSTEMS ${Math.floor(progress * 100)}%`
+          : "CONTROL SEIZED";
     overrideFill.style.width = `${progress * 100}%`;
     overridePanel.style.display = "block";
     overridePanel.style.left = `${(overridePoint.x * 0.5 + 0.5) * window.innerWidth}px`;
     overridePanel.style.top = `${(-overridePoint.y * 0.5 + 0.5) * window.innerHeight}px`;
-    const glitch = progress > 0 && progress < 1 ? Math.sin(cinematicTime * 43) * 1.5 : 0;
+    const glitch =
+      progress > 0 && progress < 1 ? Math.sin(cinematicTime * 43) * 1.5 : 0;
     overridePanel.style.transform = `translate(-50%, -100%) translateX(${glitch}px)`;
-    overridePanel.style.opacity = String(cinematic === "bossReturn" ? 1 :
-      1 - THREE.MathUtils.smoothstep(cinematicTime, PHASE4_RULES.possessionSeconds + 1.2, PHASE4_RULES.possessionSeconds + 2.2));
+    overridePanel.style.opacity = String(
+      cinematic === "bossReturn"
+        ? 1
+        : 1 -
+            THREE.MathUtils.smoothstep(
+              cinematicTime,
+              PHASE4_RULES.possessionSeconds + 1.2,
+              PHASE4_RULES.possessionSeconds + 2.2,
+            ),
+    );
   }
   const NEAR_MISS = { duration: 0.4, slowMo: 0.45, fovPunch: 9, offset: 0.14 };
   let nearMissClock = 0,
@@ -787,7 +823,8 @@ export function createScene({
   };
   let qHeld = false,
     throwCharge = 0,
-    throwCooldown = 0;
+    throwCooldown = 0,
+    teleportBriefingTime = 0;
   let crystal: {
     mesh: THREE.Group;
     velocity: THREE.Vector3;
@@ -806,6 +843,7 @@ export function createScene({
       !droneCutscene &&
       player.isEnabled() &&
       player.getHealth() > 0 &&
+      teleportBriefingTime <= 0 &&
       boss.isTeleportWindow()
     );
   }
@@ -838,6 +876,10 @@ export function createScene({
     event.preventDefault();
     event.stopImmediatePropagation();
     if (throwCharge < THROW.minCharge || crystal) return;
+    throwChargedCrystal(throwCharge);
+  }
+  function throwChargedCrystal(charge: number) {
+    if (!throwActive() || throwCooldown > 0 || crystal) return;
     camera.getWorldDirection(throwDirection);
     throwFrom.copy(camera.position).addScaledVector(throwDirection, 0.6);
     const mesh = createTeleportCrystal();
@@ -849,7 +891,7 @@ export function createScene({
       velocity: throwDirection
         .clone()
         .multiplyScalar(
-          THREE.MathUtils.lerp(THROW.minSpeed, THROW.maxSpeed, throwCharge),
+          THREE.MathUtils.lerp(THROW.minSpeed, THROW.maxSpeed, charge),
         ),
       life: THROW.life,
       spin: 0,
@@ -930,6 +972,7 @@ export function createScene({
         );
         player.clearZeroGTaps();
         if (boss.onPlayerTeleport() && finisher.start()) {
+          wardenFrames.reset();
           captureShot();
           freeze();
           cinematic = "finisher";
@@ -959,6 +1002,7 @@ export function createScene({
   }
   window.addEventListener("keydown", onTeleportKey, true);
   function updateThrow(dt: number) {
+    teleportBriefingTime = Math.max(0, teleportBriefingTime - dt);
     stepTeleportFx(dt);
     throwCooldown = Math.max(0, throwCooldown - dt);
     const active = throwActive();
@@ -980,8 +1024,17 @@ export function createScene({
     if (qHeld)
       throwCharge = Math.min(1, throwCharge + dt / THROW.chargeSeconds);
     finisher.teleportCue(
-      !active ? null : landed ? "teleport" : crystal ? "flight"
-        : throwCooldown > 0 ? "recharging" : qHeld ? "charging" : "hold",
+      !active
+        ? null
+        : landed
+          ? "teleport"
+          : crystal
+            ? "flight"
+            : throwCooldown > 0
+              ? "recharging"
+              : qHeld
+                ? "charging"
+                : "hold",
       throwCharge,
     );
     if (!crystal) return;
@@ -1037,14 +1090,26 @@ export function createScene({
     } else if (outside || crystal.life <= 0) landCrystal(from.clone());
     else from.copy(to);
   }
-  const skipButton = document.createElement("button");
-  skipButton.type = "button";
-  skipButton.className = "scene-dialogue-skip hidden";
-  document.body.appendChild(skipButton);
+  const wardenFrames = createWardenFrameEffects(
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
+  const experimentPod = createEscapePod({ occupant: false, opening: true });
+  experimentPod.name = "WardenExperimentPod";
+  experimentPod.scale.set(0.58, 0.72, 0.52);
+  experimentPod.visible = false;
+  experimentPod.getObjectByName("PodTrail")!.visible = false;
+  const podHatch = experimentPod.getObjectByName("PodHatch")!;
+  const podExitDoor = experimentPod.getObjectByName("PodExitDoor")!;
+  scene.add(experimentPod);
+  const podCenter = new THREE.Vector3(),
+    podInterior = new THREE.Vector3(),
+    podExit = new THREE.Vector3();
+  let revealShot = "";
   function finishVictoryDialogue() {
     if (disposed || cinematic !== "reveal" || cleared) return;
     cloud.visible = false;
     disposeDefeatCutscene();
+    finisher.stop();
     finishBoyDisintegration();
     consoleRoot.position.y = 0;
     cinematic = null;
@@ -1054,15 +1119,8 @@ export function createScene({
     player.setPosition(revealPlayerKneel.x, player.radius, revealPlayerKneel.z);
     returnToBattle();
     subtitles?.classList.add("hidden");
-    skipButton.classList.add("hidden");
     onDefeated?.();
   }
-  const skipHold = createHoldToSkip({
-    button: skipButton,
-    onSkip: finishVictoryDialogue,
-    isAvailable: () =>
-      !disposed && cinematic === "reveal" && cinematicTime >= 3.5,
-  });
   // --- Defeat cutscene: the Warden splits in half, Branden walks out, then the shell self-destructs. ---
   let approachEnd = 8.4,
     BLAST_AT = 30.8,
@@ -1074,10 +1132,11 @@ export function createScene({
   const DISSOLVE_SECONDS = 4.2,
     REVEAL_LEAP_SECONDS = 1.7,
     BLAST_SLOWMO_SECONDS = 1.6,
-    BLAST_FRONT_SPEED = 9,
     BRANDEN_FALL_SECONDS = 2,
     BRANDEN_DISSOLVE_COLOR = 0xff2438;
   let brendanImpactAt = BLAST_AT,
+    blastFrontSpeed = 9,
+    blastRadius = 7.2,
     revealDelta = 0;
   type BossHalf = NonNullable<
     ReturnType<typeof boss.createSplitHalves>
@@ -1118,21 +1177,37 @@ export function createScene({
   let boyPushChains: { hand: THREE.Object3D; joints: THREE.Object3D[] }[] = [];
   const boyPushSamples = new Map<THREE.Object3D, THREE.Quaternion>();
   let pushRigWarning = false;
-  const pushGrip = new THREE.Vector3(), pushJoint = new THREE.Vector3(),
-    pushFrom = new THREE.Vector3(), pushTo = new THREE.Vector3(),
-    pushChest = new THREE.Vector3(), pushForward = new THREE.Vector3(),
+  const pushGrip = new THREE.Vector3(),
+    pushJoint = new THREE.Vector3(),
+    pushFrom = new THREE.Vector3(),
+    pushTo = new THREE.Vector3(),
+    pushChest = new THREE.Vector3(),
+    pushForward = new THREE.Vector3(),
     pushRight = new THREE.Vector3();
   const pushParentRotation = new THREE.Quaternion(),
     pushWorldRotation = new THREE.Quaternion(),
     pushAdjustment = new THREE.Quaternion();
   function applyBoyPushContact(brondon: THREE.Object3D) {
     if (!boy || boyClipName !== "push") return;
-    const weight = THREE.MathUtils.smoothstep(cinematicTime, BLAST_AT - 0.55, BLAST_AT - 0.4) *
-      (1 - THREE.MathUtils.smoothstep(cinematicTime, BLAST_AT - 0.22, BLAST_AT - 0.05));
+    const weight =
+      THREE.MathUtils.smoothstep(
+        cinematicTime,
+        BLAST_AT - 0.55,
+        BLAST_AT - 0.4,
+      ) *
+      (1 -
+        THREE.MathUtils.smoothstep(
+          cinematicTime,
+          BLAST_AT - 0.22,
+          BLAST_AT - 0.05,
+        ));
     if (weight <= 0) return;
     const chest = brondon.getObjectByName("spine_03");
     if (!chest) {
-      if (!pushRigWarning) console.error("[Scene 13] The push contact needs Brondon's spine_03 bone");
+      if (!pushRigWarning)
+        console.error(
+          "[Scene 13] The push contact needs Brondon's spine_03 bone",
+        );
       pushRigWarning = true;
       return;
     }
@@ -1143,19 +1218,24 @@ export function createScene({
     pushRight.set(1, 0, 0).transformDirection(brondon.matrixWorld);
     pushChest.addScaledVector(pushForward, 0.26);
     boyPushChains.forEach((chain, index) => {
-      pushGrip.copy(pushChest).addScaledVector(pushRight, index === 0 ? 0.16 : -0.16);
+      pushGrip
+        .copy(pushChest)
+        .addScaledVector(pushRight, index === 0 ? 0.16 : -0.16);
       // The authored shove supplies the pose; contact correction ends as Brondon leaves his hands.
       for (let iteration = 0; iteration < 4; iteration++)
         for (const joint of chain.joints) {
           if (!joint.parent) continue;
-          if (!boyPushSamples.has(joint)) boyPushSamples.set(joint, joint.quaternion.clone());
+          if (!boyPushSamples.has(joint))
+            boyPushSamples.set(joint, joint.quaternion.clone());
           joint.getWorldPosition(pushJoint);
           chain.hand.getWorldPosition(pushFrom).sub(pushJoint).normalize();
           pushTo.copy(pushGrip).sub(pushJoint).normalize();
           pushAdjustment.setFromUnitVectors(pushFrom, pushTo);
           joint.getWorldQuaternion(pushWorldRotation);
           joint.parent.getWorldQuaternion(pushParentRotation).invert();
-          pushWorldRotation.premultiply(pushAdjustment).premultiply(pushParentRotation);
+          pushWorldRotation
+            .premultiply(pushAdjustment)
+            .premultiply(pushParentRotation);
           joint.quaternion.slerp(pushWorldRotation, weight * 0.7);
           joint.updateWorldMatrix(false, true);
         }
@@ -1167,7 +1247,9 @@ export function createScene({
     const death = boyClips.find((clip) => clip.name === "Death01");
     const hips = boy.getObjectByName("pelvis");
     if (!crouch || !death || !hips)
-      throw new Error("Branden's rig needs crouching, Death01 and a pelvis bone");
+      throw new Error(
+        "Branden's rig needs crouching, Death01 and a pelvis bone",
+      );
     const crouchAction = boyMixer.clipAction(crouch).play();
     crouchAction.paused = true;
     crouchAction.time = 0.2;
@@ -1178,7 +1260,7 @@ export function createScene({
     const deathAction = boyMixer.clipAction(death).play();
     deathAction.paused = true;
     for (let frame = 0; frame <= 90; frame++) {
-      boyDeathEntry = frame / 90 * death.duration;
+      boyDeathEntry = (frame / 90) * death.duration;
       deathAction.time = boyDeathEntry;
       boyMixer.update(0);
       boy.updateMatrixWorld(true);
@@ -1203,7 +1285,8 @@ export function createScene({
       const material = original.clone();
       const previousCompile = original.onBeforeCompile;
       const previousKey = original.customProgramCacheKey();
-      material.customProgramCacheKey = () => `${previousKey}-branden-red-disintegration`;
+      material.customProgramCacheKey = () =>
+        `${previousKey}-branden-red-disintegration`;
       material.onBeforeCompile = (shader, renderContext) => {
         previousCompile.call(material, shader, renderContext);
         Object.assign(shader.uniforms, boyDissolveUniforms);
@@ -1249,26 +1332,37 @@ export function createScene({
   let revealBlasted = false,
     revealShake = 0,
     previousLocalClipping: boolean | null = null;
-  function playBoy(name: "walk" | "jog" | "crouchWalk" | "crouch" | "push" | "talk" | "idle" | "death") {
+  function playBoy(
+    name:
+      | "walk"
+      | "jog"
+      | "crouchWalk"
+      | "crouch"
+      | "push"
+      | "talk"
+      | "idle"
+      | "death",
+  ) {
     if (!boyMixer || boyClipName === name) return;
     const pattern =
       name === "walk"
         ? /^Walk_Loop$/i
         : name === "jog"
           ? /^Jog_Fwd_Loop$/i
-        : name === "crouchWalk"
-          ? /^Crouch_Fwd_Loop$/i
-        : name === "crouch"
-          ? /^Crouch_Idle_Loop$/i
-        : name === "push"
-          ? /^Push_Loop$/i
-        : name === "talk"
-          ? /Idle_Talking/i
-          : name === "death"
-            ? /^Death01$/i
-            : /^Idle_Loop$/i;
+          : name === "crouchWalk"
+            ? /^Crouch_Fwd_Loop$/i
+            : name === "crouch"
+              ? /^Crouch_Idle_Loop$/i
+              : name === "push"
+                ? /^Push_Loop$/i
+                : name === "talk"
+                  ? /Idle_Talking/i
+                  : name === "death"
+                    ? /^Death01$/i
+                    : /^Idle_Loop$/i;
     const clip = boyClips.find((item) => pattern.test(item.name));
-    if (!clip) throw new Error(`Branden's rig is missing the ${name} animation`);
+    if (!clip)
+      throw new Error(`Branden's rig is missing the ${name} animation`);
     const previousName = boyClipName;
     boyClipName = name;
     if (name === "talk") playSfx("brendan", 0.8);
@@ -1284,7 +1378,11 @@ export function createScene({
     if (boyAction && boyAction !== next)
       next.crossFadeFrom(
         boyAction,
-        name === "death" ? 0.2 : previousName === "crouchWalk" && name === "idle" ? 0.55 : 0.25,
+        name === "death"
+          ? 0.2
+          : previousName === "crouchWalk" && name === "idle"
+            ? 0.55
+            : 0.25,
         false,
       );
     next.play();
@@ -1513,13 +1611,23 @@ export function createScene({
   function defeatWalkPath(start: THREE.Vector3, end: THREE.Vector3) {
     const obstacles = [
       { x: revealOrigin.x, z: revealOrigin.z, halfX: 9.5, halfZ: 4.4 },
-      ...covers.filter((cover) => cover.intact()).map((cover) => ({
-        x: cover.position.x, z: cover.position.z, halfX: 2.4, halfZ: 2.4,
-      })),
+      ...covers
+        .filter((cover) => cover.intact())
+        .map((cover) => ({
+          x: cover.position.x,
+          z: cover.position.z,
+          halfX: 2.4,
+          halfZ: 2.4,
+        })),
     ];
     const nodes = [start.clone().setY(0), end.clone().setY(0)];
     for (const obstacle of obstacles)
-      for (const [x, z] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) {
+      for (const [x, z] of [
+        [-1, -1],
+        [-1, 1],
+        [1, -1],
+        [1, 1],
+      ]) {
         const point = new THREE.Vector3(
           obstacle.x + x * (obstacle.halfX + 0.15),
           0,
@@ -1528,28 +1636,36 @@ export function createScene({
         if (Math.abs(point.x) < 18.5 && Math.abs(point.z) < 22.5)
           nodes.push(point);
       }
-    const visible = (a: THREE.Vector3, b: THREE.Vector3) => obstacles.every((o) => {
-      const dx = b.x - a.x, dz = b.z - a.z;
-      if (a === nodes[0] &&
-          Math.abs(a.x - o.x) < o.halfX && Math.abs(a.z - o.z) < o.halfZ)
-        return (a.x - o.x) * dx + (a.z - o.z) * dz >= 0;
-      let enter = 0, leave = 1;
-      for (const [from, delta, min, max] of [
-        [a.x, dx, o.x - o.halfX, o.x + o.halfX],
-        [a.z, dz, o.z - o.halfZ, o.z + o.halfZ],
-      ]) {
-        if (Math.abs(delta) < 1e-6) {
-          if (from < min || from > max) return true;
-        } else {
-          const first = (min - from) / delta, last = (max - from) / delta;
-          enter = Math.max(enter, Math.min(first, last));
-          leave = Math.min(leave, Math.max(first, last));
-          if (enter > leave) return true;
+    const visible = (a: THREE.Vector3, b: THREE.Vector3) =>
+      obstacles.every((o) => {
+        const dx = b.x - a.x,
+          dz = b.z - a.z;
+        if (
+          a === nodes[0] &&
+          Math.abs(a.x - o.x) < o.halfX &&
+          Math.abs(a.z - o.z) < o.halfZ
+        )
+          return (a.x - o.x) * dx + (a.z - o.z) * dz >= 0;
+        let enter = 0,
+          leave = 1;
+        for (const [from, delta, min, max] of [
+          [a.x, dx, o.x - o.halfX, o.x + o.halfX],
+          [a.z, dz, o.z - o.halfZ, o.z + o.halfZ],
+        ]) {
+          if (Math.abs(delta) < 1e-6) {
+            if (from < min || from > max) return true;
+          } else {
+            const first = (min - from) / delta,
+              last = (max - from) / delta;
+            enter = Math.max(enter, Math.min(first, last));
+            leave = Math.min(leave, Math.max(first, last));
+            if (enter > leave) return true;
+          }
         }
-      }
-      return leave < 1e-6 || enter > 1 - 1e-6;
-    });
-    const distances = nodes.map(() => Infinity), previous = nodes.map(() => -1);
+        return leave < 1e-6 || enter > 1 - 1e-6;
+      });
+    const distances = nodes.map(() => Infinity),
+      previous = nodes.map(() => -1);
     const pending = new Set(nodes.map((_, i) => i));
     distances[0] = 0;
     while (pending.size) {
@@ -1561,7 +1677,8 @@ export function createScene({
       if (nearest === 1) break;
       for (const i of pending) {
         if (!visible(nodes[nearest], nodes[i])) continue;
-        const distance = distances[nearest] + nodes[nearest].distanceTo(nodes[i]);
+        const distance =
+          distances[nearest] + nodes[nearest].distanceTo(nodes[i]);
         if (distance < distances[i]) {
           distances[i] = distance;
           previous[i] = nearest;
@@ -1581,10 +1698,15 @@ export function createScene({
   function sampleDefeatWalk(distance: number, position: THREE.Vector3) {
     position.copy(revealWalkPath[0]);
     for (let i = 1; i < revealWalkPath.length; i++) {
-      const from = revealWalkPath[i - 1], to = revealWalkPath[i];
+      const from = revealWalkPath[i - 1],
+        to = revealWalkPath[i];
       const length = from.distanceTo(to);
       if (distance <= length || i === revealWalkPath.length - 1) {
-        position.lerpVectors(from, to, THREE.MathUtils.clamp(distance / Math.max(length, 1e-6), 0, 1));
+        position.lerpVectors(
+          from,
+          to,
+          THREE.MathUtils.clamp(distance / Math.max(length, 1e-6), 0, 1),
+        );
         return to.clone().sub(from);
       }
       distance -= length;
@@ -1593,33 +1715,44 @@ export function createScene({
   }
   function setupDefeatCutscene() {
     const origin = revealOrigin;
-    if (defeatedThroughFinisher)
-      revealD.set(Math.sin(boss.getYaw()), 0, Math.cos(boss.getYaw()));
-    else revealD.set(0, 0, -1);
+    boss.getCinematicBounds(new THREE.Box3()).getCenter(podCenter).setY(0);
+    const wreckForward = new THREE.Vector3(
+      Math.sin(boss.getYaw()),
+      0,
+      Math.cos(boss.getYaw()),
+    );
+    const alongWreck = podCenter.clone().sub(origin).dot(wreckForward);
+    podCenter.copy(origin).addScaledVector(wreckForward, alongWreck);
+    consoleRoot.getWorldPosition(revealD).setY(0).sub(podCenter);
+    if (revealD.lengthSq() < 0.01) revealD.set(0, 0, -1);
+    revealD.normalize();
     revealR.set(revealD.z, 0, -revealD.x);
-    const playerDistance = defeatedThroughFinisher ? 3.6 : 4.8;
-    const friendDistance = defeatedThroughFinisher ? 2.6 : 3.6;
+    podInterior.copy(podCenter).addScaledVector(revealD, -0.25).setY(0.12);
+    podExit.copy(podCenter).addScaledVector(revealD, 1.85);
     revealBrendanStart
-      .copy(origin)
-      .addScaledVector(revealD, friendDistance)
+      .copy(podCenter)
+      .addScaledVector(revealD, 3.9)
       .addScaledVector(revealR, 0.5);
     revealPlayerStart
-      .copy(origin)
-      .addScaledVector(revealD, playerDistance)
-      .addScaledVector(revealR, -1.1);
-    revealBrendanEnd
-      .copy(origin)
-      .addScaledVector(revealD, friendDistance + 1.1)
-      .addScaledVector(revealR, 0.5);
-    revealPlayerEnd
-      .copy(origin)
-      .addScaledVector(revealD, playerDistance + 1)
-      .addScaledVector(revealR, -1.1);
+      .copy(podCenter)
+      .addScaledVector(revealD, 5.2)
+      .addScaledVector(revealR, -0.65);
+    revealBrendanEnd.copy(revealBrendanStart).addScaledVector(revealD, 2.1);
+    revealPlayerEnd.copy(revealPlayerStart).addScaledVector(revealD, 2.1);
+    experimentPod.position.copy(podCenter).setY(0.86);
+    experimentPod.rotation.y = Math.atan2(revealD.x, revealD.z);
+    experimentPod.visible = true;
+    podHatch.rotation.z = 0;
+    podExitDoor.rotation.y = 0;
+    revealShot = "";
     revealPlayerEntry.copy(player.body.position);
-    emergeAt = defeatedThroughFinisher ? 0.65 : 3.6;
-    emergeEnd = emergeAt + (defeatedThroughFinisher ? 3.4 : 4.4);
+    emergeAt = defeatedThroughFinisher ? 1.8 : 3.6;
+    emergeEnd = emergeAt + 4.2;
     if (defeatedThroughFinisher) {
-      revealWalkPath = [revealPlayerEntry.clone().setY(0), revealPlayerStart.clone()];
+      revealWalkPath = [
+        revealPlayerEntry.clone().setY(0),
+        revealPlayerStart.clone(),
+      ];
       revealWalkLength = 0;
       revealLandingSeconds = revealApproachWalkEnd = REVEAL_LEAP_SECONDS;
     } else {
@@ -1627,31 +1760,66 @@ export function createScene({
       revealWalkPath = route.path;
       revealWalkLength = route.length;
       revealLandingSeconds = THREE.MathUtils.clamp(
-        (revealPlayerEntry.y - player.radius - defeatFloor(revealPlayerEntry.x, revealPlayerEntry.z)) / 6, 0, 2,
+        (revealPlayerEntry.y -
+          player.radius -
+          defeatFloor(revealPlayerEntry.x, revealPlayerEntry.z)) /
+          6,
+        0,
+        2,
       );
       revealApproachWalkEnd = revealLandingSeconds + revealWalkLength / 1.8;
     }
     approachEnd = Math.max(emergeEnd + 0.55, revealApproachWalkEnd + 0.45);
     WALK_AWAY_AT = approachEnd + 17.6;
-    BLAST_AT = WALK_AWAY_AT + 2.6;
-    KNEEL_AT = BLAST_AT + 1.35;
-    revealPlayerSafe.copy(revealPlayerEnd).addScaledVector(revealR, -0.15).addScaledVector(revealD, 3.3);
-    revealShoveStart.copy(revealPlayerStart).lerp(
-      revealPlayerEnd, 1 - 1.3 / (BLAST_AT - WALK_AWAY_AT),
-    );
+    BLAST_AT = WALK_AWAY_AT + 4.4;
+    KNEEL_AT = BLAST_AT + 1.65;
+    revealShoveStart
+      .copy(revealPlayerStart)
+      .lerp(revealPlayerEnd, 1 - 1.3 / (BLAST_AT - WALK_AWAY_AT));
+    let safeScore = -Infinity;
+    for (const angle of [0, -0.25, 0.25, -0.5, 0.5, -0.8, 0.8, -1.1, 1.1]) {
+      const direction = revealD.clone().applyAxisAngle(cameraUp, angle);
+      const candidate = dodgeDestination(revealShoveStart, direction, 7);
+      candidate.x = THREE.MathUtils.clamp(candidate.x, -18.5, 18.5);
+      candidate.z = THREE.MathUtils.clamp(candidate.z, -22.5, 22.5);
+      const score =
+        candidate.distanceTo(revealShoveStart) +
+        candidate.distanceTo(origin) * 0.15;
+      if (score > safeScore) {
+        safeScore = score;
+        revealPlayerSafe.copy(candidate);
+      }
+    }
     revealShoveContact.copy(revealShoveStart).addScaledVector(revealD, -0.95);
-    brendanDeathPosition.copy(revealShoveContact).addScaledVector(revealD, 0.35);
-    revealPlayerKneel.copy(brendanDeathPosition).addScaledVector(revealR, -0.85);
-    kneelReady = KNEEL_AT + Math.max(0.85, revealPlayerSafe.distanceTo(revealPlayerKneel) / 4.2);
+    brendanDeathPosition
+      .copy(revealShoveContact)
+      .addScaledVector(revealD, 0.35);
+    revealPlayerKneel
+      .copy(brendanDeathPosition)
+      .addScaledVector(revealR, -0.85);
+    kneelReady =
+      KNEEL_AT +
+      Math.max(0.85, revealPlayerSafe.distanceTo(revealPlayerKneel) / 4.2);
     lastWordsAt = kneelReady + 0.3;
-    promiseAt = lastWordsAt + 4.9;
+    promiseAt = lastWordsAt + 9.5;
     DISSOLVE_AT = promiseAt + 2.6;
-    STAND_AT = DISSOLVE_AT + DISSOLVE_SECONDS + 0.8;
+    STAND_AT = DISSOLVE_AT + DISSOLVE_SECONDS + 2.8;
     revealReturnAt = STAND_AT + 1.2;
     REVEAL_END = revealReturnAt + 0.25;
     revealCameraPosition.copy(shotStart);
-    revealCameraFocus.set(0, 0, -1).applyQuaternion(shotRotation).multiplyScalar(5).add(shotStart);
-    brendanImpactAt = BLAST_AT + 0.9;
+    revealCameraFocus
+      .set(0, 0, -1)
+      .applyQuaternion(shotRotation)
+      .multiplyScalar(5)
+      .add(shotStart);
+    brendanImpactAt = BLAST_AT + 0.25;
+    const blastDistance = brendanDeathPosition
+      .clone()
+      .add(new THREE.Vector3(0, 0.9, 0))
+      .distanceTo(podCenter.clone().setY(1.2));
+    blastFrontSpeed =
+      Math.max(0.1, blastDistance - 1) / (brendanImpactAt - BLAST_AT);
+    blastRadius = blastDistance + 0.65;
     revealDelta = 0;
     revealBlasted = false;
     revealShake = 0;
@@ -1694,6 +1862,8 @@ export function createScene({
     updateReveal(0);
   }
   function disposeDefeatCutscene() {
+    experimentPod.visible = false;
+    wardenFrames.reset();
     for (const half of halves) half.dispose();
     for (const glow of halfGlows) {
       glow.geometry.dispose();
@@ -1725,14 +1895,42 @@ export function createScene({
   }
   function revealSubtitle(t: number) {
     const lines: Array<[number, number, string]> = [
-      [approachEnd, approachEnd + 4.2, "Branden: Brondon... thank you. Donus fused me with my own mining bot."],
-      [approachEnd + 4.2, approachEnd + 9.8, "Branden: He wants to do this to every human. He already turned Brendan into a battleship."],
-      [approachEnd + 9.8, approachEnd + 15, "Branden: The students are on the planet below. He took them there to experiment on them."],
-      [approachEnd + 15, WALK_AWAY_AT, "Brondon: Then that's where we're going. Come on."],
+      [
+        approachEnd,
+        approachEnd + 4.2,
+        "Branden: Brondon... thank you. Donus fused me with my own mining bot.",
+      ],
+      [
+        approachEnd + 4.2,
+        approachEnd + 9.8,
+        "Branden: He wants to do this to every human. He already turned Brendan into a battleship.",
+      ],
+      [
+        approachEnd + 9.8,
+        approachEnd + 15,
+        "Branden: The students are on the planet below. He took them there to experiment on them.",
+      ],
+      [
+        approachEnd + 15,
+        WALK_AWAY_AT,
+        "Brondon: Then that's where we're going. Come on.",
+      ],
       [WALK_AWAY_AT + 0.15, BLAST_AT - 0.65, "Donus: Not so fast."],
-      [BLAST_AT - 0.55, BLAST_AT + 0.5, "Branden: Look out!"],
-      [lastWordsAt, promiseAt - 0.2, "Branden: Save the students... They're the future."],
+      [BLAST_AT - 0.55, BLAST_AT, "Branden: Look out!"],
+      [BLAST_AT, BLAST_AT + 2.4, "Brondon: Brandennnn!!"],
+      [lastWordsAt, lastWordsAt + 2.5, "Branden: Save the students..."],
+      [
+        lastWordsAt + 2.5,
+        lastWordsAt + 5.7,
+        "Branden: They're the future of our research.",
+      ],
+      [
+        lastWordsAt + 5.7,
+        promiseAt - 0.2,
+        "Branden: Don't make it meaningless... I beg you.",
+      ],
       [promiseAt, DISSOLVE_AT, "Brondon: I will. I promise."],
+      [DISSOLVE_AT + DISSOLVE_SECONDS, STAND_AT, "Brondon: I will avenge you."],
     ];
     const line = lines.find(([from, to]) => t >= from && t < to);
     if (!subtitles) return;
@@ -1748,6 +1946,15 @@ export function createScene({
       player.setRotation(current + turn * (1 - Math.exp(-dt * 9)), 0);
     };
     revealSubtitle(t);
+    const openPod = THREE.MathUtils.smootherstep(
+      t,
+      emergeAt - 0.9,
+      emergeAt - 0.15,
+    );
+    podHatch.rotation.z = -1.5 * openPod;
+    podExitDoor.rotation.y = Math.PI * 0.6 * openPod;
+    experimentPod.visible =
+      t >= (defeatedThroughFinisher ? 0.75 : 0) && t < BLAST_AT;
     // Halves: crack glows, slide apart, shake, then vanish in the blast.
     const crack = THREE.MathUtils.smoothstep(t, 0.6, 2.4),
       slide = defeatedThroughFinisher
@@ -1764,24 +1971,33 @@ export function createScene({
       const base = half.side;
       half.group.rotation.copy(boss.root.rotation);
       const facing = Math.atan2(revealD.x, revealD.z);
-      half.group.rotation.y += Math.atan2(
-        Math.sin(facing - boss.root.rotation.y),
-        Math.cos(facing - boss.root.rotation.y),
-      ) * THREE.MathUtils.smootherstep(t, 0, 2.4);
-      half.group.rotation.z += base * slide * (defeatedThroughFinisher ? -0.24 : -0.75);
+      if (!defeatedThroughFinisher) {
+        half.group.rotation.y +=
+          Math.atan2(
+            Math.sin(facing - boss.root.rotation.y),
+            Math.cos(facing - boss.root.rotation.y),
+          ) * THREE.MathUtils.smootherstep(t, 0, 2.4);
+        half.group.rotation.z += base * slide * -0.75;
+      }
       half.group.position.set(
         revealOrigin.x,
         boss.root.position.y,
         revealOrigin.z,
       );
-      const fallen = half.bounds.clone().applyMatrix4(
-        new THREE.Matrix4().makeRotationFromQuaternion(half.group.quaternion),
+      const fallen = half.bounds
+        .clone()
+        .applyMatrix4(
+          new THREE.Matrix4().makeRotationFromQuaternion(half.group.quaternion),
+        );
+      half.group.position.y = THREE.MathUtils.lerp(
+        boss.root.position.y,
+        0.06 - fallen.min.y,
+        slide,
       );
-      half.group.position.y = THREE.MathUtils.lerp(boss.root.position.y, 0.06 - fallen.min.y, slide);
       tmpA.set(base, 0, 0).applyAxisAngle(cameraUp, half.group.rotation.y);
       half.group.position.addScaledVector(
         tmpA,
-        slide * 2.4 + Math.sin(t * 90 + i) * shake * 0.5,
+        slide * 2.6 + Math.sin(t * 90 + i) * shake * 0.5,
       );
       half.group.position.y += Math.sin(t * 77 + i * 2) * shake * 0.4;
       half.plane.setFromNormalAndCoplanarPoint(
@@ -1801,10 +2017,27 @@ export function createScene({
       let yaw = forward,
         walkSpeed = 0;
       if (t < emergeEnd) {
-        const k = THREE.MathUtils.clamp((t - emergeAt) / (emergeEnd - emergeAt), 0, 1);
-        tmpA.copy(revealOrigin).lerp(revealBrendanStart, k);
-        walkSpeed = revealOrigin.distanceTo(revealBrendanStart) / (emergeEnd - emergeAt);
-        playBoy(k < 1 ? "crouchWalk" : "idle");
+        const exitAt = emergeAt + 2.5;
+        if (t < exitAt) {
+          const k = THREE.MathUtils.clamp((t - emergeAt) / 2.5, 0, 1);
+          tmpA.copy(podInterior).lerp(podExit, k);
+          walkSpeed = podInterior.distanceTo(podExit) / 2.5;
+          playBoy("crouchWalk");
+        } else {
+          const k = THREE.MathUtils.clamp(
+            (t - exitAt) / (emergeEnd - exitAt),
+            0,
+            1,
+          );
+          tmpA.copy(podExit).lerp(revealBrendanStart, k);
+          walkSpeed =
+            podExit.distanceTo(revealBrendanStart) / (emergeEnd - exitAt);
+          playBoy("walk");
+          yaw = Math.atan2(
+            revealBrendanStart.x - podExit.x,
+            revealBrendanStart.z - podExit.z,
+          );
+        }
       } else if (t < WALK_AWAY_AT) {
         tmpA.copy(revealBrendanStart);
         playBoy(t >= approachEnd && t < approachEnd + 15 ? "talk" : "idle");
@@ -1823,23 +2056,39 @@ export function createScene({
           revealBrendanStart.distanceTo(revealBrendanEnd) /
           (BLAST_AT - WALK_AWAY_AT);
         if (t >= BLAST_AT - 1.2) {
-          const shove = THREE.MathUtils.smootherstep(t, BLAST_AT - 1.2, BLAST_AT - 0.55);
+          const shove = THREE.MathUtils.smootherstep(
+            t,
+            BLAST_AT - 1.2,
+            BLAST_AT - 0.55,
+          );
           tmpA.lerp(revealShoveContact, shove);
           playBoy(t < BLAST_AT - 0.55 ? "jog" : "push");
-          yaw = Math.atan2(revealPlayerSafe.x - tmpA.x, revealPlayerSafe.z - tmpA.z);
+          yaw = Math.atan2(
+            revealPlayerSafe.x - tmpA.x,
+            revealPlayerSafe.z - tmpA.z,
+          );
         } else playBoy("walk");
-      } else if (t < BLAST_AT + 0.35) {
+      } else if (t < BLAST_AT + 0.08) {
         tmpA.copy(revealShoveContact);
         playBoy("push");
-        yaw = Math.atan2(revealPlayerSafe.x - tmpA.x, revealPlayerSafe.z - tmpA.z);
+        yaw = Math.atan2(
+          revealPlayerSafe.x - tmpA.x,
+          revealPlayerSafe.z - tmpA.z,
+        );
       } else if (t < brendanImpactAt) {
-        tmpA.copy(revealShoveContact)
-          .lerp(brendanDeathPosition, THREE.MathUtils.smootherstep(t, BLAST_AT + 0.35, brendanImpactAt));
+        tmpA
+          .copy(revealShoveContact)
+          .lerp(
+            brendanDeathPosition,
+            THREE.MathUtils.smootherstep(t, BLAST_AT + 0.08, brendanImpactAt),
+          );
         playBoy("crouch");
         yaw = forward;
       } else {
         const flight = THREE.MathUtils.clamp(
-          (t - brendanImpactAt) / BRANDEN_FALL_SECONDS, 0, 1,
+          (t - brendanImpactAt) / BRANDEN_FALL_SECONDS,
+          0,
+          1,
         );
         tmpA.copy(brendanDeathPosition);
         boy.rotation.z = 0;
@@ -1847,11 +2096,19 @@ export function createScene({
         yaw = forward;
         if (boyAction) {
           boyAction.paused = true;
-          boyAction.time = THREE.MathUtils.lerp(boyDeathEntry, boyAction.getClip().duration, flight);
+          boyAction.time = THREE.MathUtils.lerp(
+            boyDeathEntry,
+            boyAction.getClip().duration,
+            flight,
+          );
         }
       }
       if ((boyClipName === "walk" || boyClipName === "crouchWalk") && boyAction)
-        boyAction.timeScale = THREE.MathUtils.clamp(walkSpeed / (boyClipName === "crouchWalk" ? 0.85 : 1.4), 0.2, 1.4);
+        boyAction.timeScale = THREE.MathUtils.clamp(
+          walkSpeed / (boyClipName === "crouchWalk" ? 0.85 : 1.4),
+          0.2,
+          1.4,
+        );
       // Ease the facing so turns never snap.
       let delta = yaw - boy.rotation.y;
       delta = Math.atan2(Math.sin(delta), Math.cos(delta));
@@ -1882,38 +2139,65 @@ export function createScene({
     );
     tmpB.copy(revealPlayerStart).lerp(revealPlayerEnd, walkK);
     if (defeatedThroughFinisher && t < approachEnd) {
-      const p = THREE.MathUtils.clamp(t / REVEAL_LEAP_SECONDS, 0, 1);
-      tmpB.lerpVectors(revealPlayerEntry, revealPlayerStart, THREE.MathUtils.smootherstep(p, 0, 1));
-      const feet = revealPlayerEntry.y - player.radius;
-      const apex = Math.min(12, Math.max(0, feet) + 1.8);
-      tmpB.y = p < 0.38
-        ? THREE.MathUtils.lerp(feet, apex, 1 - (1 - p / 0.38) ** 2)
-        : THREE.MathUtils.lerp(apex, 0, ((p - 0.38) / 0.62) ** 2);
-      facePlayer(Math.atan2(tmpB.x - revealBrendanStart.x, tmpB.z - revealBrendanStart.z));
-    } else if (t < approachEnd) {
-      const direction = sampleDefeatWalk(Math.max(0, t - revealLandingSeconds) * 1.8, tmpB);
-      tmpB.y = defeatFloor(tmpB.x, tmpB.z) + THREE.MathUtils.lerp(
-        revealPlayerEntry.y - player.radius - defeatFloor(revealPlayerEntry.x, revealPlayerEntry.z), 0,
-        THREE.MathUtils.smootherstep(t, 0, Math.max(0.01, revealLandingSeconds)),
+      const p = THREE.MathUtils.clamp(t / 1.15, 0, 1);
+      tmpB.lerpVectors(
+        revealPlayerEntry,
+        revealPlayerStart,
+        THREE.MathUtils.smootherstep(p, 0, 1),
       );
+      const feet = revealPlayerEntry.y - player.radius;
+      tmpB.y = THREE.MathUtils.lerp(feet, defeatFloor(tmpB.x, tmpB.z), p * p);
+      facePlayer(
+        Math.atan2(
+          tmpB.x - revealBrendanStart.x,
+          tmpB.z - revealBrendanStart.z,
+        ),
+      );
+    } else if (t < approachEnd) {
+      const direction = sampleDefeatWalk(
+        Math.max(0, t - revealLandingSeconds) * 1.8,
+        tmpB,
+      );
+      tmpB.y =
+        defeatFloor(tmpB.x, tmpB.z) +
+        THREE.MathUtils.lerp(
+          revealPlayerEntry.y -
+            player.radius -
+            defeatFloor(revealPlayerEntry.x, revealPlayerEntry.z),
+          0,
+          THREE.MathUtils.smootherstep(
+            t,
+            0,
+            Math.max(0.01, revealLandingSeconds),
+          ),
+        );
       if (t < revealApproachWalkEnd)
         facePlayer(Math.atan2(-direction.x, -direction.z));
       else
-        facePlayer(Math.atan2(tmpB.x - revealBrendanStart.x, tmpB.z - revealBrendanStart.z));
+        facePlayer(
+          Math.atan2(
+            tmpB.x - revealBrendanStart.x,
+            tmpB.z - revealBrendanStart.z,
+          ),
+        );
     } else if (t >= BLAST_AT - 1.3 && t < BLAST_AT - 0.35) {
       tmpB.copy(revealShoveStart);
     } else if (t >= BLAST_AT - 0.35 && t < KNEEL_AT) {
-      tmpB.copy(revealShoveStart).lerp(
-        revealPlayerSafe,
-        THREE.MathUtils.smootherstep(t, BLAST_AT - 0.35, BLAST_AT + 0.9),
-      );
+      tmpB
+        .copy(revealShoveStart)
+        .lerp(
+          revealPlayerSafe,
+          THREE.MathUtils.smootherstep(t, BLAST_AT - 0.35, BLAST_AT + 0.9),
+        );
       const flight = THREE.MathUtils.clamp((t - BLAST_AT + 0.35) / 1.25, 0, 1);
       tmpB.y = Math.sin(flight * Math.PI) * 1.35;
     } else if (t >= KNEEL_AT && t < STAND_AT) {
-      tmpB.copy(revealPlayerSafe).lerp(
-        revealPlayerKneel,
-        THREE.MathUtils.smootherstep(t, KNEEL_AT, kneelReady),
-      );
+      tmpB
+        .copy(revealPlayerSafe)
+        .lerp(
+          revealPlayerKneel,
+          THREE.MathUtils.smootherstep(t, KNEEL_AT, kneelReady),
+        );
     } else if (t >= STAND_AT) {
       tmpB.copy(revealPlayerKneel);
     }
@@ -1924,7 +2208,12 @@ export function createScene({
     )
       player.setPosition(tmpB.x, player.radius + tmpB.y, tmpB.z);
     if (t >= BLAST_AT - 1.3 && t < brendanImpactAt) {
-      facePlayer(Math.atan2(tmpB.x - revealShoveContact.x, tmpB.z - revealShoveContact.z));
+      facePlayer(
+        Math.atan2(
+          tmpB.x - revealShoveContact.x,
+          tmpB.z - revealShoveContact.z,
+        ),
+      );
     } else if (t >= BLAST_AT) {
       tmpA.copy(brendanDeathPosition).sub(tmpB);
       facePlayer(Math.atan2(-tmpA.x, -tmpA.z));
@@ -1958,9 +2247,9 @@ export function createScene({
       playSfx("explosion", 0.9);
       revealShake = 1;
       blastGroup.visible = true;
-      blastGroup.position.set(revealOrigin.x, 3, revealOrigin.z);
+      blastGroup.position.set(podCenter.x, 1.2, podCenter.z);
       scorch.visible = true;
-      scorch.position.set(revealOrigin.x, 0.03, revealOrigin.z);
+      scorch.position.set(podCenter.x, 0.03, podCenter.z);
       emitSparks(tmpA.set(revealOrigin.x, 3, revealOrigin.z), 70, 22);
       for (const puff of smokePuffs)
         puff.mesh.position.set(
@@ -2012,7 +2301,7 @@ export function createScene({
       syncParticleInstances(sparkInstances, sparks);
     if (revealBlasted && blastGroup.visible) {
       const b = t - BLAST_AT;
-      blastCore.scale.setScalar(Math.min(7.2, 1 + b * BLAST_FRONT_SPEED));
+      blastCore.scale.setScalar(Math.min(blastRadius, 1 + b * blastFrontSpeed));
       blastCoreMaterial.opacity = Math.max(0, 0.7 - b * 0.55);
       blastCore.visible = blastCoreMaterial.opacity > 0;
       blastFlash.scale.setScalar(1 + b * 20);
@@ -2023,21 +2312,20 @@ export function createScene({
       blastRingMaterial.opacity = Math.max(0, 0.9 - b * 0.45);
       blastRing.visible = blastRingMaterial.opacity > 0;
       for (const fireball of fireballs) {
-        const age = b - fireball.delay,
+        const age = fireball.impact ? t - brendanImpactAt : b - fireball.delay,
           lifetime = fireball.impact ? 1.2 : 2.4;
         fireball.mesh.visible = age > 0 && age < lifetime;
         if (!fireball.mesh.visible) continue;
         if (fireball.impact) {
-          const travel = THREE.MathUtils.smoothstep(t, BLAST_AT, BLAST_AT + 0.18);
           fireball.mesh.position.copy(boy?.position ?? brendanDeathPosition);
           fireball.mesh.position.y += 0.85;
           fireball.mesh.position.sub(blastGroup.position);
-          fireball.mesh.position.multiplyScalar(travel);
           fireball.mesh.scale.setScalar(
             fireball.size * (1 - Math.exp(-age * 6)),
           );
         } else {
-          fireball.mesh.position.copy(fireball.offset)
+          fireball.mesh.position
+            .copy(fireball.offset)
             .multiplyScalar(1 + age * 0.65);
           fireball.mesh.position.y += age * 1.4;
           fireball.mesh.scale.setScalar(
@@ -2061,7 +2349,7 @@ export function createScene({
         puff.mesh.scale.setScalar(puff.size * (1 + b * 0.55));
       }
       scorchMaterial.opacity = Math.min(0.75, b * 1.5);
-      blastLight.position.set(revealOrigin.x, 3, revealOrigin.z);
+      blastLight.position.set(podCenter.x, 1.2, podCenter.z);
       blastLight.intensity = 900 * Math.max(0, 1 - b / 2.4) ** 2;
       blastGroup.visible = b < 6;
       revealShake = Math.max(0, 1 - b / 2.2);
@@ -2122,22 +2410,74 @@ export function createScene({
       .clone()
       .add(revealPlayerKneel)
       .multiplyScalar(0.5);
-    if (t < approachEnd) {
+    let shot = "dialogue",
+      lens = 58;
+    if (defeatedThroughFinisher && t < 1.7) {
+      shot = "landing";
+      focus = revealPlayerStart.clone().lerp(podCenter, 0.45).setY(0.5);
+      desired = focus.clone().addScaledVector(revealD, -0.1).setY(12.7);
+    } else if (boy && t >= BLAST_AT - 3.4 && t < BLAST_AT - 1.2) {
+      shot = "branden-face";
+      const head = boy.getObjectByName("Head") ?? boy.getObjectByName("head");
+      if (!head) throw new Error("Branden's face close-up needs his head bone");
+      boy.updateWorldMatrix(true, true);
+      const forward = new THREE.Vector3(0, 0, 1).transformDirection(
+        boy.matrixWorld,
+      );
+      const right = new THREE.Vector3(1, 0, 0).transformDirection(
+        boy.matrixWorld,
+      );
+      const push = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? 0
+        : THREE.MathUtils.smootherstep(t, BLAST_AT - 3.4, BLAST_AT - 1.2);
+      focus = head
+        .getWorldPosition(new THREE.Vector3())
+        .add(new THREE.Vector3(0, 0.09, 0));
+      desired = focus
+        .clone()
+        .addScaledVector(
+          forward,
+          (0.85 - push * 0.1) * Math.max(1, 1.2 / camera.aspect),
+        )
+        .addScaledVector(right, 0.08);
+      lens = 38;
+    } else if (t >= BLAST_AT - 3.8 && t < BLAST_AT - 3.4) {
+      shot = "wreckage";
+      focus = podCenter.clone().setY(1.2);
+      desired = focus
+        .clone()
+        .addScaledVector(revealD, 9)
+        .addScaledVector(revealR, 5)
+        .setY(4.8);
+    } else if (t < approachEnd) {
+      shot = "pod";
       const k = THREE.MathUtils.smoothstep(t, emergeAt, approachEnd);
       if (defeatedThroughFinisher) {
         const pan = THREE.MathUtils.smootherstep(t, 0.7, emergeEnd - 0.15);
-        const friend = (boy?.position ?? revealOrigin).clone().add(new THREE.Vector3(0, 1.05, 0));
-        focus = new THREE.Vector3().copy(player.body.position)
-          .add(new THREE.Vector3(0, 1.05, 0)).lerp(friend, pan * 0.85);
-        desired = focus.clone()
+        const friend = (boy?.position ?? revealOrigin)
+          .clone()
+          .add(new THREE.Vector3(0, 1.05, 0));
+        focus = new THREE.Vector3()
+          .copy(player.body.position)
+          .add(new THREE.Vector3(0, 1.05, 0))
+          .lerp(friend, pan * 0.85);
+        desired = focus
+          .clone()
           .addScaledVector(revealR, 5.6 - pan * 1.6)
           .addScaledVector(revealD, 2.5 - pan)
           .add(new THREE.Vector3(0, 2.1 - pan * 1.5, 0));
       } else {
-        focus = new THREE.Vector3().copy(player.body.position)
-          .lerp(tmpA.copy(origin).addScaledVector(revealD, 2.4), 0.45).setY(2.2 - k * 0.8);
-        const distance = Math.max(9 - k * 3, new THREE.Vector3().copy(player.body.position).distanceTo(origin) * 0.9);
-        desired = focus.clone()
+        focus = new THREE.Vector3()
+          .copy(player.body.position)
+          .lerp(tmpA.copy(origin).addScaledVector(revealD, 2.4), 0.45)
+          .setY(2.2 - k * 0.8);
+        const distance = Math.max(
+          9 - k * 3,
+          new THREE.Vector3().copy(player.body.position).distanceTo(origin) *
+            0.9,
+        );
+        desired = focus
+          .clone()
           .addScaledVector(revealD, distance)
           .addScaledVector(revealR, 6 - k * 2)
           .setY(3.2 - k * 1.3);
@@ -2155,6 +2495,7 @@ export function createScene({
         .addScaledVector(revealD, -1.2 + k * 1.4)
         .setY(1.7);
     } else if (t < BLAST_AT - 1.2) {
+      shot = "walk";
       // Side tracking shot of the two walking to the lift edge.
       focus = walkMid.clone().setY(1.3);
       desired = walkMid
@@ -2163,25 +2504,44 @@ export function createScene({
         .addScaledVector(revealD, -1.5)
         .setY(1.6);
     } else if (t < brendanImpactAt + 0.45) {
-      const push = THREE.MathUtils.smootherstep(t, BLAST_AT - 0.35, BLAST_AT + 0.9);
-      focus = revealShoveContact.clone()
+      shot = "shove";
+      const push = THREE.MathUtils.smootherstep(
+        t,
+        BLAST_AT - 0.35,
+        BLAST_AT + 0.9,
+      );
+      focus = revealShoveContact
+        .clone()
         .lerp(new THREE.Vector3().copy(player.body.position), 0.35)
-        .setY(1.15 + Math.max(0, player.body.position.y - player.radius) * 0.35);
-      desired = focus.clone()
+        .setY(
+          1.15 + Math.max(0, player.body.position.y - player.radius) * 0.35,
+        );
+      desired = focus
+        .clone()
         .addScaledVector(revealR, 3.8 + push * 2.2)
         .addScaledVector(revealD, -0.4)
         .setY(1.6 + push * 0.4);
     } else if (t < kneelReady) {
-      focus = new THREE.Vector3().copy(player.body.position)
-        .lerp(brendanDeathPosition, 0.4).setY(0.95);
-      desired = focus.clone().addScaledVector(revealR, 4.2)
-        .addScaledVector(revealD, -1.8).setY(1.8);
+      focus = new THREE.Vector3()
+        .copy(player.body.position)
+        .lerp(brendanDeathPosition, 0.4)
+        .setY(0.95);
+      desired = focus
+        .clone()
+        .addScaledVector(revealR, 4.2)
+        .addScaledVector(revealD, -1.8)
+        .setY(1.8);
     } else if (t < DISSOLVE_AT + DISSOLVE_SECONDS) {
       // Hold Branden in frame through the entire red dissolve before cutting to Brondon.
       const k = THREE.MathUtils.smoothstep(
-        t, KNEEL_AT + 0.4, DISSOLVE_AT + DISSOLVE_SECONDS,
+        t,
+        KNEEL_AT + 0.4,
+        DISSOLVE_AT + DISSOLVE_SECONDS,
       );
-      focus = corpseMid.clone().lerp(brendanDeathPosition, k * 0.45).setY(0.7);
+      focus = corpseMid
+        .clone()
+        .lerp(brendanDeathPosition, k * 0.45)
+        .setY(0.7);
       desired = corpseMid
         .clone()
         .addScaledVector(revealR, 4.6 - k * 1.4)
@@ -2197,14 +2557,25 @@ export function createScene({
         .setY(1.2);
     } else {
       const k = THREE.MathUtils.smoothstep(t, STAND_AT, REVEAL_END);
-      focus = new THREE.Vector3().copy(player.body.position).setY(1.0 + k * 0.5);
+      focus = new THREE.Vector3()
+        .copy(player.body.position)
+        .setY(1.0 + k * 0.5);
       desired = focus
         .clone()
         .addScaledVector(revealR, -(1.5 + k * 2.5))
         .addScaledVector(revealD, -1.3 - k * 2)
         .setY(1.3 + k * 0.5);
     }
-    const blend = 1 - Math.exp(-Math.max(0, revealDelta) * 3);
+    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      desired.addScaledVector(
+        revealR,
+        Math.sin(t * 0.55) * (shot === "branden-face" ? 0.015 : 0.12),
+      );
+      desired.y += Math.sin(t * 0.7) * (shot === "branden-face" ? 0.01 : 0.04);
+    }
+    const blend =
+      revealShot !== shot ? 1 : 1 - Math.exp(-Math.max(0, revealDelta) * 3);
+    revealShot = shot;
     revealCameraPosition.lerp(clearCamera(focus, desired), blend);
     revealCameraFocus.lerp(focus, blend);
     camera.position.copy(revealCameraPosition);
@@ -2216,12 +2587,15 @@ export function createScene({
       );
     camera.lookAt(revealCameraFocus);
     const entry = THREE.MathUtils.smootherstep(t, 0, 1.4);
-    camera.quaternion.slerpQuaternions(shotRotation, camera.quaternion.clone(), entry);
-    camera.fov = THREE.MathUtils.lerp(shotEntryFov, 58, entry);
+    camera.quaternion.slerpQuaternions(
+      shotRotation,
+      camera.quaternion.clone(),
+      entry,
+    );
+    camera.fov = THREE.MathUtils.lerp(shotEntryFov, lens, entry);
     camera.updateProjectionMatrix();
   }
-  // Round 1 change 2: a separate hold-to-skip instance for the phase-4 intro. The existing
-  // skipButton/skipHold stay wired to the victory reveal and are left byte-for-byte unchanged.
+  // Only the phase-four intro is skippable; Branden's death plays in full.
   const introSkipButton = document.createElement("button");
   introSkipButton.type = "button";
   introSkipButton.className = "scene-dialogue-skip hidden";
@@ -2410,7 +2784,11 @@ export function createScene({
         showPhaseNotice("Prime: He found us! Dodge the drones!", 3);
       },
       onNeedBehind() {
-        showPhaseNotice("Prime: We need to teleport behind it.", 3.5);
+        teleportBriefingTime = 2.2;
+        showPhaseNotice(
+          "Prime: We need to get behind him.",
+          teleportBriefingTime,
+        );
       },
       onBackDamaged(hits, required) {
         showPhaseNotice(
@@ -2427,7 +2805,10 @@ export function createScene({
     },
   );
   const finisher = createWardenFinisher(
-    scene, camera, player, boss,
+    scene,
+    camera,
+    player,
+    boss,
     () => {
       defeatedThroughFinisher = true;
       boss.completeFinisher();
@@ -2444,7 +2825,10 @@ export function createScene({
         boss.cancelFinisher();
         cinematic = null;
         returnToBattle();
-        showPhaseNotice("Prime: The opening is gone. Teleport behind him again.", 3);
+        showPhaseNotice(
+          "Prime: The opening is gone. Teleport behind him again.",
+          3,
+        );
       }
     },
     clearCamera,
@@ -2453,8 +2837,11 @@ export function createScene({
         if (phaseNoticeTime > 0 && !cinematic) return;
         phaseNoticeTime = 0;
         showSubtitle(`Prime: ${text}`);
-      } else if (subtitles && (subtitles.dataset.dialogueSpeaker === "PRIME" ||
-                              subtitles.textContent?.startsWith("Prime:"))) {
+      } else if (
+        subtitles &&
+        (subtitles.dataset.dialogueSpeaker === "PRIME" ||
+          subtitles.textContent?.startsWith("Prime:"))
+      ) {
         subtitles.classList.add("hidden");
       }
     },
@@ -2501,7 +2888,9 @@ export function createScene({
         const lower = branden.getObjectByName(`lowerarm_${side}`);
         const upper = branden.getObjectByName(`upperarm_${side}`);
         if (!hand || !lower || !upper)
-          throw new Error(`Branden's push animation needs the ${side} arm chain`);
+          throw new Error(
+            `Branden's push animation needs the ${side} arm chain`,
+          );
         return { hand, joints: [lower, upper] };
       });
       if (cleared) finishBoyDisintegration();
@@ -2511,7 +2900,10 @@ export function createScene({
     .catch((error) => {
       if (!disposed) {
         boyError = true;
-        console.error("[Scene 13] Failed to load Branden's character rig:", error);
+        console.error(
+          "[Scene 13] Failed to load Branden's character rig:",
+          error,
+        );
       }
     });
   // Sample both sides of the action; clamp and sweep the winning camera against the room.
@@ -2861,7 +3253,11 @@ export function createScene({
       camera.lookAt(focus);
       const blend = THREE.MathUtils.smootherstep(cinematicTime, 0, 1.2);
       camera.position.lerpVectors(shotStart, camera.position.clone(), blend);
-      camera.quaternion.slerpQuaternions(shotRotation, camera.quaternion.clone(), blend);
+      camera.quaternion.slerpQuaternions(
+        shotRotation,
+        camera.quaternion.clone(),
+        blend,
+      );
       camera.fov = THREE.MathUtils.lerp(shotFov, 64, blend);
       camera.updateProjectionMatrix();
       drawDonusOverride();
@@ -2895,7 +3291,11 @@ export function createScene({
       );
       const blend = THREE.MathUtils.smootherstep(cinematicTime, 0, 1.1);
       camera.position.lerpVectors(shotStart, camera.position.clone(), blend);
-      camera.quaternion.slerpQuaternions(shotRotation, camera.quaternion.clone(), blend);
+      camera.quaternion.slerpQuaternions(
+        shotRotation,
+        camera.quaternion.clone(),
+        blend,
+      );
       camera.fov = THREE.MathUtils.lerp(shotEntryFov, camera.fov, blend);
       camera.updateProjectionMatrix();
       drawDonusOverride();
@@ -3215,15 +3615,20 @@ export function createScene({
       );
     prevZeroGActive = s.zeroGActive;
   }
-  const assetsReady = Promise.all([ready, boss.ready, finisher.ready]).then(async () => {
-    if (disposed || !renderer || defeated) return;
-    try {
-      await boss.prepareRendering(renderer, camera);
-    } catch (error) {
-      if (!disposed)
-        console.warn("[Scene 13] Render warmup deferred to first use:", error);
-    }
-  });
+  const assetsReady = Promise.all([ready, boss.ready, finisher.ready]).then(
+    async () => {
+      if (disposed || !renderer || defeated) return;
+      try {
+        await boss.prepareRendering(renderer, camera);
+      } catch (error) {
+        if (!disposed)
+          console.warn(
+            "[Scene 13] Render warmup deferred to first use:",
+            error,
+          );
+      }
+    },
+  );
   updateHud();
   applyCinematicCamera();
   return {
@@ -3264,7 +3669,18 @@ export function createScene({
       })),
     hasBossVictory: () => bossVictory,
     getMusicTrack: () => "ship" as const,
-    getControllerPhase: () => cinematic === "finisher" ? "finisher" : cinematic ?? "combat",
+    controllerTeleport(action: "place" | "throw", heldSeconds: number) {
+      if (action === "throw")
+        throwChargedCrystal(
+          THREE.MathUtils.clamp(
+            heldSeconds / THROW.chargeSeconds,
+            THROW.minCharge,
+            1,
+          ),
+        );
+    },
+    getControllerPhase: () =>
+      cinematic === "finisher" ? "finisher" : (cinematic ?? "combat"),
     setMenuPaused(paused: boolean) {
       overridePaused = paused;
       finisher.pause(paused);
@@ -3290,15 +3706,26 @@ export function createScene({
             isMoving:
               (cinematic === "entry" && cinematicTime < 5.8) ||
               (cinematic === "reveal" &&
-                ((cinematicTime >= revealLandingSeconds && cinematicTime < revealApproachWalkEnd) ||
-                 (cinematicTime >= WALK_AWAY_AT && cinematicTime < BLAST_AT - 1.3) ||
-                 (cinematicTime >= KNEEL_AT && cinematicTime < kneelReady))),
-            sprinting: cinematic === "reveal" && cinematicTime >= KNEEL_AT && cinematicTime < kneelReady,
-            isOnGround: cinematic === "finisher"
-              ? finisher.stage === "cut" || finisher.stage === "slash"
-              : cinematic !== "reveal" ||
-                (cinematicTime >= revealLandingSeconds &&
-                 !(cinematicTime >= BLAST_AT - 0.35 && cinematicTime < BLAST_AT + 0.9)),
+                ((cinematicTime >= revealLandingSeconds &&
+                  cinematicTime < revealApproachWalkEnd) ||
+                  (cinematicTime >= WALK_AWAY_AT &&
+                    cinematicTime < BLAST_AT - 1.3) ||
+                  (cinematicTime >= KNEEL_AT && cinematicTime < kneelReady))),
+            sprinting:
+              cinematic === "reveal" &&
+              cinematicTime >= KNEEL_AT &&
+              cinematicTime < kneelReady,
+            isOnGround:
+              cinematic === "finisher"
+                ? finisher.stage === "draw" ||
+                  finisher.stage === "cut" ||
+                  finisher.stage === "slash"
+                : cinematic !== "reveal" ||
+                  (cinematicTime >= revealLandingSeconds &&
+                    !(
+                      cinematicTime >= BLAST_AT - 0.35 &&
+                      cinematicTime < BLAST_AT + 0.9
+                    )),
             jumping: false,
             climbing: false,
             velocityY: 0,
@@ -3309,32 +3736,73 @@ export function createScene({
       if (cinematic === "reveal") {
         const t = cinematicTime;
         if (defeatedThroughFinisher && t < REVEAL_LEAP_SECONDS)
-          return t < 0.3
-            ? { clip: "Jump_Start" as const, time: t, duration: 0.3, loop: false }
-            : t < 1.3
-              ? { clip: "Jump_Loop" as const, time: t - 0.3, loop: true }
-              : { clip: "Jump_Land" as const, time: t - 1.3, duration: 0.4, loop: false };
+          return finisher.pose();
         if (t < revealLandingSeconds)
-          return { clip: "Jump_Land" as const, time: t, duration: revealLandingSeconds, loop: false };
+          return {
+            clip: "Jump_Land" as const,
+            time: t,
+            duration: revealLandingSeconds,
+            loop: false,
+          };
         if (t < revealApproachWalkEnd)
-          return { clip: "Walk_Loop" as const, time: (t - revealLandingSeconds) * 1.8 / 1.4, loop: true };
+          return {
+            clip: "Walk_Loop" as const,
+            time: ((t - revealLandingSeconds) * 1.8) / 1.4,
+            loop: true,
+          };
         if (t >= WALK_AWAY_AT && t < BLAST_AT - 1.3)
-          return { clip: "Walk_Loop" as const, time: (t - WALK_AWAY_AT) * revealPlayerStart.distanceTo(revealPlayerEnd) / (BLAST_AT - WALK_AWAY_AT) / 1.4, loop: true };
+          return {
+            clip: "Walk_Loop" as const,
+            time:
+              ((t - WALK_AWAY_AT) *
+                revealPlayerStart.distanceTo(revealPlayerEnd)) /
+              (BLAST_AT - WALK_AWAY_AT) /
+              1.4,
+            loop: true,
+          };
         if (t >= BLAST_AT - 0.35 && t < BLAST_AT + 0.9) {
-          const flight = THREE.MathUtils.clamp((t - BLAST_AT + 0.35) / 1.25, 0, 1);
-          return { clip: "Hit_Chest" as const, time: t - BLAST_AT + 0.35, loop: false,
-            bodyPitch: -Math.sin(flight * Math.PI) * 0.35 };
+          const flight = THREE.MathUtils.clamp(
+            (t - BLAST_AT + 0.35) / 1.25,
+            0,
+            1,
+          );
+          return {
+            clip: "Hit_Chest" as const,
+            time: t - BLAST_AT + 0.35,
+            loop: false,
+            bodyPitch: -Math.sin(flight * Math.PI) * 0.35,
+          };
         }
         if (t >= BLAST_AT + 0.9 && t < KNEEL_AT)
-          return { clip: "Jump_Land" as const, time: t - BLAST_AT - 0.9, loop: false };
+          return {
+            clip: "Jump_Land" as const,
+            time: t - BLAST_AT - 0.9,
+            loop: false,
+          };
         if (t >= KNEEL_AT && t < kneelReady)
-          return { clip: "Sprint_Loop" as const, time: t - KNEEL_AT, loop: true };
+          return {
+            clip: "Sprint_Loop" as const,
+            time: t - KNEEL_AT,
+            loop: true,
+          };
         if (t >= kneelReady && t < STAND_AT)
-          return { clip: "Fixing_Kneeling" as const, time: Math.min(0.7, t - kneelReady), loop: false };
+          return {
+            clip: "Fixing_Kneeling" as const,
+            time: Math.min(0.7, t - kneelReady),
+            loop: false,
+          };
         if (t >= STAND_AT && t < STAND_AT + 1.2)
-          return { clip: "Fixing_Kneeling" as const, time: 0.7 * (1 - (t - STAND_AT) / 1.2), loop: false };
+          return {
+            clip: "Fixing_Kneeling" as const,
+            time: 0.7 * (1 - (t - STAND_AT) / 1.2),
+            loop: false,
+          };
         if (t >= revealReturnAt)
-          return { clip: "Idle_Loop" as const, time: t - revealReturnAt, loop: true };
+          return {
+            clip: "Idle_Loop" as const,
+            time: t - revealReturnAt,
+            loop: true,
+          };
         return { clip: "Idle_Loop" as const, time: t, loop: true };
       }
       if (cinematic === "lift" && cinematicTime < 1.1)
@@ -3367,11 +3835,16 @@ export function createScene({
       };
     },
     applyCinematicCamera,
-    updateCinematicCharacter(character: {
-      model: THREE.Object3D;
-      weapon?: { socket: THREE.Object3D | null };
-    } | null) {
-      finisher.character(character);
+    updateCinematicCharacter(
+      character: {
+        model: THREE.Object3D;
+        weapon?: { socket: THREE.Object3D | null };
+      } | null,
+    ) {
+      finisher.character(
+        character,
+        cinematic === "reveal" && defeatedThroughFinisher ? cinematicTime : -1,
+      );
       if (cinematic === "reveal" && character) {
         applyBoyPushContact(character.model);
         if (character.weapon?.socket) character.weapon.socket.visible = false;
@@ -3382,6 +3855,17 @@ export function createScene({
       }
       if (cinematic === "versus" && character)
         versus?.capture(character.model, [boss.root]);
+    },
+    getBloomPulse: () => finisher.bloomPulse,
+    getBloomTargets: () => finisher.bloomTargets,
+    renderPostBloom(renderer: THREE.WebGLRenderer) {
+      const sliceAge =
+        cinematic === "finisher"
+          ? finisher.sliceAge
+          : cinematic === "reveal" && defeatedThroughFinisher
+            ? WARDEN_SLICE_HANDOFF + cinematicTime
+            : -1;
+      wardenFrames.render(renderer, sliceAge, finisher.cutLine);
     },
     renderCinematicOverlay(renderer: THREE.WebGLRenderer) {
       if (cinematic === "versus") versus?.render(renderer);
@@ -3513,11 +3997,6 @@ export function createScene({
       );
       frameDt = dt; // consumed by the zero-G camera sway in applyNearMissCamera (change 2)
       updateLightDim(dt); // phase-4 bay-light dim/restore tween (round 1 change 2b); runs even during the death clock
-      skipButton.classList.toggle(
-        "hidden",
-        cinematic !== "reveal" || cinematicTime < 3.5,
-      );
-      skipHold.update(dt);
       if (disposed) return;
       introSkipButton.classList.toggle(
         "hidden",
@@ -3601,7 +4080,9 @@ export function createScene({
       }
       if (boy?.visible && !boyDead) {
         // Restore authored samples before the mixer; unchanged tracks may otherwise retain the contact IK.
-        boyPushSamples.forEach((rotation, joint) => joint.quaternion.copy(rotation));
+        boyPushSamples.forEach((rotation, joint) =>
+          joint.quaternion.copy(rotation),
+        );
         boyPushSamples.clear();
         boyMixer?.update(cinematicDelta);
         if (
@@ -3685,12 +4166,11 @@ export function createScene({
     dispose() {
       if (disposed) return;
       disposed = true;
-      skipHold.dispose();
-      skipButton.remove();
       introSkip.dispose();
       introSkipButton.remove(); // round 1 change 2: the phase-4 intro skip control
       overridePanel.remove();
       finisher.dispose();
+      wardenFrames.dispose();
       window.removeEventListener("keydown", onKey);
       prompt?.classList.add("hidden");
       window.removeEventListener("keydown", onThrowKey, true);

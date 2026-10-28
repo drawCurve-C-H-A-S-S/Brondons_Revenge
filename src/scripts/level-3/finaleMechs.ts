@@ -23,6 +23,8 @@ import {
 import {
   createIndustrialSkin,
   FRAME_COLORS,
+  MECH_PALETTES,
+  HERO_REVENGE_PALETTE,
   MECH_HEIGHT,
 } from "./finaleMaterials.js";
 import {
@@ -120,6 +122,7 @@ export function createFinaleMech(
   let build = 1,
     damage = 0,
     dissolve = 0,
+    powerUp = 0,
     baseY = 0,
     restFootY = 0;
   let previousMove = "",
@@ -133,6 +136,18 @@ export function createFinaleMech(
     liftMotion = 0,
     poseBlend = 1;
   let showWeapons = true;
+  let weaponColors:
+    | {
+        metal: THREE.Color;
+        metalGlow: THREE.Color;
+        blade: THREE.Color;
+        bladeGlow: THREE.Color;
+        edge: THREE.Color;
+        accent: THREE.Color;
+      }
+    | undefined;
+  const powerPlate = new THREE.Color(HERO_REVENGE_PALETTE.platelight);
+  const powerGem = new THREE.Color(HERO_REVENGE_PALETTE.gemlight);
   const bladeEntry = {
     grip: new THREE.Vector3(),
     direction: new THREE.Vector3(0, 1, 0),
@@ -275,6 +290,16 @@ export function createFinaleMech(
       .multiply(bone.getWorldQuaternion(boneRotation))
       .clone();
   }
+  function applyPowerUp() {
+    skin.setPowerUp(powerUp);
+    if (!weaponColors) return;
+    swordMetal.color.lerpColors(weaponColors.metal, powerPlate, powerUp);
+    swordMetal.emissive.lerpColors(weaponColors.metalGlow, powerPlate, powerUp);
+    bladeMaterial.color.lerpColors(weaponColors.blade, powerPlate, powerUp);
+    bladeMaterial.emissive.lerpColors(weaponColors.bladeGlow, powerGem, powerUp);
+    cyan.color.lerpColors(weaponColors.edge, powerGem, powerUp);
+    orange.color.lerpColors(weaponColors.accent, powerGem, powerUp);
+  }
   const loaded = Promise.all([
     factory(),
     loadToolModel("Gun_Rifle"),
@@ -314,13 +339,15 @@ export function createFinaleMech(
       const gem = [...materials].find((material) => material.name === "gemlight");
       if (!plate || !gem)
         throw new Error("The finale mech is missing its plate or gem palette");
-      swordMetal.color.copy(plate.emissive).lerp(new THREE.Color(0xffffff), 0.25);
-      swordMetal.emissive.copy(plate.emissive);
+      const basePlate = new THREE.Color(MECH_PALETTES[side].platelight);
+      const baseGem = new THREE.Color(MECH_PALETTES[side].gemlight);
+      swordMetal.color.copy(basePlate).lerp(new THREE.Color(0xffffff), 0.25);
+      swordMetal.emissive.copy(basePlate);
       swordMetal.emissiveIntensity = 0.12;
-      bladeMaterial.color.copy(plate.emissive).lerp(new THREE.Color(0xffffff), 0.5);
-      bladeMaterial.emissive.copy(plate.emissive);
-      cyan.color.copy(plate.emissive);
-      orange.color.set(side === "hero" ? gem.emissive : FRAME_COLORS.enemy);
+      bladeMaterial.color.copy(basePlate).lerp(new THREE.Color(0xffffff), 0.5);
+      bladeMaterial.emissive.copy(basePlate);
+      cyan.color.copy(basePlate);
+      orange.color.set(side === "hero" ? baseGem : FRAME_COLORS.enemy);
       sheath.material = swordMetal;
       sheath.customDepthMaterial = undefined;
     } else {
@@ -331,6 +358,15 @@ export function createFinaleMech(
         }
       });
     }
+    weaponColors = {
+      metal: swordMetal.color.clone(),
+      metalGlow: swordMetal.emissive.clone(),
+      blade: bladeMaterial.color.clone(),
+      bladeGlow: bladeMaterial.emissive.clone(),
+      edge: cyan.color.clone(),
+      accent: orange.color.clone(),
+    };
+    applyPowerUp();
     animator = createMechAnimator(model, asset.bones);
     nativeMixer = new THREE.AnimationMixer(model);
     for (const clip of asset.animations ?? [])
@@ -623,7 +659,7 @@ export function createFinaleMech(
         ? find("Pistol_Shoot")
         : find("Pistol_Idle_Loop");
     if (move === "verdict") return find("Sword_Idle", "Idle_Loop");
-    if (move === "afterCut") return find("Sword_Idle");
+    if (move === "afterCut" || move === "powerUp") return find("Sword_Idle");
     if (move === "transform") return find("Idle_Loop");
     if (move === "defeat") return find("Death01", "Death_01", "Death");
     if (move === "victory") return find("Sword_Idle", "Idle_Loop");
@@ -653,6 +689,14 @@ export function createFinaleMech(
     },
     setDissolve(value: number) {
       dissolve = clamp(value, 0, 1);
+    },
+    setPowerUp(value: number) {
+      if (!Number.isFinite(value))
+        throw new RangeError("Mech transformation progress must be finite");
+      const progress = side === "hero" ? clamp(value, 0, 1) : 0;
+      if (progress === powerUp) return;
+      powerUp = progress;
+      applyPowerUp();
     },
     setGunEnabled(value: boolean) {
       gunEnabled = value;
@@ -758,6 +802,7 @@ export function createFinaleMech(
           move === "victory" ||
           move === "dance" ||
           move === "afterCut" ||
+          move === "powerUp" ||
           move === "guard" ||
           move === "clash" ||
           move === "skyCharge" ||
@@ -765,7 +810,12 @@ export function createFinaleMech(
           move === "verdict" ||
           move === "bomb" ||
           (move === "missiles" && !sampleRifleSequence(time).firing));
-      const sustained = custom && (move === "skyCharge" || move === "reactor" || move === "afterCut");
+      const sustained =
+        custom &&
+        (move === "skyCharge" ||
+          move === "reactor" ||
+          move === "afterCut" ||
+          move === "powerUp");
       const moveKey = `${poseMove}-${clip?.name ?? "procedural"}-${sustained ? "hold" : sequence}`;
       if (previousMove && previousMove !== moveKey) {
         previousPose.clear();
@@ -865,7 +915,8 @@ export function createFinaleMech(
             poseMove === "clash" ||
             poseMove === "bomb" ||
             poseMove === "skyCharge" ||
-            poseMove === "reactor",
+            poseMove === "reactor" ||
+            poseMove === "powerUp",
         );
       }
       for (const sample of sampledPose) {

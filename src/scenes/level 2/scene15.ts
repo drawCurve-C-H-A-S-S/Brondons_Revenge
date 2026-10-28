@@ -2287,9 +2287,12 @@ export function createScene({
       }
     }
     if (starfield) {
+      for (const layer of starfield.starLayers)
+        layer.position.copy(camera.position);
       cloudDrift += FLIGHT_RULES.cruise * 0.35 * dt;
       for (const cube of starfield.nebulaCubes) {
-        cube.position.z = railZ - Math.min(cloudDrift, 2000);
+        cube.position.copy(camera.position);
+        cube.position.z -= Math.min(cloudDrift, 2000);
       }
     }
     streaks.position.z = streakGlow.position.z = railZ;
@@ -2698,11 +2701,14 @@ export function createScene({
     cutsceneManager: null,
     getBloomTargets: (): THREE.Object3D[] => {
       if (!boss || !boss.root.visible) return [];
-      const targets: THREE.Object3D[] = phase === "bossCore"
-        ? boss.core.health > 0 ? [boss.core.mesh, boss.core.ring] : []
-        : boss.generators
-            .filter((target) => target.health > 0)
-            .flatMap((target) => [target.mesh, target.ring]);
+      const targets: THREE.Object3D[] =
+        phase === "bossCore"
+          ? boss.core.health > 0
+            ? [boss.core.mesh, boss.core.ring]
+            : []
+          : boss.generators
+              .filter((target) => target.health > 0)
+              .flatMap((target) => [target.mesh, target.ring]);
       if (boss.shield.visible) targets.push(boss.shield);
       if (phase === "scrambler" && sidescroll)
         targets.push(...sidescroll.getBloomTargets());

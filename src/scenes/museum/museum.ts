@@ -1265,8 +1265,7 @@ export function createScene({
           prompt.textContent = inputHint("E / Look through the telescope");
           prompt.classList.remove("hidden");
         } else {
-          prompt.textContent = inputHint("WASD / Move; hold Shift to sprint; E / enter a screen");
-          prompt.classList.remove("hidden");
+          prompt.classList.add("hidden");
         }
       }
     },

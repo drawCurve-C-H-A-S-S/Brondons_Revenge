@@ -3,7 +3,6 @@ import {
   createLoadingSlideDeck,
   type LoadingDestination,
 } from "../../core/chapters.js";
-import { setInputHint } from "./inputPrompts.js";
 export type { LoadingDestination } from "../../core/chapters.js";
 
 export const LOADING_SLIDE_SECONDS = 6;
@@ -17,7 +16,6 @@ export function createCinematicLoadingScreen() {
     <div class="cinematic-loading-copy">
       <span class="cinematic-loading-chapter"></span>
       <h1></h1>
-      <aside class="cinematic-loading-tip"><strong>FIELD NOTES</strong><p></p></aside>
       <div class="cinematic-loading-status" role="status" aria-live="polite">LOADING</div>
       <div class="cinematic-loading-track" role="progressbar" aria-label="Loading game"><span></span></div>
       <p class="cinematic-loading-note"></p>
@@ -32,8 +30,7 @@ export function createCinematicLoadingScreen() {
   const image = get<HTMLImageElement>("img"),
     chapter = get(".cinematic-loading-chapter"),
     title = get("h1");
-  const tip = get(".cinematic-loading-tip p"),
-    status = get(".cinematic-loading-status");
+  const status = get(".cinematic-loading-status");
   const track = get(".cinematic-loading-track"),
     bar = get(".cinematic-loading-track span");
   const note = get(".cinematic-loading-note"),
@@ -109,7 +106,6 @@ export function createCinematicLoadingScreen() {
     root.dataset.chapter = slide.id;
     chapter.textContent = slide.content.chapter;
     title.textContent = slide.content.title;
-    setInputHint(tip, slide.tip, "foot", true);
     artworkReady = true;
     slideTime = 0;
     image.classList.remove("slide-enter");

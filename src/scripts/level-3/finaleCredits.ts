@@ -26,10 +26,9 @@ export function createFinaleCredits(
   const actors: {
     root: THREE.Group;
     model: THREE.Object3D;
-    outcome: FinaleCreditsSource["outcome"];
     mixer: THREE.AnimationMixer;
-    actions: Record<"dance" | "walk" | "finish", THREE.AnimationAction>;
-    mode: "dance" | "walk" | "finish" | "";
+    actions: Record<"dance" | "walk", THREE.AnimationAction>;
+    mode: "dance" | "walk" | "";
   }[] = [];
   let disposed = false;
   let previousTime = -1;
@@ -59,10 +58,6 @@ export function createFinaleCredits(
       };
       const dance = required("Dance_Loop");
       const walk = required("Walk_Loop");
-      const finish =
-        source.outcome === "winner"
-          ? dance
-          : required(source.outcome === "kneel" ? "Fixing_Kneeling" : "Death01");
       const model = clone(source.model);
       model.visible = true;
       model.position.set(0, 0, 0);
@@ -85,16 +80,10 @@ export function createFinaleCredits(
       const actions = {
         dance: mixer.clipAction(dance),
         walk: mixer.clipAction(walk),
-        finish: mixer.clipAction(finish),
       };
-      if (source.outcome !== "winner") {
-        actions.finish.setLoop(THREE.LoopOnce, 1);
-        actions.finish.clampWhenFinished = true;
-      }
       actors.push({
         root,
         model,
-        outcome: source.outcome,
         mixer,
         actions,
         mode: "",
@@ -169,7 +158,7 @@ export function createFinaleCredits(
           : index % 2
             ? 1
             : -1;
-        let mode: "dance" | "walk" | "finish";
+        let mode: "dance" | "walk";
         let sample: number;
         actor.root.scale.setScalar(ending ? lineupScale : 1);
         if (!ending) {
@@ -212,18 +201,9 @@ export function createFinaleCredits(
           actor.root.rotation.y =
             ((-side * Math.PI) / 2) *
             (1 - THREE.MathUtils.smoothstep(walk, 0.78, 1));
-          mode = posing
-            ? actor.outcome === "winner"
-              ? "dance"
-              : "finish"
-            : "walk";
+          mode = posing ? "dance" : "walk";
           sample = posing ? entranceTime - FINALE_CREDITS.walkIn : entranceTime;
-          if (posing && actor.outcome === "kneel")
-            sample = Math.min(
-              sample,
-              actor.actions.finish.getClip().duration * 0.42,
-            );
-          if (posing && actor.outcome === "winner" && reducedMotion)
+          if (posing && reducedMotion)
             sample = actor.actions.dance.getClip().duration * 0.35;
         }
         const next = actor.actions[mode];
@@ -234,8 +214,7 @@ export function createFinaleCredits(
           actor.mode = mode;
         }
         const duration = next.getClip().duration;
-        next.time =
-          mode === "finish" ? Math.min(sample, duration) : sample % duration;
+        next.time = sample % duration;
         next.paused = true;
         actor.mixer.update(delta);
       });

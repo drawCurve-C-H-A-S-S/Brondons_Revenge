@@ -123,7 +123,10 @@ import {
   type ControllerStatus,
 } from "./scripts/player/gamepadInput.js";
 import { getControlsReference } from "./scripts/player/controlsReference.js";
-import { renderControllerBinding } from "./scripts/player/controllerIcons.js";
+import {
+  renderControllerBinding,
+  renderControllerPrompt,
+} from "./scripts/player/controllerIcons.js";
 import {
   createInputPromptObserver,
   formatDialogue,
@@ -272,23 +275,9 @@ const music = createGameMusic();
 const cinematicLoading = createCinematicLoadingScreen();
 type MenuFont = "normal" | "sefa" | "comic-sans";
 let menuFont: MenuFont = "normal";
-try {
-  const saved = window.localStorage.getItem("menuFont");
-  if (saved === "normal" || saved === "sefa" || saved === "comic-sans") menuFont = saved;
-  else if (saved !== null) console.warn("[Display] Unknown saved menu font:", saved);
-} catch (error) {
-  console.warn("[Display] Unable to read the menu font preference:", error);
-}
-function applyMenuFont(font: MenuFont, persist = false) {
+function applyMenuFont(font: MenuFont) {
   menuFont = font;
   document.documentElement.dataset.menuFont = font;
-  if (persist) {
-    try {
-      window.localStorage.setItem("menuFont", font);
-    } catch (error) {
-      console.warn("[Display] Menu font changed for this session, but could not be saved:", error);
-    }
-  }
 }
 applyMenuFont(menuFont);
 let openingReady = false,
@@ -840,12 +829,14 @@ async function teleportToAnchor(
   teleportArrivalColor = 0xbd77ff;
   updatePlayerView(0);
   globalCharacter?.setHologramTransition(
-    arcade.run?.id === 1.25 ? null : hologramTransitionAt(
-      0,
-      true,
-      TELEPORT_TRANSFER_DURATION,
-      teleportArrivalColor,
-    ),
+    arcade.run?.id === 1.25
+      ? null
+      : hologramTransitionAt(
+          0,
+          true,
+          TELEPORT_TRANSFER_DURATION,
+          teleportArrivalColor,
+        ),
   );
   teleportDevice.update(0);
 }
@@ -1243,7 +1234,8 @@ function introduceControls(key: string, scene?: string) {
     shownControl?.key === key
   )
     return;
-  controlQueue.push({ ...lessons[key], key, scene });
+  dismissControls();
+  controlQueue = [{ ...lessons[key], key, scene }];
 }
 function dismissControls() {
   shownControl = null;
@@ -1363,7 +1355,8 @@ function renderGameplayFrame(
   scene: THREE.Scene,
   camera: THREE.PerspectiveCamera,
 ) {
-  const minigame = isCameraVisit(activeSceneId) ||
+  const minigame =
+    isCameraVisit(activeSceneId) ||
     activeSceneId.startsWith("stage2-") ||
     activeSceneId === "scene1.2" ||
     !!currentSceneData?.isMazeActive?.();
@@ -1372,7 +1365,9 @@ function renderGameplayFrame(
   renderer.domElement.style.filter = [
     comic ? "contrast(1.07) saturate(1.12)" : "",
     currentSceneData?.shouldInvertColors?.() ? "invert(1)" : "",
-  ].filter(Boolean).join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
   document.body.classList.toggle(
     "nonplayable-cinematic",
     !!cutsceneManager ||
@@ -1398,6 +1393,7 @@ function renderGameplayFrame(
         currentSceneData?.getBloomPulse?.() ?? 0,
         currentSceneData?.getBloomTargets?.() ?? [],
       );
+      currentSceneData?.renderPostBloom?.(renderer);
       renderMinimap();
     }
   } finally {
@@ -1514,6 +1510,12 @@ function updateViewButton() {
       !!state?.boxHandling) &&
       !isCameraForcedFirstPerson(activeCamera));
   btn.dataset.view = third ? "3" : "1";
+  btn.classList.toggle(
+    "hidden",
+    !!cutsceneManager ||
+      !!currentSceneData?.isCinematic?.() ||
+      (!!currentSceneData && !currentPlayer?.isEnabled()),
+  );
   btn.disabled = !canToggleView();
   btn.title = btn.disabled
     ? "Camera controlled by this scene"
@@ -1669,7 +1671,7 @@ async function loadLivingQuarters(
         introduceControls("pistol");
       },
       onCrystalCollected: () => {
-        teleportDevice.collect();
+        teleportDevice.collect(false);
         introduceControls("teleport");
       },
       onGogglesCollected: () => {
@@ -1987,9 +1989,26 @@ function showMenuButtons() {
   document.getElementById("story-mode-btn")!.addEventListener("click", () => {
     arcade.active = false;
     arcade.run = null;
-    menuButtons.classList.add("hidden");
-    void transitionToScene2();
+    storySetupPending = true;
+    setPauseMenu("story-setup");
   });
+  document
+    .getElementById("story-setup-start")!
+    .addEventListener("click", () => {
+      storySetupPending = false;
+      setPauseMenu(null, false);
+      menuButtons.classList.add("hidden");
+      void transitionToScene2();
+    });
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    "[data-story-settings]",
+  ))
+    button.addEventListener("click", () => {
+      if (button.dataset.storySettings === "controls") setPauseMenu("controls");
+      else if (button.dataset.storySettings === "display")
+        setPauseMenu("display");
+      else if (button.dataset.storySettings === "sound") setPauseMenu("sound");
+    });
   document.getElementById("arcade-mode-btn")!.addEventListener("click", () => {
     showTitlePanel("character");
   });
@@ -2250,11 +2269,9 @@ function trackArcadeRun(delta: number) {
   sampleArcadeHealth(run);
   const clockElement = document.getElementById("arcade-run-clock")!;
   clockElement.classList.toggle("hidden", run.id === 14);
-  const objective: string | undefined = currentSceneData?.getArcadeObjective?.();
-  clockElement.textContent = [
-    formatArcadeTime(run.elapsed),
-    objective,
-  ]
+  const objective: string | undefined =
+    currentSceneData?.getArcadeObjective?.();
+  clockElement.textContent = [formatArcadeTime(run.elapsed), objective]
     .filter(Boolean)
     .join("  /  ");
 }
@@ -2276,7 +2293,10 @@ function arcadeGrade(run: ArcadeRun) {
       0,
       1,
     );
-    const speed = Math.min(1, challenge.targetSeconds / Math.max(1, run.elapsed));
+    const speed = Math.min(
+      1,
+      challenge.targetSeconds / Math.max(1, run.elapsed),
+    );
     const score = health * 0.6 + speed * 0.4 - run.deaths * 0.1;
     return score >= 0.95
       ? "S"
@@ -2325,18 +2345,22 @@ function showArcadeResults() {
   document
     .getElementById("arcade-download-record")!
     .classList.toggle("hidden", run.id !== 1.25);
-  const rows: Array<[string, string]> = run.id === 14
-    ? [["Result", "Escaped / ungraded"]]
-    : [
-    ["Time", formatArcadeTime(run.elapsed)],
-    ["Damage taken", String(Math.round(run.damage))],
-    ["Health remaining", `${Math.round(finalHealth)} / ${PLAYER_MAX_HEALTH}`],
-    ["Lowest health", `${Math.round(run.lowestHealth)}`],
-    ["Retries", String(run.deaths)],
-  ];
-  if (run.id === 1.1) rows.unshift(["Difficulty", run.difficulty.toUpperCase()]);
-  if (run.id === 1.25)
-    rows.splice(1, 0, ["Built-in cutscenes", "Skipped"]);
+  const rows: Array<[string, string]> =
+    run.id === 14
+      ? [["Result", "Escaped / ungraded"]]
+      : [
+          ["Time", formatArcadeTime(run.elapsed)],
+          ["Damage taken", String(Math.round(run.damage))],
+          [
+            "Health remaining",
+            `${Math.round(finalHealth)} / ${PLAYER_MAX_HEALTH}`,
+          ],
+          ["Lowest health", `${Math.round(run.lowestHealth)}`],
+          ["Retries", String(run.deaths)],
+        ];
+  if (run.id === 1.1)
+    rows.unshift(["Difficulty", run.difficulty.toUpperCase()]);
+  if (run.id === 1.25) rows.splice(1, 0, ["Built-in cutscenes", "Skipped"]);
   document.getElementById("arcade-stats")!.replaceChildren(
     ...rows.flatMap(([label, value]) => {
       const dt = document.createElement("dt");
@@ -2368,24 +2392,30 @@ function setupArcadeResults() {
     sampleArcadeHealth(run);
     closeArcadeBriefing();
   });
-  document.getElementById("arcade-briefing-return")!.addEventListener("click", () => {
-    void returnToMuseum();
-  });
-  document.querySelectorAll<HTMLButtonElement>("[data-arcade-difficulty]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const difficulty = button.dataset.arcadeDifficulty;
-      if (!arcade.run) return;
-      if (
-        difficulty !== "easy" &&
-        difficulty !== "medium" &&
-        difficulty !== "hard"
-      )
-        throw new Error(`Invalid Arcade difficulty: ${difficulty}`);
-      arcade.run.difficulty = difficulty;
-      updateArcadeDifficultyButtons();
+  document
+    .getElementById("arcade-briefing-return")!
+    .addEventListener("click", () => {
+      void returnToMuseum();
     });
-  });
-  const downloadButton = document.getElementById("arcade-download-record") as HTMLButtonElement;
+  document
+    .querySelectorAll<HTMLButtonElement>("[data-arcade-difficulty]")
+    .forEach((button) => {
+      button.addEventListener("click", () => {
+        const difficulty = button.dataset.arcadeDifficulty;
+        if (!arcade.run) return;
+        if (
+          difficulty !== "easy" &&
+          difficulty !== "medium" &&
+          difficulty !== "hard"
+        )
+          throw new Error(`Invalid Arcade difficulty: ${difficulty}`);
+        arcade.run.difficulty = difficulty;
+        updateArcadeDifficultyButtons();
+      });
+    });
+  const downloadButton = document.getElementById(
+    "arcade-download-record",
+  ) as HTMLButtonElement;
   downloadButton.addEventListener("click", async () => {
     const run = arcade.run;
     if (!run || !run.finished || run.id !== 1.25) return;
@@ -2426,16 +2456,22 @@ function setupArcadeResults() {
 }
 
 function updateArcadeDifficultyButtons() {
-  document.querySelectorAll<HTMLButtonElement>("[data-arcade-difficulty]").forEach((button) => {
-    button.setAttribute("aria-pressed", String(button.dataset.arcadeDifficulty === arcade.run?.difficulty));
-  });
+  document
+    .querySelectorAll<HTMLButtonElement>("[data-arcade-difficulty]")
+    .forEach((button) => {
+      button.setAttribute(
+        "aria-pressed",
+        String(button.dataset.arcadeDifficulty === arcade.run?.difficulty),
+      );
+    });
 }
 
 function showArcadeBriefing() {
   const run = arcade.run;
   if (!run) return;
   const challenge = arcadeChallenge(run.id);
-  document.getElementById("arcade-briefing-title")!.textContent = MUSEUM_STAGE_TITLES.get(run.id)!;
+  document.getElementById("arcade-briefing-title")!.textContent =
+    MUSEUM_STAGE_TITLES.get(run.id)!;
   document.getElementById("arcade-instructions")!.replaceChildren(
     ...challenge.instructions.map((instruction) => {
       const item = document.createElement("li");
@@ -2443,7 +2479,9 @@ function showArcadeBriefing() {
       return item;
     }),
   );
-  document.getElementById("arcade-difficulties")!.classList.toggle("hidden", run.id !== 1.1);
+  document
+    .getElementById("arcade-difficulties")!
+    .classList.toggle("hidden", run.id !== 1.1);
   document.getElementById("arcade-scoring-note")!.textContent =
     challenge.targetSeconds > 0
       ? `Speed target: ${formatArcadeTime(challenge.targetSeconds)}. Faster times score better.`
@@ -2465,7 +2503,10 @@ function showArcadeBriefing() {
 function closeArcadeBriefing() {
   if (!arcade.briefingOpen) return;
   const focused = document.activeElement;
-  if (focused instanceof HTMLElement && document.getElementById("arcade-briefing")!.contains(focused))
+  if (
+    focused instanceof HTMLElement &&
+    document.getElementById("arcade-briefing")!.contains(focused)
+  )
     focused.blur();
   arcade.briefingOpen = false;
   document.getElementById("arcade-briefing")!.classList.add("hidden");
@@ -2747,7 +2788,11 @@ async function restartSurveillance() {
     state.health = PLAYER_MAX_HEALTH;
   const source = currentSceneData;
   try {
-    if (currentPlayer && currentPlayer.getHealth() > 0 && arcade.run?.id !== 1.25) {
+    if (
+      currentPlayer &&
+      currentPlayer.getHealth() > 0 &&
+      arcade.run?.id !== 1.25
+    ) {
       teleportDepartureTime = 0;
       teleportArrivalColor = 0x58ff9a;
       currentPlayer.setInputLocked(true);
@@ -2784,7 +2829,9 @@ function returnToSurveillanceAnchor() {
   if (arcade.run?.id === 1.25) {
     if (!source.returnToAnchor()) {
       console.warn("[Teleport] Surveillance return anchor is unavailable");
-      showTeleportDeviceMessage("The surveillance anchor is unavailable right now.");
+      showTeleportDeviceMessage(
+        "The surveillance anchor is unavailable right now.",
+      );
       return false;
     }
     return true;
@@ -2922,12 +2969,14 @@ async function loadCameraVisit(
   teleportArrivalTime = arcade.run?.id === 1.25 ? -1 : 0;
   teleportArrivalColor = 0x58ff9a;
   globalCharacter?.setHologramTransition(
-    arcade.run?.id === 1.25 ? null : hologramTransitionAt(
-      0,
-      true,
-      TELEPORT_TRANSFER_DURATION,
-      teleportArrivalColor,
-    ),
+    arcade.run?.id === 1.25
+      ? null
+      : hologramTransitionAt(
+          0,
+          true,
+          TELEPORT_TRANSFER_DURATION,
+          teleportArrivalColor,
+        ),
   );
   updatePlayerView(0);
   return true;
@@ -2963,7 +3012,8 @@ async function loadBay13(
       onDefeated: () => {
         bayBossDefeated = true;
       },
-      onFinisherComplete: arcade.run?.id === 13 ? completeArcadeStage : undefined,
+      onFinisherComplete:
+        arcade.run?.id === 13 ? completeArcadeStage : undefined,
       onRespawn: (phaseFour = false) => {
         void loadBay13(undefined, false, true, phaseFour).catch((error) =>
           console.error("Bay 13 checkpoint restart failed:", error),
@@ -3184,7 +3234,8 @@ async function loadGround17(entryState?: RescueArrival, fromFacility = false) {
           entryState,
           fromFacility,
           arcadeMode: arcade.run?.id === 17,
-          onArcadeComplete: arcade.run?.id === 17 ? completeArcadeStage : undefined,
+          onArcadeComplete:
+            arcade.run?.id === 17 ? completeArcadeStage : undefined,
           onFinished: loadFacility20,
           onRespawn: (state) => loadGround17(checkpointArrival(state)),
         }),
@@ -3288,7 +3339,10 @@ async function loadScene21(
         queueMicrotask(() => {
           if (currentSceneData !== sceneData) return;
           void enterSceneById(1).catch((error) => {
-            console.error("[Credits] Unable to return to the Main Menu:", error);
+            console.error(
+              "[Credits] Unable to return to the Main Menu:",
+              error,
+            );
             document.getElementById("main-menu-error")!.textContent =
               "Unable to load the Main Menu. Please try again.";
             setPauseMenu("main-menu", false);
@@ -3558,6 +3612,7 @@ const creditsDialog = document.getElementById(
 ) as HTMLDialogElement;
 type MenuScreen =
   | "home"
+  | "story-setup"
   | "main-menu"
   | "map"
   | "sound"
@@ -3571,7 +3626,8 @@ let creditsReturnScreen: Exclude<MenuScreen, "credits"> | null = null;
 let creditsReturnFocus: HTMLElement | null = null;
 let shipMap: ReturnType<typeof createShipMap> | null = null;
 let shipMapLayout: ShipMapLayout | undefined;
-let controlsReturnScreen: "home" | "scenes" = "home";
+let controlsReturnScreen: "home" | "scenes" | "story-setup" = "home";
+let storySetupPending = false;
 let controlsTab: InputMode = "keyboard";
 let lastControllerStatus: ControllerStatus | null = null;
 // Memory only: survives menus and scene changes, but resets on browser refresh.
@@ -3592,8 +3648,10 @@ function focusControllerMenuItem(element: HTMLElement) {
   controllerFocusedItem?.classList.remove("controller-focused");
   controllerFocusedItem = element;
   element.classList.add("controller-focused");
-  element.focus();
-  element.scrollIntoView({ block: "nearest" });
+  element.focus({ preventScroll: true });
+  const rect = element.getBoundingClientRect();
+  if (rect.top < 0 || rect.bottom > window.innerHeight)
+    element.scrollIntoView({ block: "nearest", behavior: "instant" });
 }
 function updateControllerMenuFocus() {
   const root = isControllerActive() ? controllerMenuRoot() : null;
@@ -3681,7 +3739,10 @@ function syncControlsScrollHint() {
   const atEnd = list.scrollTop + list.clientHeight >= list.scrollHeight - 2;
   hint.dataset.atEnd = String(atEnd);
   const text = hint.querySelector("span");
-  if (text) text.textContent = atEnd ? "Scroll up for earlier controls" : "Scroll for more controls";
+  if (text)
+    text.textContent = atEnd
+      ? "Scroll up for earlier controls"
+      : "Scroll for more controls";
 }
 function renderControlsReference() {
   const devices = lastControllerStatus?.controllers ?? [];
@@ -3790,15 +3851,11 @@ function renderControllerStatus(status: ControllerStatus) {
   }
   deviceSelect.value = status.index === null ? "" : String(status.index);
   deviceSelect.disabled = !!status.setupStep || !status.controllers.length;
-  for (const button of document.querySelectorAll<HTMLButtonElement>(
-    "button[data-controller-type]",
-  )) {
-    button.setAttribute(
-      "aria-pressed",
-      String(button.dataset.controllerType === status.type),
-    );
-    button.disabled = !!status.setupStep;
-  }
+  const typeSelect = document.getElementById(
+    "controller-type-select",
+  ) as HTMLSelectElement;
+  typeSelect.value = status.type ?? "generic";
+  typeSelect.disabled = !!status.setupStep || !status.controllers.length;
   const connection = document.getElementById("controller-status")!;
   connection.textContent = status.name
     ? `${status.name} — ${status.message}`
@@ -3828,13 +3885,16 @@ function renderControllerStatus(status: ControllerStatus) {
   document
     .getElementById("controller-setup-cancel")!
     .classList.toggle("hidden", !status.setupStep);
-  const menuHint = `Left stick / D-pad: choose / ${controllerMenuLabel("confirm")}: select`;
+  const menuHint = "Left stick / D-pad: choose / {confirm}: select";
   for (const hint of document.querySelectorAll<HTMLElement>(
     ".controller-menu-hint",
   )) {
-    hint.textContent = hint.closest("#menu-buttons")
-      ? `${menuHint} / ${controllerMenuLabel("pause")}: menu`
-      : `${menuHint} / ${controllerMenuLabel("back")}: back / ${controllerMenuLabel("pause")}: resume`;
+    renderControllerPrompt(
+      hint,
+      hint.closest("#menu-buttons")
+        ? `${menuHint} / {plus}: menu`
+        : `${menuHint} / {cancel}: back / {plus}: resume`,
+    );
   }
   renderShownControl();
   if (menuScreen === "controls") renderControlsReference();
@@ -3863,14 +3923,22 @@ function controllerMenuAction(action: ControllerMenuAction) {
     return;
   }
   if (action === "pause") {
+    if (storySetupPending) {
+      backFromMenu();
+      return;
+    }
     setPauseMenu(quickMenuOpen ? null : "home");
     return;
   }
   if (action === "back") {
     if (quickMenuOpen) backFromMenu();
-    else if (!document.getElementById("character-select")!.classList.contains("hidden"))
+    else if (
+      !document.getElementById("character-select")!.classList.contains("hidden")
+    )
       showTitlePanel("mode");
-    else if (!document.getElementById("mode-select")!.classList.contains("hidden"))
+    else if (
+      !document.getElementById("mode-select")!.classList.contains("hidden")
+    )
       showTitlePanel("title");
     return;
   }
@@ -3910,7 +3978,8 @@ function controllerMenuAction(action: ControllerMenuAction) {
   }
   if (
     focused instanceof HTMLSelectElement &&
-    (action === "left" || action === "right")
+    (action === "left" || action === "right") &&
+    focused.options.length > 0
   ) {
     focused.selectedIndex =
       (focused.selectedIndex + step + focused.options.length) %
@@ -3954,7 +4023,28 @@ function controllerMenuAction(action: ControllerMenuAction) {
   );
   if (!items.length) return;
   const index = items.findIndex((element) => element === focused);
+  const origin =
+    focused instanceof HTMLElement ? focused.getBoundingClientRect() : null;
+  const horizontal = action === "left" || action === "right";
+  const candidates = origin
+    ? items
+        .filter((item) => item !== focused)
+        .map((item) => {
+          const rect = item.getBoundingClientRect();
+          const dx = (rect.left + rect.right - origin.left - origin.right) / 2;
+          const dy = (rect.top + rect.bottom - origin.top - origin.bottom) / 2;
+          const forward = (horizontal ? dx : dy) * step;
+          return {
+            item,
+            forward,
+            score: forward + Math.abs(horizontal ? dy : dx) * 3,
+          };
+        })
+        .filter((candidate) => candidate.forward > 8)
+        .sort((a, b) => a.score - b.score)
+    : [];
   const next =
+    candidates[0]?.item ??
     items[(index < 0 ? 0 : index + step + items.length) % items.length];
   focusControllerMenuItem(next);
 }
@@ -4009,8 +4099,34 @@ function setupControllerInput() {
       controllerNoticeTime = popupDuration(5);
     },
     onMenuAction: controllerMenuAction,
+    onTeleportAction(action, heldSeconds) {
+      if (currentSceneData?.controllerTeleport)
+        currentSceneData.controllerTeleport(action, heldSeconds);
+      else teleportDevice.controllerAction(action, heldSeconds);
+    },
     onMapNavigate: (input, delta) =>
       shipMap?.navigateWithController(input, delta),
+    onTitleOrbit(x, y, delta) {
+      if (
+        activeSceneId !== "scene1" ||
+        quickMenuOpen ||
+        !orbitControls?.enabled ||
+        !activeCamera
+      )
+        return;
+      const offset = activeCamera.position.clone().sub(orbitControls.target);
+      const spherical = new THREE.Spherical().setFromVector3(offset);
+      spherical.theta -= x * delta * 1.8;
+      spherical.phi = THREE.MathUtils.clamp(
+        spherical.phi - y * delta * 1.8,
+        0.05,
+        Math.PI - 0.05,
+      );
+      activeCamera.position
+        .copy(orbitControls.target)
+        .add(offset.setFromSpherical(spherical));
+      orbitControls.update();
+    },
     aimWheel: (x, y) => weaponWheel.aimFromStick(x, y),
     cancelWheel: () => weaponWheel.close(),
   });
@@ -4027,19 +4143,21 @@ function setupControllerInput() {
         Number((event.currentTarget as HTMLSelectElement).value),
       );
     });
-  for (const button of document.querySelectorAll<HTMLButtonElement>(
-    "button[data-controller-type]",
-  )) {
-    button.addEventListener("click", () => {
-      const type = button.dataset.controllerType;
-      if (!type || !isControllerType(type))
+  document
+    .getElementById("controller-type-select")!
+    .addEventListener("change", (event) => {
+      const type = (event.currentTarget as HTMLSelectElement).value;
+      if (!isControllerType(type))
         throw new Error("Invalid controller type selection");
       controllerInput!.setControllerType(type);
     });
-  }
   document
     .getElementById("controller-setup-start")!
-    .addEventListener("click", () => controllerInput!.beginSetup());
+    .addEventListener("click", () => {
+      controllerInput!.beginSetup();
+      if (controllerInput!.getStatus().setupStep)
+        document.getElementById("controller-setup-cancel")!.focus();
+    });
   document
     .getElementById("controller-setup-cancel")!
     .addEventListener("click", () => controllerInput!.cancelSetup());
@@ -4077,7 +4195,11 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
   if (screen === "map" && !canViewShipMap()) return;
   if (screen === "scenes" && (!quickMenuOpen || !developerUnlocked)) return;
   if (screen === "controls")
-    controlsReturnScreen = menuScreen === "scenes" ? "scenes" : "home";
+    controlsReturnScreen = storySetupPending
+      ? "story-setup"
+      : menuScreen === "scenes"
+        ? "scenes"
+        : "home";
   if (screen === "credits" && menuScreen !== "credits") {
     creditsReturnScreen = menuScreen;
     creditsReturnFocus =
@@ -4148,19 +4270,24 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
   }
   if (screen !== "scenes" && screen !== "credits") {
     document.getElementById("pause-menu-title")!.textContent =
-      screen === "controls"
-        ? developerUnlocked
-          ? "All Controls"
-          : "Controls"
-        : screen === "map"
-          ? "Ship Map"
-          : screen === "sound"
-            ? "Sound"
-            : screen === "display"
-              ? "Display"
-              : screen === "developer"
-                ? "Developer Mode"
-                : "Pause";
+      screen === "story-setup"
+        ? "Story setup"
+        : screen === "controls"
+          ? developerUnlocked
+            ? "All Controls"
+            : "Controls"
+          : screen === "map"
+            ? "Ship Map"
+            : screen === "sound"
+              ? "Sound"
+              : screen === "display"
+                ? "Display"
+                : screen === "developer"
+                  ? "Developer Mode"
+                  : "Pause";
+    document
+      .getElementById("story-setup-panel")!
+      .classList.toggle("hidden", screen !== "story-setup");
     document
       .getElementById("pause-main-menu-panel")!
       .classList.toggle("hidden", screen !== "main-menu");
@@ -4172,7 +4299,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
       .classList.toggle("hidden", screen !== "home");
     document
       .getElementById("pause-prime-settings")!
-      .classList.toggle("hidden", screen !== "controls");
+      .classList.toggle("hidden", screen !== "display");
     (
       document.getElementById("prime-hints-toggle") as HTMLInputElement
     ).checked = getPrimeHintsEnabled();
@@ -4186,9 +4313,11 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
       .getElementById("pause-display-panel")!
       .classList.toggle("hidden", screen !== "display");
     if (screen === "display") {
-      (document.getElementById("menu-font-select") as HTMLSelectElement).value = menuFont;
-      (document.getElementById("comic-look-toggle") as HTMLInputElement).checked =
-        getComicLookEnabled();
+      (document.getElementById("menu-font-select") as HTMLSelectElement).value =
+        menuFont;
+      (
+        document.getElementById("comic-look-toggle") as HTMLInputElement
+      ).checked = getComicLookEnabled();
       (document.getElementById("outlines-toggle") as HTMLInputElement).checked =
         getOutlinesEnabled();
       syncBloomSlider();
@@ -4487,6 +4616,14 @@ function syncBloomSlider() {
 }
 
 function backFromMenu() {
+  if (storySetupPending) {
+    if (menuScreen === "story-setup") {
+      storySetupPending = false;
+      setPauseMenu(null, false);
+      showTitlePanel("mode");
+    } else setPauseMenu("story-setup");
+    return;
+  }
   if (menuScreen === "credits") {
     const focus = creditsReturnFocus;
     creditsReturnFocus = null;
@@ -4757,9 +4894,9 @@ async function enterSceneById(id: number) {
 }
 function setupSceneQuickMenu() {
   renderer.domElement.tabIndex = -1;
-  document.getElementById("pause-controls-list")!.addEventListener(
-    "scroll", syncControlsScrollHint, { passive: true },
-  );
+  document
+    .getElementById("pause-controls-list")!
+    .addEventListener("scroll", syncControlsScrollHint, { passive: true });
   window.addEventListener("resize", syncControlsScrollHint, { passive: true });
   document.fonts.addEventListener("loadingdone", syncControlsScrollHint);
   const creditsCopy = document
@@ -4998,42 +5135,39 @@ function setupSceneQuickMenu() {
     screenBloom.setLevel(bloomSlider.valueAsNumber / 100),
   );
   screenBloom.onChange(syncBloomSlider);
-  const menuFontSelect = document.getElementById("menu-font-select") as HTMLSelectElement;
+  const menuFontSelect = document.getElementById(
+    "menu-font-select",
+  ) as HTMLSelectElement;
   menuFontSelect.value = menuFont;
   menuFontSelect.addEventListener("change", () => {
     const selected = menuFontSelect.value;
-    if (selected !== "normal" && selected !== "sefa" && selected !== "comic-sans") {
+    if (
+      selected !== "normal" &&
+      selected !== "sefa" &&
+      selected !== "comic-sans"
+    ) {
       console.error("[Display] Unsupported menu font:", selected);
       menuFontSelect.value = menuFont;
       return;
     }
-    applyMenuFont(selected, true);
+    applyMenuFont(selected);
     requestAnimationFrame(syncControlsScrollHint);
   });
   const comicToggle = document.getElementById(
     "comic-look-toggle",
   ) as HTMLInputElement;
-  const storedComicLook = localStorage.getItem("comicLookEnabled");
-  setComicLookEnabled(storedComicLook === "true");
+  setComicLookEnabled(false);
   comicToggle.checked = getComicLookEnabled();
   comicToggle.addEventListener("change", () => {
     setComicLookEnabled(comicToggle.checked);
-    localStorage.setItem("comicLookEnabled", String(comicToggle.checked));
   });
   const outlinesToggle = document.getElementById(
     "outlines-toggle",
   ) as HTMLInputElement;
-  const storedOutlines = localStorage.getItem("outlinesEnabled");
-  setOutlinesEnabled(
-    storedOutlines === null
-      ? storedComicLook === "true"
-      : storedOutlines === "true",
-  );
-  localStorage.setItem("outlinesEnabled", String(getOutlinesEnabled()));
+  setOutlinesEnabled(false);
   outlinesToggle.checked = getOutlinesEnabled();
   outlinesToggle.addEventListener("change", () => {
     setOutlinesEnabled(outlinesToggle.checked);
-    localStorage.setItem("outlinesEnabled", String(outlinesToggle.checked));
   });
   const hideHudToggle = document.getElementById(
     "interface-visibility-toggle",
@@ -5058,21 +5192,17 @@ function setupSceneQuickMenu() {
   };
   fpsToggle.addEventListener("change", () => {
     fpsCounter.classList.toggle("hidden", !fpsToggle.checked);
-    localStorage.setItem("fpsCounterVisible", String(fpsToggle.checked));
   });
-  const storedFps = localStorage.getItem("fpsCounterVisible");
-  if (storedFps === "true") fpsCounter.classList.remove("hidden");
+  fpsCounter.classList.add("hidden");
   syncFpsToggle();
   const perfToggle = document.getElementById(
     "perf-timers-toggle",
   ) as HTMLInputElement | null;
   if (perfToggle) {
-    const storedPerf = localStorage.getItem("perfTimersEnabled");
-    perfTimersEnabled = storedPerf !== "false";
+    perfTimersEnabled = true;
     perfToggle.checked = perfTimersEnabled;
     perfToggle.addEventListener("change", () => {
       perfTimersEnabled = perfToggle.checked;
-      localStorage.setItem("perfTimersEnabled", String(perfTimersEnabled));
     });
   }
   const hintToggle = document.getElementById(
@@ -5193,7 +5323,11 @@ function setupSceneQuickMenu() {
       if (event.code === "Escape") {
         event.preventDefault();
         event.stopImmediatePropagation();
-        if (!event.repeat) backFromMenu();
+        if (!event.repeat) {
+          if (controllerInput?.getStatus().setupStep)
+            controllerInput.cancelSetup();
+          else backFromMenu();
+        }
         return;
       }
       if (

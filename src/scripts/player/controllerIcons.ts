@@ -2,6 +2,7 @@ import {
   controllerMenuLabel,
   controllerText,
   getControllerType,
+  isControllerActive,
   type ControllerType,
 } from "./gamepadInput.js";
 
@@ -33,7 +34,7 @@ export function createControllerIcon(
   });
   svg.classList.add("controller-input-icon");
   const stick = /stick/i.test(label),
-    dpad = /d-pad/i.test(label);
+    dpad = /d[- ]?pad/i.test(label);
   if (stick || dpad) {
     svg.append(
       stick
@@ -42,9 +43,9 @@ export function createControllerIcon(
             d: "M17 6h14v11h11v14H31v11H17V31H6V17h11z",
           }),
     );
-    const name = /(?:stick|d-pad)\s+(up|down|left|right)$/i
+    const name = /(?:stick|d[- ]?pad)\s+(up|down|left|right)$/i
       .exec(label)?.[1]
-      .toLowerCase();
+      ?.toLowerCase();
     const [x, y] = direction ?? [
       name === "left" ? -1 : name === "right" ? 1 : 0,
       name === "up" ? -1 : name === "down" ? 1 : 0,
@@ -136,30 +137,80 @@ export function renderControllerBinding(
   type: ControllerType = getControllerType() ?? "generic",
   swapAB?: boolean,
 ) {
-  const tokens =
-    /\{[a-z]+\}|\b(?:left|right)\s+stick(?:\s+(?:up|down|left|right)\b)?|\bD-pad(?:\s+(?:up|down|left|right)\b)?|\bstick\s+(?:up|down|left|right)\b/gi;
   const nodes: Node[] = [];
   let end = 0;
-  for (const match of template.matchAll(tokens)) {
+  for (const match of template.matchAll(bindingTokens)) {
     if (match.index > end)
       nodes.push(document.createTextNode(template.slice(end, match.index)));
-    const token = match[0];
-    const label =
-      token === "{confirm}"
-        ? controllerMenuLabel("confirm", type, swapAB)
-        : token === "{cancel}"
-          ? controllerMenuLabel("back", type, swapAB)
-          : controllerText(token, type, swapAB);
-    const icon = document.createElement("span");
-    icon.className = "controller-binding-icon";
-    icon.setAttribute("role", "img");
-    icon.setAttribute("aria-label", label);
-    icon.title = label;
-    icon.append(createControllerIcon(label));
+    const icon = iconForToken(match[0], type, swapAB);
     nodes.push(icon);
-    end = match.index + token.length;
+    end = match.index + match[0].length;
   }
   if (end < template.length)
     nodes.push(document.createTextNode(template.slice(end)));
   element.replaceChildren(...nodes);
+}
+
+const bindingTokens =
+  /\{[a-z0-9]+\}|\b(?:left|right)\s+stick(?:\s+(?:up|down|left|right)\b)?|\bD[- ]?pad(?:\s+(?:up|down|left|right)\b)?|\bstick\s+(?:up|down|left|right)\b/gi;
+
+function iconForToken(
+  token: string,
+  type: ControllerType,
+  swapAB?: boolean,
+) {
+  const label =
+    token === "{confirm}"
+      ? controllerMenuLabel("confirm", type, swapAB)
+      : token === "{cancel}"
+        ? controllerMenuLabel("back", type, swapAB)
+        : controllerText(token, type, swapAB);
+  const icon = document.createElement("span");
+  icon.className = "controller-binding-icon";
+  icon.setAttribute("role", "img");
+  icon.setAttribute("aria-label", label);
+  icon.title = label;
+  icon.append(createControllerIcon(label));
+  return icon;
+}
+
+/**
+ * Render a prompt in place, replacing D-pad / stick / {button} tokens with the
+ * controller's SVG icons. Keyboard users keep the literal text. The
+ * data-controller-prompt marker keeps the input-prompt observer from
+ * re-translating the source text behind the icons.
+ */
+const promptCache = new WeakMap<HTMLElement, { signature: string; html: string }>();
+export function renderControllerPrompt(element: HTMLElement, text: string) {
+  const controller = isControllerActive();
+  const signature = JSON.stringify([text, controller, getControllerType(), controllerText("{a}/{b}")]);
+  const previous = promptCache.get(element);
+  if (previous?.signature === signature && previous.html === element.innerHTML) return;
+  if (!controller) {
+    delete element.dataset.controllerPrompt;
+    if (element.textContent !== text || element.querySelector("svg")) element.textContent = text;
+  } else {
+    element.dataset.controllerPrompt = text;
+    renderControllerBinding(element, text, getControllerType() ?? "generic");
+  }
+  promptCache.set(element, { signature, html: element.innerHTML });
+}
+
+/** Replaces only literal D-pad labels, without translating surrounding prose. */
+export function renderDpadText(text: Text) {
+  if (!/\bD[- ]?pad\b/i.test(text.data)) return;
+  const nodes: Node[] = [];
+  for (const part of text.data.split(/(\bD[- ]?pad(?:\s+(?:up|down|left|right)\b)?)/gi)) {
+    if (!/^D[- ]?pad/i.test(part)) nodes.push(document.createTextNode(part));
+    else {
+      const icon = document.createElement("span");
+      icon.className = "controller-binding-icon";
+      icon.setAttribute("role", "img");
+      icon.setAttribute("aria-label", part);
+      icon.title = part;
+      icon.append(createControllerIcon(part));
+      nodes.push(icon);
+    }
+  }
+  text.replaceWith(...nodes);
 }

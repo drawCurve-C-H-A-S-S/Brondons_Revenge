@@ -451,34 +451,67 @@ export function createBannerTexture(text: string, width = 2048, height = 320) {
   return texture;
 }
 
-/** Comic-book title logo: thick ink outline, hard offset shadow and a yellow/red fill. */
+/** Static version of Scene 1's gradient title and framed subtitle. */
 export function createLogoTexture(width = 2048, height = 640) {
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext("2d")!;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.lineJoin = "round";
-  const lines: Array<[string, string, number]> = [
-    ["BRONDON'S", "#ffd23a", 175],
-    ["REVENGE", "#e8262d", 455],
-  ];
-  lines.forEach(([text, fill, y], index) => {
-    ctx.font = `${index ? 330 : 270}px Impact, Haettenschweiler, 'Franklin Gothic Heavy', sans-serif`;
-    ctx.fillStyle = "#f4ecd8";
-    ctx.fillText(text, width / 2 + 18, y + 20, width - 120);
-    ctx.fillStyle = "#0b0b10";
-    ctx.fillText(text, width / 2 + 12, y + 13, width - 120);
-    ctx.lineWidth = 26;
-    ctx.strokeStyle = "#0b0b10";
-    ctx.strokeText(text, width / 2, y, width - 120);
-    ctx.fillStyle = fill;
-    ctx.fillText(text, width / 2, y, width - 120);
-  });
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 8;
+  let disposed = false;
+  texture.addEventListener("dispose", () => { disposed = true; });
+  function draw() {
+    const style = getComputedStyle(document.documentElement);
+    const font = style.getPropertyValue("--menu-font").trim();
+    const ink = style.getPropertyValue("--comic-ink").trim();
+    const paper = style.getPropertyValue("--comic-paper").trim();
+    ctx.clearRect(0, 0, width, height);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.lineJoin = "round";
+    let size = Math.min(width * 0.087, height * 0.36);
+    const title = "BRONDON'S REVENGE";
+    do {
+      ctx.font = `${size}px ${font}`;
+      ctx.letterSpacing = `${size * 0.06}px`;
+      if (ctx.measureText(title).width <= width * 0.9) break;
+      size *= 0.95;
+    } while (size > 1);
+    const y = height * 0.42;
+    const gradient = ctx.createLinearGradient(0, y - size / 2, 0, y + size / 2);
+    for (const [stop, color] of [[0, "#e8f6ff"], [0.38, "#5ab8ff"], [0.62, "#1d3f9a"], [1, "#8a0f1e"]] as const)
+      gradient.addColorStop(stop, color);
+    ctx.save();
+    const scale = size / 108;
+    ctx.filter = `drop-shadow(0 0 ${18 * scale}px rgba(40,110,255,0.55)) drop-shadow(0 0 ${42 * scale}px rgba(170,0,30,0.45))`;
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = scale * 2;
+    ctx.strokeText(title, width / 2, y);
+    ctx.fillStyle = gradient;
+    ctx.fillText(title, width / 2, y);
+    ctx.restore();
+    const subtitleSize = size / 6;
+    ctx.font = `${subtitleSize}px ${font}`;
+    ctx.letterSpacing = `${subtitleSize * 0.18}px`;
+    const subtitle = "A TALE OF VENGEANCE";
+    const boxWidth = ctx.measureText(subtitle).width + 28 * scale;
+    const boxHeight = subtitleSize + 18 * scale;
+    const boxY = y + size * 0.55 + 15 * scale;
+    ctx.fillStyle = ink;
+    ctx.fillRect((width - boxWidth) / 2 + 3 * scale, boxY + 3 * scale, boxWidth, boxHeight);
+    ctx.fillStyle = paper;
+    ctx.fillRect((width - boxWidth) / 2, boxY, boxWidth, boxHeight);
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = 2 * scale;
+    ctx.strokeRect((width - boxWidth) / 2, boxY, boxWidth, boxHeight);
+    ctx.fillStyle = ink;
+    ctx.fillText(subtitle, width / 2, boxY + boxHeight / 2);
+    texture.needsUpdate = true;
+  }
+  draw();
+  void document.fonts.ready.then(() => { if (!disposed) draw(); });
   return texture;
 }
 

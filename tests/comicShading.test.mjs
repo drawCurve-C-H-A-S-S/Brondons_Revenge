@@ -96,7 +96,7 @@ test("outlines and comic lighting have independent uniforms and frame gating", (
   mesh.material.dispose();
 });
 
-test("Display offers a persisted outline preference separate from Comic Look", async () => {
+test("Display offers session-only outlines separate from Comic Look", async () => {
   const html = await readFile(
     new URL("../src/index.html", import.meta.url),
     "utf8",
@@ -111,12 +111,11 @@ test("Display offers a persisted outline preference separate from Comic Look", a
     new URL("../src/main.ts", import.meta.url),
     "utf8",
   );
-  assert.match(main, /localStorage\.getItem\("outlinesEnabled"\)/);
-  assert.match(main, /localStorage\.setItem\("outlinesEnabled"/);
-  assert.match(
+  assert.doesNotMatch(
     main,
-    /localStorage\.setItem\("outlinesEnabled", String\(getOutlinesEnabled\(\)\)\)/,
+    /localStorage\.(?:getItem|setItem)\("(?:outlinesEnabled|comicLookEnabled)"/,
   );
+  assert.match(main, /setOutlinesEnabled\(false\)/);
   assert.match(main, /setComicFrameEnabled\(!minigame\)/);
 });
 

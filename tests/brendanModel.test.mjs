@@ -5,6 +5,56 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { createServer } from "vite";
 
+test("Brendan can crouch-walk out of his pod before walking and talking", async (t) => {
+  const server = await createServer({
+    server: { middlewareMode: true, watch: null, ws: false },
+    appType: "custom",
+    optimizeDeps: { noDiscovery: true, include: [] },
+  });
+  t.after(() => server.close());
+  const { createBrendanBehavior } = await server.ssrLoadModule(
+    "/scripts/global/brendanBehavior.ts",
+  );
+  const bytes = await readFile(
+    new URL("../src/assets/models/DonfromStreets.glb", import.meta.url),
+  );
+  const authored = JSON.parse(
+    bytes.toString("utf8", 20, 20 + bytes.readUInt32LE(12)),
+  );
+  const names = authored.animations.map((clip) => clip.name);
+  assert.ok(names.includes("Crouch_Fwd_Loop"));
+  const clips = names.map(
+    (name, index) =>
+      new THREE.AnimationClip(name, 1, [
+        new THREE.NumberKeyframeTrack(".position[y]", [0, 1], [index, index]),
+      ]),
+  );
+  const root = new THREE.Group(),
+    model = new THREE.Group();
+  root.add(model);
+  const behavior = createBrendanBehavior(
+    root,
+    model,
+    clips,
+    new THREE.Vector3(),
+  );
+  t.after(() => behavior.dispose());
+  for (const [activity, clip] of [
+    ["crouchWalk", "Crouch_Fwd_Loop"],
+    ["walk", "Walk_Loop"],
+    ["talk", "Idle_Talking_Loop"],
+  ]) {
+    behavior.setActivity(activity);
+    for (let frame = 0; frame < 60; frame++) behavior.update(1 / 60);
+    assert.equal(model.position.y, names.indexOf(clip));
+    assert.deepEqual(
+      root.position.toArray(),
+      [0, 0, 0],
+      "The cinematic owns exit movement",
+    );
+  }
+});
+
 test("rescue Brendan uses DonfromStreets with independent materials and the landing and finale rig", async (t) => {
   const server = await createServer({
     server: { middlewareMode: true, watch: null, ws: false },

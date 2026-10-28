@@ -1485,10 +1485,20 @@ test("playable stage connects closet, automatic entry, alarm retry, container ro
           stageKey("KeyW", "keyup");
           advanceStage(data, 5.5);
           assert.ok(data.getStageState().runSeconds >= 4.9);
+          const meter = document.body.children.find(
+            (element) => element.id === "stealth-run-meter",
+          );
+          assert.equal(meter.classList.contains("hidden"), false);
           data.player.takeDamage(1000, true);
           advanceStage(data, 2.7);
           assert.equal(data.player.getHealth(), 100);
           assert.equal(data.getStageState().checkpoint, true);
+          advanceStage(data, 0.1);
+          assert.equal(
+            meter.classList.contains("hidden"),
+            false,
+            "Retry restores RUN after the death cinematic",
+          );
         } finally {
           data?.dispose();
           restore();
@@ -1517,6 +1527,15 @@ test("playable stage connects closet, automatic entry, alarm retry, container ro
           assert.equal(data.getStageState().alarm, false);
           assert.equal(data.ownsWeaponInput, false);
           assert.ok(data.player.body.position.x > 19.1);
+          advanceStage(data, 0.1);
+          const meter = document.body.children.find(
+            (element) => element.id === "stealth-run-meter",
+          );
+          assert.equal(
+            meter.classList.contains("hidden"),
+            false,
+            "Takedown completion restores RUN",
+          );
         } finally {
           data?.dispose();
           restore();

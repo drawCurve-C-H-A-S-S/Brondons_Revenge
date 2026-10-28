@@ -710,7 +710,7 @@ export function createScene({
   title.id = "prologue-title";
   title.setAttribute("aria-hidden", "true");
   title.innerHTML =
-    '<div class="prologue-title-word">Brondons</div><div class="prologue-title-word revenge">Revenge</div>';
+    '<span class="menu-title-main" data-text="BRONDON\'S REVENGE">BRONDON\'S REVENGE</span><span class="menu-title-kicker">A tale of vengeance</span>';
   if (!preview) document.body.appendChild(title);
 
   const speakerEl = overlay.querySelector(
@@ -742,9 +742,7 @@ export function createScene({
     .prologue-memory-label { position: absolute; bottom: 9%; left: 4%; max-width: 90%; padding: 5px 9px; font: 700 11px/1.4 var(--comic-body); letter-spacing: 0; color: var(--comic-ink); background: var(--comic-yellow); border: 3px solid var(--comic-ink); box-shadow: 3px 3px 0 var(--comic-ink); overflow-wrap: anywhere; }
     .prologue-memory-label:empty { display: none; }
     .prologue-shot-fade { position: absolute; inset: 0; background: #03060b; opacity: 0; }
-    #prologue-title { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; z-index: 2450; color: var(--comic-yellow); opacity: 0; visibility: hidden; text-shadow: 6px 7px 0 var(--comic-ink), 9px 10px 0 var(--comic-paper); -webkit-text-stroke: 4px var(--comic-ink); paint-order: stroke fill; font-family: var(--comic-display); letter-spacing: 0; text-transform: uppercase; }
-    .prologue-title-word { font-size: 82px; line-height: 0.95; max-width: calc(100vw - 40px); }
-    .prologue-title-word.revenge { color: var(--comic-red); }
+    #prologue-title { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.9em; pointer-events: none; z-index: 2450; opacity: 0; visibility: hidden; text-align: center; white-space: nowrap; filter: drop-shadow(3px 4px 0 var(--comic-ink)); }
     #prologue-dialogue {
       position: fixed;
       left: 50%;
@@ -813,7 +811,6 @@ export function createScene({
     }
     #prologue-dialogue:is([data-speaker="Prime"], [data-speaker="???"]) .prologue-dialogue-hint { margin-top: 6px; }
     @media (max-width: 600px) {
-      .prologue-title-word { font-size: 52px; }
       #prologue-dialogue { padding: 12px 14px; width: calc(100% - 28px); }
       .prologue-dialogue-text { font-size: 15px; }
       #prologue-dialogue:is([data-speaker="Prime"], [data-speaker="???"]) { left: 14px; width: calc(100vw - 28px); padding: 10px 12px; }

@@ -495,7 +495,7 @@ test("the world has no generated mech pads and the ship flight is wired into Sce
   ]);
   assert.doesNotMatch(world, /MechPoweredRooftopStage|OrbitalFacilityWreckage/);
   assert.match(world, /EarthRockDebris/);
-  assert.match(world, /CeilingSpotlight/);
+  assert.doesNotMatch(world, /CeilingSpotlight|new THREE\.SpotLight/);
   assert.match(scene, /createFinaleSite\(\)/);
   assert.match(
     scene,

@@ -47,18 +47,18 @@ test("bloom defaults to off and skips rendering when no scene requests glow", (t
   assert.doesNotThrow(() => bloom.apply(null, null));
 });
 
-test("bloom strength and style persist and notify the display slider", (t) => {
+test("bloom ignores previous visits and notifies the display slider without saving settings", (t) => {
   const { bloom, storage } = createBloom(t, {
     bloomLevel: "0.35",
     bloomStyle: "bright",
   });
-  assert.equal(bloom.level, 0.35);
-  assert.equal(bloom.mode, "bright");
+  assert.equal(bloom.level, 0);
+  assert.equal(bloom.mode, "off");
   let notifications = 0;
   const unsubscribe = bloom.onChange(() => notifications++);
   bloom.setLevel(0.75);
   assert.equal(bloom.level, 0.75);
-  assert.equal(storage.get("bloomLevel"), "0.75");
+  assert.equal(storage.get("bloomLevel"), "0.35");
   assert.equal(storage.get("bloomStyle"), "bright");
   assert.equal(notifications, 1);
   unsubscribe();
@@ -72,16 +72,16 @@ test("bloom cycles off, bright and soft while remembering the previous strength"
   assert.equal(bloom.level, 0.6);
   bloom.setLevel(0.8);
   assert.equal(bloom.cycle(), "soft");
-  assert.equal(storage.get("bloomStyle"), "soft");
+  assert.equal(bloom.mode, "soft");
   assert.equal(bloom.cycle(), "off");
-  assert.equal(storage.get("bloomLevel"), "0");
+  assert.equal(storage.size, 0);
   assert.equal(bloom.cycle(), "bright");
   assert.equal(bloom.level, 0.8);
 });
 
-test("bloom clamps saved and selected strength to the slider bounds", (t) => {
+test("bloom ignores saved strength and clamps selected strength to the slider bounds", (t) => {
   const { bloom } = createBloom(t, { bloomLevel: "2" });
-  assert.equal(bloom.level, 1);
+  assert.equal(bloom.level, 0);
   bloom.setLevel(-0.5);
   assert.equal(bloom.level, 0);
   bloom.setLevel(1.5);
@@ -120,14 +120,17 @@ test("the redesigned display menu retains bloom alongside HUD and performance se
   );
   assert.match(
     main,
-    /renderGameScene\(scene, camera\);\s+screenBloom\.apply\(scene, camera, currentSceneData\?\.getBloomPulse\?\.\(\) \?\? 0, currentSceneData\?\.getBloomTargets\?\.\(\) \?\? \[\]\);\s+renderMinimap\(\);/,
+    /renderGameScene\(scene, camera\);[\s\S]*screenBloom\.apply\([\s\S]*currentSceneData\?\.getBloomPulse\?\.\(\) \?\? 0,[\s\S]*currentSceneData\?\.getBloomTargets\?\.\(\) \?\? \[\],[\s\S]*currentSceneData\?\.renderPostBloom\?\.\(renderer\);[\s\S]*renderMinimap\(\);/,
   );
   assert.match(
     main,
-    /bloomSlider\.addEventListener\("input", \(\) => screenBloom\.setLevel\(bloomSlider\.valueAsNumber \/ 100\)\)/,
+    /bloomSlider\.addEventListener\("input", \(\) =>\s+screenBloom\.setLevel\(bloomSlider\.valueAsNumber \/ 100\)/,
   );
   assert.match(main, /screenBloom\.onChange\(syncBloomSlider\)/);
-  assert.match(main, /if \(screen === "display"\) \{\s+syncBloomSlider\(\)/);
+  assert.match(
+    main,
+    /if \(screen === "display"\) \{[\s\S]*?syncBloomSlider\(\)/,
+  );
   assert.match(
     main,
     /event\.code !== "Backslash"[\s\S]*?screenBloom\.cycle\(\)/,

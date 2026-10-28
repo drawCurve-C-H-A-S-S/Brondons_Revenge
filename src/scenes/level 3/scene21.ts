@@ -17,7 +17,10 @@ import {
   type FinaleCreditsSource,
 } from "../../scripts/level-3/finaleCredits.js";
 import { createFinaleAftermath } from "../../scripts/level-3/finaleAftermath.js";
-import { createFinaleRemembrance, REMEMBRANCE_START } from "../../scripts/level-3/finaleRemembrance.js";
+import {
+  createFinaleRemembrance,
+  REMEMBRANCE_START,
+} from "../../scripts/level-3/finaleRemembrance.js";
 import {
   createBladeTrail,
   createFinaleEffects,
@@ -33,6 +36,7 @@ import { createHoldToSkip } from "../../scripts/global/holdToSkip.js";
 import {
   createBeamMaterial,
   FRAME_COLORS,
+  HERO_REVENGE_PALETTE,
 } from "../../scripts/level-3/finaleMaterials.js";
 import { createHangarVersus } from "../../scripts/global/hangarVersus.js";
 import {
@@ -57,6 +61,7 @@ import {
 } from "../../scripts/global/comicEffects.js";
 import {
   createFinaleDirector,
+  FINALE_CREDITS,
   FINALE_DURATION,
   shouldPauseFinale,
   type FinaleCheckpoint,
@@ -73,6 +78,7 @@ import {
   FINALE_REVEAL,
   STUDENT_TIMELINE,
   HERO_TRANSFORM,
+  HERO_REVENGE,
   PLANET_RUPTURE,
   RIFLE_SEQUENCE,
   HERO_ULTIMATE,
@@ -83,6 +89,7 @@ import {
   FINISHER_EXCHANGE,
   FINISHER_RIFLE,
   activeStudent,
+  heroRevengeTime,
   sampleStudentBoarding,
   sampleFinisherSequence,
   samplePlanetAftermath,
@@ -110,7 +117,10 @@ import {
   FACILITY_ROOF_SEQUENCE,
   sampleFacilityLift,
 } from "../../scripts/global/facilityArchitecture.js";
-import { FACILITY_OFFICE, FACILITY_OFFICE_SEATS } from "../../scripts/level-3/facilityOffice.js";
+import {
+  FACILITY_OFFICE,
+  FACILITY_OFFICE_SEATS,
+} from "../../scripts/level-3/facilityOffice.js";
 
 interface FinaleOptions {
   entryState?: RescueArrival;
@@ -354,9 +364,23 @@ const LINES: Partial<
     },
     {
       start: PLANET_RUPTURE.resolve,
-      end: PLANET_RUPTURE.orbit + 0.4,
+      end: PLANET_RUPTURE.returnToDuel + HERO_REVENGE.shout,
       speaker: "BRONDON",
       text: "Sudoers, I will never forgive you. You must die. I will have my revenge!!!",
+    },
+    {
+      start: PLANET_RUPTURE.returnToDuel + HERO_REVENGE.shout,
+      end: FINALE_DURATION.rupture,
+      speaker: "BRONDON",
+      text: "AHHHHHH!",
+    },
+  ],
+  revenge: [
+    {
+      start: 0,
+      end: HERO_REVENGE.settle - heroRevengeTime("revenge", 0),
+      speaker: "BRONDON",
+      text: "AHHHHHH!",
     },
   ],
   victory: [
@@ -633,10 +657,19 @@ export function createScene({
     flame.rotation.z = Math.PI;
     const wave = new THREE.Group();
     wave.name = "FlyingBladeWave";
-    const edge = new THREE.Mesh<THREE.BufferGeometry, THREE.Material>(waveGeometry, waveMaterial),
-      glow = new THREE.Mesh<THREE.BufferGeometry, THREE.Material>(waveGlowGeometry, waveGlowMaterial);
+    const edge = new THREE.Mesh<THREE.BufferGeometry, THREE.Material>(
+        waveGeometry,
+        waveMaterial,
+      ),
+      glow = new THREE.Mesh<THREE.BufferGeometry, THREE.Material>(
+        waveGlowGeometry,
+        waveGlowMaterial,
+      );
     glow.scale.set(1.14, 1.2, 1);
-    const wake = new THREE.Mesh<THREE.BufferGeometry, THREE.Material>(waveGlowGeometry, waveWakeMaterial);
+    const wake = new THREE.Mesh<THREE.BufferGeometry, THREE.Material>(
+      waveGlowGeometry,
+      waveWakeMaterial,
+    );
     wake.position.y = -1.6;
     wake.scale.set(0.86, 0.9, 1);
     const tail = wake.clone();
@@ -654,7 +687,20 @@ export function createScene({
     root.add(body, nose, flame, tracer, wave, beam);
     root.visible = false;
     scene.add(root);
-    return { root, body, nose, flame, tracer, wave, edge, glow, wake, tail, beam, beamGlow };
+    return {
+      root,
+      body,
+      nose,
+      flame,
+      tracer,
+      wave,
+      edge,
+      glow,
+      wake,
+      tail,
+      beam,
+      beamGlow,
+    };
   });
   const missileDirection = vector(0, 1, 0);
   const spaceReached =
@@ -833,11 +879,7 @@ export function createScene({
       phase === "reveal" ||
       (phase === "enemyTransform" &&
         phaseTime < FACILITY_ROOF_SEQUENCE.blastClear);
-    students.furniture.position.set(
-      FACILITY.x,
-      0,
-      FACILITY.z,
-    );
+    students.furniture.position.set(FACILITY.x, 0, FACILITY.z);
     for (let i = 0; i < students.students.length; i++) {
       const student = students.students[i];
       const seat = FACILITY_OFFICE_SEATS[i];
@@ -848,9 +890,13 @@ export function createScene({
         student.root.visible = true;
         student.root.position.copy(officePoint(seat.x, 0, seat.z));
         student.root.rotation.y = seat.yaw;
-        const chair = students.furniture.getObjectByName(`FacilityOfficeChair${i + 1}`);
-        if (chair) chair.position.z = chair.userData.seatedZ -
-          smooth(phaseTime, standStart, standEnd) * 0.32;
+        const chair = students.furniture.getObjectByName(
+          `FacilityOfficeChair${i + 1}`,
+        );
+        if (chair)
+          chair.position.z =
+            chair.userData.seatedZ -
+            smooth(phaseTime, standStart, standEnd) * 0.32;
         const speaking =
           activeStudent(phaseTime, "reveal") === i ||
           (i === 4 &&
@@ -879,7 +925,6 @@ export function createScene({
               : phaseTime,
           animationDelta,
         );
-        world.lightStudent(i, student.root.position);
       } else if (phase === "enemyTransform") {
         const boarding = sampleStudentBoarding(i, phaseTime);
         const start = vector(FACILITY.x + seat.x, lift.y, FACILITY.z + seat.z);
@@ -897,7 +942,11 @@ export function createScene({
         student.root.visible = boarding.visible;
         students.animate(
           i,
-          boarding.active ? "board" : phaseTime < FACILITY_ROOF_SEQUENCE.boardingStart ? "pose" : "idle",
+          boarding.active
+            ? "board"
+            : phaseTime < FACILITY_ROOF_SEQUENCE.boardingStart
+              ? "pose"
+              : "idle",
           boarding.active
             ? phaseTime - STUDENT_TIMELINE[i].boarding.start
             : phaseTime < FACILITY_ROOF_SEQUENCE.boardingStart
@@ -925,12 +974,16 @@ export function createScene({
             presentation.sound("parry");
           }
         } else {
-          const charging = phaseTime < FACILITY_ROOF_SEQUENCE.blastStart
-            ? smooth(phaseTime, 0.15, FACILITY_ROOF_SEQUENCE.blastStart) * 0.35
-            : 0;
+          const charging =
+            phaseTime < FACILITY_ROOF_SEQUENCE.blastStart
+              ? smooth(phaseTime, 0.15, FACILITY_ROOF_SEQUENCE.blastStart) *
+                0.35
+              : 0;
           effects.boardingBeam(
-            i, start.clone().add(vector(0, 1.1, 0)),
-            officePoint(0, 1.15, FACILITY_OFFICE.tableZ), charging,
+            i,
+            start.clone().add(vector(0, 1.1, 0)),
+            officePoint(0, 1.15, FACILITY_OFFICE.tableZ),
+            charging,
             director.getState().time,
           );
         }
@@ -989,6 +1042,20 @@ export function createScene({
         id === "hero-lock" ? FRAME_COLORS.hero : FRAME_COLORS.enemy,
         65,
       );
+    } else if (id === "revenge-shout") {
+      presentation.sound("shout");
+    } else if (id === "revenge-burst") {
+      const center = heroMech.getChest();
+      effects.ring(center, 16, HERO_REVENGE_PALETTE.platelight, true, 1.3);
+      effects.ring(center, 11, HERO_REVENGE_PALETTE.gemlight, false, 1);
+      effects.sparks(
+        center,
+        HERO_REVENGE_PALETTE.platelight,
+        reducedMotion ? 8 : 42,
+        vector(0, 1, 0),
+      );
+      presentation.sound("special");
+      if (!reducedMotion) cameraRig.impact(0.18);
     } else if (id === "prime-beacon") {
       effects.ring(
         RESCUE_SITE.ship.clone().add(vector(0, 0.2, 0)),
@@ -1188,14 +1255,18 @@ export function createScene({
         const reply = beat.duration / 2;
         presentation.dialogue(
           clock < reply ? "SUDOERS 5" : "BRONDON",
-          clock < reply ? "Our ambition knows no limits." : "Neither does my vengeance.",
+          clock < reply
+            ? "Our ambition knows no limits."
+            : "Neither does my vengeance.",
         );
         return;
       }
-      const lines: Partial<Record<
-        FinisherBeat["shot"],
-        { speaker: string; text: string; start: number; end: number }
-      >> = {
+      const lines: Partial<
+        Record<
+          FinisherBeat["shot"],
+          { speaker: string; text: string; start: number; end: number }
+        >
+      > = {
         reactor: {
           speaker: "BRONDON",
           text: "I will end this.",
@@ -1255,6 +1326,11 @@ export function createScene({
       );
     else if (phase === "ground")
       presentation.objective("THE SUMMIT", "Hold R to block");
+    else if (heroRevengeTime(phase, phaseTime) >= 0)
+      presentation.objective(
+        "OPUS MAGNUM / AWAKENING",
+        "Brondon is unleashing his rage",
+      );
     else if (phase === "rupture")
       presentation.objective(
         "PLANETARY COLLAPSE / ESCAPE",
@@ -1262,28 +1338,34 @@ export function createScene({
       );
     else if (phase === "space")
       presentation.objective("LAST ORBIT", "Hold R to block");
-    else if (phase === "finisher") presentation.objective("BRONDON'S REVENGE", "");
+    else if (phase === "finisher")
+      presentation.objective("BRONDON'S REVENGE", "");
     else if (phase === "defeat")
       presentation.objective(
         "SIGNAL LOST / BRONDON DOWN",
         "The last checkpoint is available after the death scene",
       );
-    else if (phase === "victory")
-      presentation.objective(
-        "AFTERMATH",
-        "",
-      );
+    else if (phase === "victory") presentation.objective("AFTERMATH", "");
     else if (phase === "credits")
       presentation.objective("BRONDON’S REVENGE", "A final light remains");
     else if (phase === "done")
       presentation.objective("THE END", "Thank you for playing");
 
-    if (phase === "reveal" && phaseTime >= FINALE_REVEAL.renounceEnd)
+    if (
+      phase === "enemyTransform" &&
+      phaseTime >= FACILITY_ROOF_SEQUENCE.blastStart &&
+      phaseTime < FACILITY_ROOF_SEQUENCE.blastClear
+    )
       presentation.title("SUDOERS 5");
-    else if (phase === "enemyTransform" && phaseTime >= FACILITY_ROOF_SEQUENCE.lock)
+    else if (
+      phase === "enemyTransform" &&
+      phaseTime >= FACILITY_ROOF_SEQUENCE.lock
+    )
       presentation.title("FINAL VERDICT");
     else if (phase === "heroTransform" && phaseTime >= 14.2)
       presentation.title("OPUS");
+    else if (heroRevengeTime(phase, phaseTime) >= HERO_REVENGE.burst)
+      presentation.title("OPUS MAGNUM");
     else if (
       phase === "rupture" &&
       phaseTime >= PLANET_RUPTURE.burst &&
@@ -1306,12 +1388,16 @@ export function createScene({
         beat.shot === "finalCut"
           ? clock < FINISHER_EXECUTION.gone
             ? "FINAL VERDICT"
-            : clock >= FINISHER_EXECUTION.appear && clock <= FINISHER_EXECUTION.lastCut + 0.3
+            : clock >= FINISHER_EXECUTION.appear &&
+                clock <= FINISHER_EXECUTION.lastCut + 0.3
               ? "BRONDON'S REVENGE"
               : ""
           : "",
       );
-    } else if (phase === "victory") presentation.title("");
+    } else if (phase === "victory")
+      presentation.title(
+        phaseTime >= FINALE_DURATION.victory - 2 ? "THE END" : "",
+      );
     else if (phase === "credits" || phase === "done") presentation.title("");
     else presentation.title("");
   }
@@ -1364,11 +1450,12 @@ export function createScene({
     if (beat.shot === "exchange") {
       for (const [i, cut] of FINISHER_EXCHANGE.cuts.entries()) {
         if (!cut.contact || !crossed(cut.hit)) continue;
-        effects.swordClash(clashContact, i % 2 ? FRAME_COLORS.enemy : FRAME_COLORS.hero);
-        presentation.sound("parry");
-        cameraRig.impact(
-          i === FINISHER_EXCHANGE.cuts.length - 1 ? 0.65 : 0.45,
+        effects.swordClash(
+          clashContact,
+          i % 2 ? FRAME_COLORS.enemy : FRAME_COLORS.hero,
         );
+        presentation.sound("parry");
+        cameraRig.impact(i === FINISHER_EXCHANGE.cuts.length - 1 ? 0.65 : 0.45);
       }
     }
     if (beat.shot === "countershot") {
@@ -1482,12 +1569,14 @@ export function createScene({
   }
 
   function updateActors(phase: FinalePhase, phaseTime: number, time: number) {
+    const revengeTime = heroRevengeTime(phase, phaseTime);
     const inMechScene =
       phase === "enemyTransform" ||
       phase === "heroTransform" ||
       phase === "versus" ||
       phase === "ground" ||
       phase === "rupture" ||
+      phase === "revenge" ||
       phase === "space" ||
       phase === "finisher" ||
       phase === "defeat" ||
@@ -1653,6 +1742,17 @@ export function createScene({
     enemyMech.root.scale.setScalar(enemyScale);
     heroMech.setAssembly(heroAssembly);
     enemyMech.setAssembly(enemyAssembly);
+    const powerUp =
+      revengeTime >= 0
+        ? cinematicProgress(
+            revengeTime,
+            HERO_REVENGE.colorStart,
+            HERO_REVENGE.colorEnd,
+          )
+        : reachedSpace
+          ? 1
+          : 0;
+    heroMech.setPowerUp(powerUp);
 
     const choreography =
       phase === "finisher" ? sampleFinisherSequence(phaseTime) : null;
@@ -1660,7 +1760,12 @@ export function createScene({
     let enemyMove: MechPoseName = enemy.move;
     if (phase === "enemyTransform") enemyMove = "transform";
     else if (phase === "heroTransform") heroMove = "transform";
-    else if (phase === "rupture") {
+    else if (revengeTime >= 0) {
+      heroMove = "powerUp";
+      enemyMove = "hover";
+      heroMech.setMotion(0, 0);
+      enemyMech.setMotion(0, 0);
+    } else if (phase === "rupture") {
       heroMove = phaseTime < PLANET_RUPTURE.escape ? "guard" : "boost";
       enemyMove =
         phaseTime < PLANET_RUPTURE.jump
@@ -1705,9 +1810,13 @@ export function createScene({
       heroMech.root.rotateY(choreography.heroYaw);
       enemyMech.root.rotateY(choreography.enemyYaw);
       if (choreography.travel) {
-        const axis = enemyMech.root.position.clone().sub(heroMech.root.position);
+        const axis = enemyMech.root.position
+          .clone()
+          .sub(heroMech.root.position);
         const angle = Math.atan2(axis.x, axis.z) - FINALE_BATTLE_YAW;
-        const turn = Math.atan2(Math.sin(angle), Math.cos(angle)) * choreography.travel.weight;
+        const turn =
+          Math.atan2(Math.sin(angle), Math.cos(angle)) *
+          choreography.travel.weight;
         heroMech.root.rotation.y = FINALE_BATTLE_YAW + turn;
         enemyMech.root.rotation.y = FINALE_BATTLE_YAW + Math.PI + turn;
       }
@@ -1736,7 +1845,10 @@ export function createScene({
         );
       }
     } else if (phase === "victory" || phase === "credits" || phase === "done") {
-      heroMove = phase === "victory" && phaseTime < REMEMBRANCE_START ? "afterCut" : "mourn";
+      heroMove =
+        phase === "victory" && phaseTime < REMEMBRANCE_START
+          ? "afterCut"
+          : "mourn";
       enemyMove = "defeat";
     } else if (phase === "defeat") {
       heroMove = "defeat";
@@ -1758,9 +1870,11 @@ export function createScene({
       ? cinematicDuration(heroMove)
       : phase === "heroTransform"
         ? 17
-        : phase === "rupture"
-          ? 4.2
-          : Math.max(0.1, hero.duration || 1);
+        : revengeTime >= 0
+          ? HERO_REVENGE.duration
+          : phase === "rupture"
+            ? 4.2
+            : Math.max(0.1, hero.duration || 1);
     const enemyDuration = choreography
       ? cinematicDuration(enemyMove)
       : phase === "enemyTransform"
@@ -1768,18 +1882,23 @@ export function createScene({
         : phase === "rupture"
           ? PLANET_RUPTURE.escape + 0.5
           : Math.max(0.1, enemy.duration || 1);
-    const heroPoseTime = heroMove === "mourn"
-      ? (phase === "victory" ? phaseTime : FINALE_DURATION.victory + phaseTime) - REMEMBRANCE_START
-      : choreography
-        ? choreography.heroPoseProgress * heroDuration
-      : phase === "heroTransform" || phase === "rupture"
-        ? phaseTime
-        : phase === "victory" || phase === "defeat"
-          ? phaseTime
-          : hero.time;
+    const heroPoseTime =
+      heroMove === "mourn"
+        ? (phase === "victory"
+            ? phaseTime
+            : FINALE_DURATION.victory + phaseTime) - REMEMBRANCE_START
+        : choreography
+          ? choreography.heroPoseProgress * heroDuration
+          : revengeTime >= 0
+            ? revengeTime
+            : phase === "heroTransform" || phase === "rupture"
+              ? phaseTime
+              : phase === "victory" || phase === "defeat"
+                ? phaseTime
+                : hero.time;
     const enemyPoseTime = choreography
       ? choreography.enemyPoseProgress * enemyDuration
-      : phase === "enemyTransform" || phase === "rupture"
+      : phase === "enemyTransform" || phase === "rupture" || phase === "revenge"
         ? phaseTime
         : phase === "victory" || phase === "credits" || phase === "done"
           ? enemyDuration
@@ -1813,14 +1932,19 @@ export function createScene({
           ? 1
           : 0,
     );
-    const custom = !!choreography || phase === "rupture" || phase === "defeat";
+    const custom =
+      !!choreography || phase === "rupture" || phase === "revenge" || phase === "defeat";
     heroMech.setGuarding(combat && duelState.guarding);
     enemyMech.setGuarding(combat && duelState.enemyGuarding);
     const travelPose = (side: "hero" | "enemy") => {
       if (!choreography?.travel) return undefined;
       const velocity = choreography.travel[side];
       return {
-        velocity: vector(velocity[0] * 0.9701425, velocity[1], velocity[2] - velocity[0] * 0.2425356),
+        velocity: vector(
+          velocity[0] * 0.9701425,
+          velocity[1],
+          velocity[2] - velocity[0] * 0.2425356,
+        ),
         clock: choreography.clock,
         weight: choreography.travel.weight,
       };
@@ -1880,21 +2004,34 @@ export function createScene({
     if (enemyMove === "verdict") enemyMech.pointSwordAt(enemyAim);
     if (choreography && choreography.bladeLock > 0) {
       const contactNormal = choreography.exchange
-        ? new THREE.Vector3().crossVectors(
-            enemyMech.root.position.clone().sub(heroMech.root.position).setY(0).normalize(),
-            vector(0, 1, 0),
-          ).normalize()
+        ? new THREE.Vector3()
+            .crossVectors(
+              enemyMech.root.position
+                .clone()
+                .sub(heroMech.root.position)
+                .setY(0)
+                .normalize(),
+              vector(0, 1, 0),
+            )
+            .normalize()
         : vector(0, 0, 1);
       clashContact
         .copy(heroChest)
         .lerp(enemyChest, 0.5)
         .add(vector(0, choreography.exchange?.height ?? 1.6, 0))
-        .addScaledVector(contactNormal, 2.2 + (choreography.exchange?.depth ?? 0));
+        .addScaledVector(
+          contactNormal,
+          2.2 + (choreography.exchange?.depth ?? 0),
+        );
       const strain = Math.sin(choreography.progress * Math.PI) * 0.04;
       heroMech.lockBlade(clashContact, 1, strain, choreography.bladeLock);
       enemyMech.lockBlade(clashContact, -1, -strain, choreography.bladeLock);
       const spark = Math.floor(phaseTime * 8);
-      if (!choreography.exchange && choreography.bladeLock > 0.95 && spark !== lastClashSpark) {
+      if (
+        !choreography.exchange &&
+        choreography.bladeLock > 0.95 &&
+        spark !== lastClashSpark
+      ) {
         lastClashSpark = spark;
         effects.sparks(
           clashContact,
@@ -1942,6 +2079,21 @@ export function createScene({
             ? 0
             : 0.16 + enemyCharge * 0.35
         : 0,
+      time,
+    );
+    const powerAura =
+      revengeTime >= 0
+        ? cinematicProgress(revengeTime, HERO_REVENGE.aura, HERO_REVENGE.shout) *
+          (1 -
+            cinematicProgress(
+              revengeTime,
+              HERO_REVENGE.settle,
+              HERO_REVENGE.duration,
+            ))
+        : 0;
+    effects.revengeAura(
+      heroMech.root.position.clone().add(vector(0, 8, 0)),
+      heroMech.root.visible ? powerAura : 0,
       time,
     );
 
@@ -2014,7 +2166,13 @@ export function createScene({
         (choreography?.exchange
           ? choreography.exchange.enemyTrail
           : trailActive(enemyMove, enemyPoseTime)),
-      rapidExchange ? trailPower : eclipseCounter ? (reducedMotion ? 0.1 : 0.65) : 0,
+      rapidExchange
+        ? trailPower
+        : eclipseCounter
+          ? reducedMotion
+            ? 0.1
+            : 0.65
+          : 0,
     );
     effects.chargeBlade(heroBlade.base, heroBlade.tip, heroCharge, time);
     const clash = choreography && choreography.bladeLock > 0.95;
@@ -2047,8 +2205,10 @@ export function createScene({
     visual.beam.material = verdictMaterials[owner];
     visual.beamGlow.material = verdictGlows[owner];
     visual.edge.material = owner === "enemy" ? enemyWaveMaterial : waveMaterial;
-    visual.glow.material = owner === "enemy" ? enemyWaveGlowMaterial : waveGlowMaterial;
-    visual.wake.material = owner === "enemy" ? enemyWaveWakeMaterial : waveWakeMaterial;
+    visual.glow.material =
+      owner === "enemy" ? enemyWaveGlowMaterial : waveGlowMaterial;
+    visual.wake.material =
+      owner === "enemy" ? enemyWaveWakeMaterial : waveWakeMaterial;
     visual.tail.material = visual.wake.material;
     visual.body.visible =
       visual.nose.visible =
@@ -2060,7 +2220,11 @@ export function createScene({
   }
 
   function updateMissiles(phase: FinalePhase) {
-    for (const material of [enemyWaveMaterial, enemyWaveGlowMaterial, enemyWaveWakeMaterial]) {
+    for (const material of [
+      enemyWaveMaterial,
+      enemyWaveGlowMaterial,
+      enemyWaveWakeMaterial,
+    ]) {
       material.uniforms.uTime.value = director.getState().time;
     }
     Object.values(verdictGlows).forEach((material) => {
@@ -2317,7 +2481,8 @@ export function createScene({
       lastPhase = phase;
       syncPause();
       keys.clear();
-      if (phase === "space" || phase === "finisher") reachedSpace = true;
+      if (phase === "revenge" || phase === "space" || phase === "finisher")
+        reachedSpace = true;
       if (phase === "credits" && !victoryCallbackSent) {
         victoryCallbackSent = true;
         onVictoryComplete?.();
@@ -2403,8 +2568,17 @@ export function createScene({
     const duelState = director.duel.getState();
     const cinematicShield =
       state.phase === "enemyTransform"
-        ? smooth(state.phaseTime, FACILITY_ROOF_SEQUENCE.shieldStart, FACILITY_ROOF_SEQUENCE.shieldStart + 0.35) *
-          (1 - smooth(state.phaseTime, FACILITY_ROOF_SEQUENCE.liftEnd, FACILITY_ROOF_SEQUENCE.boardingStart))
+        ? smooth(
+            state.phaseTime,
+            FACILITY_ROOF_SEQUENCE.shieldStart,
+            FACILITY_ROOF_SEQUENCE.shieldStart + 0.35,
+          ) *
+          (1 -
+            smooth(
+              state.phaseTime,
+              FACILITY_ROOF_SEQUENCE.liftEnd,
+              FACILITY_ROOF_SEQUENCE.boardingStart,
+            ))
         : 0;
     if (cinematicShield > 0) {
       const lift = sampleFacilityLift(state.phaseTime);
@@ -2413,6 +2587,9 @@ export function createScene({
         1.35,
         cinematicShield * 0.55,
         state.time,
+        false,
+        "hero",
+        HERO_REVENGE_PALETTE.platelight,
       );
     } else {
       const combat = state.phase === "ground" || state.phase === "space";
@@ -2430,6 +2607,8 @@ export function createScene({
               : 0,
         state.time,
         fractured,
+        "hero",
+        reachedSpace ? HERO_REVENGE_PALETTE.platelight : 0xffffff,
       );
     }
     const enemyFractured =
@@ -2507,12 +2686,28 @@ export function createScene({
       animationDelta,
     );
 
-    if (state.phase === "reveal" && entryState?.cameraPosition &&
-        entryState.cameraQuaternion && state.phaseTime < 1.6) {
+    if (
+      state.phase === "reveal" &&
+      entryState?.cameraPosition &&
+      entryState.cameraQuaternion &&
+      state.phaseTime < 1.6
+    ) {
       const blend = smooth(state.phaseTime, 0, 1.6);
-      camera.position.lerpVectors(entryState.cameraPosition, camera.position.clone(), blend);
-      camera.quaternion.slerpQuaternions(entryState.cameraQuaternion, camera.quaternion.clone(), blend);
-      camera.fov = THREE.MathUtils.lerp(entryState.cameraFov ?? 56, camera.fov, blend);
+      camera.position.lerpVectors(
+        entryState.cameraPosition,
+        camera.position.clone(),
+        blend,
+      );
+      camera.quaternion.slerpQuaternions(
+        entryState.cameraQuaternion,
+        camera.quaternion.clone(),
+        blend,
+      );
+      camera.fov = THREE.MathUtils.lerp(
+        entryState.cameraFov ?? 56,
+        camera.fov,
+        blend,
+      );
       camera.updateProjectionMatrix();
       camera.updateMatrixWorld(true);
     }
@@ -2530,20 +2725,7 @@ export function createScene({
       director.duel.hero.energy,
       duelState.shield,
       duelState.ultimateCooldown,
-      special
-        ? ""
-        : duelState.feedback ||
-            (duelState.enemyGuarding
-              ? "SHIELD RAISED"
-              : duelState.enemyTell === "orbitalCut"
-                ? "ECLIPSE / DODGE OR PARRY"
-                : duelState.enemyTell === "verdict"
-                  ? "REBEL / BEAM INCOMING"
-                  : duelState.enemyTell === "reap"
-                    ? "REVERSE CUT"
-                    : duelState.enemyTell === "thrust"
-                      ? "THRUST"
-                      : ""),
+      "",
       duelState.shieldLock,
       duelState.bossImmunityRemaining,
     );
@@ -2556,6 +2738,7 @@ export function createScene({
           ? sampleFinisherSequence(state.phaseTime).speed
           : 0;
     presentation.speedLines(speed);
+    presentation.ending(state.phase === "victory" ? state.phaseTime : -1);
     presentation.update(animationDelta);
 
     if (state.phase === "defeat" && state.phaseTime >= 4.2) {
@@ -2575,7 +2758,9 @@ export function createScene({
     } else presentation.result("", "", false);
     if (state.phase === "credits" || state.phase === "done")
       presentation.credits(
-        state.phase === "done" ? FINALE_DURATION.credits : state.phaseTime,
+        state.phase === "done"
+          ? FINALE_DURATION.credits + state.phaseTime
+          : state.phaseTime,
         creditsCast !== null,
       );
     else presentation.credits(-1);
@@ -2658,22 +2843,28 @@ export function createScene({
                 animations: character.animations,
                 outcome: "winner",
               },
-              ...remembrance.getCreditsCast().map(
-                (source): FinaleCreditsSource => ({ ...source, outcome: "kneel" }),
-              ),
-              ...students.getCreditsCast().map(
-                (source): FinaleCreditsSource => ({ ...source, outcome: "fall" }),
-              ),
+              ...remembrance
+                .getCreditsCast()
+                .map((source): FinaleCreditsSource => ({
+                  ...source,
+                  outcome: "kneel",
+                })),
+              ...students
+                .getCreditsCast()
+                .map((source): FinaleCreditsSource => ({
+                  ...source,
+                  outcome: "fall",
+                })),
             ],
             reducedMotion,
           );
-          if (lastPhase === "credits" || lastPhase === "done")
-            presentation.credits(
+          if (lastPhase === "credits" || lastPhase === "done") {
+            const creditsTime =
               lastPhase === "done"
-                ? FINALE_DURATION.credits
-                : director.getState().phaseTime,
-              true,
-            );
+                ? FINALE_DURATION.credits + director.getState().phaseTime
+                : director.getState().phaseTime;
+            presentation.credits(creditsTime, true);
+          }
         } catch (error) {
           creditsCastFailed = true;
           console.error("[Credits] Unable to prepare the cached cast:", error);
@@ -2699,7 +2890,7 @@ export function createScene({
         creditsCast.render(
           renderer,
           lastPhase === "done"
-            ? FINALE_DURATION.credits
+            ? FINALE_DURATION.credits + director.getState().phaseTime
             : director.getState().phaseTime,
         );
       else if (lastPhase === "versus") versus.render(renderer);
@@ -2720,10 +2911,15 @@ export function createScene({
     getControllerPhase: () => lastPhase,
     getMusicTrack: () => {
       const { phase, phaseTime } = director.getState();
+      const creditsTime =
+        phase === "done" ? FINALE_DURATION.credits + phaseTime : phaseTime;
       return finaleMusicTrack(
         phase,
         reachedSpace ||
           (phase === "rupture" && phaseTime >= PLANET_RUPTURE.impact),
+        (phase === "credits" || phase === "done") &&
+          creditsTime >= FINALE_CREDITS.roll + FINALE_CREDITS.walkIn &&
+          creditsCast !== null,
       );
     },
     hasBossVictory: () => director.getState().phase === "victory",

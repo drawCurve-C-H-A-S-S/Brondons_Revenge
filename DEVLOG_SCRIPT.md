@@ -4,7 +4,19 @@
 
 The spoken script is deliberately shorter than a continuous five-minute read: leave space for demonstrations, transitions and music. Record a timed rehearsal rather than rushing to fit every detail.
 
-**Discussion outline:** open [storyboard/index.html](./storyboard/index.html) in a browser for the topics and talking points to cover while making your own recordings. It follows this script's section timings; it does not require screenshots, video uploads or animatic playback. Update both if you change the structure.
+**Interactive devlog:** open [storyboard/index.html](./storyboard/index.html) in a browser. Its cards lead to nine separate topic pages, each with a gameplay video player, explanations, design notes and source-linked code excerpts. The styling and still images come from the game's comic-book UI and loading artwork. The conclusion is a closing note on the hub rather than a separate chapter.
+
+### Adding devlog recordings
+
+The repo does not yet include gameplay clips. Each chapter clearly labels missing or unplayable footage; its poster is game artwork, not a recording. Save H.264 MP4 recordings in [storyboard/shots/](./storyboard/shots/) using these names:
+
+`introduction.mp4`, `gameplay.mp4`, `animation.mp4`, `cutscenes.mp4`, `environment.mp4`, `physics.mp4`, `weapons.mp4`, `camera.mp4`, `music.mp4`.
+
+Reload the corresponding page to play the published file. **Add or preview a recording** also offers a local file picker; previews stay in that tab and are not uploaded or saved. The music page additionally plays two existing original OGG tracks from the game assets. Add caption tracks alongside recordings if they include dialogue or narration.
+
+Edit chapter descriptions, footage suggestions and code excerpts in [storyboard/topics.js](./storyboard/topics.js); shared layout and media handling live in [storyboard/devlog.js](./storyboard/devlog.js), with styling in [storyboard/devlog.css](./storyboard/devlog.css). Source excerpts include the file and function/branch name so readers can find the surrounding implementation without relying on stale line numbers.
+
+The devlog works when opened directly from disk. For HTTP hosting, serve the repository root, not just the storyboard folder, because artwork, audio and source links refer to sibling files. The game's `npm run dev` and production build use `src` as their root and do not package the standalone devlog. Keep this script and the chapter content in sync when changing discussion points.
 
 ## Timeline
 

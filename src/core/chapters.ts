@@ -21,15 +21,6 @@ function images(...names: string[]) {
 }
 export const LOADING_IMAGE_URLS = Object.values(artwork);
 
-const FIELD_NOTES = [
-  "Take a moment to look around.",
-  "Check the pause menu for a reminder of the controls.",
-  "Interaction prompts appear when an object is within reach.",
-  "You can pause whenever you need a break.",
-  "Adjust the audio and display settings for a comfortable experience.",
-  "When a skip prompt appears, hold its control to skip the cinematic.",
-] as const;
-
 export const LOADING_CHAPTERS = {
   prologue: {
     chapter: "PROLOGUE / AWAKENING",
@@ -44,127 +35,106 @@ export const LOADING_CHAPTERS = {
       image("rust1"),
       image("rust2"),
     ],
-    tips: FIELD_NOTES,
   },
   quarters: {
     chapter: "LEVEL 1 / LIVING QUARTERS",
     title: "THE CREW CABINS",
     images: [image("living-quarters")],
-    tips: FIELD_NOTES,
   },
   stage1: {
     chapter: "LEVEL 1 / STEALTH STAGE",
     title: "DECK ONE HANGAR",
     images: [image("stage1-overview")],
-    tips: FIELD_NOTES,
   },
   stage2: {
     chapter: "LEVEL 1 / MINIGAME STAGE",
     title: "THE SURVEILLANCE HUB",
     images: images("stage2-camera-wall", "stage2-maze"),
-    tips: FIELD_NOTES,
   },
   cargo: {
     chapter: "LEVEL 1 / MINIGAME STAGE / CARGO",
     title: "THE CARGO HOLD",
     images: [image("stage2-cargo")],
-    tips: FIELD_NOTES,
   },
   range: {
     chapter: "LEVEL 1 / MINIGAME STAGE / RANGE",
     title: "THE TARGET RANGE",
     images: [image("stage2-range")],
-    tips: FIELD_NOTES,
   },
   archive: {
     chapter: "LEVEL 1 / MINIGAME STAGE / TENNIS",
     title: "BLOOMSTICK TENNIS",
     images: [image("stage2-archive")],
-    tips: FIELD_NOTES,
   },
   rust: {
     chapter: "LEVEL 1 / MINIGAME STAGE / RUST CHAMBER",
     title: "THE RUST CHAMBER",
     images: images("stage2-rust", "stage2-archive"),
-    tips: FIELD_NOTES,
   },
   boss: {
     chapter: "LEVEL 1 / BOSS STAGE",
     title: "THE BAY WARDEN",
     images: [image("bay-warden")],
-    tips: FIELD_NOTES,
   },
   escape: {
     chapter: "LEVEL 1 / ESCAPE STAGE",
     title: "HANGAR ESCAPE",
     images: [image("hangar-escape")],
-    tips: FIELD_NOTES,
   },
   flight: {
     chapter: "LEVEL 2 / PHASE 1",
     title: "THE INTERCEPTORS",
     images: [image("level2-space")],
-    tips: FIELD_NOTES,
   },
   scrambler: {
     chapter: "LEVEL 2 / PHASE 2",
     title: "THE GREEN SCRAMBLER",
     images: [image("level2-sidescroll")],
-    tips: FIELD_NOTES,
   },
   armor: {
     chapter: "LEVEL 2 / PHASE 3",
     title: "CAPITAL SHIP SHIELDS",
     images: [image("level2-capital-ship")],
-    tips: FIELD_NOTES,
   },
   "red-scrambler": {
     chapter: "LEVEL 2 / PHASE 4",
     title: "THE RED SCRAMBLER",
     images: [image("level2-topdown")],
-    tips: FIELD_NOTES,
   },
   reactor: {
     chapter: "LEVEL 2 / PHASE 5",
     title: "THE EXPOSED REACTOR",
     images: [image("level2-reactor")],
-    tips: FIELD_NOTES,
   },
   crash: {
     chapter: "LEVEL 2 / PHASE 6",
     title: "CRASH LANDING",
     images: [image("level2-crash")],
-    tips: FIELD_NOTES,
   },
   jungle: {
     chapter: "LEVEL 3 / JUNGLE STAGE",
     title: "THE FACILITY APPROACH",
     images: [image("level3-jungle")],
-    tips: FIELD_NOTES,
   },
   waterfall: {
     chapter: "LEVEL 3 / SECRET WATERFALL",
     title: "BEHIND THE FALLS",
     images: [image("secret-waterfall")],
-    tips: FIELD_NOTES,
   },
   facility: {
     chapter: "LEVEL 3 / FACILITY STAGE",
     title: "AI RESEARCH FACILITY",
     images: [image("facility")],
-    tips: FIELD_NOTES,
   },
   finale: {
     chapter: "LEVEL 3 / FINAL BOSS",
     title: "SUDOERS 5 / THE LAST LIGHT",
     images: [image("finale-chairs")],
-    tips: FIELD_NOTES,
   },
   trailer: {
     chapter: "TRAILER / FIVE CHAIRS",
     title: "FIVE MINDS. ONE HORIZON.",
     images: [image("finale-chairs")],
-    tips: FIELD_NOTES,
   },
 } as const;
 export type LoadingChapterId = keyof typeof LOADING_CHAPTERS;
@@ -240,9 +210,7 @@ export function createLoadingSlideDeck(
       const index = different < 0 ? remaining.length - 1 : different;
       const slide = remaining.splice(index, 1)[0];
       previousImage = slide.image;
-      const tip =
-        slide.content.tips[Math.floor(random() * slide.content.tips.length)];
-      return { ...slide, tip };
+      return slide;
     },
   };
 }

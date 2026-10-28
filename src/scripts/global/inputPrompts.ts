@@ -3,6 +3,7 @@ import {
   inputHint,
   type ControllerContext,
 } from "../player/gamepadInput.js";
+import { renderControllerPrompt, renderDpadText } from "../player/controllerIcons.js";
 
 export function formatDialogue(element: HTMLElement, text: string) {
   const match =
@@ -47,8 +48,8 @@ export function setInputHint(
   element.dataset.inputDialogue = String(dialogue);
   const converted = (dialogue ? inputDialogue : inputHint)(text, context);
   const rendered = dialogue ? formatDialogue(element, converted) : converted;
-  element.dataset.inputRendered = rendered;
-  if (element.textContent !== rendered) element.textContent = rendered;
+  renderControllerPrompt(element, rendered);
+  element.dataset.inputRendered = element.textContent ?? "";
 }
 
 // Other HUDs already call inputHint each frame. Never translate their *output*
@@ -58,7 +59,7 @@ const prompts =
 const controlsOnly =
   ".prologue-dialogue-hint, .escape-hint, .scene-menu-footer, .credit-dialog-hint";
 const excluded =
-  "#pause-controls-panel, #touch-controls, .finale-touch, .controller-menu-hint, #credits-content, #credits-dialog-content, script, style";
+  "#touch-controls, .finale-touch, #credits-content, #credits-dialog-content, .controller-binding-icon, .direction-prompt-key, svg, input, textarea, option, script, style";
 
 /**
  * Retain keyboard source text, not already-translated labels. Watching text nodes
@@ -69,7 +70,7 @@ export function createInputPromptObserver(root: HTMLElement = document.body) {
   const sources = new WeakMap<Text, { source: string; rendered: string }>();
   function update(text: Text) {
     const parent = text.parentElement;
-    if (!parent || parent.closest(excluded) || !parent.closest(prompts)) return;
+    if (!parent || parent.closest(excluded)) return;
     const explicit = parent.closest<HTMLElement>("[data-input-hint]");
     if (explicit) {
       const expected = explicit.dataset.inputRendered;
@@ -96,6 +97,11 @@ export function createInputPromptObserver(root: HTMLElement = document.body) {
       );
       return;
     }
+    if (parent.closest("[data-controller-prompt]")) return;
+    if (!parent.closest(prompts)) {
+      renderDpadText(text);
+      return;
+    }
     const previous = sources.get(text);
     const source =
       previous && text.data === previous.rendered ? previous.source : text.data;
@@ -114,7 +120,11 @@ export function createInputPromptObserver(root: HTMLElement = document.body) {
       context,
     );
     sources.set(text, { source, rendered });
-    if (rendered !== text.data) text.data = rendered;
+    if (/\bD[- ]?pad\b/i.test(rendered)) {
+      const binding = document.createElement("span");
+      setInputHint(binding, source, context, !parent.closest(controlsOnly));
+      text.replaceWith(binding);
+    } else if (rendered !== text.data) text.data = rendered;
   }
   function scan(node: Node) {
     if (node.nodeType === 3) {

@@ -40,6 +40,7 @@ import {
   isControllerEvent,
   inputHint,
 } from "../../scripts/player/gamepadInput.js";
+import { renderControllerPrompt } from "../../scripts/player/controllerIcons.js";
 
 const STEALTH_SPRINT_SECONDS = 5;
 const STEALTH_SPRINT_RECHARGE_DELAY = 1.25;
@@ -435,6 +436,7 @@ export function createScene({
   actions.id = "stealth-peek-actions";
   actions.className = "hidden";
   actions.setAttribute("aria-label", "Door controls");
+  let coverKeyCleanup = () => {};
   for (const [key, label] of [
     ["E", "Open door"],
     ["B", "Back to cover"],
@@ -442,9 +444,17 @@ export function createScene({
     const action = document.createElement("span");
     action.className = "stealth-peek-action";
     const keycap = document.createElement("kbd");
-    keycap.textContent = key;
+    setInputHint(keycap, key === "B" ? "Space" : key);
     const text = document.createElement("span");
     text.textContent = label;
+    if (key === "B") {
+      const updateCoverKey = () =>
+        setInputHint(keycap, isControllerActive() ? "Space" : "B");
+      window.addEventListener("input-device-change", updateCoverKey);
+      updateCoverKey();
+      coverKeyCleanup = () =>
+        window.removeEventListener("input-device-change", updateCoverKey);
+    }
     action.append(keycap, text);
     actions.appendChild(action);
   }
@@ -662,6 +672,16 @@ export function createScene({
     return true;
   }
   function updateStealthSprint(dt: number) {
+    runMeter.classList.toggle(
+      "hidden",
+      !active ||
+        !stealthCrouchEnabled ||
+        caught ||
+        complete ||
+        !!cinematic ||
+        !!doorwayTransfer ||
+        alarmAge > 0,
+    );
     if (!stealthCrouchEnabled) return;
     const state = player.getState();
     if (stealthSprintActive) {
@@ -1722,7 +1742,14 @@ export function createScene({
     else if (nearbyCrawlPassage())
       showHint(
         "crawl",
-        "Press C to crouch through marked cargo openings. Watch both ends.",
+        arcadeDifficulty
+          ? "Crouch through the cargo tunnels. Watch both ends."
+          : "You automatically crouch through the cargo tunnels. Watch both ends.",
+      );
+    else if (!usedHints.has("blue-eyes"))
+      showHint(
+        "blue-eyes",
+        "You can shoot blue-eyed drones in the back of the head.",
       );
     else if (position.x > 70)
       showHint(
@@ -2175,10 +2202,7 @@ export function createScene({
       else if (nearQuartersDoor())
         text = `E: ${quartersRequested ? "close" : "open"} living-quarters bulkhead`;
       else if (!checkpoint && nearEntrance) text = "E: open bulkhead";
-      else if (nearbyCrawlPassage())
-        text = player.getState().crouching
-          ? "Stay crouched through cargo / Watch the exit"
-          : "Press C: crouch through cargo";
+      else if (nearbyCrawlPassage()) text = "";
       else if (director.getTakedownCandidate(observation()))
         text = "E: silent takedown";
       else if (nearbyLadder())
@@ -2208,10 +2232,13 @@ export function createScene({
         )
           text = "E: check locked door";
       }
-      prompt.textContent = inputHint(
-        isControllerActive()
-          ? text.replace("B: hide", "D-pad Left: hide")
-          : text,
+      renderControllerPrompt(
+        prompt,
+        inputHint(
+          isControllerActive()
+            ? text.replace("B: hide", "D-pad Left: hide")
+            : text,
+        ),
       );
       prompt.classList.toggle(
         "hidden",
@@ -2578,6 +2605,7 @@ export function createScene({
       skipHold.dispose();
       status.remove();
       runMeter.remove();
+      coverKeyCleanup();
       actions.remove();
       retryButton.remove();
       hint.remove();

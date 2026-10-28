@@ -272,10 +272,11 @@ test("Prime blocks cabin gaming during an unfinished campaign without seating or
     data = await quarters(t);
   step(data, 3);
   data.scene.updateMatrixWorld(true);
-  const computer = data.scene.getObjectByName("CabinComputer");
+  const cabin = data.scene.getObjectByName("CabinFurnishings-brondon");
+  const computer = cabin.getObjectByName("CabinComputer");
   assert.ok(computer);
   assert.equal(
-    data.scene.getObjectByName("CabinComputerScreen").material.map.name,
+    cabin.getObjectByName("CabinComputerScreen").material.map.name,
     "CrewGameMenu-brondon",
   );
   const iframeCount = (node) =>
@@ -318,11 +319,10 @@ test("Prime blocks cabin gaming during an unfinished campaign without seating or
   );
 });
 
-test("the developer computer stays a screenshot until seated and restores it after play", async (t) => {
+test("Brondon cannot sit or play at his computer even during a developer visit", async (t) => {
   browser(t);
   const data = await quarters(t, { developerAccess: true });
   step(data, 3);
-  data.renderCinematicOverlay({ domElement: document.createElement("canvas") });
   const frames = [];
   const collect = (node) => {
     if (node.tagName === "IFRAME") frames.push(node);
@@ -330,10 +330,11 @@ test("the developer computer stays a screenshot until seated and restores it aft
   };
   collect(document.body);
   assert.equal(frames.length, 0);
-  const screen = data.scene.getObjectByName("CabinComputerScreen"),
+  const cabin = data.scene.getObjectByName("CabinFurnishings-brondon");
+  const screen = cabin.getObjectByName("CabinComputerScreen"),
     material = screen.material;
   assert.equal(material.map.name, "CrewGameMenu-brondon");
-  const point = data.scene
+  const point = cabin
     .getObjectByName("CabinComputer")
     .getWorldPosition(new THREE.Vector3())
     .add(new THREE.Vector3(0, 0.3, 0));
@@ -343,28 +344,52 @@ test("the developer computer stays a screenshot until seated and restores it aft
   assert.equal(
     screen.material,
     material,
-    "Sitting down must finish before loading the live game",
+    "Inspecting the game must leave the static screen in place",
   );
   step(data, 3);
-  data.renderCinematicOverlay({ domElement: document.createElement("canvas") });
   collect(document.body);
-  assert.equal(frames.length, 1);
-  assert.equal(
-    frames[0].src,
-    "https://lamp.ms.wits.ac.za/students/sgroup3928/brondons-revenge/?muted=1",
-  );
-  assert.equal(frames[0].allow, "autoplay 'none'");
-  assert.equal(
-    data.scene.getObjectByName("CabinComputerScreen").material.opacity,
-    0,
-  );
-  key("Escape");
-  step(data, 3);
+  assert.equal(frames.length, 0);
+  assert.equal(data.isCinematic(), false);
+  assert.equal(data.player.isEnabled(), true);
   assert.equal(screen.material, material);
   frames.length = 0;
   collect(document.body);
   assert.equal(frames.length, 0);
   layout.setStudentCabinAccess(false);
+});
+
+test("keypad D-pad wraps a three-column grid and confirms the selected buttons", async (t) => {
+  browser(t);
+  const { createKeypad } = await server.ssrLoadModule(
+    "/scenes/living quarters/surfaces.ts",
+  );
+  let unlocked = false;
+  const keypad = createKeypad({
+    code: "1230",
+    title: "Test keypad",
+    isUnlocked: () => unlocked,
+    onUnlock: () => {
+      unlocked = true;
+    },
+  });
+  t.after(() => keypad.texture.dispose());
+  keypad.reset();
+  keypad.focus(true);
+  keypad.click();
+  keypad.key("ArrowRight");
+  keypad.click();
+  keypad.key("ArrowRight");
+  keypad.click();
+  keypad.key("ArrowUp");
+  keypad.key("ArrowLeft");
+  keypad.click();
+  keypad.key("ArrowRight");
+  assert.equal(keypad.click(), "unlock");
+  assert.equal(unlocked, true);
+  keypad.key("ArrowRight");
+  assert.equal(keypad.cursor.x, 76, "Right wraps from OK to CLR");
+  keypad.key("ArrowDown");
+  assert.equal(keypad.cursor.y, 185.5, "Down wraps from CLR to 1");
 });
 
 test("eight cabins have four doors per side, three named lecturers, five locked students and distinct posters", () => {

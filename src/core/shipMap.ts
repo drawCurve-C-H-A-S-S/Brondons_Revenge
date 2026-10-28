@@ -1,11 +1,10 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import {
-  controllerMenuLabel,
-  controllerText,
   isControllerActive,
   type ControllerMapInput,
 } from "../scripts/player/gamepadInput.js";
+import { renderControllerPrompt } from "../scripts/player/controllerIcons.js";
 import {
   SHIP_ROOMS,
   SHIP_ROOM_BY_ID,
@@ -337,9 +336,13 @@ export function createShipMap(
   roomInfo.hidden = rooms.length === 0;
   const help = root.querySelector<HTMLElement>(".ship-map-help")!;
   function updateInputHelp() {
-    help.textContent = isControllerActive()
-      ? `${controllerText("Left stick: pan / Right stick: rotate / {zl}/{zr}: zoom / {l}/{r}: decks / {y}: locate / {x}: reset")} / D-pad: select / ${controllerMenuLabel("confirm")}: confirm / ${controllerMenuLabel("back")}: back`
-      : document.body.classList.contains("touch-device")
+    if (isControllerActive())
+      renderControllerPrompt(
+        help,
+        "Left stick: pan / Right stick: rotate / {zl}/{zr}: zoom / {l}/{r}: decks / {y}: locate / {x}: reset / D-pad: select / {confirm}: confirm / {cancel}: back",
+      );
+    else
+      help.textContent = document.body.classList.contains("touch-device")
         ? "Drag to rotate / Pinch to zoom / Two fingers to pan"
         : "Drag to rotate / Scroll to zoom / Right-drag to pan";
   }

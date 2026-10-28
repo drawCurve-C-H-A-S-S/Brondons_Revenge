@@ -49,8 +49,13 @@ function fixture(t, pads = []) {
     }
   }
   class Element extends EventTarget {
+    constructor(tag = "div") {
+      super();
+      this.tag = tag;
+    }
     dataset = {};
     children = [];
+    attributes = {};
     nodeType = 1;
     classes = new Set();
     classList = {
@@ -64,6 +69,38 @@ function fixture(t, pads = []) {
         return enabled;
       },
     };
+    set className(value) {
+      this.classes = new Set(value.split(/\s+/));
+    }
+    get className() {
+      return [...this.classes].join(" ");
+    }
+    setAttribute(name, value) {
+      this.attributes[name] = String(value);
+    }
+    getAttribute(name) {
+      return this.attributes[name] ?? null;
+    }
+    appendChild(node) {
+      node.parentElement = this;
+      this.children.push(node);
+      return node;
+    }
+    append(...nodes) {
+      nodes.forEach((node) => this.appendChild(node));
+    }
+    replaceChildren(...nodes) {
+      this.children = [];
+      this.append(...nodes);
+    }
+    querySelector(selector) {
+      for (const child of this.children) {
+        if (child.tag === selector) return child;
+        const found = child.querySelector?.(selector);
+        if (found) return found;
+      }
+      return null;
+    }
     get textContent() {
       return this.children
         .map((node) => node.data ?? node.textContent)
@@ -93,6 +130,18 @@ function fixture(t, pads = []) {
   const document = Object.assign(new EventTarget(), {
     body,
     hidden: false,
+    createElement: (tag) => new Element(tag),
+    createElementNS: (_namespace, tag) => new Element(tag),
+    createTextNode: (data) => ({
+      nodeType: 3,
+      data,
+      replaceWith(...nodes) {
+        const parent = this.parentElement;
+        const index = parent.children.indexOf(this);
+        nodes.forEach((node) => { node.parentElement = parent; });
+        parent.children.splice(index, 1, ...nodes);
+      },
+    }),
     createTreeWalker(node) {
       const text = [];
       const visit = (current) => {
@@ -195,10 +244,10 @@ function fixture(t, pads = []) {
 test("detected devices have Xbox, PlayStation, Switch and honest generic button labels", (t) => {
   const f = fixture(t);
   for (const [id, type, expected] of [
-    ["Xbox Wireless Controller (045e)", "xbox", "RB"],
-    ["Sony DualSense Wireless Controller", "playstation", "R1"],
-    ["Nintendo Switch Pro Controller", "switch", "R"],
-    ["USB Gamepad 1234:5678", "generic", "Button 6 (right shoulder)"],
+    ["Xbox Wireless Controller (045e)", "xbox", "B"],
+    ["Sony DualSense Wireless Controller", "playstation", "Circle"],
+    ["Nintendo Switch Pro Controller", "switch", "A"],
+    ["USB Gamepad 1234:5678", "generic", "Button 2"],
   ]) {
     f.pads.splice(0, f.pads.length, gamepad(id));
     f.update();
@@ -216,31 +265,72 @@ test("dialogue changes explicit inputs, never articles, pronouns or ordinary nam
     input.inputDialogue(
       "I found A student. Press E / Open. Hold Tab to choose; use it with Q.",
     ),
-    "I found A student. Press R / Open. Hold L to choose; use it with D-pad Down.",
+    "I found A student. Press A / Open. Hold L to choose; use it with D-pad Down.",
   );
   assert.equal(
     input.inputDialogue("Press [E] to open; tap Space or E to continue."),
-    "Press R to open; tap B or R to continue.",
+    "Press A to open; tap B or A to continue.",
   );
   assert.equal(input.inputHint("LEFT", "foot"), "LEFT");
 });
 
 test("contextual flight, inspection, escape and finale hints match dispatched actions", (t) => {
   fixture(t, [gamepad("Sony DualSense")]);
-  assert.equal(input.inputHint("Enter shield", "flight"), "R1 shield");
+  assert.equal(input.inputHint("Enter shield", "flight"), "Circle shield");
   assert.equal(input.inputHint("Click / Esc", "inspection"), "Cross / Circle");
   assert.equal(
     input.inputHint("Y / U / I / O / E", "escape"),
-    "Circle / Triangle / Cross / Square / R1",
+    "R1 / Triangle / Cross / Square / Circle",
   );
   assert.equal(
     input.inputHint("J / F / R / Space", "finale"),
-    "Circle / Triangle / L2 / Cross",
+    "R1 / Triangle / L2 / Cross",
   );
   assert.equal(
     input.inputHint("SPACE · SHIFT · left mouse button"),
-    "Cross · L2 · Circle",
+    "Cross · L2 · R1",
   );
+});
+
+test("camera, dance, and separate teleport prompts match the controller layout", (t) => {
+  const f = fixture(t, [gamepad("Xbox Controller")]);
+  assert.equal(input.inputHint("V / 9 / E / Left click"), "RS / Y / B / RB");
+  assert.equal(input.controllerText("{r3}"), "RS");
+  assert.equal(
+    input.inputHint("Tap Q / hold and release Q / T"),
+    "Tap D-pad Down / hold and release D-pad Right / D-pad Up",
+  );
+  assert.equal(
+    input.inputDialogue("Hold Q to throw; tap Q to place."),
+    "Hold D-pad Right to throw; tap D-pad Down to place.",
+  );
+  const device = reference.getControlsReference(
+    f.controller.getStatus().controllers,
+  )[1];
+  const rows = device.groups.flatMap((group) => group.rows);
+  assert.equal(rows.find((row) => row.action === "Dance").binding, "Y");
+  assert.equal(
+    rows.find((row) => row.action === "Place teleport crystal").binding,
+    "D-pad Down",
+  );
+  assert.match(
+    rows.find((row) => row.action === "Throw teleport crystal").binding,
+    /D-pad Right/,
+  );
+  f.key("KeyW");
+  assert.equal(input.inputHint("Tap Q / hold and release Q"), "Tap Q / hold and release Q");
+});
+
+test("controller settings use a labelled dropdown and explain every calibration exit", async () => {
+  const html = await readFile(new URL("../src/index.html", import.meta.url), "utf8");
+  const select = html.match(/<select id="controller-type-select"[\s\S]*?<\/select>/)?.[0];
+  assert.ok(select);
+  assert.match(select, /aria-label="Controller type"/);
+  for (const type of ["switch", "xbox", "playstation", "generic"])
+    assert.ok(select.includes(`value="${type}"`));
+  assert.doesNotMatch(html, /data-controller-type=/);
+  assert.match(html, /aria-keyshortcuts="Escape"/);
+  assert.match(html, /hold any two\s+controller buttons together for one second/);
 });
 
 test("keyboard/mouse switch immediately; idle sticks do not steal active input", (t) => {
@@ -253,13 +343,13 @@ test("keyboard/mouse switch immediately; idle sticks do not steal active input",
   assert.equal(input.isControllerActive(), false);
   f.update();
   assert.equal(input.isControllerActive(), false);
-  f.button(pad, 5, true);
+  f.button(pad, 1, true);
   assert.equal(input.isControllerActive(), true);
   assert.ok(
     f.keys.includes("KeyE"),
     "the first controller press must not be lost",
   );
-  f.button(pad, 5, false);
+  f.button(pad, 1, false);
   f.mouse(8, 0);
   assert.equal(input.isControllerActive(), false);
 });
@@ -275,13 +365,13 @@ test("hotplug inventory includes every controller and most recently used pad win
     f.controller.getStatus().controllers.map((pad) => pad.type),
     ["xbox", "playstation"],
   );
-  f.button(ps, 5, true);
+  f.button(ps, 1, true);
   assert.equal(f.controller.getStatus().index, 2);
-  assert.equal(input.inputHint("Press E"), "Press R1");
+  assert.equal(input.inputHint("Press E"), "Press Circle");
   ps.connected = false;
   f.window.dispatchEvent(new Event("gamepaddisconnected"));
   assert.equal(f.controller.getStatus().controllers.length, 1);
-  assert.equal(input.inputHint("Press E"), "Press RB");
+  assert.equal(input.inputHint("Press E"), "Press B");
   xbox.connected = false;
   f.update();
   assert.equal(input.isControllerActive(), false);
@@ -301,15 +391,15 @@ test("complete controls reference is per-device, progression-independent and hot
   const interact = (device) =>
     device.groups.find((group) => group.id === "interaction").rows[0].binding;
   assert.equal(interact(devices[0]), "E");
-  assert.equal(interact(devices[1]), "RB");
-  assert.equal(interact(devices[2]), "R1");
+  assert.equal(interact(devices[1]), "B");
+  assert.equal(interact(devices[2]), "Circle");
   assert.equal(devices[0].controllerType, null);
   assert.equal(devices[1].controllerType, "xbox");
   assert.equal(devices[2].controllerType, "playstation");
   assert.equal(
     devices[1].groups.find((group) => group.id === "interaction").rows[0]
       .controllerBinding,
-    "{r}",
+    "{a}",
   );
   for (const device of devices) {
     assert.equal(device.groups.length, 8);
@@ -334,7 +424,7 @@ test("face-button swaps affect prompts and references independently for identica
     gamepad("Xbox Controller", 1),
   ]);
   f.controller.setSwapAB(true);
-  assert.equal(input.inputHint("Space / Left click"), "B / A");
+  assert.equal(input.inputHint("Space / Left click"), "B / RB");
   assert.equal(input.controllerMenuLabel("confirm"), "B");
   const devices = reference.getControlsReference(
     f.controller.getStatus().controllers,
@@ -342,8 +432,10 @@ test("face-button swaps affect prompts and references independently for identica
   const attack = (device) =>
     device.groups[1].rows.find((row) => row.action.startsWith("Attack"))
       .binding;
-  assert.equal(attack(devices[1]), "A");
-  assert.equal(attack(devices[2]), "B");
+  assert.equal(attack(devices[1]), "RB");
+  assert.equal(attack(devices[2]), "RB");
+  assert.equal(devices[1].groups[1].rows[0].binding, "A");
+  assert.equal(devices[2].groups[1].rows[0].binding, "B");
 });
 
 test("visible dialogue restores original keyboard text and refreshes without restarting its timer", (t) => {
@@ -354,15 +446,15 @@ test("visible dialogue restores original keyboard text and refreshes without res
     true,
   );
   const observer = f.observe();
-  assert.match(element.textContent, /Press R to open/);
+  assert.match(element.textContent, /Press A to open/);
   f.key("KeyW");
   assert.equal(element.textContent, "I found A door. Press E to open it.");
   assert.equal(element.dataset.dialogueSpeaker, "PRIME");
   f.controller.setControllerType("playstation");
   f.controller.setMode("controller");
-  assert.match(element.textContent, /Press R1 to open/);
+  assert.match(element.textContent, /Press Circle to open/);
   for (let i = 0; i < 3; i++) observer.refresh();
-  assert.match(element.textContent, /Press R1 to open/);
+  assert.match(element.textContent, /Press Circle to open/);
   assert.equal(
     element.dataset.inputHint,
     "Prime: I found A door. Press E to open it.",
@@ -374,7 +466,7 @@ test("Prime's speaker styling cannot create a dialogue mutation loop", (t) => {
   const element = f.hint("Prime: Press E to interact.", "foot", true);
   element.classList.add("prime-tagged");
   f.observe();
-  assert.equal(element.textContent, "Press R to interact.");
+  assert.equal(element.textContent, "Press A to interact.");
   assert.equal(element.dataset.primeLine, element.textContent);
   f.key("KeyW");
   assert.equal(element.textContent, "Press E to interact.");
@@ -388,7 +480,7 @@ test("another HUD owner can replace a retained prompt without old text returning
   const observer = f.observe();
   element.textContent = input.inputHint("E / Open chest");
   observer.refresh();
-  assert.equal(element.textContent, "R / Open chest");
+  assert.equal(element.textContent, "A / Open chest");
   assert.equal(element.dataset.inputHint, undefined);
   f.key("KeyW");
   assert.equal(element.textContent, "R / Open chest");

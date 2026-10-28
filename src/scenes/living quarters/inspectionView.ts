@@ -42,7 +42,7 @@ export function createInspectionView(
   instructions.setAttribute("role", "status");
   const close = document.createElement("button");
   close.type = "button";
-  close.textContent = "E / Esc - Step back";
+  close.textContent = "E - Step back";
   controls.append(instructions, close);
   ui.append(controls);
   const raycaster = new THREE.Raycaster(),
@@ -57,9 +57,9 @@ export function createInspectionView(
     disposed = false;
   function updateInstructions() {
     if (!state) return;
-    close.textContent = inputHint("E / Esc - Step back", "inspection");
+    close.textContent = inputHint("E - Step back", "inspection");
     if (isControllerActive()) {
-      instructions.textContent = `Right stick: pointer / ${controllerMenuLabel("confirm")}: select on-screen buttons / ${controllerButtonLabel("r")} or ${controllerMenuLabel("back")}: step back`;
+      instructions.textContent = `${state.target.pointer === "light" ? "D-pad: choose digit / " : ""}Right stick: pointer / ${controllerMenuLabel("confirm")}: select on-screen buttons / ${controllerButtonLabel("r")} or ${controllerMenuLabel("back")}: step back`;
       return;
     }
     instructions.textContent = inputHint(

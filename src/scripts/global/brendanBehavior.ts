@@ -3,7 +3,8 @@ import { loadVergilsChair } from "../../core/loader.js";
 import { disposeRoom } from "./shipRoom.js";
 import { playSfx } from "../../helpers/audio/sfx.js";
 
-export type BrendanActivity = "idle" | "walk" | "talk" | "ambient";
+export type BrendanActivity =
+  "idle" | "walk" | "crouchWalk" | "talk" | "ambient";
 type Mode =
   | "pace"
   | "hit"
@@ -52,7 +53,8 @@ export function createBrendanBehavior(
     hitHead = once("Hit_Head"),
     sitEnter = once("Sitting_Enter"),
     sitExit = once("Sitting_Exit");
-  const actions = { idle, walk, talk, inspect };
+  const crouchWalk = action("Crouch_Fwd_Loop");
+  const actions = { idle, walk, crouchWalk, talk, inspect };
   let current = idle,
     activity: BrendanActivity = "idle";
   let destination = -1,

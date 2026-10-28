@@ -361,6 +361,15 @@ export const HERO_TRANSFORM = Object.freeze({
   sword: 12.2,
   lock: 14.2,
 });
+export const HERO_REVENGE = Object.freeze({
+  aura: 0.25,
+  shout: 1.6,
+  colorStart: 2.2,
+  burst: 3.3,
+  colorEnd: 4.7,
+  settle: 5.6,
+  duration: 7.2,
+});
 export const PLANET_RUPTURE = Object.freeze({
   facilityCut: 0.85,
   coreTransfer: 1.15,
@@ -390,6 +399,14 @@ export const PLANET_RUPTURE = Object.freeze({
   returnToDuel: 37.2,
   orbit: 39.6,
 });
+export function heroRevengeTime(phase: FinalePhase, time: number) {
+  // The power-up starts during the cockpit pull-out, before its dedicated phase.
+  if (phase === "rupture" && time >= PLANET_RUPTURE.returnToDuel)
+    return time - PLANET_RUPTURE.returnToDuel;
+  if (phase === "revenge")
+    return time + PLANET_RUPTURE.orbit + 0.4 - PLANET_RUPTURE.returnToDuel;
+  return -1;
+}
 export const FINISHER_EXECUTION = Object.freeze({
   dash: 0.4,
   vanish: 1.05,

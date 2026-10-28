@@ -5,9 +5,10 @@ import {
 } from "../../helpers/audio/AudioManager.js";
 import { playSfx } from "../../helpers/audio/sfx.js";
 import { DUEL } from "../npc/mechDuel.js";
-import { FINALE_CREDITS } from "../global/finaleDirector.js";
+import { FINALE_CREDITS, FINALE_DURATION } from "../global/finaleDirector.js";
 import { createComicEffectArtwork } from "../global/comicEffects.js";
 import { isControllerActive, inputHint } from "../player/gamepadInput.js";
+import { renderControllerPrompt } from "../player/controllerIcons.js";
 import { setInputHint } from "../global/inputPrompts.js";
 import { renderDirectionalPrompt } from "../player/directionalPrompt.js";
 
@@ -44,6 +45,7 @@ export function createFinalePresentation(
         <span class="finale-control finale-control-charge ready" data-control="special" aria-label="Brendan's Will blade-wave ultimate"><kbd data-input-key="KeyE">E</kbd><small><b>WILL</b><em>READY</em></small></span>
       </div>
     </nav>
+    <div class="finale-ending-fade" aria-hidden="true"></div>
     <div class="finale-tell" role="status" aria-live="polite"></div><div class="finale-title" aria-live="polite"></div>
     <section class="finale-dialogue" aria-live="polite"><b></b><p></p></section>
     <div class="finale-flash" aria-hidden="true"></div>
@@ -52,6 +54,7 @@ export function createFinalePresentation(
     </section>
     <section class="finale-credits" aria-label="Credits" hidden>
       <div class="finale-credits-roll"></div>
+      <p class="finale-credits-performance" hidden>And now a special performance from our performing cast</p>
     </section>
     <nav class="finale-touch" aria-label="Mech controls">
       <div class="finale-touch-movement">
@@ -101,7 +104,9 @@ export function createFinalePresentation(
   const rifleTouch = get<HTMLElement>('.finale-touch [data-key="KeyF"]');
   const guardTouch = get<HTMLElement>('.finale-touch [data-key="KeyR"]');
   const specialTouch = get<HTMLElement>('.finale-touch [data-key="KeyE"]');
-  const slideControl = get<HTMLElement>('.finale-control[data-control="slide"]');
+  const slideControl = get<HTMLElement>(
+    '.finale-control[data-control="slide"]',
+  );
   const slideTouch = get<HTMLButtonElement>('.finale-touch [data-key="KeyC"]');
   let objectiveHint = "";
   function updateInputLabels() {
@@ -111,7 +116,7 @@ export function createFinalePresentation(
       const code = key.dataset.inputKey!;
       renderDirectionalPrompt(key, [code], "finale");
     }
-    hint.textContent = inputHint(objectiveHint, "finale");
+    renderControllerPrompt(hint, inputHint(objectiveHint, "finale"));
   }
   const bossHud = document.getElementById("boss-hud");
   const bossLabel = document.getElementById("boss-health-label");
@@ -133,9 +138,11 @@ export function createFinalePresentation(
   const retry = get<HTMLButtonElement>(".finale-result button");
   const credits = get(".finale-credits");
   const roll = get(".finale-credits-roll");
+  const performance = get<HTMLElement>(".finale-credits-performance");
   const events = new AbortController();
   let muted = false,
     audioContext: AudioContext | null = null;
+  let stopShout: (() => void) | undefined;
   const activeOscillators = new Set<OscillatorNode>();
   const heldPointers = new Map<number, string>();
   const reducedMotion = window.matchMedia(
@@ -182,6 +189,7 @@ export function createFinalePresentation(
 
   const settingsOff = subscribeAudioSettings((settings) => {
     if (!settings.paused) return;
+    stopShout?.();
     for (const oscillator of activeOscillators) {
       try {
         oscillator.stop();
@@ -223,6 +231,8 @@ export function createFinalePresentation(
       );
       playerStatus.hidden = !mech || cinematic;
       controls.hidden = !mech || cinematic;
+      get(".finale-objective").hidden =
+        cinematic && !["loading", "error", "defeat"].includes(phase);
       const slideAvailable = phase === "ground";
       slideControl.hidden = slideTouch.hidden = !slideAvailable;
       slideControl.classList.toggle("hidden", !slideAvailable);
@@ -243,7 +253,7 @@ export function createFinalePresentation(
     objective(text: string, controlHint: string) {
       objective.textContent = text;
       objectiveHint = controlHint;
-      hint.textContent = inputHint(controlHint, "finale");
+      updateInputLabels();
     },
     title(text: string) {
       if (title.dataset.word === text) return;
@@ -251,6 +261,16 @@ export function createFinalePresentation(
       else title.textContent = text;
       title.dataset.word = text;
       title.hidden = !text;
+    },
+    ending(time: number) {
+      const progress =
+        time < 0
+          ? 0
+          : Math.max(
+              0,
+              Math.min(1, (time - (FINALE_DURATION.victory - 3)) / 2),
+            );
+      get(".finale-ending-fade").style.opacity = String(progress);
     },
     dialogue(name: string, text: string) {
       speaker.textContent = name;
@@ -376,6 +396,13 @@ export function createFinalePresentation(
     credits(time: number, castReady = false) {
       credits.hidden = time < 0;
       credits.dataset.castReady = String(castReady);
+      performance.hidden = !(castReady && time >= FINALE_CREDITS.roll);
+      const performing = time >= FINALE_CREDITS.roll + FINALE_CREDITS.walkIn;
+      const performanceText = performing
+        ? "Hit the music!"
+        : "And now a special performance from our performing cast";
+      if (performance.textContent !== performanceText)
+        performance.textContent = performanceText;
       roll.hidden = time >= FINALE_CREDITS.roll;
       const progress = Math.min(1, Math.max(0, time) / FINALE_CREDITS.roll);
       const travel =
@@ -385,6 +412,7 @@ export function createFinalePresentation(
     pause(value: boolean) {
       muted = value;
       clearPointers();
+      if (value) stopShout?.();
       if (value)
         for (const oscillator of activeOscillators) {
           try {
@@ -395,7 +423,14 @@ export function createFinalePresentation(
         }
       activeOscillators.clear();
     },
-    sound(kind: "hit" | "launch" | "parry" | "special" | "qte" | "explode") {
+    sound(kind: "hit" | "launch" | "parry" | "special" | "qte" | "explode" | "shout") {
+      if (kind === "shout") {
+        if (!muted && !getAudioSettings().paused) {
+          stopShout?.();
+          stopShout = playSfx("revengeShout", 0.95);
+        }
+        return;
+      }
       if (kind === "explode" && !muted && !getAudioSettings().paused)
         playSfx("explosion", 0.9);
       if (
@@ -439,6 +474,7 @@ export function createFinalePresentation(
     },
     dispose() {
       clearPointers();
+      stopShout?.();
       events.abort();
       settingsOff();
       if (audioContext) {

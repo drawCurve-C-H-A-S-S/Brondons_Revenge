@@ -29,6 +29,7 @@ import {
   createShipTerminal,
 } from "../../scripts/global/shipInterior.js";
 import { fitRoomProp } from "../../scripts/global/shipRoom.js";
+import { playSfx } from "../../helpers/audio/sfx.js";
 export { fitRoomProp as fitCabinProp } from "../../scripts/global/shipRoom.js";
 
 type Physics = ReturnType<typeof createScenePhysics>;
@@ -495,18 +496,61 @@ export async function createCabinFurnishings(
     }
     const returnCrystal =
       cabin.id === "brondon" ? createGreenReturnCrystal() : null;
+    let returnCrystalCord: THREE.Mesh | null = null;
+    const beaconFragments = new THREE.Group();
+    beaconFragments.name = "GreenReturnCrystalShards";
+    beaconFragments.visible = false;
+    const beaconShards: {
+      mesh: THREE.Mesh<THREE.TetrahedronGeometry, THREE.MeshBasicMaterial>;
+      velocity: THREE.Vector3;
+    }[] = [];
+    let beaconShatterTime = -1;
     if (returnCrystal) {
       returnCrystal.position.set(0, 2.55, 0);
       returnCrystal.scale.setScalar(0.72);
+      returnCrystal.visible = !progress.arrivalSeen;
       root.add(returnCrystal);
-      const cord = box(
+      returnCrystalCord = box(
         root,
         "GreenReturnCrystalCord",
         [0.025, 0.42, 0.025],
         [0, 2.88, 0],
         steel,
       );
-      cord.castShadow = false;
+      returnCrystalCord.castShadow = false;
+      returnCrystalCord.visible = !progress.arrivalSeen;
+      beaconFragments.position.copy(returnCrystal.position);
+      root.add(beaconFragments);
+      const geometry = new THREE.TetrahedronGeometry(0.065);
+      const material = new THREE.MeshBasicMaterial({
+        color: 0x58ff9a, transparent: true, opacity: 1, depthWrite: false,
+        toneMapped: false,
+      });
+      for (let i = 0; i < 16; i++) {
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.scale.set(0.55, 1.5, 0.75);
+        beaconFragments.add(mesh);
+        const angle = i * Math.PI * (3 - Math.sqrt(5));
+        const speed = 0.65 + (i % 4) * 0.2;
+        beaconShards.push({ mesh, velocity: new THREE.Vector3(
+          Math.cos(angle) * speed, 0.2 + (i % 5) * 0.18, Math.sin(angle) * speed,
+        ) });
+      }
+    }
+    function shatterReturnCrystal(animate = true) {
+      if (!returnCrystal) return;
+      const intact = returnCrystal.visible;
+      returnCrystal.visible = false;
+      if (returnCrystalCord) returnCrystalCord.visible = false;
+      if (!animate) {
+        beaconShatterTime = -1;
+        beaconFragments.visible = false;
+      } else if (intact) {
+        beaconFragments.position.copy(returnCrystal.position);
+        beaconShatterTime = 0;
+        beaconFragments.visible = true;
+        playSfx("blockBreak", 0.35);
+      }
     }
     const goggles = cabin.id === "branden" ? createGoggles() : null;
     if (goggles) {
@@ -532,6 +576,22 @@ export async function createCabinFurnishings(
         returnCrystal.rotation.y = clock * 1.1;
         returnCrystal.position.y = 2.55 + Math.sin(clock * 1.8) * 0.035;
       }
+      if (beaconShatterTime >= 0) {
+        beaconShatterTime += dt;
+        const age = beaconShatterTime;
+        const opacity = 1 - THREE.MathUtils.smoothstep(age, 0.6, 1.35);
+        for (const { mesh, velocity } of beaconShards) {
+          mesh.position.copy(velocity).multiplyScalar(age);
+          mesh.position.y = Math.max(0.04 - beaconFragments.position.y,
+            mesh.position.y - 3.5 * age * age);
+          mesh.rotation.set(age * 5 + velocity.x, age * 7 + velocity.z, age * 3);
+          mesh.material.opacity = opacity;
+        }
+        if (age >= 1.35) {
+          beaconFragments.visible = false;
+          beaconShatterTime = -1;
+        }
+      }
       if (goggles)
         goggles.visible =
           footlocker.openness > 0.15 && !progress.gogglesCollected;
@@ -551,6 +611,7 @@ export async function createCabinFurnishings(
       lidPivot,
       crystal,
       returnCrystal,
+      shatterReturnCrystal,
       goggles,
       chestPoint: cabinPoint(cabin, 1.7, 0.6, 0.65),
       update,

@@ -5,10 +5,8 @@ import {
   createArmorTextures,
   createEnergyMaterial,
 } from "./finaleMaterials.js";
-import { SUDOERS_5 } from "./finaleActors.js";
 import {
   PLANET_RUPTURE,
-  activeStudent,
   samplePlanetBreaker,
   samplePlanetSurface,
 } from "../global/finaleChoreography.js";
@@ -20,8 +18,10 @@ import {
   createFacilityCoreCutaway,
   createPlanetBreakerCore,
 } from "./facilityCore.js";
-import { FACILITY, FACILITY_ROOF_SEQUENCE } from "../global/facilityArchitecture.js";
-import { FACILITY_OFFICE_SEATS } from "./facilityOffice.js";
+import {
+  FACILITY,
+  FACILITY_ROOF_SEQUENCE,
+} from "../global/facilityArchitecture.js";
 
 export const PLANET_RADIUS = 340;
 export const SPACE_ALTITUDE = 95;
@@ -107,71 +107,6 @@ export function createFinaleWorld(
     floor.castShadow = floor.receiveShadow = true;
     root.add(floor);
   }
-  const upperWalls = new THREE.Group();
-  upperWalls.name = "FacilityRevealLighting";
-  root.add(upperWalls);
-
-  const studentLights = SUDOERS_5.map((student, i) => {
-    const spot = new THREE.SpotLight(0xc5cbd6, 0, 18, 0.34, 0.92, 1.4);
-    spot.name = `${student.name}_CeilingSpotlight`;
-    spot.position.set(
-      FACILITY.x + FACILITY_OFFICE_SEATS[i].x,
-      FACILITY.officeFloor + 5.5,
-      FACILITY.z + FACILITY_OFFICE_SEATS[i].z,
-    );
-    spot.target.position.set(
-      FACILITY.x + FACILITY_OFFICE_SEATS[i].x,
-      FACILITY.officeFloor + 0.7,
-      FACILITY.z + FACILITY_OFFICE_SEATS[i].z,
-    );
-    const fixture = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.25, 0.2, 0.22, 12),
-      black,
-    );
-    fixture.position.copy(spot.position).add(new THREE.Vector3(0, 0.15, 0));
-    upperWalls.add(fixture);
-    const lens = new THREE.Mesh(
-      new THREE.CircleGeometry(0.18, 16),
-      new THREE.MeshBasicMaterial({ color: 0xb8bec7, toneMapped: false }),
-    );
-    lens.rotation.x = -Math.PI / 2;
-    lens.position.copy(spot.position).add(new THREE.Vector3(0, 0.03, 0));
-    upperWalls.add(lens);
-    root.add(spot, spot.target);
-    return spot;
-  });
-  const beams = SUDOERS_5.map((_student, i) => {
-    const material = new THREE.ShaderMaterial({
-      uniforms: {
-        uColor: { value: new THREE.Color(0xa8b1bd) },
-        uTime: { value: 0 },
-        uPower: { value: 0 },
-      },
-      vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-      fragmentShader: `uniform vec3 uColor; uniform float uTime; uniform float uPower; varying vec2 vUv;
-        void main() { float pulse = 0.95 + 0.05 * sin(uTime * 0.8 + vUv.y * 7.0);
-          gl_FragColor = vec4(uColor, (1.0 - vUv.y) * uPower * pulse * 0.055); }`,
-      transparent: true,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-      toneMapped: false,
-    });
-    const height = 5.5;
-    const mesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.18, 1.25, height, 18, 1, true),
-      material,
-    );
-    mesh.position.set(
-      FACILITY.x + FACILITY_OFFICE_SEATS[i].x,
-      FACILITY.officeFloor + height / 2,
-      FACILITY.z + FACILITY_OFFICE_SEATS[i].z,
-    );
-    mesh.visible = false;
-    root.add(mesh);
-    return mesh;
-  });
-
   const sky = new THREE.Mesh(
     new THREE.SphereGeometry(1900, 32, 16),
     new THREE.ShaderMaterial({
@@ -503,18 +438,7 @@ export function createFinaleWorld(
     planet,
     planetRoot,
     bomb,
-    studentLights,
     facilityInterior,
-    lightStudent(index: number, position: THREE.Vector3) {
-      const spot = studentLights[index],
-        beam = beams[index];
-      if (!spot || !beam)
-        throw new RangeError(`Missing ceiling spotlight for student ${index}`);
-      spot.target.position.copy(position).add(new THREE.Vector3(0, 0.8, 0));
-      const direction = new THREE.Vector3().copy(spot.position).sub(position);
-      beam.position.copy(spot.position).lerp(position, 0.5);
-      beam.quaternion.setFromUnitVectors(up, direction.normalize());
-    },
     updateBomb(phaseTime: number, hands: THREE.Vector3) {
       const materialized = smooth(
         phaseTime,
@@ -613,7 +537,7 @@ export function createFinaleWorld(
       time: number,
       rupture: number,
       space: boolean,
-      reveal = 0,
+      _reveal = 0,
       roofBlast = -1,
       ruptureTime = -1,
       night = 0,
@@ -633,7 +557,6 @@ export function createFinaleWorld(
         !cockpitView &&
         ruptureTime < PLANET_RUPTURE.stardustEnd;
       floor.visible = !space && !planetView;
-      upperWalls.visible = roofBlast < FACILITY_ROOF_SEQUENCE.blastClear && !space && !planetView;
       sky.visible = !space && !planetView && rupture < 1;
       // Keep the fog shader variant resident; orbital distances make its contribution zero.
       roofFog.near = space || planetView ? 1e6 : roofFogNear;
@@ -653,16 +576,6 @@ export function createFinaleWorld(
       sky.material.uniforms.uFade.value =
         (1 - night * 0.8) * (1 - smooth(rupture, 0.15, 0.65));
       sky.material.uniforms.uNight.value = night;
-      studentLights.forEach((spot, i) => {
-        const selected = activeStudent(reveal, "reveal") === i;
-        spot.intensity =
-          (1 - smooth(roofBlast, FACILITY_ROOF_SEQUENCE.blastStart, FACILITY_ROOF_SEQUENCE.blastClear)) *
-          smooth(reveal, 2.15 + i * 0.18, 4 + i * 0.18) *
-          (selected ? 17 : 9);
-        beams[i].visible = spot.intensity > 0.1;
-        beams[i].material.uniforms.uTime.value = time;
-        beams[i].material.uniforms.uPower.value = spot.intensity / 90;
-      });
       const surface = samplePlanetSurface(
         space ? PLANET_RUPTURE.stardustEnd : ruptureTime,
       );
@@ -684,17 +597,22 @@ export function createFinaleWorld(
       starfield.update(time);
       const rumble = reducedMotion ? 0 : surface.rumble;
       const tremor = rumble * (2 + rumble * 6);
-      planetRoot.position.copy(PLANET_CENTER).add(new THREE.Vector3(
-        Math.sin(ruptureTime * 31) * tremor,
-        Math.sin(ruptureTime * 43 + 0.7) * tremor * 0.55,
-        Math.cos(ruptureTime * 37) * tremor * 0.35,
-      ));
+      planetRoot.position
+        .copy(PLANET_CENTER)
+        .add(
+          new THREE.Vector3(
+            Math.sin(ruptureTime * 31) * tremor,
+            Math.sin(ruptureTime * 43 + 0.7) * tremor * 0.55,
+            Math.cos(ruptureTime * 37) * tremor * 0.35,
+          ),
+        );
       planetTremorAngles.set(
         Math.sin(ruptureTime * 23) * rumble * 0.009,
         0,
         Math.cos(ruptureTime * 29) * rumble * 0.012,
       );
-      planetRoot.quaternion.copy(planetRestRotation)
+      planetRoot.quaternion
+        .copy(planetRestRotation)
         .multiply(planetTremor.setFromEuler(planetTremorAngles));
       planetUniforms.uRupture.value = Math.max(rupture, surface.dissolve);
       planetUniforms.uTime.value = time;
@@ -715,10 +633,14 @@ export function createFinaleWorld(
       fireMaterial.uniforms.uTime.value = time;
       // Keep the fire beneath the crust until the textured surface has melted away.
       const exposedFire = smooth(
-        ruptureTime, PLANET_RUPTURE.forest, PLANET_RUPTURE.burning,
+        ruptureTime,
+        PLANET_RUPTURE.forest,
+        PLANET_RUPTURE.burning,
       );
       fire.scale.setScalar(
-        1 + exposedFire * 0.06 + surface.dispersal * 0.24 +
+        1 +
+          exposedFire * 0.06 +
+          surface.dispersal * 0.24 +
           rumble * Math.sin(ruptureTime * 18) * 0.008,
       );
       dust.visible = !space && surface.dustVisible;
@@ -765,10 +687,6 @@ export function createFinaleWorld(
     dispose() {
       root.removeFromParent();
       starfield.dispose();
-      studentLights.forEach((spot) => {
-        spot.removeFromParent();
-        spot.target.removeFromParent();
-      });
       disposeRoom(root);
       armorTextures.dispose();
     },

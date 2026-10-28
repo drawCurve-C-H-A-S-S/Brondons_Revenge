@@ -120,6 +120,8 @@ function fixture(t, startAt, entryState) {
   const renderer = {
     toneMapping: THREE.NoToneMapping,
     getRenderTarget: () => null,
+    getClearColor: (target) => target.set(0),
+    getClearAlpha: () => 1,
     setRenderTarget() {},
     setClearColor() {},
     clear() {},
@@ -162,6 +164,25 @@ function click() {
   mouse("mousedown");
   mouse("mouseup");
 }
+
+test("late flight star layers remain centered on the moving camera", (t) => {
+  const data = fixture(t, "bossCore");
+  const stars = data.scene.children.filter(
+    (node) => node.isPoints && node.material.uniforms?.uRadius,
+  );
+  assert.ok(stars.length >= 2, "Both star and glow layers exist");
+  for (let frame = 0; frame < 1800; frame++) {
+    data.updatePhysics(1 / 30);
+    for (const layer of stars) {
+      assert.ok(layer.visible);
+      assert.ok(layer.position.distanceTo(data.camera.position) < 1e-8);
+    }
+  }
+  assert.ok(
+    Math.abs(data.camera.position.z) > 1000,
+    "Stars survive long-distance flight",
+  );
+});
 
 test("only opening interceptors get the eight-unit invisible shot target", (t) => {
   const data = fixture(t);
