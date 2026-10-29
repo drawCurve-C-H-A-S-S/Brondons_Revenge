@@ -86,16 +86,18 @@ export function createRustWater(
       .replace(
         "#include <beginnormal_vertex>",
         `#include <beginnormal_vertex>
+        float swell = cos(position.x * 0.8 + position.y * 1.1 + uRustWaterTime * 0.4);
         objectNormal = normalize(vec3(
-          -0.0315 * cos(position.x * 2.1 + uRustWaterTime * 0.8),
-          -0.037 * cos(position.y * 3.7 - uRustWaterTime * 0.6), 1.0));`,
+          -0.063 * cos(position.x * 2.1 + uRustWaterTime * 0.8) - swell * 0.0096,
+          -0.074 * cos(position.y * 3.7 - uRustWaterTime * 0.6) - swell * 0.0132, 1.0));`,
       )
       .replace(
         "#include <begin_vertex>",
         `#include <begin_vertex>
         vRustWaterPosition = position.xy;
-        transformed.z += sin(position.x * 2.1 + uRustWaterTime * 0.8) * 0.015
-          + sin(position.y * 3.7 - uRustWaterTime * 0.6) * 0.01;`,
+        transformed.z += sin(position.x * 2.1 + uRustWaterTime * 0.8) * 0.03
+          + sin(position.y * 3.7 - uRustWaterTime * 0.6) * 0.02
+          + sin(position.x * 0.8 + position.y * 1.1 + uRustWaterTime * 0.4) * 0.012;`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -107,12 +109,13 @@ export function createRustWater(
       .replace(
         "#include <color_fragment>",
         `#include <color_fragment>
-        float scum = sin(vRustWaterPosition.x * 2.7
-          + sin(vRustWaterPosition.y * 1.9) + uRustWaterTime * 0.2);
+        float scum = sin((vRustWaterPosition.x - uRustWaterTime * 0.08) * 2.7
+          + sin((vRustWaterPosition.y + uRustWaterTime * 0.05) * 1.9)
+          + uRustWaterTime * 0.2);
         diffuseColor.rgb *= 0.88 + scum * 0.12;`,
       );
   };
-  material.customProgramCacheKey = () => "rust-water-v2";
+  material.customProgramCacheKey = () => "rust-water-v3";
   // A subdivided, opaque surface avoids transparent sorting and triangulation
   // artifacts. The solid launcher plinth naturally occludes the water below it.
   const mesh = new THREE.Mesh(

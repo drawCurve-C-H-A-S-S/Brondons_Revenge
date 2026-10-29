@@ -21,7 +21,7 @@ import { createMothership } from "../../scripts/global/mothership.js";
 import { disposeRoom, fitRoomProp } from "../../scripts/global/shipRoom.js";
 import { createShipInteriorMaterials } from "../../scripts/global/shipInterior.js";
 import { createCorridorMonitor } from "../../scripts/global/corridorMonitor.js";
-import { createCctvWall } from "../../scripts/npc/cctv.js";
+import { CAMERA_FOOTAGE, createCctvWall } from "../../scripts/npc/cctv.js";
 import { STAGE_TWO_MINIGAMES } from "../level 1 stage 2/stageTwoLayout.js";
 import hologramVertexShader from "../../shaders/vert/hologram.vert.glsl?raw";
 import hologramFragmentShader from "../../shaders/frag/hologram.frag.glsl?raw";
@@ -903,15 +903,18 @@ export function createPrologueFlashbacks({
   hubMaterials.deck.color.setHex(0x3b4c5d);
   const hub = createSurveillanceHubSet(hubScene, montagePhysics, hubMaterials);
   hub.returnAirlock.setLocked(true);
-  const monitors = [0, 1, 2].map(monitorFactory);
+  const monitors = [0, 1, 2].map((index) => monitorFactory(index));
   const cameraFeeds = [
     ...STAGE_TWO_MINIGAMES,
     { id: "stage2-vents", label: "Vent maze" } as const,
     { id: "stage2-prison", label: "Prison" } as const,
   ];
+  const wallMonitors = cameraFeeds.map((feed, index) =>
+    monitorFactory(index, CAMERA_FOOTAGE[feed.id]),
+  );
   const cameraWall = createCctvWall(
     cameraFeeds,
-    cameraFeeds.map((_, index) => monitors[index % monitors.length].texture),
+    wallMonitors.map((monitor) => monitor.texture),
   );
   hub.root.add(cameraWall.panel);
   const workstationsReady = Promise.all(
@@ -1278,6 +1281,10 @@ export function createPrologueFlashbacks({
     camera.far = shot === "planet" ? 1600 : 180;
     camera.fov = camera.aspect < 1 ? Math.min(84, fov + 18) : fov;
     camera.updateProjectionMatrix();
+    if (currentRenderScene === hubScene) {
+      monitors.forEach((monitor) => monitor.update(dt));
+      wallMonitors.forEach((monitor) => monitor.update(dt));
+    }
     hologramMaterial.uniforms.hologramTime.value = clock;
     for (const hologram of holograms) {
       let ancestor: THREE.Object3D | null = hologram.group;
@@ -1296,8 +1303,6 @@ export function createPrologueFlashbacks({
     updateEarthGroup(planet, dt);
     hangarFourteen.ship.update(dt);
     if (shot === "security") {
-      if (currentRenderScene === hubScene)
-        monitors.forEach((monitor) => monitor.update(dt));
       montageMixers.forEach((mixer) => mixer.update(dt));
     }
     const burstTime = shot === "breakout" ? elapsed - 0.65 : -1;
@@ -1390,9 +1395,10 @@ export function createPrologueFlashbacks({
     montagePhysics.dispose();
     mothership.dispose();
     const monitorTextures = new Set<THREE.Texture>(
-      monitors.map((monitor) => monitor.texture),
+      [...monitors, ...wallMonitors].map((monitor) => monitor.texture),
     );
     monitors.forEach((monitor) => monitor.dispose());
+    wallMonitors.forEach((monitor) => monitor.dispose());
     montageMixers.forEach((mixer) => {
       mixer.stopAllAction();
       mixer.uncacheRoot(mixer.getRoot());
@@ -1445,6 +1451,7 @@ export function createPrologueFlashbacks({
     securityBotsReady,
     wardenReady,
     ...monitors.map((monitor) => monitor.ready),
+    ...wallMonitors.map((monitor) => monitor.ready),
   ]);
   return {
     ready,

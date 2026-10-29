@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { createScenePhysics } from "../../helpers/physics/scenePhysics.js";
-import { roomBox } from "../../scripts/global/shipRoom.js";
+import { roomBox, createBulkheadVoid } from "../../scripts/global/shipRoom.js";
 import {
   createShipInteriorMaterials,
   createShipServiceDetails,
@@ -746,7 +746,13 @@ export function createStealthHangar(
     scene.add(instances);
   }
 
-  function bulkhead(x: number, z: number) {
+  const plainDoorPanel = new THREE.MeshStandardMaterial({
+    color: steel.color.clone(), roughness: 0.66, metalness: 0.12,
+  });
+  const plainDoorEdge = new THREE.MeshStandardMaterial({
+    color: dark.color.clone(), roughness: 0.7, metalness: 0.55,
+  });
+  function bulkhead(x: number, z: number, blackout = true) {
     const group = new THREE.Group();
     group.name = x === 14 ? "HangarEntranceBulkhead" : "StageTwoAirlock";
     group.position.set(x, deckY, z);
@@ -772,15 +778,16 @@ export function createStealthHangar(
     );
     frame.position.z = -0.2;
     group.add(frame);
+    if (blackout) group.add(createBulkheadVoid(3.2, 3.4));
     const leaves = [-1, 1].map((sign) => {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(1.6, 3.38, 0.16), dark);
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(1.6, 3.38, 0.16), plainDoorEdge);
       mesh.position.set(sign * 0.8, 1.69, 0);
       group.add(mesh);
       const body = physics.addBoxFromMesh(mesh);
       for (const face of [-1, 1]) {
         const inset = new THREE.Mesh(
           new THREE.BoxGeometry(1.4, 2.98, 0.03),
-          steel,
+          plainDoorPanel,
         );
         inset.position.z = face * 0.095;
         mesh.add(inset);
@@ -816,7 +823,7 @@ export function createStealthHangar(
       },
     };
   }
-  const entrance = bulkhead(14, -2.5),
+  const entrance = bulkhead(14, -2.5, false),
     exit = bulkhead(HANGAR_LAYOUT.exit.x, HANGAR_LAYOUT.exit.z);
   const exitZ = HANGAR_LAYOUT.exit.z;
   box([2.8, 0.2, 3.2], [87.4, -0.1, exitZ], floor);

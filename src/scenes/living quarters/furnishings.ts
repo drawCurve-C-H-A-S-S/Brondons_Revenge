@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import {
   loadToolModel,
   loadTexture,
@@ -25,6 +26,7 @@ import {
 } from "../../scripts/global/teleportationDevice.js";
 import {
   createShipInteriorMaterials,
+  createShipSurfaceMaterial,
   createShipServerRack,
   createShipTerminal,
 } from "../../scripts/global/shipInterior.js";
@@ -348,15 +350,8 @@ export async function createCabinFurnishings(
     roughness: 0.6,
     metalness: 0.65,
   });
-  const pale = new THREE.MeshStandardMaterial({
-    color: 0xbfcad0,
-    roughness: 0.8,
-    metalness: 0.1,
-  });
-  const fabric = new THREE.MeshStandardMaterial({
-    color: cabin.accent,
-    roughness: 0.95,
-  });
+  const pale = createShipSurfaceMaterial("fabric", 0xd5dfe3);
+  const fabric = createShipSurfaceMaterial("fabric", cabin.accent);
   const glow = new THREE.MeshStandardMaterial({
     color: cabin.accent,
     emissive: cabin.accent,
@@ -385,13 +380,25 @@ export async function createCabinFurnishings(
     bed.position.set(cabin.side * 1.65, 0, -1.7);
     root.add(bed);
     box(bed, "BedFrame", [1.6, 0.37, 2.45], [0, 0.255, 0]);
-    box(bed, "Mattress", [1.48, 0.18, 2.28], [0, 0.53, 0], pale);
-    box(bed, "ExpeditionBlanket", [1.5, 0.06, 1.65], [0, 0.645, 0.3], fabric);
-    box(bed, "Pillow", [0.98, 0.13, 0.4], [0, 0.68, -0.84], pale);
+    for (const part of [
+      { name: "Mattress", size: [1.48, 0.26, 2.28], at: [0, 0.57, 0], radius: 0.11, material: pale },
+      { name: "ExpeditionBlanket", size: [1.5, 0.12, 1.65], at: [0, 0.75, 0.3], radius: 0.055, material: fabric },
+      { name: "BlanketFold", size: [1.48, 0.08, 0.18], at: [0, 0.79, -0.43], radius: 0.035, material: fabric },
+      { name: "Pillow", size: [0.98, 0.18, 0.44], at: [0, 0.8, -0.84], radius: 0.085, material: pale },
+    ]) {
+      const cushion = new THREE.Mesh(
+        new RoundedBoxGeometry(part.size[0], part.size[1], part.size[2], 4, part.radius),
+        part.material,
+      );
+      cushion.name = part.name;
+      cushion.position.set(part.at[0], part.at[1], part.at[2]);
+      cushion.castShadow = cushion.receiveShadow = true;
+      bed.add(cushion);
+    }
     box(bed, "BedStatusStrip", [1.2, 0.025, 0.025], [0, 0.29, 1.24], glow);
     collider(
-      new THREE.Vector3(1.6, 0.66, 2.45),
-      cabinPoint(cabin, 1.65, 0.33, -1.7),
+      new THREE.Vector3(1.6, 0.82, 2.45),
+      cabinPoint(cabin, 1.65, 0.41, -1.7),
     );
 
     const desk = models[0];

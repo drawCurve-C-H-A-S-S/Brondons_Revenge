@@ -51,6 +51,7 @@ export function createCinematicLoadingScreen() {
     active = false;
     deck = null;
     image.onload = image.onerror = null;
+    image.removeAttribute("src");
     resolveMinimum?.();
     resolveMinimum = rejectMinimum = null;
     retry.onclick = null;
@@ -117,7 +118,7 @@ export function createCinematicLoadingScreen() {
     if (token !== generation || !active) return;
     artworkError = error instanceof Error ? error : new Error(String(error));
     console.error(
-      "[Cinematic loading] Screenshot preparation failed:",
+      "[Cinematic loading] Artwork preparation failed:",
       artworkError,
     );
     rejectMinimum?.(artworkError);

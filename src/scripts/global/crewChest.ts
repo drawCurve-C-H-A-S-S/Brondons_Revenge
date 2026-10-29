@@ -1,20 +1,13 @@
 import * as THREE from "three";
+import { createShipSurfaceMaterial } from "./shipSurface.js";
 
 export const CREW_CHEST_SIZE = { x: 1.32, y: 0.68, z: 0.82 };
 
 export function createCrewChest(accent = 0x6ad9e8) {
   const root = new THREE.Group();
   root.name = "CrewFootlocker";
-  const steel = new THREE.MeshStandardMaterial({
-    color: 0xc4c4c4,
-    roughness: 0.6,
-    metalness: 0.65,
-  });
-  const pale = new THREE.MeshStandardMaterial({
-    color: 0xbfcad0,
-    roughness: 0.8,
-    metalness: 0.1,
-  });
+  const steel = createShipSurfaceMaterial("painted-metal", 0xc4c4c4);
+  const pale = createShipSurfaceMaterial("trim", 0xbfcad0);
   const dark = new THREE.MeshStandardMaterial({
     color: 0x0b111b,
     roughness: 0.9,

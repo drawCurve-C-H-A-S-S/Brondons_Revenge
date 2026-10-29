@@ -17,16 +17,21 @@
   --comic-paper: #f7fbff;
   --comic-red: #f34851;
   --comic-cyan: #43c9eb;
+  --menu-accent: var(--comic-cyan);
   --comic-yellow: #ffdb57;
   --comic-green: #70dfa4;
   --comic-body: "Comic Sans MS", "Chalkboard SE", cursive;
   --comic-display:
     Impact, Haettenschweiler, "Franklin Gothic Heavy", sans-serif;
   --menu-font: "Sefa", monospace;
+  --settings-font: var(--comic-body);
   --comic-dots: radial-gradient(circle, #17191f14 0.7px, transparent 1px);
 }
 html[data-menu-font="comic-sans"] {
   --menu-font: "Comic Sans MS", "Chalkboard SE", cursive;
+}
+html:is([data-menu-font="sefa"], [data-menu-font="comic-sans"]) {
+  --settings-font: var(--menu-font);
 }
 
 html,
@@ -1398,23 +1403,8 @@ body.ship-map-open
   flex-shrink: 0;
   min-width: 44px;
 }
-#pause-controls-description {
-  color: #9ab5c6;
-}
 #pause-controls-panel {
   min-height: 0;
-}
-#pause-controls-panel .controls-group {
-  position: relative;
-  border: 3px solid var(--comic-ink);
-  border-radius: 3px;
-  box-shadow: 3px 3px 0 var(--comic-ink);
-  background: var(--comic-paper);
-  padding: 16px;
-}
-#pause-controls-panel .controls-group > * {
-  position: relative;
-  z-index: 1;
 }
 #pause-controls-list {
   display: flex;
@@ -1491,9 +1481,6 @@ body.ship-map-open
   color: var(--comic-ink);
   font-variant-numeric: tabular-nums;
 }
-#pause-menu #pause-sound-panel,
-#pause-menu #pause-display-panel,
-#pause-menu #pause-controls-panel,
 #pause-menu #pause-developer-form {
   box-sizing: border-box;
   width: 100%;
@@ -1504,42 +1491,12 @@ body.ship-map-open
   justify-content: safe center;
   padding: 7vh 50vw 7vh 0;
 }
-#pause-menu #pause-sound-panel > *,
-#pause-menu #pause-display-panel > *,
-#pause-menu #pause-controls-panel > *,
 #pause-menu #pause-developer-form > * {
   width: min(360px, 26vw);
 }
-#pause-menu #pause-sound-panel > button,
-#pause-menu #pause-display-panel > button,
-#pause-menu #pause-controls-panel > button,
 #pause-menu #pause-developer-form > button {
   min-height: 10vh;
   padding: 2vh 2.5vw;
-}
-#pause-sound-panel .sound-slider-group {
-  position: relative;
-  border: 3px solid var(--comic-ink);
-  border-radius: 3px;
-  box-shadow: 3px 3px 0 var(--comic-ink);
-  background: var(--comic-paper);
-  padding: 16px;
-}
-#pause-display-panel .sound-slider-group {
-  position: relative;
-  border: 3px solid var(--comic-ink);
-  border-radius: 3px;
-  box-shadow: 3px 3px 0 var(--comic-ink);
-  background: var(--comic-paper);
-  padding: 16px;
-}
-#pause-sound-panel .sound-slider-group > * {
-  position: relative;
-  z-index: 1;
-}
-#pause-display-panel .sound-slider-group > * {
-  position: relative;
-  z-index: 1;
 }
 #pause-menu input[type="range"] {
   width: 100%;
@@ -1975,14 +1932,16 @@ body[data-scene="scene1"] .scene-credits-btn {
 }
 .character-cards {
   display: flex;
-  gap: 28px;
+  gap: clamp(8px, 2.4vw, 24px);
 }
 .character-card {
-  width: 240px;
-  padding: 36px 20px;
+  width: clamp(92px, 26vw, 220px);
+  padding: clamp(10px, 2vw, 24px) clamp(6px, 1.4vw, 20px);
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 12px;
+  text-align: center;
   font-family: monospace;
   color: #88aacc;
   cursor: pointer;
@@ -1998,14 +1957,34 @@ body[data-scene="scene1"] .scene-credits-btn {
   outline: none;
 }
 .character-card-name {
-  font-size: 26px;
+  font-size: clamp(12px, 2vw, 26px);
   font-weight: bold;
-  letter-spacing: 4px;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 .character-card-note {
   font-size: 13px;
   opacity: 0.75;
+}
+.character-portrait {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  object-fit: contain;
+  background: radial-gradient(circle, #324c6a, #101b2c);
+  border: 1px solid rgba(136, 170, 204, 0.45);
+  border-radius: 12px;
+}
+#character-select-status {
+  max-width: 90vw;
+  margin: 0;
+  color: #cfe0f0;
+  font: 12px monospace;
+  text-align: center;
+}
+#character-select-status:empty {
+  display: none;
 }
 #title-icon-bar {
   position: absolute;
@@ -4037,7 +4016,6 @@ body.touch-device .space-health-heading {
   padding-bottom: 10px;
 }
 :is(
-  #pause-controls-description,
   .scene-menu-footer,
   #control-card footer,
   #pause-sound-panel output,
@@ -4199,7 +4177,7 @@ body.touch-device .space-health-heading {
 .pause-control-device > h2 {
   margin: 12px 0 4px;
   color: var(--comic-ink);
-  font: 400 24px/1.2 var(--comic-display);
+  font: 700 20px/1.3 var(--settings-font);
 }
 .control-device-connection {
   font-size: 12px;
@@ -4208,14 +4186,14 @@ body.touch-device .space-health-heading {
 .pause-control-entry h3 {
   margin: 0 0 10px;
   color: var(--comic-ink);
-  font: 800 15px/1.3 var(--comic-body);
+  font: 700 15px/1.3 var(--settings-font);
 }
 .control-bindings {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
   gap: 8px 14px;
   margin: 0;
-  font: 600 13px/1.5 var(--comic-body);
+  font: 400 13px/1.5 var(--settings-font);
 }
 .control-bindings dt {
   font-weight: 800;
@@ -4242,7 +4220,7 @@ body.touch-device .space-health-heading {
 .controller-device-label {
   display: block;
   margin-bottom: 6px;
-  font: 800 13px/1.4 var(--comic-body);
+  font: 700 13px/1.4 var(--settings-font);
 }
 #controller-device,
 #controller-type-select {
@@ -4253,7 +4231,16 @@ body.touch-device .space-health-heading {
   border: 2px solid var(--comic-ink);
   background: var(--comic-paper);
   color: var(--comic-ink);
-  font: 600 13px/1.4 var(--comic-body);
+  font: 400 13px/1.4 var(--settings-font);
+}
+#controller-type-options {
+  min-width: 0;
+  margin: 12px 0;
+  padding: 0;
+  border: 0;
+}
+#controller-type-options legend {
+  margin-bottom: 6px;
 }
 @media (max-width: 560px) {
   .control-bindings {
@@ -4287,8 +4274,8 @@ body.touch-device .space-health-heading {
   cursor: not-allowed;
 }
 #pause-menu #pause-controls-panel button:not([data-pause-back]) {
-  min-height: 6vh;
-  padding: 1.5vh 1.5vw;
+  min-height: 48px;
+  padding: 12px;
 }
 #controller-status,
 #controller-setup-step {
@@ -4354,9 +4341,7 @@ body.controller-mode #menu-buttons .controller-menu-hint {
 body[data-scene="scene1"] #menu-buttons .controller-menu-hint {
   display: none;
 }
-body.controller-mode
-  :is(#pause-menu, #scene-quick-menu, #credits-dialog, #menu-buttons)
-  .controller-focused {
+body.controller-mode #menu-buttons .controller-focused {
   outline: 4px solid var(--comic-cyan);
   outline-offset: 4px;
   background: var(--comic-yellow) !important;
@@ -4365,6 +4350,8 @@ body.controller-mode
 }
 body.controller-mode
   :is(#pause-controls-list, #credits-dialog-content).controller-focused {
+  outline: 3px solid var(--comic-cyan);
+  outline-offset: 4px;
   background: transparent !important;
 }
 #controller-layout-options {
@@ -5344,7 +5331,8 @@ body.quick-menu-open #stealth-retry {
   text-align: center;
   white-space: nowrap;
 }
-.menu-title-main {
+.menu-title-main,
+.menu-title-kicker {
   position: relative;
   font-family: var(--menu-font);
   font-size: clamp(38px, 7.4vw, 108px);
@@ -5368,7 +5356,9 @@ body.quick-menu-open #stealth-retry {
 }
 /* Red and blue chromatic ghosts flicker in before settling. */
 .menu-title-main::before,
-.menu-title-main::after {
+.menu-title-main::after,
+.menu-title-kicker::before,
+.menu-title-kicker::after {
   content: attr(data-text);
   position: absolute;
   inset: 0;
@@ -5378,28 +5368,23 @@ body.quick-menu-open #stealth-retry {
   mix-blend-mode: screen;
   pointer-events: none;
 }
-.menu-title-main::before {
+.menu-title-main::before,
+.menu-title-kicker::before {
   color: rgba(255, 24, 56, 0.85);
   animation:
     menu-title-ghost-red 2.4s steps(1, end) both,
     menu-title-glitch 7s steps(1, end) 2.4s infinite;
 }
-.menu-title-main::after {
+.menu-title-main::after,
+.menu-title-kicker::after {
   color: rgba(40, 120, 255, 0.85);
   animation:
     menu-title-ghost-blue 2.4s steps(1, end) both,
     menu-title-glitch 7s steps(1, end) 2.6s infinite reverse;
 }
 .menu-title-kicker {
-  font-family: var(--menu-font);
-  font-size: clamp(12px, 1.35vw, 18px);
-  letter-spacing: 0.6em;
-  margin-right: -0.6em;
+  font-size: clamp(16px, 1.8vw, 24px);
   text-transform: uppercase;
-  color: #9fb4d8;
-  text-shadow: 0 0 10px rgba(180, 20, 40, 0.8);
-  opacity: 0;
-  animation: menu-title-subtitle 1.4s ease-out 1.6s forwards;
 }
 @keyframes menu-title-emerge {
   0% {
@@ -5522,7 +5507,9 @@ body.quick-menu-open #stealth-retry {
     animation: none;
   }
   .menu-title-main::before,
-  .menu-title-main::after {
+  .menu-title-main::after,
+  .menu-title-kicker::before,
+  .menu-title-kicker::after {
     opacity: 0;
   }
   .menu-title-kicker {
@@ -5729,20 +5716,10 @@ body[data-scene="scene1"] #menu-title-card {
   filter: drop-shadow(3px 4px 0 var(--comic-ink));
 }
 body[data-scene="scene1"] .menu-title-main,
-#prologue-title .menu-title-main {
-  -webkit-text-stroke: 1px var(--comic-ink);
-}
 body[data-scene="scene1"] .menu-title-kicker,
+#prologue-title .menu-title-main,
 #prologue-title .menu-title-kicker {
-  padding: 7px 14px;
-  margin-right: 0;
-  color: var(--comic-ink);
-  background: var(--comic-paper);
-  border: 2px solid var(--comic-ink);
-  box-shadow: 3px 3px 0 var(--comic-ink);
-  letter-spacing: 0.18em;
-  text-shadow: none;
-  animation: fadeIn 600ms ease-out 1.6s both;
+  -webkit-text-stroke: 1px var(--comic-ink);
 }
 body[data-scene="scene1"]
   #menu-buttons
@@ -5792,17 +5769,28 @@ body[data-scene="scene1"]
 body[data-scene="scene1"]
   #menu-buttons
   :is(#title-actions, #mode-select, #character-select)
-  .menu-btn:is(:hover, :focus-visible, .controller-focused) {
+  .menu-btn:is(:hover, :focus-visible, .controller-focused),
+:is(#pause-menu, #scene-quick-menu, #credits-dialog)
+  :is(button, input:not([type="checkbox"]), select):is(:hover, :focus-visible, .controller-focused):not(:disabled),
+#pause-menu
+  .settings-toggle:has(input:not(:disabled)):is(:hover, :has(:focus-visible, .controller-focused)) {
   color: var(--comic-ink);
   background: color-mix(
     in srgb,
     var(--menu-accent) 32%,
     var(--comic-paper)
   ) !important;
-  letter-spacing: 0.18em;
+  opacity: 1;
+  box-shadow: 5px 5px 0 var(--comic-ink);
   text-shadow: none;
   outline: 3px solid var(--menu-accent);
   outline-offset: 4px;
+}
+body[data-scene="scene1"]
+  #menu-buttons
+  :is(#title-actions, #mode-select, #character-select)
+  .menu-btn:is(:hover, :focus-visible, .controller-focused) {
+  letter-spacing: 0.18em;
   transform: none;
   translate: none;
   filter: none;
@@ -5846,19 +5834,6 @@ body[data-scene="scene1"]
   outline-offset: 3px;
   transform: none;
 }
-#pause-menu[data-screen="controls"] #pause-controls-panel .controls-group {
-  transform: none;
-  rotate: none;
-}
-#pause-menu[data-screen="controls"]
-  #pause-controls-panel
-  button[data-pause-back] {
-  transform: translateY(-50%);
-  rotate: none;
-}
-#pause-menu[data-screen="controls"] #pause-controls-panel {
-  gap: 2vh;
-}
 #pause-menu[data-screen="controls"] #pause-controls-list {
   max-height: min(42dvh, 430px);
   scrollbar-width: auto;
@@ -5886,7 +5861,7 @@ body[data-scene="scene1"]
   gap: 8px;
   padding-top: 6px;
   color: var(--comic-ink);
-  font: 700 12px/1.3 var(--menu-font);
+  font: 400 12px/1.3 var(--settings-font);
 }
 #pause-controls-panel .controls-scroll-hint svg {
   width: 17px;
@@ -5911,7 +5886,7 @@ body[data-scene="scene1"]
   color: var(--comic-ink);
   background: var(--comic-paper);
   border: 2px solid var(--comic-ink);
-  font: 600 15px/1.3 var(--menu-font);
+  font: 400 15px/1.3 var(--settings-font);
   color-scheme: light;
   cursor: pointer;
 }
@@ -7743,14 +7718,7 @@ body.touch-device .finale-controls {
   min-height: 10vh;
   padding: 0;
 }
-#pause-menu
-  :is(
-    #pause-sound-panel,
-    #pause-controls-panel,
-    #pause-display-panel,
-    #pause-developer-form
-  )
-  button[data-pause-back] {
+#pause-menu #pause-developer-form button[data-pause-back] {
   position: fixed;
   top: 50%;
   left: calc(25vw + min(180px, 13vw) + 2vw);
@@ -7813,14 +7781,7 @@ body.touch-device .finale-controls {
   #pause-menu #pause-home #pause-resume {
     left: 51vw;
   }
-  #pause-menu
-    :is(
-      #pause-sound-panel,
-      #pause-controls-panel,
-      #pause-display-panel,
-      #pause-developer-form
-    )
-    button[data-pause-back],
+  #pause-menu #pause-developer-form button[data-pause-back],
   #scene-quick-menu #scene-quick-close {
     left: 51vw;
   }
@@ -7836,6 +7797,344 @@ body.touch-device .finale-controls {
     transition: none;
   }
 }
+/* Settings and the lobby share a scrollable form with a persistent footer. */
+#pause-menu:is(
+  [data-screen="story-setup"],
+  [data-screen="display"],
+  [data-screen="sound"],
+  [data-screen="controls"]
+) {
+  box-sizing: border-box;
+  height: 100dvh;
+  max-height: 100dvh;
+  padding: clamp(16px, 4vh, 40px) 120px clamp(16px, 4vh, 40px) clamp(20px, 4vw, 60px);
+  overflow: hidden;
+  justify-content: center;
+  gap: 0;
+}
+#pause-menu .menu-form-panel {
+  box-sizing: border-box;
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  width: min(600px, 50vw);
+  max-width: 100%;
+  min-height: 0;
+  max-height: calc(100dvh - 100px);
+  margin: 0;
+  padding: 0;
+  gap: 0;
+  align-items: stretch;
+  justify-content: flex-start;
+  overflow: hidden;
+  color: var(--comic-ink);
+  background: var(--comic-paper);
+  border: 3px solid var(--comic-ink);
+  border-radius: 6px;
+  box-shadow: 8px 8px 0 #101522aa;
+  font: 400 14px/1.5 var(--settings-font);
+  letter-spacing: normal;
+}
+#pause-menu .menu-form-panel > * {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+#pause-menu .menu-panel-heading {
+  flex: 0 0 auto;
+  padding: 22px 24px 18px;
+  border-bottom: 2px solid #17191f24;
+}
+#pause-menu .menu-panel-heading h2 {
+  margin: 8px 0;
+  color: var(--comic-ink);
+  font: 700 clamp(24px, 2.4vw, 36px)/1.2 var(--settings-font);
+  letter-spacing: normal;
+}
+#pause-menu .menu-panel-heading > p:not(.menu-panel-eyebrow) {
+  margin: 0;
+  color: #505663;
+  font-size: 13px;
+}
+#pause-menu .menu-panel-eyebrow {
+  display: inline-block;
+  margin: 0;
+  padding: 3px 8px;
+  color: var(--comic-ink);
+  background: var(--comic-yellow);
+  border: 2px solid var(--comic-ink);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+#pause-menu .menu-panel-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 18px 24px 22px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: #5f6c78 #e5e4df;
+}
+#pause-menu .menu-panel-content::-webkit-scrollbar {
+  display: block;
+  width: 8px;
+}
+#pause-menu .menu-panel-content::-webkit-scrollbar-thumb {
+  background: #5f6c78;
+  border: 2px solid var(--comic-paper);
+  border-radius: 8px;
+}
+#pause-menu .menu-panel-footer {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px 20px;
+  border-top: 2px solid #17191f24;
+  background: #e9e8e1;
+}
+#pause-menu .menu-form-panel button {
+  min-height: 48px;
+  padding: 12px 16px;
+  opacity: 1;
+  transform: none;
+  rotate: none;
+  font: 700 15px/1.35 var(--settings-font);
+}
+#pause-menu .menu-panel-footer button[data-pause-back] {
+  position: static;
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 90px;
+  transform: none;
+}
+#pause-menu #story-setup-start {
+  flex: 1 1 160px;
+  background: var(--comic-yellow);
+}
+#pause-menu #story-setup-panel .lobby-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+#pause-menu #story-setup-panel .lobby-setting {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: 32px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 78px;
+  text-align: left;
+  background: #fffdf6;
+}
+#pause-menu .lobby-setting-number {
+  color: #697381;
+  font: 700 20px/1 var(--settings-font);
+}
+#pause-menu .lobby-setting strong,
+#pause-display-panel .display-setting strong {
+  display: block;
+  font-size: 14px;
+  line-height: 1.35;
+}
+#pause-menu .lobby-setting small,
+#pause-display-panel .display-setting small {
+  display: block;
+  margin-top: 3px;
+  color: #59616b;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+#pause-menu .lobby-setting svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+}
+#pause-menu .menu-settings-note {
+  margin: 4px 0 0;
+  color: #59616b;
+  font-size: 12px;
+  font-weight: 500;
+}
+#pause-menu .menu-form-panel .settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 16px;
+}
+#pause-menu .menu-form-panel .settings-group {
+  min-width: 0;
+  margin: 0;
+  padding: 8px 12px 10px;
+  border: 2px solid #17191f35;
+  border-radius: 4px;
+  background: #fffdf7;
+}
+#pause-menu .menu-form-panel .settings-group legend {
+  padding: 0 6px;
+  color: #39414d;
+  font-size: 12px;
+  font-weight: 700;
+}
+#pause-menu .controls-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+#pause-menu .controls-settings > * {
+  flex: 0 0 auto;
+}
+#pause-menu .controls-reference:has(#pause-controls-list:empty) {
+  display: none;
+}
+#pause-display-panel .display-appearance {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 16px;
+  grid-column: 1 / -1;
+}
+#pause-display-panel .display-wide {
+  grid-column: 1 / -1;
+}
+#pause-display-panel .display-setting {
+  min-width: 0;
+  padding: 10px 0;
+}
+#pause-menu .menu-form-panel .settings-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  cursor: pointer;
+}
+#pause-display-panel .display-setting > span {
+  min-width: 0;
+}
+#pause-display-panel #menu-font-select {
+  box-sizing: border-box;
+  max-width: 100%;
+  margin-top: 8px;
+  background: white;
+  font-size: 14px;
+}
+#pause-menu .menu-form-panel .settings-toggle input[type="checkbox"] {
+  appearance: none;
+  position: relative;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 26px;
+  margin: 0;
+  border: 2px solid var(--comic-ink);
+  border-radius: 16px;
+  background: #c5cbd1;
+  cursor: pointer;
+}
+#pause-menu .menu-form-panel .settings-toggle input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--comic-ink);
+}
+#pause-menu .menu-form-panel .settings-toggle input[type="checkbox"]:checked {
+  background: var(--comic-cyan);
+}
+#pause-menu .menu-form-panel .settings-toggle input[type="checkbox"]:checked::before {
+  transform: translateX(18px);
+}
+#pause-menu .menu-form-panel output {
+  min-width: 45px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: #f6df9c;
+  text-align: center;
+  font-size: 12px;
+}
+#pause-menu .menu-form-panel input[type="range"] {
+  margin: 8px 0 0;
+  accent-color: #197989;
+}
+body.menu-form-open #pause-side-bar {
+  width: clamp(54px, 6vw, 100px);
+  height: 100dvh;
+}
+body.menu-form-open #pause-side-bar span {
+  font-family: var(--settings-font);
+  font-weight: 700;
+  font-size: clamp(32px, 4.7vw, 72px);
+  letter-spacing: 8px;
+}
+body:has(#pause-menu[data-screen="story-setup"]) #pause-side-bar span {
+  font-family: "Sefa", monospace;
+  font-weight: 400;
+}
+body.menu-form-open #pause-menu > .controller-menu-hint {
+  flex: 0 0 auto;
+  width: min(600px, 50vw);
+  margin: 14px 0 0;
+  color: #fff8e9;
+  font: 400 12px/1.4 var(--settings-font);
+  text-shadow: 1px 1px 2px #101522;
+}
+@media (max-width: 900px) {
+  #pause-menu:is(
+    [data-screen="story-setup"],
+    [data-screen="display"],
+    [data-screen="sound"],
+    [data-screen="controls"]
+  ) {
+    padding: 16px 82px 16px 16px;
+  }
+  #pause-menu .menu-form-panel,
+  body.menu-form-open #pause-menu > .controller-menu-hint {
+    width: min(600px, 100%);
+  }
+  body.menu-form-open #pause-character-preview {
+    opacity: 0.25;
+  }
+}
+@media (max-width: 600px) {
+  #pause-menu .menu-panel-heading,
+  #pause-menu .menu-panel-content,
+  #pause-menu .menu-panel-footer {
+    padding: 14px;
+  }
+  #pause-menu .menu-form-panel .settings-grid,
+  #pause-display-panel .display-appearance {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #pause-menu #story-setup-panel .lobby-setting {
+    grid-template-columns: 24px minmax(0, 1fr) 14px;
+    gap: 10px;
+    padding: 12px;
+  }
+}
+@media (max-height: 600px) {
+  #pause-menu .menu-panel-heading {
+    padding: 12px 18px;
+  }
+  #pause-menu .menu-panel-heading h2 {
+    font-size: 24px;
+    margin: 6px 0;
+  }
+  #pause-menu .menu-panel-footer {
+    padding: 12px 18px;
+  }
+}
+
 #pause-overlay.active {
   backdrop-filter: blur(20px) saturate(0.58) brightness(0.48);
   -webkit-backdrop-filter: blur(20px) saturate(0.58) brightness(0.48);

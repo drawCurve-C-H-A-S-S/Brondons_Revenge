@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import { createSampleEmitter } from "../../helpers/audio/spatialAudio.js";
+import { RECORDED_SOUNDS } from "../../helpers/audio/recordedSounds.js";
 import { loadPlayerModel } from "../../core/loader.js";
 import {
   PLANET_RUPTURE,
@@ -37,6 +39,10 @@ export function createFinaleAftermath(
   cockpit.name = "PrimeFrameCockpitInterior";
   root.add(cockpit);
   forest.visible = cockpit.visible = false;
+  let burning = false;
+  const fireSound = createSampleEmitter(RECORDED_SOUNDS.fire[0], scene, boy, {
+    radius: 42, volume: 0.8, enabled: () => burning,
+  });
   const burnUniforms = { uBurn: { value: 0 }, uScorchTime: { value: 0 } };
   const fireUniforms = { uTime: { value: 0 }, uPower: { value: 0 } };
   const fireMaterial = new THREE.ShaderMaterial({
@@ -393,6 +399,7 @@ export function createFinaleAftermath(
     ready,
     update(phaseTime: number, time: number, hero: THREE.Object3D) {
       const state = samplePlanetAftermath(phaseTime);
+      burning = state.forest && phaseTime >= PLANET_RUPTURE.scorch - 0.25;
       const pullingBack =
         phaseTime >= PLANET_RUPTURE.returnToDuel && state.orbit < 1;
       const cockpitOpacity =
@@ -567,6 +574,7 @@ export function createFinaleAftermath(
     dispose() {
       if (disposed) return;
       disposed = true;
+      fireSound.dispose();
       headFire.removeFromParent();
       headFire.geometry.dispose();
       headFire.material.dispose();

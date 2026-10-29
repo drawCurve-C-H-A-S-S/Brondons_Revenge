@@ -25,6 +25,9 @@ import explosionUrl from "../../assets/sounds/explosion.mp3?url";
 import toiletFlushUrl from "../../assets/sounds/toilet-flush.mp3?url";
 import waterUrl from "../../assets/sounds/water.mp3?url";
 import chestUrl from "../../assets/sounds/chest.ogg?url";
+import * as THREE from "three";
+import { RECORDED_SOUNDS } from "./recordedSounds.js";
+import { playSample, type SoundPosition } from "./spatialAudio.js";
 
 export const SFX_URLS = {
   robotStep: robotStepUrl,
@@ -52,7 +55,7 @@ const SYNTH_SFX = [
   "revengeShout",
 ] as const;
 type SynthSfxName = (typeof SYNTH_SFX)[number];
-export type SfxName = keyof typeof SFX_URLS | SynthSfxName;
+export type SfxName = keyof typeof SFX_URLS | keyof typeof RECORDED_SOUNDS | SynthSfxName;
 
 export const SFX_MIX: Partial<Record<SfxName, number>> = {
   clank: 0.22,
@@ -63,6 +66,13 @@ export const SFX_MIX: Partial<Record<SfxName, number>> = {
   botShot: 0.22,
   pew: 0.3,
   revengeShout: 0.6,
+  mechStep: 0.7,
+  swordClash: 0.85,
+  woodBreak: 0.7,
+  glassBreak: 0.55,
+  shieldHit: 0.65,
+  doorClose: 0.65,
+  metalHit: 0.55,
 };
 export const FOOTSTEP_GAIN = 1.45;
 
@@ -82,6 +92,20 @@ const MIN_GAP_MS: Partial<Record<SfxName, number>> = {
   revengeShout: 1000,
 };
 const lastPlayed = new Map<string, number>();
+const sampleVariants = new Map<SfxName, number>();
+function recorded(name: SfxName): name is keyof typeof RECORDED_SOUNDS {
+  return name in RECORDED_SOUNDS;
+}
+function sampleUrl(name: SfxName) {
+  if (!recorded(name)) return name in SFX_URLS ? SFX_URLS[name as keyof typeof SFX_URLS] : null;
+  const clips = RECORDED_SOUNDS[name];
+  const previous = sampleVariants.get(name) ?? -1;
+  const index = clips.length === 1 ? 0 : previous < 0
+    ? Math.floor(Math.random() * clips.length)
+    : (previous + 1 + Math.floor(Math.random() * (clips.length - 1))) % clips.length;
+  sampleVariants.set(name, index);
+  return clips[index];
+}
 const synthesized = new Map<SynthSfxName, AudioBuffer>();
 let synthWarningShown = false;
 function isSynthSfx(name: SfxName): name is SynthSfxName {
@@ -195,21 +219,23 @@ export function playSfx(name: SfxName, volume = 1, rate = 1) {
   if (now - (lastPlayed.get(name) ?? -1e9) < (MIN_GAP_MS[name] ?? 0)) return;
   lastPlayed.set(name, now);
   const level =
-    Math.min(1, Math.max(0, volume * (SFX_MIX[name] ?? 1))) * getSfxGain();
-  if (level <= 0) return;
-  if (isSynthSfx(name)) {
-    return playSynthSfx(name, level, rate);
+    Math.min(1, Math.max(0, volume * (SFX_MIX[name] ?? 1)));
+  if (level <= 0 || getSfxGain() <= 0) return;
+  if (recorded(name)) {
+    const url = sampleUrl(name);
+    if (url) return playSample(url, { volume: level, rate });
   }
-  if (typeof Audio === "undefined") return;
-  const audio = new Audio(cachedAssetUrl(SFX_URLS[name]));
-  audio.volume = level;
-  audio.playbackRate = rate;
-  audio
-    .play()
-    .catch((error) =>
+  if (isSynthSfx(name)) {
+    return playSynthSfx(name, level * getSfxGain(), rate);
+  }
+  if (name in SFX_URLS && typeof Audio !== "undefined") {
+    const audio = new Audio(cachedAssetUrl(SFX_URLS[name as keyof typeof SFX_URLS]));
+    audio.volume = level * getSfxGain();
+    audio.playbackRate = rate;
+    audio.play().catch((error) =>
       console.warn("[Audio] Sound effect playback failed:", name, error),
     );
-  return;
+  }
 }
 
 /** Distance-attenuated sfx at a world position, relative to the supplied listener. */
@@ -220,6 +246,12 @@ export function playSfxAt(
   radius = 25,
   volume = 1,
 ) {
+  const url = recorded(name) ? sampleUrl(name) : null;
+  if (url) return playSample(url, {
+    position: source, listener, radius,
+    volume: Math.min(1, Math.max(0, volume * (SFX_MIX[name] ?? 1))),
+    rate: 0.97 + Math.random() * 0.06,
+  });
   const d = Math.hypot(
     source.x - listener.x,
     source.y - listener.y,
@@ -227,6 +259,24 @@ export function playSfxAt(
   );
   const falloff = 1 - d / radius;
   if (falloff > 0) playSfx(name, volume * falloff * falloff);
+}
+
+export function playWorldSfx(name: SfxName, position: SoundPosition, radius = 25, volume = 1, rate = 1) {
+  const url = sampleUrl(name);
+  if (!url) throw new Error(`World sound requires a recorded effect: ${name}`);
+  return playSample(url, {
+    position: position instanceof THREE.Object3D ? position.getWorldPosition(new THREE.Vector3()) : position,
+    radius, volume: Math.min(1, Math.max(0, volume * (SFX_MIX[name] ?? 1))),
+    rate: rate * (0.97 + Math.random() * 0.06),
+  });
+}
+
+const doorDirections = new WeakMap<object, number>();
+export function playDoorMovement(source: THREE.Object3D, open: number, target: number) {
+  const direction = Math.sign(target - open);
+  if (direction !== 0 && direction !== (doorDirections.get(source) ?? 0))
+    playWorldSfx(direction > 0 ? "shipDoor" : "doorClose", source, 24, 0.75);
+  doorDirections.set(source, direction);
 }
 
 function createAmbientLoop(url: string, blendSeconds: number) {
@@ -341,81 +391,17 @@ export function stopRunningWaterAudio() {
 }
 
 export type Foot = "left" | "right";
-let footstepBuffers: {
-  context: AudioContext;
-  left: AudioBuffer;
-  right: AudioBuffer;
-} | null = null;
-let footstepWarningShown = false;
-
-function createFootstepBuffer(context: BaseAudioContext, seed: number) {
-  const buffer = context.createBuffer(
-    1,
-    Math.ceil(context.sampleRate * 0.22),
-    context.sampleRate,
-  );
-  const samples = buffer.getChannelData(0);
-  const lowPass = 1 - Math.exp((-Math.PI * 2 * 420) / context.sampleRate);
-  const bodyPass = 1 - Math.exp((-Math.PI * 2 * 120) / context.sampleRate);
-  let low = 0,
-    body = 0;
-  for (let frame = 0; frame < samples.length; frame++) {
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-    const noise = seed / 2147483648 - 1,
-      time = frame / context.sampleRate;
-    low += (noise - low) * lowPass;
-    body += (low - body) * bodyPass;
-    const attack = 1 - Math.exp(-time * 900);
-    const heel =
-      Math.sin(Math.PI * 2 * (54 * time - 55 * time * time)) *
-      Math.exp(-time * 32);
-    const scuff = (body * 0.8 + low * 0.2) * Math.exp(-time * 27);
-    const fade = Math.min(
-      1,
-      (samples.length - 1 - frame) / (context.sampleRate * 0.02),
-    );
-    samples[frame] = (heel * 0.7 + scuff * 0.65) * attack * fade;
-  }
-  return buffer;
+let footstepSurface: "floor" | "grass" = "floor";
+export function setFootstepSurface(surface: "floor" | "grass") {
+  footstepSurface = surface;
 }
 
 export function playFootstep(foot: Foot, volume: number) {
-  const gain = Math.min(1, Math.max(0, volume * FOOTSTEP_GAIN)) * getSfxGain();
-  if (
-    gain <= 0 ||
-    getAudioSettings().paused ||
-    (typeof document !== "undefined" && document.hidden)
-  )
-    return;
-  if (
-    typeof window === "undefined" ||
-    typeof window.AudioContext !== "function"
-  ) {
-    if (!footstepWarningShown) {
-      console.warn("[Audio] Generated footsteps require Web Audio");
-      footstepWarningShown = true;
-    }
-    return;
-  }
-  const context = sharedAudioContext();
-  if (context.state !== "running") return;
-  footstepBuffers ??= {
-    context,
-    left: createFootstepBuffer(context, 7319),
-    right: createFootstepBuffer(context, 170916),
-  };
-  const source = context.createBufferSource(),
-    output = context.createGain();
-  source.buffer = footstepBuffers[foot];
-  source.playbackRate.value = foot === "left" ? 0.96 : 1;
-  output.gain.value = gain;
-  source.connect(output);
-  output.connect(context.destination);
-  source.onended = () => {
-    source.disconnect();
-    output.disconnect();
-  };
-  source.start();
+  const url = sampleUrl(footstepSurface === "grass" ? "footstepGrass" : "footstepFloor");
+  if (url) return playSample(url, {
+    volume: Math.min(1, Math.max(0, volume * FOOTSTEP_GAIN)),
+    rate: (foot === "left" ? 0.96 : 1) * (0.98 + Math.random() * 0.04),
+  });
 }
 
 export function playJumpSound(volume: number = 0.5) {

@@ -19,22 +19,11 @@ function images(...names: string[]) {
   const found = names.flatMap((name) => optionalImage(name) ?? []);
   return found.length ? found : [image(names[0])];
 }
-export const LOADING_IMAGE_URLS = Object.values(artwork);
-
 export const LOADING_CHAPTERS = {
   prologue: {
     chapter: "PROLOGUE / AWAKENING",
     title: "THE PRISON",
-    images: [
-      image("cabins"),
-      image("stealthbay"),
-      image("cargo"),
-      image("bloomstick"),
-      image("target"),
-      image("reactor"),
-      image("rust1"),
-      image("rust2"),
-    ],
+    images: [CAMERA_FOOTAGE["stage2-prison"]],
   },
   quarters: {
     chapter: "LEVEL 1 / LIVING QUARTERS",
@@ -51,25 +40,40 @@ export const LOADING_CHAPTERS = {
     title: "THE SURVEILLANCE HUB",
     images: images("stage2-camera-wall", "stage2-maze"),
   },
+  vents: {
+    chapter: "LEVEL 1 / MINIGAME STAGE / VENTS",
+    title: "THE VENT MAZE",
+    images: [CAMERA_FOOTAGE["stage2-vents"]],
+  },
   cargo: {
     chapter: "LEVEL 1 / MINIGAME STAGE / CARGO",
     title: "THE CARGO HOLD",
-    images: [image("stage2-cargo")],
+    images: [CAMERA_FOOTAGE.scene5],
   },
   range: {
     chapter: "LEVEL 1 / MINIGAME STAGE / RANGE",
     title: "THE TARGET RANGE",
-    images: [image("stage2-range")],
+    images: [CAMERA_FOOTAGE.scene6],
   },
   archive: {
     chapter: "LEVEL 1 / MINIGAME STAGE / TENNIS",
     title: "BLOOMSTICK TENNIS",
-    images: [image("stage2-archive")],
+    images: [CAMERA_FOOTAGE["stage2-armory"]],
   },
   rust: {
     chapter: "LEVEL 1 / MINIGAME STAGE / RUST CHAMBER",
     title: "THE RUST CHAMBER",
-    images: images("stage2-rust", "stage2-archive"),
+    images: [CAMERA_FOOTAGE["stage2-rust"]],
+  },
+  rust2: {
+    chapter: "LEVEL 1 / MINIGAME STAGE / RUST CHAMBER 2",
+    title: "THE RUST CHAMBER 2",
+    images: [CAMERA_FOOTAGE["stage2-rust2"]],
+  },
+  sequencer: {
+    chapter: "LEVEL 1 / MINIGAME STAGE / REACTOR",
+    title: "REACTOR SEQUENCER",
+    images: [CAMERA_FOOTAGE["stage2-reactor"]],
   },
   boss: {
     chapter: "LEVEL 1 / BOSS STAGE",
@@ -139,6 +143,21 @@ export const LOADING_CHAPTERS = {
 } as const;
 export type LoadingChapterId = keyof typeof LOADING_CHAPTERS;
 export type LoadingDestination = LoadingChapterId | "game";
+export const LOADING_IMAGE_URLS = [
+  ...new Set(Object.values(LOADING_CHAPTERS).flatMap(({ images }) => images)),
+];
+export const CAMERA_LOADING_CHAPTERS: Readonly<
+  Record<CameraFeedId, LoadingChapterId>
+> = {
+  "stage2-prison": "prologue",
+  scene5: "cargo",
+  "stage2-armory": "archive",
+  "stage2-rust": "rust",
+  "stage2-vents": "vents",
+  scene6: "range",
+  "stage2-reactor": "sequencer",
+  "stage2-rust2": "rust2",
+};
 
 export const SCENE_CHOICES = [
   [1, "Main Menu"],
@@ -214,3 +233,5 @@ export function createLoadingSlideDeck(
     },
   };
 }
+import { CAMERA_FOOTAGE } from "../scripts/global/surveillanceFootage.js";
+import type { CameraFeedId } from "../scenes/level 1 stage 2/stageTwoLayout.js";

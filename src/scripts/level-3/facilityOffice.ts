@@ -25,7 +25,34 @@ export const FACILITY_OFFICE_SEATS = [-4.2, -2.1, 0, 2.1, 4.2].map((x) =>
   }),
 );
 
+export function facilityOfficeCameraLimit(
+  camera: THREE.PerspectiveCamera,
+  fov = camera.fov,
+) {
+  const lensMargin = Math.max(
+    0.6,
+    camera.near * Math.tan(THREE.MathUtils.degToRad(fov / 2)) *
+      Math.hypot(1, camera.aspect) + 0.3,
+  );
+  return FACILITY.z + FACILITY_OFFICE.front - lensMargin;
+}
+
 export function placeFacilityOfficeChair(chair: THREE.Group, index: number) {
+  chair.traverse((node) => {
+    if (!(node instanceof THREE.Mesh)) return;
+    for (const material of Array.isArray(node.material)
+      ? node.material
+      : [node.material]) {
+      if (!(material instanceof THREE.MeshStandardMaterial)) continue;
+      material.color.setHex(0x69717a);
+      material.emissive.setHex(0x000000);
+      material.emissiveIntensity = 0;
+      material.roughness = Math.max(0.85, material.roughness);
+      material.metalness = Math.min(0.02, material.metalness);
+      material.envMapIntensity = Math.min(0.25, material.envMapIntensity);
+      material.toneMapped = true;
+    }
+  });
   const seat = FACILITY_OFFICE_SEATS[index];
   fitRoomProp(chair, 1.2, 0.95, 1.05, seat.yaw);
   chair.position.add(new THREE.Vector3(

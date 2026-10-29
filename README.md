@@ -53,6 +53,14 @@ Build the project to the `dist/` folder:
 npm run build
 ```
 
+### Sound effects and ambience
+
+Recorded effects are cached locally and spatially mixed against the active
+camera. The **Sound effects** setting controls effects and ambience independently
+of music. Menus and hidden tabs silence them, and scene changes release outgoing
+emitters. Sources, licenses and gameplay mappings are documented in
+[sound asset credits](./src/assets/sounds/foley/SOURCES.md) and the in-game credits.
+
 ### Code quality
 
 Check linting, formatting, and TypeScript without changing files:
@@ -86,6 +94,8 @@ His authored materials and animations are preserved. The branch's two-tone cel
 shader uses the emissive colour (or base colour), with half-bright shadows and
 flat-colour face skin and eye whites. It is applied through the standard skinned
 material pipeline so silhouette and teleport/melt effects remain compatible.
+Hologram rim lighting uses standard-material normals only; unlit outline materials
+keep their scan, opacity and dissolve effects without lighting-only shader variables.
 The `brondon-model` goggles update (`abdba2b`) disables cel shading while night
 vision is active, using a flat 30% base brightness for the ASCII pass. Removing
 the goggles restores cel shading. Directional ASCII edges use corrected
@@ -93,6 +103,10 @@ horizontal/vertical glyphs and replace the cell against a black background.
 Combat and slide clips
 are retargeted to his bind pose; after replacing this model, regenerate them with
 `node scripts/importQuaterniusAnimations.mjs --brondon`.
+Brendan and Branden have separately baked combat and slide tracks for their
+own bind poses. After replacing either Arcade model, or regenerating Brondon's
+combat tracks, run `node scripts/importQuaterniusAnimations.mjs --arcade`.
+This reuses the cached Brondon animations without needing the original packs.
 
 ### Other character model
 
@@ -138,7 +152,9 @@ The two Controls tabs select the input and show the matching bindings.
 The menu is available during the opening as well as gameplay.
 Scene 1 is the **Main Menu**. Its straight blue-and-red **BRONDON'S REVENGE**
 title fades in from a blur with a brief chromatic glitch. It then pulses slowly,
-with "A tale of vengeance" underneath as a subtitle. Its straight comic-paper
+with "A tale of vengeance" underneath in the same gradient, font, ink outline
+and glow, without a separate paper frame. Both lines share the entrance and
+glitch animations. Its straight comic-paper
 buttons and ink frames retain the Sefa font, cyan/red accents and subtle
 techno highlights; this fusion is scoped to Scene 1. Choose **Main Menu** from the pause menu to
 return after confirming that no progress will be saved. Returning discards the
@@ -158,10 +174,18 @@ movement-instructions overlay.
 
 ### Arcade challenges
 
+Museum pedestal plaques show challenge names and multiline descriptions rather
+than internal scene IDs. Text is fitted within padded, high-resolution plaques
+so longer captions remain inside the label.
+
 Arcade rules are isolated from Story mode. Entering a museum screen opens a
 pre-start briefing; gameplay and the run timer remain paused until **Start**.
 Title, mode, character, difficulty and briefing menus support controller
 stick/D-pad navigation, confirm and Back, including loading retry menus.
+Character selection shows headshots and names for Brondon, Brendan and Branden.
+All three use the shared player rig controller, traversal animations and combat
+animation preparation in both the museum and on-foot Arcade games. Story mode
+always uses Brondon; flight and mech challenges retain their vehicle controls.
 Run timers and Arcade instructions sit at the bottom-centre, above the player
 HUD. Keyboard **Shift** and the controller sprint trigger work in the museum
 and on-foot Arcade challenges; the hangar does not force Story's stealth crouch
@@ -228,6 +252,9 @@ Scene 1 suppresses automatic controller notices and gameplay control popups;
 the right stick rotates its mothership view while the left stick/D-pad navigates menus.
 Choosing **Story mode** opens setup before the story: controller calibration,
 display/Prime hints and sound are available before **Begin story**.
+The lobby, Display, Sound and Controls share upright panels with grouped settings,
+scrollable content and a fixed action footer. Controls keeps its binding reference
+and live calibration prompts without the introductory paragraphs.
 **Sound** is available from the pause menu in every scene, including Scene 1.
 Vertex and fragment GLSL files live in `src/shaders/vert/` and
 `src/shaders/frag/`; shared GLSL chunks remain in `src/shaders/`.
@@ -240,6 +267,14 @@ strength slider, **Hide HUD**,
 **Show FPS**, **Perf timers** and **Prime hints**. Preferences, including sound,
 reset on page reload; they remain active across menus and scenes for that page session.
 Campaign completion and asset caching are separate and remain persistent.
+Settings and lobby text use the standard comic font in **Normal** mode and honor
+the selected override, rather than forcing the title font onto small labels.
+The right-hand **LOBBY** title always uses Sefa, regardless of the menu font choice.
+The lobby and its settings keep the current soundtrack playing uninterrupted;
+ordinary in-game pause menus retain their separate menu music.
+Lobby and menu controls share Scene 1's accent-tinted background and outlined
+highlight for mouse hover, keyboard focus and controller selection. Toggle rows
+receive the highlight without hiding their checked state.
 Loading screens use Sefa titles and contain no field notes.
 Press **Backslash (\\)** outside a text field to cycle bloom off, bright and soft.
 With **Show FPS** enabled, **Perf timers** adds CPU rendering time and GPU time
@@ -253,7 +288,7 @@ even before its timer expires or **H** is pressed. Controller bindings use SVG
 face buttons, shoulders, triggers, sticks and directional pads both in these
 new-mechanic pop-ups and in the complete Controls menu. The icons follow each
 controller's selected family, calibrated layout and face-button swap.
-**Prime hints (all levels)** is under **Controls** in the pause menu throughout
+**Prime hints (all levels)** is under **Display** in the pause menu throughout
 the game. The Controls panel stays upright and shows a scrollbar and scroll
 cue when more bindings are available.
 It is **on by default**, and the choice is saved between visits. Optional Prime
@@ -378,17 +413,19 @@ including the pause menu.
 | Stage Two camera minigames | Stealth1 2 |
 | Museum and AI facility | Puzzle |
 | Bay Warden, starting at the service-elevator entrance | DonRevBGM1 |
+| Donus says “Not so fast” before Branden's death | BrokenChainsBGm |
 | Hangar 14 escape | Final battle |
 | Level 2 flight and scrambler phases | DonRevLevel2 |
 | After destroying the red scrambler, including the crash handoff | DonRevLevel2Boss |
 | Planet jungle and bridge | Planetbfm |
 | Hidden waterfall fight | Some boss |
 | **M** pause menu and its submenus | Menu |
-| Boss defeated | Existing area music continues without a victory-song override |
+| Other bosses defeated | Existing area music continues without a victory-song override |
 | Final boss introduction and transformations | Loading |
 | Playable final boss duel | Three-second crossfade into DonRevBGM1 |
 | Planetary collapse and final surface transmission | BrokenChainsBGm |
-| Orbital duel, finisher and victory | DonRevBGM1 |
+| Orbital duel and finisher | DonRevBGM1 |
+| Opus Magnum kneels after the final fight | Prologue less mashing (the prologue's emotional theme) |
 | Final credits | Level 2 |
 
 The Stage One music trigger spans the hangar at the center of the **second cargo
@@ -401,7 +438,7 @@ synthesized siren; short interaction and combat effects remain.
 
 Opening **M** suspends gameplay audio and plays Menu without restarting it when
 switching submenus. Closing the menu resumes the previous music position.
-Boss victories never pause or restart the current soundtrack. The credits cue
+Ordinary boss victories never pause or restart the current soundtrack. The credits cue
 takes over when the final credits begin. Opening the weapon wheel keeps the
 current BGM playing at 55% of its normal level, with a smoothly applied 850 Hz
 low-pass filter, instead of pausing it or starting Menu. Closing the wheel restores
@@ -411,12 +448,16 @@ effects still pause; browsers without Web Audio retain the reduced-volume effect
 Existing ship/hangar music remains in its original areas. Planetbfm replaces
 DonRevJungleLoop on the planet. Skipping the prison release selects Broken Chains
 when the prologue hands back control. DonRevBGM1 plays through the Bay Warden
-arena and its entrance; Final battle plays in the hangar escape.
+arena and its entrance. Broken Chains starts on Donus's “Not so fast” line and
+continues through Branden's death and the lift departure.
+Final battle plays in the hangar escape.
 Tension plays only while Brondon is inside the vent maze;
 dropping into the camera hub returns to Stealth1 2.
 DonRevBGM1 carries the ground duel. Broken Chains crossfades in for the Planet
 Breaker and its surface transmission, then DonRevBGM1 returns for the space
-duel, finisher and victory. The credits cue takes over when the credits begin.
+duel and finisher. The prologue's emotional theme crossfades in when Opus Magnum
+begins kneeling in remembrance after victory, using the same timing as the pose.
+The credits cue takes over when the credits begin.
 Opening any chest, whether a cabin footlocker or a minigame reward chest, plays the
 Chest sound effect through the sound-effects volume.
 Music uses decoded Web Audio buffers rather than streaming-element loop restarts.
@@ -449,20 +490,23 @@ Browsers without Web Audio report that browser-native looping is being used.
 
 ## Loading and caching
 
-Starting the story uses only the new ship screenshots in the prologue loading
-loop: cabins, stealth bay, cargo, Bloomstick tennis, target range, reactor and
-both rust chambers. The empty surveillance capture is excluded until replaced.
+Room loading screens reuse the same prerecorded GIF files as the surveillance
+wall: prison, vent maze, cargo, Bloomstick Tennis, target range, Reactor Sequencer
+and both rust chambers. Each room uses its own clip; the ship's Reactor Sequencer
+and Rust chamber 2 have separate loading chapters. These transitions do not add an
+artificial minimum wait, and hidden loading screens release their animated image.
+The surveillance hub retains its existing overview artwork.
 
 The opening requests **Loading.ogg first**, before model loading. The mothership's
 compatible static surfaces and edge lines are batched, and its first GPU render
 is prepared before the opening camera starts. Character animation preparation
 and later-chapter downloads no longer compete with that visible opening.
 
-Pressing **PLAY** immediately opens a randomized, six-second screenshot slideshow
-with chapter-specific hints. It includes the prologue, living quarters, Level 1
+Pressing **PLAY** immediately opens a randomized, six-second artwork slideshow
+with chapter titles and progress. It includes the prologue, living quarters, Level 1
 stealth/minigames/boss/escape, every Level 2 phase, the Level 3 jungle, secret
-waterfall, facility and final boss. Screenshots are captured from the game's
-actual scenes. Loading artwork for the stealth patrol, cargo, range, interceptors,
+waterfall, facility and final boss. Artwork comes from the game's
+actual scenes. Still artwork for the stealth patrol, interceptors,
 green/red scramblers, exposed reactor, jungle, facility and both finale views was
 refreshed from the 14 October screenshots. The exposed reactor has its own image,
 separate from the capital ship's shield phase.
@@ -556,6 +600,9 @@ full-screen overlay:
   contrast/saturation boost. **Display > Outlines** independently toggles black
   structural and character outlines without changing the lighting.
   Both settings default to off on every page load and operate independently.
+  Brondon's cockpit revenge-vow shot temporarily forces outlines on. Every other
+  shot follows the Display preference; the override never changes the saved
+  outline setting or the Comic Look setting.
   Real lighting, shadows and material detail remain visible beneath the cel bands.
   The minigame stage, puzzle camera feeds and dedicated minigame views bypass this
   treatment and outlines, regardless of the Display preferences.
@@ -631,21 +678,25 @@ Prime's compact comic textbox stays in the **top-left**, including during
 flashbacks; memory and live-feed labels sit in the **bottom-left**. Click or
 press **Space** to reveal a line immediately, then again to advance without
 waiting for its camera shot. Timed narration can still advance automatically.
-Hold **Enter** to skip the whole prologue.
+Hold **Enter** to skip the whole prologue. Skipping restores the prison's final
+third-person camera position, rotation and lens immediately, even from a flashback.
+Prime confirms they are still aboard the Donus mothership but has no physical
+records of the others' whereabouts. The mothership-and-planet cutscene remains
+as a visual hint rather than an explicitly confirmed destination.
 
 The prologue's closing title and the museum wall use Scene 1's blue-to-red gradient
-logo, menu font and framed **A tale of vengeance** subtitle instead of the old
-yellow/red two-line lettering.
+logo and menu font. **A tale of vengeance** uses the same gradient, letter spacing,
+ink outline and glow as the main title, without a separate paper frame.
 
 The lab memory first establishes the captive crew, then closes in on Brondon's
 own pod. Prime's shield burst shatters its casing before experimentation can
 begin; Donus subsequently imprisons Brondon in shield-suppressing chains.
 The planet shot trails the actual mothership in third person, with the rescue
 planet far ahead. A **ten-second security montage** establishes the escape
-shuttle in **Hangar 14**, pans across the actual surveillance hub and its live
-computer feeds, pulls back over the Deck One hangar patrols, flashes a
+shuttle in **Hangar 14**, pans across the actual surveillance hub and its
+computer screens, pulls back over the Deck One hangar patrols, flashes a
 **0.75-second sinister Bay Warden close-up**, then closes on the hub's actual
-camera-screen wall with animated footage. Hangar 14 appears only once, and each
+camera-screen wall with prerecorded room GIFs. Hangar 14 appears only once, and each
 main location gets over two seconds to read. The hangar, hub and camera wall
 share their visual builders with gameplay.
 The montage remains immediately skippable and does not repeat the boss reveal.
@@ -684,6 +735,10 @@ breaks the chains, Brondon gets up, and the shorter title reveal leads to the
 - Every cabin shares a bed, correctly scaled desk/chair assets, a local computer
   with a blue desktop, file window, icons and taskbar,
   and a unique expedition poster. Andre's room also has an accessible locker.
+  Beds have woven fabric, rounded mattresses, padded pillows and a folded blanket.
+  In Developer Mode, look at Brondon's bed and press **E** to lie down; press
+  **E** again to get up. The rest camera and player position restore on exit.
+  In story mode, Prime instead says there is no time for a nap.
   **N** toggles the goggles; tap **Q** to place a purple marker, or hold and
   release **Q** to throw the crystal. **T** teleports to its marker.
   **Hold Tab** selects weapons, not teleport destinations.
@@ -692,6 +747,13 @@ breaks the chains, Brondon gets up, and the shorter title reveal leads to the
   showers or on the toilet wall.
   Read from Caleb, Husain, Andre, Sibusiso and Sohrab, their words form a
   deliberately subtle message: **YOU ARE A CHUMP BRONDON**.
+  Locker doors use fine painted-metal grain and three ventilation slots rather
+  than oversized hull panels. The sinks have curved glazed-ceramic basins,
+  metal drains and ceramic countertops instead of machinery-textured bowls.
+  Shower interiors have full-height ceramic lining, rimmed trays, slotted metal
+  drains and connected valve-to-showerhead pipework; the water stays inside each tray.
+- Ceiling services in the stealth passage, cargo hold and target range use inset
+  brackets and cross-members below the roof skin rather than penetrating the walls.
 - Cabin chairs are not interactable. Branden's and Brendan's computers offer
   inspection only. Trying to play Brondon's cabin computer instead
   earns a comic-style scolding from Prime: lock in and rescue the crew first.
@@ -788,6 +850,8 @@ The route is **hangar ladder -> vent maze -> camera hub -> keycard elevator ->
 Bay 13**. The old service-passage/storeroom entrance and hidden lift codepad
 are no longer part of Stage Two.
 
+- The passage-to-hangar entrance has no black blackout sheet; the connected
+  hangar remains visible through the open bulkhead.
 - The main hangar airlock stays locked and is marked as a target on both maps.
   Its alternative is the **ceiling vent ladder at the far end**, on the opposite
   wall from the door.
@@ -813,15 +877,25 @@ are no longer part of Stage Two.
   loading screen. Its artwork is an actual camera-wall screenshot, captured
   without HUD, browser chrome or scrollbars. Camera feeds are prepared before
   the room becomes playable.
-- The larger surveillance room has **eight active wall screens in two rows of
+- The larger surveillance room has **eight animated GIF wall screens in two rows of
   four**, furnished workstations and server racks. The top row is **prison,
   cargo hold, Bloomstick Tennis, Rust chamber 1**; the bottom row is **maze,
   target range, Reactor Sequencer, Rust chamber 2**.
   **Rust chamber 2 sits directly below Rust chamber 1** on the camera wall.
+  Each screen plays a prerecorded GIF of its corresponding room. Gameplay never
+  creates preview scenes, simulates their physics, captures images or renders
+  extra camera views. Labels, cleared status and minigame travel stay active.
   There are no decorative wall-text plaques.
-- Desk monitors play randomly chosen **looping GIF recordings of corridor bots**,
+- Desk monitors display randomly chosen **animated corridor-bot GIFs**,
   not live 3D scenes or teleport targets. Only the camera wall's six unfinished
   minigame feeds allow travel. The prison and vent feeds are view-only.
+  GIF frames are decoded once per clip and shared in memory; textures update only
+  when the displayed frame changes. Wall playback stops while paused or outside
+  the surveillance room. The prologue uses the same prerecorded footage.
+  Regenerate the eight room clips offline with
+  `node scripts/createSurveillanceGifs.mjs` (Chromium and the existing
+  `ffmpeg-static` dependency are required; set `SURVEILLANCE_BROWSER` if needed).
+  Recording is an asset-authoring step, never a gameplay/loading operation.
   The hub has **15 workstations**, with additional stations along the side and
   rear walls; the hangar-airlock approach is clear of desks and server racks.
   After the vent drop, Prime remarks: "Security seems kind of lacklustre.
@@ -907,15 +981,20 @@ are no longer part of Stage Two.
   rusty water visibly melts the character, then returns them to the entrance
   without clearing puzzle progress or collected rewards. There are no sump stairs.
   The entrance has one locked side door; the reward chest faces the doorway.
+  Ceiling trusses span wall to wall, with joined diagonal braces and longitudinal
+  supports meeting the roof instead of loose angled scaffolding.
 - **Rust chamber 2**, imported from `rust-2-electric-boogaloo`, is a rust room
   whose two metal deck sections split apart. Its jagged edges are flat,
   walkable rust decking with matching polygon colliders, not loose rock blocks.
   The walls share the first chamber's corroded panel finish. The ceiling is
   lowered from 14 m to 8.4 m, with a visible overhead support, pivot, cable,
   lifting eye and release cradle for the counterweight.
+  Joined roof chords, alternating diagonal braces and longitudinal members stay
+  within the walls, with the central swing path clear and the pivot cheeks supported.
   Brown rust water fills the gap; falling in uses the same melt-and-respawn
   treatment without clearing releases. Both chambers use opaque, subdivided
-  water with animated ripple normals rather than a transparent acid sheet.
+  water with gentle moving swells, drifting scum and animated ripple normals
+  rather than a transparent acid sheet.
   Water rims and the torn deck sides use textured corrosion, with rust-stained
   top borders rather than plain grey edges. Orange wall fixtures and six warm
   wall lights brighten the second chamber without adding shadow-casting lights.
@@ -940,8 +1019,8 @@ are no longer part of Stage Two.
   mat's glow and light. Rebuilding restores the pink eastbound state.
   Switch west, return, and collect the keycard behind the
   glass door. Completed plate/reward state persists across visits.
-  A larger, high-contrast framed wall plaque pairs a short verse with numbered
-  puzzle instructions and a direction-colour key. The opposite-side exit stays
+  A simple framed **THE SPLIT DECK** plaque carries only the two-line crystal hint,
+  without numbered puzzle instructions or a direction-colour key. The opposite-side exit stays
   locked. Releasing the load and opening the reward doors have short cutscenes.
   Loose decorative blocks and the automatic puzzle walkthrough have been removed.
 - Destructibles consistently use **blue glowing corrosion for pistol targets**
@@ -995,6 +1074,8 @@ are no longer part of Stage Two.
   The camera rooms use lightweight crew chests rather than the old model chest.
   All chests use a light-grey exterior to stand out against dark decks; model
   chests retain their normal and metallic/roughness maps without the dark colour atlas.
+  Crew footlockers add restrained paint grain, light scuffing and brushed-metal
+  latches without changing that light-grey palette.
 
 Developer Mode includes the surveillance route, archive and camera-room previews.
 In development, `?stage2-infiltration` starts at the vent entrance;
@@ -1044,7 +1125,7 @@ recovered during Stage Two.
   An expanding slash wave, glowing split edges, sparks, chromatic separation,
   the finale's blade trail and a short impact pause intensify the final cut.
 - The cut flows into Brondon leaping across the split bot while the camera pans
-  to Branden emerging crouched on Brendan's authored
+  to Branden emerging crouched on his own `branden-the-dripless-export.glb`
   rig, explains the neural experiments, and saves Brondon when Donus detonates
   the fallen halves. The camera cuts to a full-screen, in-scene close-up of
   Branden's face for **2.2 seconds**, then cuts back as he moves to save Brondon.
@@ -1058,6 +1139,9 @@ recovered during Stage Two.
   **"I will avenge you."**
   Control resumes at the death spot; there is no scripted walk or teleport to
   the console. The lift remains available for its existing interaction and descent.
+  The service-elevator entrance stays sealed after victory, including cleared-room
+  visits, so it cannot reopen onto an unloaded scene. Returning players spawn inside
+  the arena; the central lift console remains the route onward.
 
 ## Level 2 matchup, targeting and firing
 
@@ -1106,6 +1190,11 @@ around its icon; charges are consumed from the rightmost icon to the left.
 
 ### Continuous facility approach
 
+Scene 16's facility reveal follows the actual stone path and bridge while keeping
+the facility in view, without the separate weaving fly-through or sideways orbit.
+It holds on the facility, then cuts back to Brondon's shoulder before gameplay;
+normal completion and skipping both reach that same final camera pose.
+
 The former scenes 17-19 are one continuous ship-to-facility exterior.
 Scene 18's side-scrolling course, relay platforms and bridge-collapse sequence
 have been removed. The western half is an impassable, weathered-rock mountain.
@@ -1150,6 +1239,10 @@ not drop the player through a decorative stone into the river.
 Its stone surface and collision top sit 6 cm above the ground and cave floor,
 preventing coplanar z-fighting. Flagstones stop before the waterfall curtain and
 do not continue into the secret cave.
+The cave walls, ceiling and back use collision triangles from the rendered
+mountain mesh. Cave rocks and stalactites also use their fully transformed
+geometry, so their collision surfaces match during the Waterfall Warden fight.
+These colliders follow nearby-physics streaming, not camera visibility.
 The stone trail stays safe
 from the dinosaurs off the route. Normal Scavengers patrol before the intact
 bridge, and spider bots patrol only beyond it.
@@ -1180,7 +1273,10 @@ Ship-styled facility sentinels can be destroyed with pistol fire or returned
 bloomstick-parried beams. The exterior has no photograph or sign above its door
 in the landing, jungle or finale. The group-photo reveal remains inside; the
 former exterior-photo discovery cutscene has been removed.
-The facility door opens as the player approaches. Both directions between
+The facility door opens as the player approaches. Its interior and exterior
+portal frames use plain facility finishes instead of the ship's panel and
+machinery textures; ship portals retain their existing textures.
+Both directions between
 Scenes 17 and 20 use the standard chapter-loading flow and shared sliding-portal
 handoff: position, velocity, facing, held inputs and health carry across the
 matching doorway frames. Walking back out returns to the exterior entrance,
@@ -1232,6 +1328,11 @@ press **E** to peek.
 The camera eases toward the glass; the five notice Brondon and turn toward him,
 then the scene ends and the finale begins. Merely reaching the upper floor does
 not end the scene. Stairwell power stays unlocked on a round trip outside.
+The camera handoff translates the interior coordinates into the finale's world
+coordinates and keeps the entry blend behind the office glazing, avoiding an
+exterior fly-in. Office chairs share a matte, non-emissive grey finish in both
+scenes; the finale retains the interior's office-light intensities rather than
+overexposing the furniture.
 
 The dome, windows, entrance and four-pillar roof deck share one architecture
 definition across the landing, exterior, interior and finale.
@@ -1270,9 +1371,11 @@ has wrist bridges to fill its hand gaps.
 Opus retains its original forearm and wrist-crossing armour faces; only
 the original hand geometry beyond the wrist is removed, with no added filler.
 Using the same rig avoids twisting the hero armour around MC's different bind
-pose; combat clips are selected for the actual rig. Opus uses cream/pink armour
-(`platelight` **#DCC8BF**, `platemid` **#B89494**, `plateshad` **#755967**),
-a grey inner frame and pink/red gems. Final Verdict uses deep-purple armour,
+pose; combat clips are selected for the actual rig. Opus keeps its white armour
+(`platelight` **#E8F1F5**, `platemid` **#C0D7E2**, `plateshad` **#78909E**),
+a grey inner frame and pink/red gems. The white palette is applied to both
+diffuse and cel-shading colours, including the articulated hands; the existing
+revenge power-up transformation remains unchanged. Final Verdict uses deep-purple armour,
 near-black frame parts and lime/emerald gems (`gemlight` **#D3FF6D**,
 `gemmid` **#5C9A54**, `gemdark` **#1A3727**) instead of the previous red finish.
 Both preserve the asset's material regions instead of replacing them with
@@ -1401,7 +1504,9 @@ human-on-foot tableau, generated deck, or Donus fly-in. The narrative ends here;
 the later credits cast is a separate, non-narrative curtain call.
 Centered credits run in **90 seconds**, with Brondon, Branden, Brendan and the
 five students dancing fully solid along the side margins. These
-performers clone the finale's already-loaded characters and share cached
+performers use Branden's own model and Brendan's own model, with their original
+solid materials kept separate from the ghostlike remembrance effect. They
+clone the finale's already-loaded characters and share cached
 geometry, textures and animation clips; no new model downloads, sprite baking,
 or additional WebGL context are needed. The copies are prepared during the
 victory epilogue, outside the initial loading screen. Reduced motion freezes
@@ -1446,7 +1551,8 @@ damage reactions retain their sampled motion and momentum.
 
 Combat animation assets are taken from the downloaded, free **Quaternius Universal
 Animation Library 1 and 2 Standard packs**, under CC0. All seven supplied sword
-attacks are baked onto the MC and Subject bind poses; matching bone names alone
+attacks are baked onto the MC, Subject, Brondon, Brendan and Branden bind poses;
+matching bone names alone
 are not treated as matching bone axes. Only animation tracks are included, not
 the packs' demo meshes or paid Source assets. The runtime caches the baked library
 before gameplay and does not retarget or bake it on each swing.

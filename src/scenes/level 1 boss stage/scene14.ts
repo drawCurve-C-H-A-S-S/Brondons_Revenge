@@ -117,8 +117,11 @@ export function createHangarFourteenSet(
   box([8, 15, 0.5], [-14, 7.5, 36]);
   box([8, 15, 0.5], [14, 7.5, 36]);
   box([20, 4, 0.5], [0, 13, 36]);
+  const plainBlastDoor = new THREE.MeshStandardMaterial({
+    color: dark.color.clone(), roughness: 0.7, metalness: 0.55,
+  });
   const blastDoors = [-1, 1].map((sign) => {
-    const mesh = box([10, 11, 0.6], [sign * 5, 5.5, 36], dark, false);
+    const mesh = box([10, 11, 0.6], [sign * 5, 5.5, 36], plainBlastDoor, false);
     return { mesh, sign, body: physics.addBoxFromMesh(mesh) };
   });
   for (let z = -30; z <= 30; z += 6)

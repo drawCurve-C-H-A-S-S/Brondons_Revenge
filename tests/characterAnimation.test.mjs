@@ -48,7 +48,7 @@ after(async () => {
   globalThis.createImageBitmap = originalCreateImageBitmap;
 });
 
-async function fixture(t, asset) {
+async function fixture(t, asset, selectedCharacter = "brondon") {
   const buffer = asset
     ? await readFile(new URL(`../src/assets/models/${asset}`, import.meta.url))
     : null;
@@ -67,7 +67,7 @@ async function fixture(t, asset) {
   });
   t.mock.method(console, "log", () => {});
   mockCombatAnimationFetch(t);
-  const character = await loadCharacter(loader);
+  const character = await loadCharacter(loader, selectedCharacter);
   assert.ok(character, "Real model must load");
   const oldWindow = globalThis.window;
   const oldDocument = globalThis.document;
@@ -188,6 +188,56 @@ test("night vision switches cel shading on original, silhouette and hologram mat
   );
 });
 
+test("teleport and melt shaders keep unlit outlines free of lighting-only variables", async (t) => {
+  const { character } = await fixture(t);
+  for (const silhouette of [false, true]) {
+    character.setHologramTransition(null);
+    character.setSilhouetteEnabled(silhouette);
+    character.setHologramTransition({
+      blend: 0.5,
+      opacity: 0.8,
+      time: 0.1,
+      melt: 0.3,
+    });
+    const materials = new Set();
+    character.model.traverse((node) => {
+      if (!node.isMesh) return;
+      for (const material of Array.isArray(node.material)
+        ? node.material
+        : [node.material])
+        materials.add(material);
+    });
+    let outlines = 0;
+    let litMaterials = 0;
+    for (const material of materials) {
+      const basic = material instanceof THREE.MeshBasicMaterial;
+      const source = basic ? THREE.ShaderLib.basic : THREE.ShaderLib.standard;
+      const shader = {
+        uniforms: {},
+        vertexShader: source.vertexShader,
+        fragmentShader: source.fragmentShader,
+      };
+      material.onBeforeCompile(shader, null);
+      assert.match(shader.fragmentShader, /gl_FragColor\.a \*= hologramOpacity/);
+      assert.match(shader.fragmentShader, /corrosion < hologramMelt/);
+      if (basic) {
+        outlines++;
+        assert.match(shader.fragmentShader, /float hologramRim = 0\.0;/);
+        assert.doesNotMatch(shader.fragmentShader, /\bvViewPosition\b/);
+        assert.match(shader.fragmentShader, /uInkEnabled/);
+      } else {
+        litMaterials++;
+        assert.match(
+          shader.fragmentShader,
+          /float hologramRim = pow\(1\.0 - abs\(dot\(normal, normalize\(vViewPosition\)\)\), 2\.0\)/,
+        );
+      }
+    }
+    assert.ok(outlines > 0);
+    assert.ok(litMaterials > 0);
+  }
+});
+
 test("latest Brondon model loads with retargeted combat and preserves gameplay scale and locomotion", async (t) => {
   const { character, frame, key, weight, template } = await fixture(
     t,
@@ -243,6 +293,91 @@ test("latest Brondon model loads with retargeted combat and preserves gameplay s
   frame(30);
   assert.ok(weight("Idle_Loop") > 0.99);
 });
+
+for (const [selected, asset] of [
+  ["brendan", "DonfromStreets.glb"],
+  ["branden", "branden-the-dripless-export.glb"],
+]) {
+  test(`${selected} is a full playable arcade rig with traversal, combat and a framed headshot`, async (t) => {
+    const { character, player, frame, key, weight, template } = await fixture(
+      t,
+      asset,
+      selected,
+    );
+    assert.equal(character.model.name, `${selected === "brendan" ? "Brendan" : "Branden"} Player`);
+    const skins = [];
+    character.model.traverse((node) => {
+      if (node.isSkinnedMesh && node.name !== "BrondonComicInk") skins.push(node);
+    });
+    assert.ok(skins.length > 0);
+    const authoredSkin = [];
+    template.scene.traverse((node) => {
+      if (node.isSkinnedMesh) authoredSkin.push(node);
+    });
+    assert.equal(skins[0].geometry.getAttribute("position").count,
+      authoredSkin[0].geometry.getAttribute("position").count);
+    assert.notEqual(skins[0].skeleton, authoredSkin[0].skeleton);
+    for (const name of [
+      "Walk_Loop", "Sprint_Loop", "Jump_Start", "Crouch_Fwd_Loop",
+      "Ladder_Climb_Loop", "Float_Loop", "Slide_Tackle", "Silent_Takedown",
+      "Punch_Jab", "Melee_Hook_WithRecovery", "Sword_Regular_C",
+    ]) {
+      const clip = character.animations.find((entry) => entry.name === name);
+      assert.ok(clip, `${selected} must support ${name}`);
+      for (const track of clip.tracks) {
+        const { nodeName } = THREE.PropertyBinding.parseTrackName(track.name);
+        const bone = THREE.PropertyBinding.findNode(character.model, nodeName);
+        assert.ok(skins.some((mesh) => mesh.skeleton.bones.includes(bone)),
+          `${name}: ${track.name} must drive the selected skin`);
+        assert.ok(Array.from(track.values).every(Number.isFinite));
+      }
+    }
+    frame(20);
+    assert.ok(weight("Idle_Loop") > 0.99);
+    key("keydown", "KeyW");
+    frame(30);
+    assert.ok(weight("Walk_Loop") > 0.99);
+    const thigh = character.model.getObjectByName("thigh_l");
+    const initial = thigh.quaternion.clone();
+    frame(10);
+    assert.ok(initial.angleTo(thigh.quaternion) > 0.01);
+    key("keydown", "ShiftLeft");
+    frame(30);
+    assert.ok(weight("Sprint_Loop") > 0.99);
+    key("keyup", "ShiftLeft");
+    player.setForcedCrouch(true);
+    frame(30);
+    assert.ok(weight("Crouch_Fwd_Loop") > 0.99);
+    key("keyup", "KeyW");
+    player.setForcedCrouch(false);
+    player.setClimbing(true);
+    frame(30);
+    assert.ok(weight("Ladder_Climb_Loop") > 0.99);
+    player.setClimbing(false);
+    player.setVentMode(true);
+    key("keydown", "KeyW");
+    frame(30);
+    assert.ok(weight("Crouch_Fwd_Loop") > 0.99);
+    player.setVentMode(false);
+    frame(30);
+    character.weapon.setEquipped(true);
+    frame(180);
+    character.weapon.shoot();
+    frame(6);
+    assert.ok(character.weapon.mixer._actions.some((action) =>
+      action.getClip().name === "Pistol_Shoot_UpperBody" && action.isRunning()));
+    assert.ok(weight("Walk_Loop") > 0.99, "Shooting preserves locomotion");
+    const { frameCharacterHeadshot } = await server.ssrLoadModule(
+      "/scripts/global/arcadePortraits.ts",
+    );
+    const camera = new THREE.OrthographicCamera(-0.4, 0.4, 0.4, -0.4, 0.1, 10);
+    frameCharacterHeadshot(character.model, camera);
+    const head = character.model.getObjectByName("Head")
+      .getWorldPosition(new THREE.Vector3()).project(camera);
+    assert.ok(Math.abs(head.x) < 0.1 && Math.abs(head.y) < 0.3,
+      "Each portrait is centred on the selected rig's actual head");
+  });
+}
 
 test("seated character aligns the real animated pelvis and skin with the cushion", async (t) => {
   const f = await fixture(t, "Don.glb");

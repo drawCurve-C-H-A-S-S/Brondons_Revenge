@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { createMechMovementAudio } from "../../helpers/audio/gameSoundscape.js";
 import { prepareSceneRendering } from "../../core/renderer.js";
 import { createLightCountStabilizer } from "../../core/lightStabilizer.js";
 import {
@@ -120,6 +121,7 @@ import {
 import {
   FACILITY_OFFICE,
   FACILITY_OFFICE_SEATS,
+  facilityOfficeCameraLimit,
 } from "../../scripts/level-3/facilityOffice.js";
 
 interface FinaleOptions {
@@ -520,6 +522,8 @@ export function createScene({
   heroMech.root.visible = false;
   enemyMech.root.visible = false;
   scene.add(heroMech.root, enemyMech.root);
+  const heroMovementSound = createMechMovementAudio(scene, heroMech.root);
+  const enemyMovementSound = createMechMovementAudio(scene, enemyMech.root);
   const aftermath = createFinaleAftermath(
     scene,
     site.boy,
@@ -559,6 +563,7 @@ export function createScene({
   const presentation = createFinalePresentation(
     (code, pressed) => handleInput(code, pressed),
     retryCheckpoint,
+    () => heroMech.root.visible ? heroMech.root : enemyMech.root.visible ? enemyMech.root : site.ship.root,
   );
   let creditsCast: ReturnType<typeof createFinaleCredits> | null = null;
   let creditsCastFailed = false;
@@ -1190,13 +1195,13 @@ export function createScene({
           effects.slash(blade.base, blade.tip);
           effects.ring(point, 2.4, 0xe5faff, true, 0.3);
         }
-        presentation.sound("launch");
+        presentation.sound("launch", point);
       } else if (event.kind === "swing") {
-        presentation.sound("special");
+        presentation.sound("swing", point);
       } else if (event.kind === "parry") {
         effects.deflect(point, true, event.owner === "hero" ? "enemy" : "hero");
         emitComicEffect(scene, "clank", { position: point, size: 5.5 });
-        presentation.sound("parry");
+        presentation.sound("parry", point);
         cameraRig.impact(0.35);
       } else if (event.kind === "guard") {
         effects.deflect(
@@ -1204,7 +1209,7 @@ export function createScene({
           false,
           event.owner === "hero" ? "enemy" : "hero",
         );
-        presentation.sound("parry");
+        presentation.sound("guard", point);
         cameraRig.impact(0.16);
       } else if (
         event.kind === "hit" ||
@@ -1220,7 +1225,7 @@ export function createScene({
           );
         if (event.kind === "guardBreak")
           effects.ring(point, 3.8, 0xc9827a, true, 0.35);
-        presentation.sound(event.kind === "cut" ? "parry" : "hit");
+        presentation.sound(event.kind === "cut" ? "parry" : "hit", point);
         presentation.flash(event.kind === "guardBreak" ? 0.16 : 0.06);
         cameraRig.impact(event.kind === "guardBreak" ? 0.5 : 0.2);
       } else if (event.kind === "dash") {
@@ -1435,7 +1440,7 @@ export function createScene({
     if ((beat.shot === "parry" || beat.shot === "clash") && crossed(action)) {
       effects.sparks(clashContact, 0xffdf9e, 28);
       effects.ring(clashContact, 1.4, FRAME_COLORS.hero, true, 0.2);
-      presentation.sound("parry");
+      presentation.sound("parry", clashContact);
       cameraRig.impact(0.26);
     } else if (beat.shot === "armCut" && crossed(action + 0.04)) {
       const chest = enemyMech.getChest();
@@ -1454,7 +1459,7 @@ export function createScene({
           clashContact,
           i % 2 ? FRAME_COLORS.enemy : FRAME_COLORS.hero,
         );
-        presentation.sound("parry");
+        presentation.sound("parry", clashContact);
         cameraRig.impact(i === FINISHER_EXCHANGE.cuts.length - 1 ? 0.65 : 0.45);
       }
     }
@@ -2038,7 +2043,7 @@ export function createScene({
           0xffe4ad,
           choreography.beat.shot === "clash" ? 16 : 8,
         );
-        if (spark % 4 === 0) presentation.sound("parry");
+        if (spark % 4 === 0) presentation.sound("parry", clashContact);
       }
     } else lastClashSpark = -1;
     world.updateBomb(
@@ -2507,6 +2512,7 @@ export function createScene({
       state.phaseTime,
       state.time,
     );
+    scene.userData.forestQuiet = state.phase === "rupture" || inSpace;
     site.update(animationDelta, !aftermathState.forest);
     shipTransform.update(state.phase, state.phaseTime);
 
@@ -2539,6 +2545,10 @@ export function createScene({
     } else if (state.phase !== "enemyTransform") lastFirework = -1;
 
     updateActors(state.phase, state.phaseTime, state.time);
+    heroMovementSound.update(animationDelta, inSpace,
+      director.duel.hero.move !== "idle" && director.duel.hero.move !== "guard");
+    enemyMovementSound.update(animationDelta, inSpace,
+      director.duel.enemy.move !== "idle" && director.duel.enemy.move !== "guard");
     aftermath.update(
       state.phase === "rupture" ? state.phaseTime : -1,
       state.time,
@@ -2708,6 +2718,10 @@ export function createScene({
         camera.fov,
         blend,
       );
+      camera.position.z = Math.min(
+        camera.position.z,
+        facilityOfficeCameraLimit(camera),
+      );
       camera.updateProjectionMatrix();
       camera.updateMatrixWorld(true);
     }
@@ -2803,6 +2817,10 @@ export function createScene({
     isCinematic: () =>
       (lastPhase !== "ground" && lastPhase !== "space") ||
       director.duel.getState().special?.cinematic === true,
+    shouldForceOutlines: () => {
+      const { phase, phaseTime } = director.getState();
+      return phase === "rupture" && samplePlanetAftermath(phaseTime).cockpit;
+    },
     restartAtCheckpoint: () => {
       retryCheckpoint();
       return true;
@@ -2920,6 +2938,7 @@ export function createScene({
         (phase === "credits" || phase === "done") &&
           creditsTime >= FINALE_CREDITS.roll + FINALE_CREDITS.walkIn &&
           creditsCast !== null,
+        phase === "victory" && phaseTime >= REMEMBRANCE_START,
       );
     },
     hasBossVictory: () => director.getState().phase === "victory",
@@ -2932,6 +2951,8 @@ export function createScene({
       director.pause(true);
       creditsCast?.dispose();
       presentation.dispose();
+      heroMovementSound.dispose();
+      enemyMovementSound.dispose();
       versus.dispose();
       postProcessing?.dispose();
       heroTrail.dispose();

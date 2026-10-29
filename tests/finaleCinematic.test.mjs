@@ -174,6 +174,90 @@ after(async () => {
   }
 });
 
+test("remembrance uses distinct Branden and Brendan models without ghost tint leaking into credits", async (t) => {
+  const { createFinaleRemembrance } = await server.ssrLoadModule(
+    "/scripts/level-3/finaleRemembrance.ts",
+  );
+  const { createFinaleCredits } = await server.ssrLoadModule(
+    "/scripts/level-3/finaleCredits.ts",
+  );
+  const scene = new THREE.Scene();
+  const remembrance = createFinaleRemembrance(scene, new THREE.PerspectiveCamera());
+  t.after(() => remembrance.dispose());
+  await remembrance.ready;
+  const cast = remembrance.getCreditsCast();
+  assert.deepEqual(cast.map((actor) => actor.name), ["Branden", "Brendan"]);
+  const materials = (model) => {
+    const result = [];
+    model.traverse((node) => {
+      if (node.isMesh) result.push(...(Array.isArray(node.material) ? node.material : [node.material]));
+    });
+    return result;
+  };
+  const bodyVertices = (model) => {
+    const counts = [];
+    model.traverse((node) => {
+      if (node.isSkinnedMesh) counts.push(node.geometry.getAttribute("position").count);
+    });
+    return counts;
+  };
+  assert.notDeepEqual(bodyVertices(cast[0].model), bodyVertices(cast[1].model),
+    "Branden is not a second copy of Brendan");
+  const originalColors = cast.map((actor) =>
+    materials(actor.model).map((material) => material.color.clone()));
+  remembrance.update("victory", 8, new THREE.Group());
+  for (const [index, actor] of cast.entries()) {
+    const ghost = scene.getObjectByName(`MemoryOf${actor.name}`);
+    assert.ok(materials(ghost).some((material) => material.transparent && material.opacity < 1));
+    materials(actor.model).forEach((material, materialIndex) => {
+      assert.equal(material.opacity, 1);
+      assert.ok(material.color.equals(originalColors[index][materialIndex]));
+      assert.ok(!materials(ghost).includes(material));
+    });
+  }
+  const sources = Array.from({ length: 8 }, (_, index) => ({
+    ...cast[index % 2],
+    outcome: "kneel",
+  }));
+  const credits = createFinaleCredits(sources, false);
+  t.after(() => credits.dispose());
+  let creditsScene;
+  credits.render({
+    autoClear: false,
+    getSize: (target) => target.set(1280, 720),
+    getRenderTarget: () => null,
+    setRenderTarget() {},
+    render(rendered) { creditsScene = rendered; },
+  }, 3);
+  const performers = creditsScene.children;
+  assert.equal(performers.length, 8);
+  for (const [index, actor] of performers.entries()) {
+    const sourceMaterials = materials(cast[index % 2].model);
+    materials(actor).forEach((material, materialIndex) => {
+      const original = sourceMaterials[materialIndex];
+      const expected = original.emissive?.getHex() ? original.emissive : original.color;
+      assert.ok(material.color.equals(expected));
+      assert.equal(material.opacity, 1);
+      assert.equal(material.transparent, false);
+    });
+  }
+});
+
+test("arcade selection includes named headshots for all three characters and shares title styling", async () => {
+  const [html, css, prologue] = await Promise.all([
+    readFile(new URL("../src/index.html", import.meta.url), "utf8"),
+    readFile(new URL("../src/styles/main.css", import.meta.url), "utf8"),
+    readFile(new URL("../src/scenes/prologue/prologue_scene_1.ts", import.meta.url), "utf8"),
+  ]);
+  for (const character of ["brondon", "brendan", "branden"]) {
+    assert.ok(html.includes(`data-character="${character}"`));
+    assert.ok(html.includes(`data-character-portrait="${character}"`));
+  }
+  assert.match(css, /\.menu-title-main,\s*\.menu-title-kicker\s*\{[^}]*linear-gradient/s);
+  assert.ok(html.includes('data-text="A TALE OF VENGEANCE"'));
+  assert.ok(prologue.includes('data-text="A TALE OF VENGEANCE"'));
+});
+
 test("the finisher runs in the requested order and reaches victory at 30, 60 and 144 fps", () => {
   assert.deepEqual(
     choreography.FINISHER_BEATS.map((beat) => beat.shot),

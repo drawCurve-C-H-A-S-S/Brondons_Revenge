@@ -1961,7 +1961,7 @@ export function createScene({
     }
     if (nearBoy && caption)
       caption.textContent =
-        "Brendan: Donus linked my mind to a battleship. I can still guide you from here. Follow the stone path; there's a cave behind the waterfall.";
+        "Brendan: Go ahead, Brondon. I need some time to recover from what Donus did to me.";
     if (status)
       status.textContent =
         patrolLoadError || dinoLoadError || sharkLoadError
@@ -1972,7 +1972,7 @@ export function createScene({
               ? "SECRET FOUND / BEHIND THE FALLS"
               : arcadeMode
                 ? "ARCADE / FOLLOW THE STONE TRAIL TO THE WATERFALL\nBridge sealed. Mixed enemy waves continue until the Warden falls."
-                : "FACILITY APPROACH / FOLLOW THE STONE PATH\nWaterfall detour optional. Spider bots patrol beyond the bridge.";
+                : "FACILITY APPROACH / FOLLOW THE STONE PATH\nSpider bots patrol beyond the bridge.";
   }
   function captureArrival(): RescueArrival {
     const reward = miniboss.getStatus();

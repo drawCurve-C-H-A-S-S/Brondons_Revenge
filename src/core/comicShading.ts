@@ -30,10 +30,10 @@ export function setOutlinesEnabled(enabled: boolean) {
   setComicFrameEnabled(comicFrameEnabled);
 }
 
-export function setComicFrameEnabled(enabled: boolean) {
+export function setComicFrameEnabled(enabled: boolean, forceOutlines = false) {
   comicFrameEnabled = enabled;
   comicEnabled.value = comicLookEnabled && enabled ? 1 : 0;
-  inkEnabled.value = outlinesEnabled && enabled ? 1 : 0;
+  inkEnabled.value = (outlinesEnabled || forceOutlines) && enabled ? 1 : 0;
 }
 
 export function withoutComicLook<T>(render: () => T): T {

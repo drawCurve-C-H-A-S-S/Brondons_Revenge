@@ -172,7 +172,7 @@ export function createScene({
     FACILITY.entranceSpan,
     FACILITY.entranceHeight,
     "AI RESEARCH / ACCESS",
-    { doorHeight: 3.2, landingFloor: false },
+    { doorHeight: 3.2, landingFloor: false, surfaceStyle: "plain" },
   );
   entrance.group.name = "FacilityEntranceDoor";
   const entranceVoid = new THREE.Mesh(
@@ -1236,7 +1236,9 @@ export function createScene({
         finished = true;
         onFinished({
           ...entryState,
-          cameraPosition: camera.position.clone(),
+          cameraPosition: camera.position.clone().add(
+            new THREE.Vector3(FACILITY.x, 0, FACILITY.z),
+          ),
           cameraQuaternion: camera.quaternion.clone(),
           cameraFov: camera.fov,
           pilotState: player.captureTransition({ x: 0, y: 0, z: 0 }),

@@ -1,7 +1,8 @@
-import { playSfx } from "../../helpers/audio/sfx.js";
+import { playDoorMovement } from "../../helpers/audio/sfx.js";
 import * as THREE from "three";
 import { createScenePhysics } from "../../helpers/physics/scenePhysics.js";
 import { createShipInteriorMaterials, createShipServiceDetails } from "../../scripts/global/shipInterior.js";
+import { createBulkheadVoid } from "../../scripts/global/shipRoom.js";
 import { CABINS, QUARTERS, cabinCenter, cabinDoorPoint } from "./layout.js";
 import { comicNameTexture } from "./furnishings.js";
 import { createBulkheadKeypad } from "./surfaces.js";
@@ -16,6 +17,16 @@ export function createQuartersHull(
   progress: QuartersProgress,
 ) {
   const { steel, dark, trim, cyan, deck } = createShipInteriorMaterials(3, 12, "crew");
+  const plainDoorPanel = new THREE.MeshStandardMaterial({
+    color: steel.color.clone(),
+    roughness: 0.66,
+    metalness: 0.12,
+  });
+  const plainDoorEdge = new THREE.MeshStandardMaterial({
+    color: dark.color.clone(),
+    roughness: 0.7,
+    metalness: 0.55,
+  });
   scene.add(createShipServiceDetails({
     width: QUARTERS.hallwayWidth, depth: QUARTERS.hallwayLength,
     height: QUARTERS.height, ribs: false, spacing: 7.6,
@@ -111,6 +122,7 @@ export function createQuartersHull(
     position: THREE.Vector3,
     yaw: number,
     locked: boolean,
+    plain = true,
   ) {
     const root = new THREE.Group();
     root.name = name;
@@ -140,14 +152,14 @@ export function createQuartersHull(
         "BulkheadLeaf",
         [width / 2, height, 0.12],
         [(side * width) / 4, height / 2, 0],
-        dark,
+        plain ? plainDoorEdge : dark,
       );
       box(
         mesh,
         "DoorArmorInset",
         [width / 2 - 0.1, height - 0.35, 0.135],
         [0, 0, 0],
-        steel,
+        plain ? plainDoorPanel : steel,
       );
       const indicator = box(
         mesh,
@@ -160,7 +172,7 @@ export function createQuartersHull(
     });
     let openness = 0;
     function update(dt: number, open: boolean) {
-      if (openness === 0 && open && !locked) playSfx("shipDoor");
+      if (dt > 0) playDoorMovement(root, openness, Number(open && !locked));
       openness = THREE.MathUtils.clamp(
         openness + (open && !locked ? 1 : -1) * dt * 2.4,
         0,
@@ -202,6 +214,7 @@ export function createQuartersHull(
         cabinDoorPoint(cabin),
         (cabin.side * Math.PI) / 2,
         cabin.locked,
+        true,
       ),
     ]),
   );
@@ -351,6 +364,7 @@ export function createQuartersHull(
     0,
     !progress.bulkheadUnlocked,
   );
+  forwardDoor.root.add(createBulkheadVoid(QUARTERS.doorWidth, QUARTERS.doorHeight));
   const bathroomDoor = door(
     "BathroomDoor",
     new THREE.Vector3(0, 0, -16),

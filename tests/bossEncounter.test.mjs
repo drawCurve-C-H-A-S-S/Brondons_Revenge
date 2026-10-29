@@ -8,8 +8,6 @@ import { createServer } from "vite";
 
 let server,
   createScene,
-  createPassage,
-  createPuzzleState,
   traceShot,
   CrowbarController,
   rules,
@@ -24,12 +22,6 @@ before(async () => {
   });
   ({ createScene } = await server.ssrLoadModule(
     "/scenes/level 1 boss stage/scene13.ts",
-  ));
-  ({ createScene: createPassage } = await server.ssrLoadModule(
-    "/scenes/legacy scenes/scene12.ts",
-  ));
-  ({ createCargoPuzzleState: createPuzzleState } = await server.ssrLoadModule(
-    "/scripts/global/cargoPuzzle.ts",
   ));
   ({ traceShot } = await server.ssrLoadModule("/scripts/weapons/pistol.ts"));
   ({ CrowbarController } = await server.ssrLoadModule(
@@ -852,7 +844,7 @@ test("Branden's death cannot be skipped and naturally unlocks the lift exactly o
       "",
     );
   };
-  const { data } = await fixture(t, {
+  const { data, elements } = await fixture(t, {
     checkpoint: true,
     loadBoss,
     onDefeated: () => completed++,
@@ -878,16 +870,30 @@ test("Branden's death cannot be skipped and naturally unlocks the lift exactly o
   hold(1.2);
   assert.equal(completed, 0, "Enter must not skip Branden's death");
   assert.equal(data.isCinematic(), true);
-  step(data, 100);
+  let warningSeen = false;
+  for (let frame = 0; frame < 60 * 100 && data.isCinematic(); frame++) {
+    data.updatePhysics(1 / 60, true);
+    if (elements.get("boss-subtitles").textContent === "Donus: Not so fast.")
+      warningSeen = true;
+    assert.equal(
+      data.getMusicTrack(),
+      warningSeen ? "broken-chains" : "ship",
+      "Broken Chains starts with Donus's warning and continues through the death",
+    );
+  }
+  assert.equal(warningSeen, true);
   assert.equal(completed, 1, "The complete death scene unlocks the lift");
   assert.equal(data.isCinematic(), false);
   assert.equal(data.player.isEnabled(), true);
+  assert.equal(data.getMusicTrack(), "broken-chains");
   assert.equal(data.scene.getObjectByName("BossBlackParticles").visible, false);
   assert.equal(data.elevator.consoleBody.collisionResponse, true);
   assert.equal(data.elevator.console.position.y, 0);
+  assertServiceDoorClosed(data);
   hold(1.4);
   step(data, 3);
   assert.equal(completed, 1);
+  assertServiceDoorClosed(data);
 });
 
 for (const fps of [30, 60, 144]) {
@@ -996,37 +1002,37 @@ for (const fps of [30, 60, 144]) {
   });
 }
 
-test("Player can physically climb back to passage 12 and return through the raised doorway", async (t) => {
-  const puzzle = createPuzzleState(12);
-  puzzle.exitUnlocked = true;
-  const { data } = await fixture(t, { defeated: true, puzzle });
-  data.player.setPosition(0, 0.3, -10);
-  data.player.setRotation(0, 0.12);
-  data.player.takeDamage(20);
-  let passage, next;
-  data.setBackTrigger((state) => {
-    data.dispose();
-    passage = createPassage({ from: 13, entryState: state, puzzle });
+function assertServiceDoorClosed(data) {
+  const door = data.scene.getObjectByName("Door-SERVICE ELEVATOR / BAY 13");
+  assert.ok(door);
+  const panels = door.children.filter(
+    (node) =>
+      node.isMesh &&
+      node.geometry.parameters.width === 1.5 &&
+      node.geometry.parameters.height === 3.2,
+  );
+  assert.equal(panels.length, 2);
+  assert.ok(panels.every((panel) => Math.abs(panel.position.x) === 0.75));
+}
+
+for (const fromServiceLift of [false, true]) {
+  test(`cleared Bay 13 seals the service door and keeps the descent lift available (service arrival: ${fromServiceLift})`, async (t) => {
+    const { data } = await fixture(t, { defeated: true, fromServiceLift });
+    assert.ok(data.player.body.position.z > -24);
+    assertServiceDoorClosed(data);
+    let leftArena = false;
+    data.setBackTrigger(() => {
+      leftArena = true;
+    });
+    data.player.setPosition(0, 0.3, -10);
+    data.player.setRotation(0);
+    key("KeyW");
+    step(data, 6);
+    key("KeyW", "keyup");
+    assert.equal(leftArena, false);
+    assert.ok(data.player.body.position.z < -15, "player must approach the door");
+    assert.ok(data.player.body.position.z > -24, "closed door must block exit");
+    assertServiceDoorClosed(data);
+    assert.equal(data.getLiftStatus().ready, true);
   });
-  key("KeyW");
-  for (let i = 0; i < 360 && !passage; i++) data.updatePhysics(1 / 60);
-  key("KeyW", "keyup");
-  assert.ok(passage, "real staircase and door are traversable");
-  t.cleanup(() => passage.dispose());
-  assert.equal(passage.player.getHealth(), 80);
-  assert.ok(Math.abs(passage.player.body.position.y - 0.3) < 0.04);
-  passage.setDoorTrigger(13, (state) => {
-    passage.dispose();
-    next = createScene({ entryState: state, loadBoy, loadDrone, puzzle });
-  });
-  passage.player.setRotation(Math.PI);
-  key("KeyW");
-  for (let i = 0; i < 120 && !next; i++) passage.updatePhysics(1 / 60);
-  key("KeyW", "keyup");
-  assert.ok(next);
-  t.cleanup(() => next.dispose());
-  await next.ready;
-  assert.equal(next.isCinematic(), true);
-  assert.equal(next.player.getHealth(), 80);
-  assert.ok(next.player.body.position.y > 3.2);
-});
+}

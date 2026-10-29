@@ -1,22 +1,17 @@
 import * as THREE from "three";
-import { prepareEnvironmentComicShading, withoutComicLook } from "../../core/comicShading.js";
 import { disposeRoom } from "../global/shipRoom.js";
+import { createCorridorMonitor } from "../global/corridorMonitor.js";
+import { CAMERA_FOOTAGE } from "../global/surveillanceFootage.js";
+export { CAMERA_FOOTAGE } from "../global/surveillanceFootage.js";
 import {
   STAGE_TWO,
   type CameraFeedId,
 } from "../../scenes/level 1 stage 2/stageTwoLayout.js";
 
-export interface CctvFeedSource {
-  scene: THREE.Scene;
-  camera?: THREE.Camera;
-  update?: (dt: number) => void;
-  dispose(): void;
-}
 export interface CctvFeedDefinition {
   id: CameraFeedId;
   label: string;
   cleared?: () => boolean;
-  load: () => Promise<CctvFeedSource>;
 }
 export interface CctvTarget {
   id: CameraFeedId;
@@ -170,8 +165,8 @@ function drawCctvCaption(
 }
 
 export function createCctvSystem(
-  renderer: THREE.WebGLRenderer,
   definitions: readonly CctvFeedDefinition[],
+  monitorFactory = createCorridorMonitor,
 ) {
   if (
     !definitions.length ||
@@ -183,16 +178,11 @@ export function createCctvSystem(
   const records = definitions.map((definition) => ({
     definition,
     status: "idle" as CctvTarget["status"],
-    source: null as CctvFeedSource | null,
     generation: 0,
     pending: null as Promise<boolean> | null,
+    source: null as ReturnType<typeof createCorridorMonitor> | null,
     cleared: undefined as boolean | undefined,
   }));
-  const targets = definitions.map((definition) => {
-    const target = new THREE.WebGLRenderTarget(512, 288);
-    target.texture.name = `surveillance-${definition.id}`;
-    return target;
-  });
   const placeholders = definitions.map(() => {
     const canvas = document.createElement("canvas");
     canvas.width = 512;
@@ -205,22 +195,7 @@ export function createCctvSystem(
     definitions,
     placeholders.map((placeholder) => placeholder.texture),
   );
-  const cameras = definitions.map((definition) => {
-    const camera = new THREE.PerspectiveCamera(74, 16 / 9, 0.1, 60);
-    if (definition.id === "stage2-armory") {
-      camera.position.set(3.35, 2.7, 3.1);
-      camera.lookAt(-0.8, 0.9, -1.8);
-    } else if (definition.id === "stage2-reactor") {
-      camera.position.set(5.5, 3.6, 5.5);
-      camera.lookAt(-0.5, 1.2, -4.5);
-    } else {
-      camera.position.set(3.3, 2.8, -3.6);
-      camera.lookAt(0, 0.8, 1.8);
-    }
-    return camera;
-  });
   let mountedScene: THREE.Scene | null = null,
-    elapsed = 0,
     highlighted = -1,
     disposed = false;
   const raycaster = new THREE.Raycaster(),
@@ -266,34 +241,39 @@ export function createCctvSystem(
     const generation = ++record.generation;
     record.status = "loading";
     drawPlaceholder(index);
-    record.pending = record.definition
-      .load()
-      .then(
-        (source) => {
+    record.pending = Promise.resolve()
+      .then(async () => {
+        const source = monitorFactory(
+          index,
+          CAMERA_FOOTAGE[record.definition.id],
+        );
+        try {
+          await source.ready;
           if (disposed || generation !== record.generation) {
             source.dispose();
             return false;
           }
-          prepareEnvironmentComicShading(source.scene);
           record.source = source;
           record.status = "ready";
-          screens[index].material.map = targets[index].texture;
+          screens[index].material.map = source.texture;
           screens[index].material.needsUpdate = true;
-          elapsed = 1;
           return true;
-        },
-        (error) => {
-          if (!disposed && generation === record.generation) {
-            console.error(
-              `[CCTV] Unable to prepare ${record.definition.label}:`,
-              error,
-            );
-            record.status = "error";
-            drawPlaceholder(index);
-          }
-          return false;
-        },
-      )
+        } catch (error) {
+          source.dispose();
+          throw error;
+        }
+      })
+      .catch((error) => {
+        if (!disposed && generation === record.generation) {
+          console.error(
+            `[CCTV] Unable to prepare ${record.definition.label}:`,
+            error,
+          );
+          record.status = "error";
+          drawPlaceholder(index);
+        }
+        return false;
+      })
       .finally(() => {
         if (generation === record.generation) record.pending = null;
       });
@@ -320,9 +300,9 @@ export function createCctvSystem(
   function clearSources() {
     records.forEach((record, index) => {
       record.generation++;
+      record.pending = null;
       record.source?.dispose();
       record.source = null;
-      record.pending = null;
       record.status = "idle";
       screens[index].material.map = placeholders[index].texture;
       drawPlaceholder(index);
@@ -386,48 +366,19 @@ export function createCctvSystem(
         detach();
         scene.add(panel);
         mountedScene = scene;
-        elapsed = 1;
       }
       records.forEach((record, index) => {
         if (record.status === "idle") void loadFeed(index);
+        if (!paused) record.source?.update(dt);
         if (record.cleared !== (record.definition.cleared?.() ?? false))
           drawOverlay(index);
       });
-      elapsed += Number.isFinite(dt) ? Math.max(0, dt) : 0;
-      if (elapsed < 1 / 8) return;
-      const frame = elapsed;
-      elapsed = 0;
-      const previousTarget = renderer.getRenderTarget(),
-        previousShadows = renderer.shadowMap.autoUpdate,
-        wasVisible = panel.visible;
-      panel.visible = false;
-      renderer.shadowMap.autoUpdate = false;
-      try {
-        records.forEach((record, index) => {
-          if (!record.source || record.status !== "ready") return;
-          const source = record.source;
-          if (!paused) source.update?.(Math.min(frame, 0.1));
-          renderer.setRenderTarget(targets[index]);
-          withoutComicLook(() => {
-            renderer.render(
-              source.scene,
-              source.camera ?? cameras[index],
-            );
-          });
-        });
-      } finally {
-        renderer.setRenderTarget(previousTarget);
-        renderer.shadowMap.autoUpdate = previousShadows;
-        panel.visible = wasVisible;
-      }
     },
     dispose() {
       if (disposed) return;
       disposed = true;
       detach();
       clearSources();
-      targets.forEach((target) => target.dispose());
-      placeholders.forEach((placeholder) => placeholder.texture.dispose());
       disposeRoom(panel);
     },
   };

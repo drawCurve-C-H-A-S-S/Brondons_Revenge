@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 import { readFile } from "node:fs/promises";
 import { createServer } from "vite";
 
-let server, chapters;
+let server, chapters, cameraFootage;
 before(async () => {
   server = await createServer({
     server: { middlewareMode: true, watch: null, ws: false },
@@ -11,14 +11,15 @@ before(async () => {
     optimizeDeps: { noDiscovery: true, include: [] },
   });
   chapters = await server.ssrLoadModule("/core/chapters.ts");
+  ({ CAMERA_FOOTAGE: cameraFootage } = await server.ssrLoadModule(
+    "/scripts/global/surveillanceFootage.ts",
+  ));
 });
 after(async () => server?.close());
 
 test("the refreshed screenshots resolve to the requested loading scenes", async () => {
   const expected = [
     ["stage1", "stage1-overview"],
-    ["cargo", "stage2-cargo"],
-    ["range", "stage2-range"],
     ["flight", "level2-space"],
     ["scrambler", "level2-sidescroll"],
     ["red-scrambler", "level2-topdown"],
@@ -70,6 +71,55 @@ test("the refreshed screenshots resolve to the requested loading scenes", async 
   assert.equal(finaleArt.readUInt32BE(20), 1080);
 });
 
+test("each room loading screen reuses its wall GIF, including separate Rust 2 and Reactor Sequencer chapters", async () => {
+  for (const [id, footage] of Object.entries(cameraFootage)) {
+    const destination = chapters.CAMERA_LOADING_CHAPTERS[id];
+    assert.deepEqual(chapters.LOADING_CHAPTERS[destination].images, [footage]);
+    assert.equal(
+      chapters.createLoadingSlideDeck(destination).next().image,
+      footage,
+    );
+    assert.ok(chapters.LOADING_IMAGE_URLS.includes(footage));
+    const bytes = await readFile(new URL(`../src${footage}`, import.meta.url));
+    assert.match(bytes.subarray(0, 6).toString("ascii"), /^GIF8[79]a$/);
+  }
+  assert.notEqual(
+    chapters.CAMERA_LOADING_CHAPTERS["stage2-rust"],
+    chapters.CAMERA_LOADING_CHAPTERS["stage2-rust2"],
+  );
+  assert.notEqual(
+    chapters.CAMERA_LOADING_CHAPTERS["stage2-reactor"],
+    "reactor",
+  );
+  assert.deepEqual(
+    new Set(chapters.LOADING_IMAGE_URLS),
+    new Set(
+      Object.values(chapters.LOADING_CHAPTERS).flatMap(({ images }) => images),
+    ),
+  );
+});
+
+test("room transitions present GIF artwork without adding a minimum wait and hidden loading screens release it", async () => {
+  const main = await readFile(
+    new URL("../src/main.ts", import.meta.url),
+    "utf8",
+  );
+  const loading = await readFile(
+    new URL("../src/scripts/global/cinematicLoading.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    main,
+    /beginCinematicLoading\(CAMERA_LOADING_CHAPTERS\[id\], 0\)/,
+  );
+  assert.match(
+    main,
+    /stageTwoProgress\.checkpoint === "vent" \? "vents" : "stage2"/,
+  );
+  assert.match(loading, /<img class="cinematic-loading-art"/);
+  assert.match(loading, /image\.removeAttribute\("src"\)/);
+});
+
 test("the full loading deck includes every chapter image before repeating", () => {
   const expectedImages = new Set(
     Object.values(chapters.LOADING_CHAPTERS).flatMap(
@@ -97,7 +147,10 @@ test("loading screens have no field notes and keep Sefa chapter titles", async (
     "utf8",
   );
   assert.doesNotMatch(source, /FIELD NOTES|cinematic-loading-tip/);
-  assert.match(css, /\.cinematic-loading h1\s*\{[^}]*font-family:\s*"Sefa"/);
+  assert.match(
+    css,
+    /\.cinematic-loading h1\s*\{[^}]*(?:font-family|font):[^;]*"Sefa"/,
+  );
 });
 
 test("developer scene choices include a dedicated epilogue shortcut after the finale", () => {

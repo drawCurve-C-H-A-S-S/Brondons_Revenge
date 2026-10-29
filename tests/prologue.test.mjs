@@ -138,7 +138,7 @@ test("the shortened dialogue follows the pod escape, camera loop and one-use cab
     /released your shield.*shattered your pod/,
     /chain you up.*chains sap your energy.*prevent me from easily releasing your shield/,
     /Where are we/,
-    /mothership.*that planet/,
+    /still aboard the Donus mothership.*don't have physical records of where the others are/,
     /get out of these chains/,
     /I have stored enough energy to break the chains/,
     /loop.*camera feed.*surveillance.*won't notice/,

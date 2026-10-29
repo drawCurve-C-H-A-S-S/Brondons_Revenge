@@ -1,5 +1,8 @@
 import * as THREE from "three";
-import { loadBrendanModel, loadPlayerModel } from "../../core/loader.js";
+import {
+  loadPlayerModel,
+  type PlayableCharacter,
+} from "../../core/loader.js";
 import {
   createScenePhysics,
   PHYSICS,
@@ -37,7 +40,7 @@ import fireVertexShader from "../../shaders/vert/fireExplosion.vert.glsl?raw";
 import fireFragmentShader from "../../shaders/frag/fireExplosion.frag.glsl?raw";
 import rollGifUrl from "../../assets/surveillance/ROLL.gif?url";
 
-export type MuseumCharacter = "brondon" | "brendan";
+export type MuseumCharacter = PlayableCharacter;
 interface MuseumOptions {
   character: MuseumCharacter;
   returnTo?: number;
@@ -212,7 +215,6 @@ function carpetTexture() {
   return texture;
 }
 export function createScene({
-  character,
   returnTo,
   onEnterStage,
   onReturnToMainMenu,
@@ -478,7 +480,7 @@ export function createScene({
   const figureReady: Promise<unknown>[] = [];
   const banners: Array<{ geometry: THREE.PlaneGeometry; home: Float32Array }> =
     [];
-  const plaqueGeometry = new THREE.PlaneGeometry(0.78, 0.3),
+  const plaqueGeometry = new THREE.PlaneGeometry(0.84, 0.42),
     ringGeometry = new THREE.RingGeometry(0.95, 1.12, 40);
   for (const wall of ["north", "south", "east"] as const) {
     const frame = FRAMES[wall];
@@ -550,10 +552,10 @@ export function createScene({
         new THREE.Vector3(pedestalPosition.x, 0.5, pedestalPosition.z),
       );
       const plaqueTexture = createTextTexture(
-        [exhibit.caption.toUpperCase(), `ID ${exhibit.id}`],
-        320,
-        124,
-        { size: 30, color: "#f4dd9a", background: "#2a1f10" },
+        [exhibit.title, ...exhibit.caption.toUpperCase().split(/\s*\/\s*/)],
+        672,
+        336,
+        { size: 54, color: "#f4dd9a", background: "#2a1f10" },
       );
       disposables.push(() => plaqueTexture.dispose());
       const plaque = new THREE.Mesh(
@@ -806,7 +808,7 @@ export function createScene({
   const showcase: Array<{ kind: DisplayKind; label: string }> = [
     { kind: "enemyFighter", label: "ENEMY FIGHTER" },
     { kind: "mothership", label: "THE MOTHERSHIP" },
-    { kind: "bigMech", label: "THE BIG MECH" },
+    { kind: "bigMech", label: "OPUS" },
     { kind: "scavenger", label: "SCAVENGER" },
     { kind: "quadShell", label: "QUAD-SHELL BOT" },
     { kind: "eyeDrone", label: "EYE DRONE" },
@@ -994,49 +996,6 @@ export function createScene({
   );
   player.enable();
 
-  // Brendan is a visiting avatar: the scene animates him in place of the shared Brondon model.
-  const avatar = new THREE.Group();
-  avatar.visible = false;
-  scene.add(avatar);
-  let avatarMixer: THREE.AnimationMixer | null = null;
-  let idleAction: THREE.AnimationAction | undefined,
-    walkAction: THREE.AnimationAction | undefined,
-    runAction: THREE.AnimationAction | undefined,
-    activeAction: THREE.AnimationAction | undefined;
-  const avatarReady =
-    character === "brendan"
-      ? loadBrendanModel()
-          .then((gltf) => {
-            const model = gltf.scene,
-              fit = new THREE.Box3().setFromObject(model);
-            model.scale.multiplyScalar(
-              1.83 / Math.max(0.01, fit.getSize(new THREE.Vector3()).y),
-            );
-            const fitted = new THREE.Box3().setFromObject(model);
-            model.position.y = -fitted.min.y;
-            avatar.add(model);
-            model.traverse((node) => {
-              if (node instanceof THREE.Mesh) node.castShadow = true;
-            });
-            avatarMixer = new THREE.AnimationMixer(model);
-            const find = (...names: string[]) => {
-              for (const name of names) {
-                const clip = gltf.animations.find((c) => c.name === name);
-                if (clip) return avatarMixer!.clipAction(clip);
-              }
-            };
-            idleAction = find("Idle_Loop", "Idle");
-            walkAction = find("Walk_Loop", "Jog_Fwd_Loop", "Walk");
-            runAction = find("Sprint_Loop", "Run_Loop", "Jog_Fwd_Loop", "Run");
-            activeAction = idleAction;
-            idleAction?.play();
-            avatar.visible = true;
-          })
-          .catch((error) =>
-            console.warn("[Museum] Brendan unavailable:", error),
-          )
-      : Promise.resolve();
-
   // Teleport-into-painting interaction.
   const prompt = document.getElementById("interact-prompt");
   const flash = document.createElement("div");
@@ -1145,8 +1104,6 @@ export function createScene({
   };
   window.addEventListener("keydown", onKey, true);
 
-  const lastPosition = new THREE.Vector3(spawn.x, 0, spawn.z);
-  let lastClock = performance.now();
   let drawn = 0,
     shadowed = false;
   return {
@@ -1156,7 +1113,7 @@ export function createScene({
     player,
     physicsWorld: physics.world,
     cutsceneManager: null,
-    ready: Promise.all([...figureReady, statueReady, avatarReady]).then(
+    ready: Promise.all([...figureReady, statueReady]).then(
       () => undefined,
     ),
     forceThirdPerson: true,
@@ -1173,29 +1130,6 @@ export function createScene({
           if (node instanceof THREE.Mesh) node.castShadow = true;
         });
       }
-      if (character !== "brendan" || !model) return;
-      model.model.visible = false;
-      const now = performance.now(),
-        dt = Math.min(0.1, (now - lastClock) / 1000);
-      lastClock = now;
-      const position = player.body.position;
-      const speed =
-        Math.hypot(position.x - lastPosition.x, position.z - lastPosition.z) /
-        Math.max(dt, 1e-4);
-      lastPosition.set(position.x, 0, position.z);
-      avatar.position.set(position.x, position.y - player.radius, position.z);
-      avatar.rotation.y = player.getState().yaw + Math.PI;
-      const next = speed > 0.6
-        ? (player.getState().sprinting ? runAction ?? walkAction : walkAction) ?? idleAction
-        : idleAction;
-      if (next && next !== activeAction) {
-        activeAction?.fadeOut(0.2);
-        next.reset().fadeIn(0.2).play();
-        activeAction = next;
-      }
-      if (walkAction && activeAction === walkAction)
-        walkAction.timeScale = THREE.MathUtils.clamp(speed / 2.4, 0.7, 2);
-      avatarMixer?.update(dt);
     },
     updatePhysics(dt: number, thirdPerson = false) {
       if (disposed || !active || paused) return;

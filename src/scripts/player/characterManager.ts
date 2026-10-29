@@ -10,9 +10,10 @@
 import * as THREE from "three";
 import type { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import {
-  loadPlayerModel,
+  loadPlayableCharacterModel,
   setPlayerCellShadingEnabled,
   yieldToMainThread,
+  type PlayableCharacter,
 } from "../../core/loader.js";
 import {
   loadCombatAnimationsForRig,
@@ -460,13 +461,16 @@ export {
   type MechPoseName,
 } from "../npc/mechAnimation.js";
 
-export async function loadCharacter(loader?: GLTFLoader) {
+export async function loadCharacter(
+  loader?: GLTFLoader,
+  character: PlayableCharacter = "brondon",
+) {
   let gltf;
   try {
-    gltf = await loadPlayerModel(loader);
-    console.log("MC character loaded");
+    gltf = await loadPlayableCharacterModel(character, loader);
+    console.log(`${character} character loaded`);
   } catch (error) {
-    console.error("Failed to load MC character model:", error);
+    console.error(`Failed to load ${character} character model:`, error);
     return null;
   }
 
@@ -1946,8 +1950,12 @@ export async function loadCharacter(loader?: GLTFLoader) {
     const material = original.clone();
     material.transparent = true;
     material.depthWrite = false;
+    // Unlit outlines have neither lighting normals nor view-position varyings.
+    const rim = original instanceof THREE.MeshStandardMaterial
+      ? "pow(1.0 - abs(dot(normal, normalize(vViewPosition))), 2.0)"
+      : "0.0";
     material.customProgramCacheKey = () =>
-      `${original.customProgramCacheKey()}-player-hologram`;
+      `${original.customProgramCacheKey()}-player-hologram-v2`;
     material.onBeforeCompile = (shader, renderer) => {
       original.onBeforeCompile(shader, renderer);
       Object.assign(shader.uniforms, hologramUniforms);
@@ -1977,7 +1985,7 @@ export async function loadCharacter(loader?: GLTFLoader) {
         "#include <opaque_fragment>",
         `
         #include <opaque_fragment>
-        float hologramRim = pow(1.0 - abs(dot(normal, normalize(vViewPosition))), 2.0);
+        float hologramRim = ${rim};
         float hologramScan = 0.5 + 0.5 * sin(hologramPosition.y * 130.0 - hologramTime * 8.0);
         float hologramFlicker = 0.96 + 0.04 * sin(hologramTime * 25.0);
         vec3 hologramTint = hologramColor * (0.6 + hologramScan * 0.28 + hologramRim * 0.8) * hologramFlicker;

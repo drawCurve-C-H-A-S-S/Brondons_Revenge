@@ -6,6 +6,7 @@ import mcModelUrl from "../assets/models/MC.glb";
 import subjectModelUrl from "../assets/models/Subject.glb";
 import finaleMechModelUrl from "../assets/models/mechs.glb";
 import brendanModelUrl from "../assets/models/DonfromStreets.glb";
+import brandenModelUrl from "../assets/models/branden-the-dripless-export.glb";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import dinoModelUrl from "../assets/models/Dino/dino.glb";
 import sharkModelUrl from "../assets/models/Dino/Shark.glb";
@@ -43,6 +44,12 @@ export const TOOL_MODEL_NAMES = [
 ] as const;
 type ToolModelName = (typeof TOOL_MODEL_NAMES)[number];
 const toolTemplates = new Map<ToolModelName, Promise<GLTF>>();
+export const PLAYABLE_CHARACTER_NAMES = {
+  brondon: "Brondon",
+  brendan: "Brendan",
+  branden: "Branden",
+} as const;
+export type PlayableCharacter = keyof typeof PLAYABLE_CHARACTER_NAMES;
 
 export function yieldToMainThread(): Promise<void> {
   const scheduler = (
@@ -62,7 +69,7 @@ function modelTemplate(url: string) {
       .then((source) => gltfLoader.loadAsync(source))
       .then((asset) => {
         if ([
-          playerModelUrl, mcModelUrl, subjectModelUrl, brendanModelUrl,
+          playerModelUrl, mcModelUrl, subjectModelUrl, brendanModelUrl, brandenModelUrl,
           dinoModelUrl, sharkModelUrl, bossModelUrl, mothershipModelUrl,
           gundamModelUrl, finaleMechModelUrl,
         ].includes(url))
@@ -136,7 +143,7 @@ export async function preloadBossModels() {
   await Promise.all([
     modelTemplate(bossModelUrl),
     modelTemplate(subjectModelUrl),
-    modelTemplate(brendanModelUrl),
+    modelTemplate(brandenModelUrl),
     toolTemplate("Enemy_EyeDrone"),
   ]);
 }
@@ -234,6 +241,11 @@ export async function loadBrendanModel() {
   applyPlayerCelShading(model.scene);
   return model;
 }
+export async function loadBrandenModel() {
+  const model = cloneModel(await modelTemplate(brandenModelUrl));
+  applyPlayerCelShading(model.scene);
+  return model;
+}
 export async function loadSubjectModel() {
   return cloneModel(await modelTemplate(subjectModelUrl));
 }
@@ -307,6 +319,24 @@ export function applyPlayerCelShading(
   });
 }
 
+function normalizePlayerModel(template: GLTF, name: string): GLTF {
+  template.scene.updateMatrixWorld(true);
+  template.scene.traverse((node) => {
+    if (node instanceof THREE.SkinnedMesh) node.skeleton.update();
+  });
+  const height = new THREE.Box3()
+    .setFromObject(template.scene)
+    .getSize(new THREE.Vector3()).y;
+  if (!Number.isFinite(height) || height <= 0)
+    throw new Error(`${name} character has invalid bounds`);
+  template.scene.scale.multiplyScalar(1.83 / height);
+  const scene = new THREE.Group();
+  scene.name = `${name} Player`;
+  scene.add(template.scene);
+  scene.updateMatrixWorld(true);
+  return { ...template, scene, scenes: [scene] };
+}
+
 /** Decode the player asset once; each view gets an independent skeleton and mixer. */
 export async function loadPlayerModel(loader = playerLoader) {
   let pending = playerTemplates.get(loader);
@@ -316,23 +346,7 @@ export async function loadPlayerModel(loader = playerLoader) {
         ? assetUrl(playerModelUrl).then((source) => loader.loadAsync(source))
         : loader.loadAsync(playerModelUrl);
     pending = loading
-      .then((template) => {
-        template.scene.updateMatrixWorld(true);
-        template.scene.traverse((node) => {
-          if (node instanceof THREE.SkinnedMesh) node.skeleton.update();
-        });
-        const height = new THREE.Box3()
-          .setFromObject(template.scene)
-          .getSize(new THREE.Vector3()).y;
-        if (!Number.isFinite(height) || height <= 0)
-          throw new Error("MC character has invalid bounds");
-        template.scene.scale.multiplyScalar(1.83 / height);
-        const scene = new THREE.Group();
-        scene.name = "MC Player";
-        scene.add(template.scene);
-        scene.updateMatrixWorld(true);
-        return { ...template, scene, scenes: [scene] };
-      })
+      .then((template) => normalizePlayerModel(template, "MC"))
       .catch((error) => {
         playerTemplates.delete(loader);
         throw error;
@@ -342,6 +356,24 @@ export async function loadPlayerModel(loader = playerLoader) {
   const template = await pending;
   const model = cloneModel(template);
   // Install on the clone: Three.js material cloning does not retain shader hooks.
+  applyPlayerCelShading(model.scene);
+  addCharacterInk(model.scene);
+  return model;
+}
+
+export async function loadPlayableCharacterModel(
+  character: PlayableCharacter,
+  loader?: GLTFLoader,
+) {
+  if (character === "brondon") return loadPlayerModel(loader);
+  const url = character === "brendan" ? brendanModelUrl : brandenModelUrl;
+  const template = loader
+    ? await loader.loadAsync(url)
+    : await modelTemplate(url);
+  const model = normalizePlayerModel(
+    cloneModel(template),
+    PLAYABLE_CHARACTER_NAMES[character],
+  );
   applyPlayerCelShading(model.scene);
   addCharacterInk(model.scene);
   return model;
@@ -374,6 +406,7 @@ export const MODEL_ASSET_URLS = [
   subjectModelUrl,
   finaleMechModelUrl,
   brendanModelUrl,
+  brandenModelUrl,
   dinoModelUrl,
   sharkModelUrl,
   bossModelUrl,

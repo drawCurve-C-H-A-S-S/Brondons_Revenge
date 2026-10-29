@@ -1,4 +1,4 @@
-import { playSfx } from "../../helpers/audio/sfx.js";
+import { playSfx, playDoorMovement } from "../../helpers/audio/sfx.js";
 /**
  * Scene 5 - Cargo hold, reached via the passageway's left-hand door.
  * Same door/threshold mechanics as scene4, entered from a single back door.
@@ -412,6 +412,7 @@ export function createScene({
       (id) => {
         loot?.cleared.add(id);
       },
+      { soundMaterial: "wood" },
     ),
   );
   if (loot) breakables.restoreBroken(loot.cleared);
@@ -651,7 +652,7 @@ export function createScene({
       sLightMat.emissive.setHex(0xff0000);
     }
     const slideDelta = doorSlideSpeed * dt;
-    if (doorBack.open === 0 && doorBack.targetOpen > 0) playSfx("shipDoor");
+    if (dt > 0) playDoorMovement(doorBack.panelL, doorBack.open, doorBack.targetOpen);
     if (doorBack.open < doorBack.targetOpen)
       doorBack.open = Math.min(doorBack.open + slideDelta, 1);
     else if (doorBack.open > doorBack.targetOpen)

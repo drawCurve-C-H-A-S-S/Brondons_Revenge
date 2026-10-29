@@ -466,7 +466,6 @@ export function createLogoTexture(width = 2048, height = 640) {
     const style = getComputedStyle(document.documentElement);
     const font = style.getPropertyValue("--menu-font").trim();
     const ink = style.getPropertyValue("--comic-ink").trim();
-    const paper = style.getPropertyValue("--comic-paper").trim();
     ctx.clearRect(0, 0, width, height);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -479,35 +478,27 @@ export function createLogoTexture(width = 2048, height = 640) {
       if (ctx.measureText(title).width <= width * 0.9) break;
       size *= 0.95;
     } while (size > 1);
+    function drawLine(text: string, fontSize: number, y: number) {
+      ctx.save();
+      ctx.font = `${fontSize}px ${font}`;
+      ctx.letterSpacing = `${fontSize * 0.06}px`;
+      const gradient = ctx.createLinearGradient(
+        0, y - fontSize / 2, 0, y + fontSize / 2,
+      );
+      for (const [stop, color] of [[0, "#e8f6ff"], [0.38, "#5ab8ff"], [0.62, "#1d3f9a"], [1, "#8a0f1e"]] as const)
+        gradient.addColorStop(stop, color);
+      const scale = fontSize / 108;
+      ctx.filter = `drop-shadow(0 0 ${18 * scale}px rgba(40,110,255,0.55)) drop-shadow(0 0 ${42 * scale}px rgba(170,0,30,0.45))`;
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = scale * 2;
+      ctx.strokeText(text, width / 2, y);
+      ctx.fillStyle = gradient;
+      ctx.fillText(text, width / 2, y);
+      ctx.restore();
+    }
     const y = height * 0.42;
-    const gradient = ctx.createLinearGradient(0, y - size / 2, 0, y + size / 2);
-    for (const [stop, color] of [[0, "#e8f6ff"], [0.38, "#5ab8ff"], [0.62, "#1d3f9a"], [1, "#8a0f1e"]] as const)
-      gradient.addColorStop(stop, color);
-    ctx.save();
-    const scale = size / 108;
-    ctx.filter = `drop-shadow(0 0 ${18 * scale}px rgba(40,110,255,0.55)) drop-shadow(0 0 ${42 * scale}px rgba(170,0,30,0.45))`;
-    ctx.strokeStyle = ink;
-    ctx.lineWidth = scale * 2;
-    ctx.strokeText(title, width / 2, y);
-    ctx.fillStyle = gradient;
-    ctx.fillText(title, width / 2, y);
-    ctx.restore();
-    const subtitleSize = size / 6;
-    ctx.font = `${subtitleSize}px ${font}`;
-    ctx.letterSpacing = `${subtitleSize * 0.18}px`;
-    const subtitle = "A TALE OF VENGEANCE";
-    const boxWidth = ctx.measureText(subtitle).width + 28 * scale;
-    const boxHeight = subtitleSize + 18 * scale;
-    const boxY = y + size * 0.55 + 15 * scale;
-    ctx.fillStyle = ink;
-    ctx.fillRect((width - boxWidth) / 2 + 3 * scale, boxY + 3 * scale, boxWidth, boxHeight);
-    ctx.fillStyle = paper;
-    ctx.fillRect((width - boxWidth) / 2, boxY, boxWidth, boxHeight);
-    ctx.strokeStyle = ink;
-    ctx.lineWidth = 2 * scale;
-    ctx.strokeRect((width - boxWidth) / 2, boxY, boxWidth, boxHeight);
-    ctx.fillStyle = ink;
-    ctx.fillText(subtitle, width / 2, boxY + boxHeight / 2);
+    drawLine(title, size, y);
+    drawLine("A TALE OF VENGEANCE", size / 4.5, y + size * 0.8);
     texture.needsUpdate = true;
   }
   draw();
@@ -571,8 +562,16 @@ export function createTextTexture(
   ctx.fillStyle = color;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = `bold ${size}px ${font}`;
   const step = height / (lines.length + 1);
+  const padding = Math.ceil(Math.min(width, height) * 0.08);
+  const availableWidth = width - padding * 2;
+  let fittedSize = Math.min(size, step * 0.8);
+  ctx.font = `bold ${fittedSize}px ${font}`;
+  const widest = Math.max(0, ...lines.map((line) => ctx.measureText(line).width));
+  if (widest > availableWidth) {
+    fittedSize *= availableWidth / widest;
+    ctx.font = `bold ${fittedSize}px ${font}`;
+  }
   lines.forEach((line, i) => ctx.fillText(line, width / 2, step * (i + 1)));
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;

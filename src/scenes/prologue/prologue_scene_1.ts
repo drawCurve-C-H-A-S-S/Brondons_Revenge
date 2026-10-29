@@ -131,7 +131,7 @@ export const PROLOGUE_DIALOGUE: readonly DialogueLine[] = [
   { speaker: "Brondon", text: "Where are we now? What about the others?" },
   {
     speaker: "Prime",
-    text: "We're aboard Donus's mothership. The others were taken to a facility on that planet.",
+    text: "We're still aboard the Donus mothership. I don't have physical records of where the others are.",
     shot: "planet",
     duration: 6,
     automatic: true,
@@ -703,7 +703,7 @@ export function createScene({
   title.id = "prologue-title";
   title.setAttribute("aria-hidden", "true");
   title.innerHTML =
-    '<span class="menu-title-main" data-text="BRONDON\'S REVENGE">BRONDON\'S REVENGE</span><span class="menu-title-kicker">A tale of vengeance</span>';
+    '<span class="menu-title-main" data-text="BRONDON\'S REVENGE">BRONDON\'S REVENGE</span><span class="menu-title-kicker" data-text="A TALE OF VENGEANCE">A tale of vengeance</span>';
   if (!preview) document.body.appendChild(title);
 
   const speakerEl = overlay.querySelector(
@@ -871,6 +871,13 @@ export function createScene({
     player.setRotation(0, 0);
     player.clearInput();
     player.disable();
+    camera.position.set(
+      thirdPersonCamera.right,
+      player.getHeadY() + thirdPersonCamera.height,
+      thirdPersonCamera.distance,
+    );
+    camera.rotation.set(0, 0, 0, "YXZ");
+    camera.far = 80;
     camera.fov = 75;
     camera.updateProjectionMatrix();
     speakerEl.textContent = "Prime";

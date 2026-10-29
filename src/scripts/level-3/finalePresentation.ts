@@ -1,9 +1,9 @@
 import {
   getAudioSettings,
-  getSfxGain,
   subscribeAudioSettings,
 } from "../../helpers/audio/AudioManager.js";
-import { playSfx } from "../../helpers/audio/sfx.js";
+import { playSfx, playWorldSfx, type SfxName } from "../../helpers/audio/sfx.js";
+import type { SoundPosition } from "../../helpers/audio/spatialAudio.js";
 import { DUEL } from "../npc/mechDuel.js";
 import { FINALE_CREDITS, FINALE_DURATION } from "../global/finaleDirector.js";
 import { createComicEffectArtwork } from "../global/comicEffects.js";
@@ -12,9 +12,21 @@ import { renderControllerPrompt } from "../player/controllerIcons.js";
 import { setInputHint } from "../global/inputPrompts.js";
 import { renderDirectionalPrompt } from "../player/directionalPrompt.js";
 
+export const FINALE_SOUND_MAP = {
+  hit: "metalHit",
+  launch: "mechShot",
+  parry: "swordClash",
+  guard: "shieldHit",
+  swing: "slash",
+  special: "shieldHit",
+  qte: "keypad",
+  explode: "explosion",
+} as const satisfies Record<string, SfxName>;
+
 export function createFinalePresentation(
   onInput: (code: string, pressed: boolean) => void,
   onRetry: () => void,
+  getSoundPosition?: () => SoundPosition,
 ) {
   const root = document.createElement("section");
   root.className = "finale-hud";
@@ -140,10 +152,8 @@ export function createFinalePresentation(
   const roll = get(".finale-credits-roll");
   const performance = get<HTMLElement>(".finale-credits-performance");
   const events = new AbortController();
-  let muted = false,
-    audioContext: AudioContext | null = null;
+  let muted = false;
   let stopShout: (() => void) | undefined;
-  const activeOscillators = new Set<OscillatorNode>();
   const heldPointers = new Map<number, string>();
   const reducedMotion = window.matchMedia(
     "(prefers-reduced-motion: reduce)",
@@ -190,30 +200,7 @@ export function createFinalePresentation(
   const settingsOff = subscribeAudioSettings((settings) => {
     if (!settings.paused) return;
     stopShout?.();
-    for (const oscillator of activeOscillators) {
-      try {
-        oscillator.stop();
-      } catch {
-        /* The oscillator has already ended. */
-      }
-    }
-    activeOscillators.clear();
   });
-  function unlockAudio() {
-    if (typeof AudioContext === "undefined") return;
-    if (!audioContext) audioContext = new AudioContext();
-    if (audioContext.state === "suspended") {
-      void audioContext
-        .resume()
-        .catch((error) =>
-          console.warn("[Finale] Audio could not be resumed:", error),
-        );
-    }
-  }
-  window.addEventListener("pointerdown", unlockAudio, {
-    signal: events.signal,
-  });
-  window.addEventListener("keydown", unlockAudio, { signal: events.signal });
 
   return {
     root,
@@ -413,17 +400,8 @@ export function createFinalePresentation(
       muted = value;
       clearPointers();
       if (value) stopShout?.();
-      if (value)
-        for (const oscillator of activeOscillators) {
-          try {
-            oscillator.stop();
-          } catch {
-            /* The oscillator has already ended. */
-          }
-        }
-      activeOscillators.clear();
     },
-    sound(kind: "hit" | "launch" | "parry" | "special" | "qte" | "explode" | "shout") {
+    sound(kind: keyof typeof FINALE_SOUND_MAP | "shout", position?: SoundPosition) {
       if (kind === "shout") {
         if (!muted && !getAudioSettings().paused) {
           stopShout?.();
@@ -431,59 +409,20 @@ export function createFinalePresentation(
         }
         return;
       }
-      if (kind === "explode" && !muted && !getAudioSettings().paused)
-        playSfx("explosion", 0.9);
-      if (
-        !audioContext ||
-        audioContext.state !== "running" ||
-        muted ||
-        getAudioSettings().paused ||
-        activeOscillators.size >= 12
-      )
+      if (muted || getAudioSettings().paused) return;
+      if (kind === "swing") {
+        playSfx("slash", 0.8);
         return;
-      const oscillator = audioContext.createOscillator(),
-        gain = audioContext.createGain(),
-        now = audioContext.currentTime;
-      const frequency = {
-        hit: 110,
-        launch: 210,
-        parry: 840,
-        special: 65,
-        qte: 660,
-        explode: 45,
-      }[kind];
-      oscillator.type =
-        kind === "parry" || kind === "qte" ? "sine" : "sawtooth";
-      oscillator.frequency.setValueAtTime(frequency, now);
-      oscillator.frequency.exponentialRampToValueAtTime(
-        Math.max(20, frequency * 0.25),
-        now + 0.3,
-      );
-      gain.gain.setValueAtTime(0.07 * getSfxGain(), now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
-      oscillator.connect(gain);
-      gain.connect(audioContext.destination);
-      activeOscillators.add(oscillator);
-      oscillator.onended = () => {
-        activeOscillators.delete(oscillator);
-        oscillator.disconnect();
-        gain.disconnect();
-      };
-      oscillator.start();
-      oscillator.stop(now + 0.36);
+      }
+      const source = position ?? getSoundPosition?.();
+      if (source && kind !== "qte") playWorldSfx(FINALE_SOUND_MAP[kind], source, 200, 0.85);
+      else playSfx(FINALE_SOUND_MAP[kind], 0.65);
     },
     dispose() {
       clearPointers();
       stopShout?.();
       events.abort();
       settingsOff();
-      if (audioContext) {
-        void audioContext
-          .close()
-          .catch((error) =>
-            console.warn("[Finale] Audio context could not close:", error),
-          );
-      }
       root.remove();
       document.body.classList.remove("finale-active");
     },

@@ -23,7 +23,7 @@ import {
 import { createSceneMinimap, prepareSceneRendering } from "./core/renderer.js";
 import { configureAssetCache, type PreloadTask } from "./core/assetCache.js";
 import { GAME_ASSET_URLS, preloadGameAssets } from "./core/gamePreload.js";
-import { SCENE_CHOICES } from "./core/chapters.js";
+import { CAMERA_LOADING_CHAPTERS, SCENE_CHOICES } from "./core/chapters.js";
 import { MUSEUM_EXHIBITS } from "./scenes/museum/museumCatalog.js";
 import {
   arcadeChallenge,
@@ -41,6 +41,7 @@ import { createQuartersProgress } from "./scenes/living quarters/layout.js";
 import {
   createStageTwoProgress,
   collectStageTwoKeycard,
+  cameraVisitMap,
   STAGE_TWO_MINIGAMES,
   STAGE_TWO_CAMERA_ORDER,
   isSurveillancePoint,
@@ -71,6 +72,7 @@ import {
   setCharacterPreviewPostRender,
   getCharacterPreviewRenderer,
 } from "./scripts/global/characterPreview.js";
+import { renderArcadePortraits } from "./scripts/global/arcadePortraits.js";
 import type { Player, PlayerTransitionState } from "./scripts/player/player.js";
 import { PLAYER_MAX_HEALTH } from "./scripts/player/player.js";
 import { PistolController } from "./scripts/weapons/pistol.js";
@@ -89,7 +91,6 @@ import {
 import {
   createCctvSystem,
   type CctvFeedDefinition,
-  type CctvFeedSource,
 } from "./scripts/npc/cctv.js";
 import {
   TeleportationDeviceController,
@@ -142,7 +143,14 @@ import {
 } from "./helpers/audio/AudioManager.js";
 import { preloadMusic } from "./helpers/audio/bufferedMusic.js";
 import { createGameMusic, MUSIC_URLS } from "./helpers/audio/gameMusic.js";
-import { loadToolModel, yieldToMainThread } from "./core/loader.js";
+import { createGameSoundscape } from "./helpers/audio/gameSoundscape.js";
+import { updateSpatialAudio } from "./helpers/audio/spatialAudio.js";
+import {
+  loadToolModel,
+  PLAYABLE_CHARACTER_NAMES,
+  yieldToMainThread,
+  type PlayableCharacter,
+} from "./core/loader.js";
 
 configureAssetCache(GAME_ASSET_URLS);
 const openingMusicReady = preloadMusic(MUSIC_URLS.loading);
@@ -227,24 +235,20 @@ renderer.domElement.style.position = "relative";
 renderer.domElement.style.zIndex = "1";
 
 const cctv = createCctvSystem(
-  renderer,
   (
     [
       ...STAGE_TWO_MINIGAMES.map((room) => ({
         ...room,
-        load: () => cameraFeed(room.id),
         cleared: () => stageTwoProgress.remoteRooms[room.id].rewardCollected,
       })),
       {
         id: "stage2-vents",
         label: "Vent maze",
-        load: () => cameraFeed("stage2-vents"),
         cleared: () => stageTwoProgress.ventCleared,
       },
       {
         id: "stage2-prison",
         label: "Prison",
-        load: () => cameraFeed("stage2-prison"),
         cleared: () => true,
       },
     ] satisfies CctvFeedDefinition[]
@@ -272,6 +276,7 @@ const minimap = createSceneMinimap(
 // --- Audio ---
 const audioManager = null;
 const music = createGameMusic();
+const soundscape = createGameSoundscape();
 const cinematicLoading = createCinematicLoadingScreen();
 type MenuFont = "normal" | "sefa" | "comic-sans";
 let menuFont: MenuFont = "normal";
@@ -449,7 +454,11 @@ let bayBossDefeated = false;
 // --- Global Character (persists across scenes) ---
 let globalCharacter: Awaited<ReturnType<typeof loadCharacter>> = null;
 let playerSilhouetteEnabled = false;
-let characterPreparation: Promise<void> | null = null;
+let globalCharacterId: PlayableCharacter | null = null;
+const characterPreparations = new Map<
+  PlayableCharacter,
+  Promise<NonNullable<Awaited<ReturnType<typeof loadCharacter>>>>
+>();
 let currentPlayer: Player | null = null;
 
 // --- Session inventory ---
@@ -1009,22 +1018,29 @@ async function initializeApp() {
 }
 
 async function prepareGlobalCharacter() {
-  if (globalCharacter) return;
-  if (!characterPreparation) {
-    characterPreparation = loadCharacter()
+  const selected = arcade.active ? arcade.character : "brondon";
+  if (globalCharacter && globalCharacterId === selected) return;
+  let preparation = characterPreparations.get(selected);
+  if (!preparation) {
+    preparation = loadCharacter(undefined, selected)
       .then((character) => {
         if (!character)
           throw new Error("The player character could not be prepared");
         character.setSilhouetteEnabled(playerSilhouetteEnabled);
-        globalCharacter = character;
+        return character;
       })
       .catch((error) => {
-        characterPreparation = null;
+        characterPreparations.delete(selected);
         console.error("[Character] Preparation failed:", error);
         throw error;
       });
+    characterPreparations.set(selected, preparation);
   }
-  await characterPreparation;
+  const character = await preparation;
+  globalCharacter?.model.removeFromParent();
+  globalCharacter = character;
+  globalCharacterId = selected;
+  character.setSilhouetteEnabled(playerSilhouetteEnabled);
 }
 
 function prepareEntireGame(loading: ReturnType<typeof beginCinematicLoading>) {
@@ -1383,7 +1399,8 @@ function renderGameplayFrame(
     activeSceneId === "scene1.2" ||
     !!currentSceneData?.isMazeActive?.();
   const comic = getComicLookEnabled() && !minigame;
-  setComicFrameEnabled(!minigame);
+  const forceOutlines = currentSceneData?.shouldForceOutlines?.() ?? false;
+  setComicFrameEnabled(!minigame, forceOutlines);
   renderer.domElement.style.filter = [
     comic ? "contrast(1.07) saturate(1.12)" : "",
     currentSceneData?.shouldInvertColors?.() ? "invert(1)" : "",
@@ -1419,6 +1436,7 @@ function renderGameplayFrame(
       renderMinimap();
     }
   } finally {
+    if (forceOutlines) setComicFrameEnabled(!minigame);
     if (timed) {
       latestCpuFrameMs = performance.now() - cpuStart;
       gpuTimer.end();
@@ -2042,7 +2060,14 @@ function showMenuButtons() {
     .addEventListener("click", () => showTitlePanel("mode"));
   document.querySelectorAll<HTMLElement>(".character-card").forEach((card) =>
     card.addEventListener("click", () => {
-      arcade.character = card.dataset.character as ArcadeCharacter;
+      const selected = card.dataset.character;
+      if (
+        selected !== "brondon" &&
+        selected !== "brendan" &&
+        selected !== "branden"
+      )
+        throw new Error(`Unknown arcade character: ${selected}`);
+      arcade.character = selected;
       arcade.active = true;
       menuButtons.classList.add("hidden");
       void startArcade();
@@ -2080,7 +2105,7 @@ const MUSEUM_ID = 99;
 const MUSEUM_STAGE_TITLES = new Map(
   MUSEUM_EXHIBITS.map((exhibit) => [exhibit.id, exhibit.title] as const),
 );
-type ArcadeCharacter = "brondon" | "brendan";
+type ArcadeCharacter = PlayableCharacter;
 interface ArcadeRun {
   id: number;
   difficulty: ArcadeDifficulty;
@@ -2101,6 +2126,37 @@ const arcade = {
   briefingOpen: false,
 };
 let arcadeReturnTo: number | undefined;
+let arcadePortraitPreparation: Promise<void> | null = null;
+
+function prepareArcadePortraits() {
+  if (arcadePortraitPreparation) return;
+  const status = document.getElementById("character-select-status")!;
+  status.textContent = "Loading character portraits...";
+  arcadePortraitPreparation = renderArcadePortraits()
+    .then((portraits) => {
+      document
+        .querySelectorAll<HTMLImageElement>("[data-character-portrait]")
+        .forEach((image) => {
+          const character = image.dataset.characterPortrait;
+          if (
+            character !== "brondon" &&
+            character !== "brendan" &&
+            character !== "branden"
+          )
+            throw new Error(`Unknown portrait character: ${character}`);
+          const portrait = portraits.get(character);
+          if (!portrait) throw new Error(`Missing ${character} portrait`);
+          image.src = portrait;
+        });
+      status.textContent = "";
+    })
+    .catch((error) => {
+      arcadePortraitPreparation = null;
+      console.error("[Arcade] Character portraits failed:", error);
+      status.textContent =
+        "Portraits could not load. Reopen character selection to retry.";
+    });
+}
 
 function showTitlePanel(panel: "title" | "mode" | "character", focus = true) {
   const ids = {
@@ -2110,6 +2166,7 @@ function showTitlePanel(panel: "title" | "mode" | "character", focus = true) {
   } as const;
   for (const [key, id] of Object.entries(ids))
     document.getElementById(id)!.classList.toggle("hidden", key !== panel);
+  if (panel === "character") prepareArcadePortraits();
   if (focus && isControllerActive()) updateControllerMenuFocus();
   else if (focus)
     document
@@ -2445,7 +2502,7 @@ function setupArcadeResults() {
       downloadButton.disabled = true;
       await downloadArcadeRecord({
         stage: MUSEUM_STAGE_TITLES.get(run.id)!,
-        character: arcade.character === "brondon" ? "Brondon" : "Brendan",
+        character: PLAYABLE_CHARACTER_NAMES[arcade.character],
         time: run.elapsed,
         retries: run.deaths,
       });
@@ -2608,6 +2665,7 @@ function enterManagedScene(id: string, sceneData: any) {
 }
 
 function retireTraversalRoom() {
+  soundscape.stop();
   weaponWheel.close();
   cctv.detach();
   teleportDevice.detachMarker();
@@ -2647,53 +2705,76 @@ async function loadStageTwo(
   presentation?: Promise<void>,
   fromAirlock = false,
 ) {
-  const expectedRequest = sceneRequestVersion + 1;
-  const [module] = await Promise.all([
-    prepareScene(1.2),
-    preloadMusic(MUSIC_URLS["stealth-alert"]),
-    preloadMusic(MUSIC_URLS.tension),
-  ]);
-  if (!module || expectedRequest !== sceneRequestVersion) return false;
-  const source = currentSceneData,
-    request = sceneRequestVersion;
-  const sceneData = module.createScene({
-    progress: stageTwoProgress,
-    developerAccess: developerRun && arcade.run?.id !== 1.25,
-    skipCinematics: arcade.run?.id === 1.25,
-    onArcadeComplete: arcade.run?.id === 1.25 ? completeArcadeStage : undefined,
-    entryState,
-    deferActivation: true,
-    fromAirlock,
-    getCameraTarget: () => (activeCamera ? cctv.getTarget(activeCamera) : null),
-    holsterWeapons: () => {
-      pistol.holster();
-      crowbar.holster();
-      bloomstick.holster();
-    },
-    onCrowbarCollected: () => {
-      hasCrowbar = true;
-      introduceControls("crowbar");
-    },
-    onRetryFeed: (id) => cctv.retryFeed(id),
-    onCameraTeleport: (id, state) => loadCameraVisit(id, state),
-    onVentDrop: prepareSurveillanceHub,
-    prepareBay13: async () => {
-      await (await sceneModule(13)).preloadAssets();
-    },
-    onExitToBay13: (state) => loadBay13(state, true),
-    onAirlockReturn: (state) => loadStage1Storage(false, state, true),
-  });
-  if (!(await prepareOpeningScene(sceneData, source, request, presentation)))
-    return false;
-  hideScene1Skip();
-  retireTraversalRoom();
-  isThirdPerson = true;
-  activateExtension(sceneData, "stage2-infiltration");
-  sceneData.activate();
-  if (stageTwoProgress.crowbarCollected) hasCrowbar = true;
-  shipMapProgress.reveal(sceneData.getMapLayout());
-  updatePlayerView(0);
-  return true;
+  const loading = beginCinematicLoading(
+    stageTwoProgress.checkpoint === "vent" ? "vents" : "stage2",
+    0,
+  );
+  try {
+    const expectedRequest = sceneRequestVersion + 1;
+    const [module] = await Promise.all([
+      prepareScene(1.2),
+      preloadMusic(MUSIC_URLS["stealth-alert"]),
+      preloadMusic(MUSIC_URLS.tension),
+    ]);
+    if (!module || expectedRequest !== sceneRequestVersion) return false;
+    const source = currentSceneData,
+      request = sceneRequestVersion;
+    const sceneData = module.createScene({
+      progress: stageTwoProgress,
+      developerAccess: developerRun && arcade.run?.id !== 1.25,
+      skipCinematics: arcade.run?.id === 1.25,
+      onArcadeComplete:
+        arcade.run?.id === 1.25 ? completeArcadeStage : undefined,
+      entryState,
+      deferActivation: true,
+      fromAirlock,
+      getCameraTarget: () =>
+        activeCamera ? cctv.getTarget(activeCamera) : null,
+      holsterWeapons: () => {
+        pistol.holster();
+        crowbar.holster();
+        bloomstick.holster();
+      },
+      onCrowbarCollected: () => {
+        hasCrowbar = true;
+        introduceControls("crowbar");
+      },
+      onRetryFeed: (id) => cctv.retryFeed(id),
+      onCameraTeleport: (id, state) => loadCameraVisit(id, state),
+      onVentDrop: prepareSurveillanceHub,
+      prepareBay13: async () => {
+        await (await sceneModule(13)).preloadAssets();
+      },
+      onExitToBay13: (state) => loadBay13(state, true),
+      onAirlockReturn: (state) => loadStage1Storage(false, state, true),
+    });
+    if (
+      !(await prepareOpeningScene(
+        sceneData,
+        source,
+        request,
+        Promise.all([loading.presented, presentation]).then(() => {}),
+      ))
+    )
+      return false;
+    hideScene1Skip();
+    retireTraversalRoom();
+    isThirdPerson = true;
+    activateExtension(sceneData, "stage2-infiltration");
+    sceneData.activate();
+    if (stageTwoProgress.crowbarCollected) hasCrowbar = true;
+    shipMapProgress.reveal(sceneData.getMapLayout());
+    if (stageTwoProgress.checkpoint === "surveillance") revealCameraRooms();
+    updatePlayerView(0);
+    return true;
+  } finally {
+    loading.finish();
+  }
+}
+
+function revealCameraRooms() {
+  for (const id of [5, 6, 37, 38, 39, 40] as const)
+    shipMapProgress.reveal(cameraVisitMap(id));
 }
 
 async function prepareSurveillanceHub() {
@@ -2709,6 +2790,7 @@ async function prepareSurveillanceHub() {
       !activeCamera
     )
       throw new Error("Camera room preparation was interrupted");
+    revealCameraRooms();
     cctv.update(1 / 8, activeScene, true);
     await renderer.compileAsync(activeScene, activeCamera);
     if (!(await warmBehindLoading(request, 2)))
@@ -2716,89 +2798,6 @@ async function prepareSurveillanceHub() {
   } finally {
     loading.finish();
   }
-}
-
-async function cameraFeed(id: CameraFeedId): Promise<CctvFeedSource> {
-  if (id === "stage2-prison") {
-    const data = (await sceneModule(0)).createScene({ preview: true });
-    const camera = new THREE.PerspectiveCamera(62, 16 / 9, 0.05, 60);
-    camera.position.set(3.1, 3.1, 3.9);
-    camera.lookAt(0, 1.4, 0);
-    try {
-      await data.ready;
-      await renderer.compileAsync(data.scene, camera);
-    } catch (error) {
-      data.dispose();
-      throw error;
-    }
-    return {
-      scene: data.scene,
-      camera,
-      update: (dt) => data.updatePrisonFeed(dt),
-      dispose: () => data.dispose(),
-    };
-  }
-  if (id === "stage2-vents") {
-    const feed = (await sceneModule(1.2)).createVentFeed();
-    try {
-      await renderer.compileAsync(feed.scene, feed.camera);
-    } catch (error) {
-      feed.dispose();
-      throw error;
-    }
-    return feed;
-  }
-  const sceneData =
-    id === "scene5"
-      ? (await sceneModule(5)).createScene({
-          remoteVisit: true,
-          preview: true,
-          loot: stageTwoProgress.remoteRooms.scene5,
-        })
-      : id === "scene6"
-        ? (await sceneModule(6)).createScene({
-            remoteVisit: true,
-            preview: true,
-            loot: stageTwoProgress.remoteRooms.scene6,
-          })
-        : id === "stage2-rust"
-          ? (await sceneModule(1.4)).createScene({
-              preview: true,
-              loot: stageTwoProgress.remoteRooms["stage2-rust"],
-            })
-          : id === "stage2-rust2"
-            ? (await sceneModule(1.45)).createScene({
-                preview: true,
-                loot: stageTwoProgress.remoteRooms["stage2-rust2"],
-              })
-            : id === "stage2-reactor"
-              ? (await sceneModule(1.5)).createScene({
-                  preview: true,
-                  loot: stageTwoProgress.remoteRooms["stage2-reactor"],
-                })
-              : (await sceneModule(1.3)).createScene({
-                  progress: stageTwoProgress,
-                  preview: true,
-                });
-  try {
-    await sceneData.ready;
-    await renderer.compileAsync(sceneData.scene, sceneData.camera);
-  } catch (error) {
-    sceneData.dispose();
-    throw error;
-  }
-  shipMapProgress.reveal(sceneData.getMapLayout());
-  return {
-    scene: sceneData.scene,
-    update: (dt) => {
-      if ("syncProgress" in sceneData) sceneData.syncProgress();
-      sceneData.updatePhysics(dt);
-    },
-    ...(id === "stage2-rust" || id === "stage2-rust2"
-      ? { camera: sceneData.camera }
-      : {}),
-    dispose: () => sceneData.dispose(),
-  };
 }
 
 async function restartSurveillance() {
@@ -2885,123 +2884,136 @@ async function loadCameraVisit(
   entryState?: PlayerTransitionState,
   developerVisit = false,
 ) {
-  void preloadMusic(MUSIC_URLS["stealth-2"]).catch((error) =>
-    console.warn("[Audio] Minigame music preparation failed:", error),
-  );
-  const source = currentSceneData;
-  let sceneData;
-  if (id === "scene5") {
-    const module = await prepareScene(5);
-    if (!module || source !== currentSceneData) return false;
-    sceneData = module.createScene({
-      remoteVisit: true,
-      deferActivation: true,
-      entryState,
-      loot: stageTwoProgress.remoteRooms.scene5,
-      hasReturnMarker: surveillanceMarkerPlaced,
-      onRestart: restartSurveillance,
-      onKeycardCollected: () => {
-        collectStageTwoKeycard(stageTwoProgress, "scene5");
-      },
-    });
-  } else if (id === "scene6") {
-    const module = await prepareScene(6);
-    if (!module || source !== currentSceneData) return false;
-    sceneData = module.createScene({
-      remoteVisit: true,
-      skipCinematics: arcade.run?.id === 1.25,
-      deferActivation: true,
-      entryState,
-      loot: stageTwoProgress.remoteRooms.scene6,
-      hasReturnMarker: surveillanceMarkerPlaced,
-      onRestart: restartSurveillance,
-      onKeycardCollected: () => {
-        collectStageTwoKeycard(stageTwoProgress, "scene6");
-      },
-    });
-  } else if (id === "stage2-rust") {
-    const module = await prepareScene(1.4);
-    if (!module || source !== currentSceneData) return false;
-    sceneData = module.createScene({
-      deferActivation: true,
-      skipCinematics: arcade.run?.id === 1.25,
-      entryState,
-      loot: stageTwoProgress.remoteRooms["stage2-rust"],
-      hasReturnMarker: surveillanceMarkerPlaced,
-      onRestart: restartSurveillance,
-      onKeycardCollected: () => {
-        collectStageTwoKeycard(stageTwoProgress, "stage2-rust");
-      },
-    });
-  } else if (id === "stage2-reactor") {
-    const module = await prepareScene(1.5);
-    if (!module || source !== currentSceneData) return false;
-    sceneData = module.createScene({
-      deferActivation: true,
-      entryState,
-      loot: stageTwoProgress.remoteRooms["stage2-reactor"],
-      hasReturnMarker: surveillanceMarkerPlaced,
-      onRestart: restartSurveillance,
-      onKeycardCollected: () => {
-        collectStageTwoKeycard(stageTwoProgress, "stage2-reactor");
-      },
-    });
-  } else if (id === "stage2-rust2") {
-    const module = await prepareScene(1.45);
-    if (!module || source !== currentSceneData) return false;
-    sceneData = module.createScene({
-      deferActivation: true,
-      skipCinematics: arcade.run?.id === 1.25,
-      entryState,
-      loot: stageTwoProgress.remoteRooms["stage2-rust2"],
-      hasReturnMarker: surveillanceMarkerPlaced,
-      onRestart: restartSurveillance,
-      onKeycardCollected: () => {
-        collectStageTwoKeycard(stageTwoProgress, "stage2-rust2");
-      },
-    });
-  } else {
-    const module = await prepareScene(1.3);
-    if (!module || source !== currentSceneData) return false;
-    sceneData = module.createScene({
-      progress: stageTwoProgress,
-      deferActivation: true,
-      entryState,
-      hasReturnMarker: surveillanceMarkerPlaced,
-      onRestart: restartSurveillance,
-      onBloomstickCollected: () => {
-        hasBloomstick = true;
-        introduceControls("bloomstick");
-      },
-      onKeycardCollected: () => {
-        collectStageTwoKeycard(stageTwoProgress, "stage2-armory");
-      },
-    });
+  const loading = beginCinematicLoading(CAMERA_LOADING_CHAPTERS[id], 0);
+  try {
+    void preloadMusic(MUSIC_URLS["stealth-2"]).catch((error) =>
+      console.warn("[Audio] Minigame music preparation failed:", error),
+    );
+    const source = currentSceneData;
+    let sceneData;
+    if (id === "scene5") {
+      const module = await prepareScene(5);
+      if (!module || source !== currentSceneData) return false;
+      sceneData = module.createScene({
+        remoteVisit: true,
+        deferActivation: true,
+        entryState,
+        loot: stageTwoProgress.remoteRooms.scene5,
+        hasReturnMarker: surveillanceMarkerPlaced,
+        onRestart: restartSurveillance,
+        onKeycardCollected: () => {
+          collectStageTwoKeycard(stageTwoProgress, "scene5");
+        },
+      });
+    } else if (id === "scene6") {
+      const module = await prepareScene(6);
+      if (!module || source !== currentSceneData) return false;
+      sceneData = module.createScene({
+        remoteVisit: true,
+        skipCinematics: arcade.run?.id === 1.25,
+        deferActivation: true,
+        entryState,
+        loot: stageTwoProgress.remoteRooms.scene6,
+        hasReturnMarker: surveillanceMarkerPlaced,
+        onRestart: restartSurveillance,
+        onKeycardCollected: () => {
+          collectStageTwoKeycard(stageTwoProgress, "scene6");
+        },
+      });
+    } else if (id === "stage2-rust") {
+      const module = await prepareScene(1.4);
+      if (!module || source !== currentSceneData) return false;
+      sceneData = module.createScene({
+        deferActivation: true,
+        skipCinematics: arcade.run?.id === 1.25,
+        entryState,
+        loot: stageTwoProgress.remoteRooms["stage2-rust"],
+        hasReturnMarker: surveillanceMarkerPlaced,
+        onRestart: restartSurveillance,
+        onKeycardCollected: () => {
+          collectStageTwoKeycard(stageTwoProgress, "stage2-rust");
+        },
+      });
+    } else if (id === "stage2-reactor") {
+      const module = await prepareScene(1.5);
+      if (!module || source !== currentSceneData) return false;
+      sceneData = module.createScene({
+        deferActivation: true,
+        entryState,
+        loot: stageTwoProgress.remoteRooms["stage2-reactor"],
+        hasReturnMarker: surveillanceMarkerPlaced,
+        onRestart: restartSurveillance,
+        onKeycardCollected: () => {
+          collectStageTwoKeycard(stageTwoProgress, "stage2-reactor");
+        },
+      });
+    } else if (id === "stage2-rust2") {
+      const module = await prepareScene(1.45);
+      if (!module || source !== currentSceneData) return false;
+      sceneData = module.createScene({
+        deferActivation: true,
+        skipCinematics: arcade.run?.id === 1.25,
+        entryState,
+        loot: stageTwoProgress.remoteRooms["stage2-rust2"],
+        hasReturnMarker: surveillanceMarkerPlaced,
+        onRestart: restartSurveillance,
+        onKeycardCollected: () => {
+          collectStageTwoKeycard(stageTwoProgress, "stage2-rust2");
+        },
+      });
+    } else {
+      const module = await prepareScene(1.3);
+      if (!module || source !== currentSceneData) return false;
+      sceneData = module.createScene({
+        progress: stageTwoProgress,
+        deferActivation: true,
+        entryState,
+        hasReturnMarker: surveillanceMarkerPlaced,
+        onRestart: restartSurveillance,
+        onBloomstickCollected: () => {
+          hasBloomstick = true;
+          introduceControls("bloomstick");
+        },
+        onKeycardCollected: () => {
+          collectStageTwoKeycard(stageTwoProgress, "stage2-armory");
+        },
+      });
+    }
+    const request = sceneRequestVersion;
+    if (
+      !(await prepareOpeningScene(
+        sceneData,
+        source,
+        request,
+        loading.presented,
+      ))
+    )
+      return false;
+    retireTraversalRoom();
+    activateExtension(sceneData, id);
+    sceneData.activate();
+    if (developerVisit) {
+      stageTwoProgress.checkpoint = "surveillance";
+      stageTwoProgress.guardDown = true;
+    }
+    shipMapProgress.reveal(sceneData.getMapLayout());
+    teleportArrivalTime = arcade.run?.id === 1.25 ? -1 : 0;
+    teleportArrivalColor = 0x58ff9a;
+    globalCharacter?.setHologramTransition(
+      arcade.run?.id === 1.25
+        ? null
+        : hologramTransitionAt(
+            0,
+            true,
+            TELEPORT_TRANSFER_DURATION,
+            teleportArrivalColor,
+          ),
+    );
+    updatePlayerView(0);
+    return true;
+  } finally {
+    loading.finish();
   }
-  const request = sceneRequestVersion;
-  if (!(await prepareOpeningScene(sceneData, source, request))) return false;
-  retireTraversalRoom();
-  activateExtension(sceneData, id);
-  sceneData.activate();
-  if (developerVisit) {
-    stageTwoProgress.checkpoint = "surveillance";
-    stageTwoProgress.guardDown = true;
-  }
-  shipMapProgress.reveal(sceneData.getMapLayout());
-  teleportArrivalTime = arcade.run?.id === 1.25 ? -1 : 0;
-  teleportArrivalColor = 0x58ff9a;
-  globalCharacter?.setHologramTransition(
-    arcade.run?.id === 1.25
-      ? null
-      : hologramTransitionAt(
-          0,
-          true,
-          TELEPORT_TRANSFER_DURATION,
-          teleportArrivalColor,
-        ),
-  );
-  updatePlayerView(0);
-  return true;
 }
 
 async function loadBay13(
@@ -3763,17 +3775,11 @@ function syncControlsScrollHint() {
   const text = hint.querySelector("span");
   if (text)
     text.textContent = atEnd
-      ? "Scroll up for earlier controls"
-      : "Scroll for more controls";
+      ? "Earlier controls"
+      : "More controls";
 }
 function renderControlsReference() {
   const devices = lastControllerStatus?.controllers ?? [];
-  document.getElementById("pause-controls-description")!.textContent =
-    controlsTab === "keyboard"
-      ? "Complete keyboard and mouse controls for every chapter. Use any device to switch gameplay prompts automatically."
-      : devices.length
-        ? "Complete controls for every connected controller. Devices and button labels update as controllers connect or disconnect."
-        : "No controller detected. Connect one and press a button to make it visible to the browser. Keyboard and mouse remain available.";
   const entries = getControlsReference(devices)
     .filter(
       (device) => (device.id === "keyboard") === (controlsTab === "keyboard"),
@@ -3837,7 +3843,7 @@ function renderControllerStatus(status: ControllerStatus) {
   const controller = document.getElementById(
     "input-controller",
   ) as HTMLButtonElement;
-  controller.textContent = `Connected controllers (${status.controllers.length})`;
+  controller.textContent = `Controllers (${status.controllers.length})`;
   keyboard.setAttribute("aria-selected", String(controlsTab === "keyboard"));
   controller.setAttribute(
     "aria-selected",
@@ -3879,9 +3885,7 @@ function renderControllerStatus(status: ControllerStatus) {
   typeSelect.value = status.type ?? "generic";
   typeSelect.disabled = !!status.setupStep || !status.controllers.length;
   const connection = document.getElementById("controller-status")!;
-  connection.textContent = status.name
-    ? `${status.name} — ${status.message}`
-    : status.message;
+  connection.textContent = status.message;
   connection.dataset.ready = String(status.ready);
   document
     .getElementById("controller-layout-options")!
@@ -4246,6 +4250,14 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
   }
   quickMenuOpen = screen !== null;
   pauseMenu.dataset.screen = screen ?? "";
+  document.body.classList.toggle(
+    "menu-form-open",
+    screen === "story-setup" || screen === "display" ||
+      screen === "controls" || screen === "sound",
+  );
+  pauseMenu.scrollTop = 0;
+  for (const content of pauseMenu.querySelectorAll<HTMLElement>(".menu-panel-content"))
+    content.scrollTop = 0;
   if (!wasOpen && quickMenuOpen) {
     resumePointerTarget = document.pointerLockElement as HTMLElement | null;
     if (resumePointerTarget) document.exitPointerLock();
@@ -4254,7 +4266,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
   clearSceneInput();
   document.body.classList.toggle("quick-menu-open", quickMenuOpen);
   if (quickMenuOpen) setAudioMenuPaused(true);
-  music.setMenuOpen(quickMenuOpen);
+  music.setMenuOpen(quickMenuOpen && !storySetupPending);
   currentSceneData?.setMenuPaused?.(quickMenuOpen);
   if (!quickMenuOpen) setAudioMenuPaused(false);
 
@@ -4300,7 +4312,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
   if (screen !== "scenes" && screen !== "credits") {
     document.getElementById("pause-menu-title")!.textContent =
       screen === "story-setup"
-        ? "Story setup"
+        ? "Lobby"
         : screen === "controls"
           ? developerUnlocked
             ? "All Controls"
@@ -4370,7 +4382,9 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
     const sideBarSpan = document.querySelector("#pause-side-bar span");
     if (sideBarSpan)
       sideBarSpan.textContent =
-        screen === "developer"
+        screen === "story-setup"
+          ? "LOBBY"
+          : screen === "developer"
           ? "UNLOCK"
           : screen === "sound"
             ? "SOUND"
@@ -4416,63 +4430,9 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
         document.getElementById(`${channel}-volume-value`)!.textContent =
           `${value}%`;
       }
-      setTimeout(() => {
-        const soundSliderGroups = document.querySelectorAll<HTMLElement>(
-          "#pause-sound-panel .sound-slider-group",
-        );
-        const soundBackButton = document.querySelector<HTMLElement>(
-          "#pause-sound-panel button[data-pause-back]",
-        );
-        const sliders = Array.from(soundSliderGroups);
-        const elements = soundBackButton
-          ? [...sliders, soundBackButton]
-          : sliders;
-        const count = elements.length;
-        if (count >= 2) {
-          elements.forEach((element) => {
-            const rect = element.getBoundingClientRect();
-            const offset =
-              (rect.top + rect.height / 2 - window.innerHeight / 2) /
-              (window.innerHeight / 2);
-            const rotation = Math.max(-12, Math.min(12, -offset * 15));
-            const arc =
-              Math.min(1, Math.abs(offset)) ** 2 * window.innerWidth * 0.15;
-            element.style.setProperty("--menu-arc", `${arc}px`);
-            element.style.setProperty("--menu-rotation", `${rotation}deg`);
-          });
-        }
-      }, 0);
     }
     if (screen === "controls") {
       requestAnimationFrame(syncControlsScrollHint);
-    }
-    if (screen === "display") {
-      setTimeout(() => {
-        const displayGroups = document.querySelectorAll<HTMLElement>(
-          "#pause-display-panel .sound-slider-group",
-        );
-        const displayBackButton = document.querySelector<HTMLElement>(
-          "#pause-display-panel button[data-pause-back]",
-        );
-        const groups = Array.from(displayGroups);
-        const elements = displayBackButton
-          ? [...groups, displayBackButton]
-          : groups;
-        const count = elements.length;
-        if (count >= 2) {
-          elements.forEach((element) => {
-            const rect = element.getBoundingClientRect();
-            const offset =
-              (rect.top + rect.height / 2 - window.innerHeight / 2) /
-              (window.innerHeight / 2);
-            const rotation = Math.max(-12, Math.min(12, -offset * 15));
-            const arc =
-              Math.min(1, Math.abs(offset)) ** 2 * window.innerWidth * 0.15;
-            element.style.setProperty("--menu-arc", `${arc}px`);
-            element.style.setProperty("--menu-rotation", `${rotation}deg`);
-          });
-        }
-      }, 0);
     }
     if (screen === "developer") {
       setTimeout(() => {
@@ -4613,8 +4573,10 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
     }
   } else {
     const focusId =
-      screen === "credits"
-        ? "credits-dialog-close"
+      screen === "story-setup"
+        ? "story-setup-start"
+        : screen === "credits"
+          ? "credits-dialog-close"
         : screen === "controls"
           ? controlsTab === "controller"
             ? "input-controller"
@@ -4622,7 +4584,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
           : screen === "sound"
             ? "bgm-volume"
             : screen === "display"
-              ? "bloom-level"
+              ? "menu-font-select"
               : screen === "developer"
                 ? "developer-unlock"
                 : screen === "main-menu"
@@ -4704,6 +4666,7 @@ async function jumpToScene(id: number) {
   await enterSceneById(id);
 }
 async function enterSceneById(id: number) {
+  if (id !== 1 && id !== 100) await prepareGlobalCharacter();
   weaponWheel.close();
   teleportDevice.detachMarker();
   teleportArrivalTime = -1;
@@ -5083,49 +5046,6 @@ function setupSceneQuickMenu() {
     attributeFilter: ["class", "data-screen", "open"],
   });
 
-  const soundSliderGroups = document.querySelectorAll<HTMLElement>(
-    "#pause-sound-panel .sound-slider-group",
-  );
-  const soundBackButton = document.querySelector<HTMLElement>(
-    "#pause-sound-panel button[data-pause-back]",
-  );
-  let soundRotationRafId = 0;
-  const updateSoundSliderRotations = () => {
-    if (soundRotationRafId) cancelAnimationFrame(soundRotationRafId);
-    soundRotationRafId = requestAnimationFrame(() => {
-      const sliders = Array.from(soundSliderGroups).filter(
-        (s) => !s.closest(".hidden"),
-      );
-      const elements =
-        soundBackButton && !soundBackButton.closest(".hidden")
-          ? [...sliders, soundBackButton]
-          : sliders;
-      const count = elements.length;
-      if (count < 2) {
-        soundRotationRafId = 0;
-        return;
-      }
-      elements.forEach((element) => {
-        const rect = element.getBoundingClientRect();
-        const offset =
-          (rect.top + rect.height / 2 - window.innerHeight / 2) /
-          (window.innerHeight / 2);
-        const rotation = Math.max(-12, Math.min(12, -offset * 15));
-        const arc =
-          Math.min(1, Math.abs(offset)) ** 2 * window.innerWidth * 0.15;
-        element.style.setProperty("--menu-arc", `${arc}px`);
-        element.style.setProperty("--menu-rotation", `${rotation}deg`);
-      });
-      soundRotationRafId = 0;
-    });
-  };
-  pauseMenu.addEventListener("scroll", updateSoundSliderRotations, {
-    passive: true,
-  });
-  window.addEventListener("scroll", updateSoundSliderRotations, {
-    passive: true,
-  });
-  updateSoundSliderRotations();
   pauseMenu.addEventListener("click", (event) => {
     event.stopPropagation();
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
@@ -5523,8 +5443,14 @@ function animate() {
       .classList.toggle("hidden", controllerNoticeTime === 0);
   }
   cinematicLoading.update(delta);
+  const soundScene = currentSceneData?.getRenderScene?.() ?? activeScene;
+  updateSpatialAudio(
+    soundScene, activeCamera,
+    cinematicLoading.active || quickMenuOpen || weaponWheelOpen || freeCameraOpen || teleportLoading || document.hidden || !!currentSceneData?.isMusicPaused?.(),
+  );
+  soundscape.update(activeSceneId, soundScene);
   music.setPaused(
-    quickMenuOpen ||
+    (quickMenuOpen && !storySetupPending) ||
       (freeCameraOpen && !freeCamera?.isParked()) ||
       teleportLoading ||
       document.hidden ||
@@ -5635,6 +5561,7 @@ function animate() {
   }
   // Physics
   if (updatePhysics) updatePhysics(delta, isThirdPerson);
+  updateSpatialAudio(currentSceneData?.getRenderScene?.() ?? activeScene, activeCamera, !!currentSceneData?.isMusicPaused?.());
   music.update(Math.min(delta, 0.1));
   if (playerDamageEl) {
     playerDamageEl.dataset.damage =

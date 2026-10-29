@@ -105,6 +105,17 @@ test("prologue and wake-up skip controls share Enter progress, pause reset, and 
     /createHoldToSkip\(\{\s*button: skipButton,\s*onSkip: finishCutscene/,
   );
   assert.match(prologue, /skipHold\.update\(frame\)/);
+  const finish = prologue.slice(
+    prologue.indexOf("function finishCutscene(): void"),
+    prologue.indexOf("function showDialogueLine(): void"),
+  );
+  assert.match(
+    finish,
+    /camera\.position\.set\(\s*thirdPersonCamera\.right,\s*player\.getHeadY\(\) \+ thirdPersonCamera\.height,\s*thirdPersonCamera\.distance/,
+  );
+  assert.match(finish, /camera\.rotation\.set\(0, 0, 0, "YXZ"\)/);
+  assert.match(finish, /camera\.far = 80/);
+  assert.match(finish, /camera\.fov = 75/);
   assert.match(prologue, /setMenuPaused:[\s\S]*skipHold\.reset\(\)/);
   assert.match(prologue, /skipHold\.dispose\(\)/);
   assert.doesNotMatch(

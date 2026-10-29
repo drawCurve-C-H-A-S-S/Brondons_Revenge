@@ -9,10 +9,14 @@ import { MODEL_ASSET_URLS, modelPreloadTasks } from "./loader.js";
 import { LOADING_IMAGE_URLS } from "./chapters.js";
 import { MUSIC_URLS } from "../helpers/audio/gameMusic.js";
 import { preloadMusic } from "../helpers/audio/bufferedMusic.js";
+import { RECORDED_SOUND_URLS } from "../helpers/audio/recordedSounds.js";
+import { SFX_URLS } from "../helpers/audio/sfx.js";
+import { preloadSample } from "../helpers/audio/spatialAudio.js";
 import {
   CORRIDOR_FOOTAGE,
-  preloadCorridorFootage,
+  preloadMonitorFootage,
 } from "../scripts/global/corridorMonitor.js";
+import { CAMERA_FOOTAGE } from "../scripts/global/surveillanceFootage.js";
 import { preloadEarthTextures } from "../scripts/global/earthTexture.js";
 import earthTextureUrl from "../assets/planets/earth-maps.rgba.bin?url";
 import { preloadComicEffectArtwork } from "../scripts/global/comicEffects.js";
@@ -33,7 +37,10 @@ export const GAME_ASSET_URLS = [
     ...MODEL_ASSET_URLS,
     ...LOADING_IMAGE_URLS,
     ...Object.values(MUSIC_URLS),
+    ...RECORDED_SOUND_URLS,
+    ...Object.values(SFX_URLS),
     ...CORRIDOR_FOOTAGE,
+    ...Object.values(CAMERA_FOOTAGE),
     ...COMBAT_ANIMATION_URLS,
     ...PHOTO_BARK_URLS,
     shieldPowerupUrl,
@@ -66,8 +73,12 @@ export async function preloadGameAssets(
       run: preloadCombatAnimations,
     },
     {
-      label: "Preparing animated surveillance footage",
-      run: preloadCorridorFootage,
+      label: "Preparing prerecorded surveillance footage",
+      run: () =>
+        preloadMonitorFootage([
+          ...CORRIDOR_FOOTAGE,
+          ...Object.values(CAMERA_FOOTAGE),
+        ]),
     },
     {
       label: "Preparing reusable planet textures",
@@ -85,6 +96,17 @@ export async function preloadGameAssets(
     { label: "Preparing photographed tree bark", run: preloadPhotoBark },
     ...musicTasks,
     ...setupTasks,
+    {
+      label: "Preparing spatial sound effects",
+      run: async () => {
+        if (typeof window.AudioContext !== "function") return;
+        for (const url of new Set([
+          ...RECORDED_SOUND_URLS,
+          ...Object.values(SFX_URLS),
+        ]))
+          await preloadSample(url);
+      },
+    },
   ];
   const total = downloads.length + preparations.length;
   const notify = (offset: number) => (progress: PreloadProgress) => {

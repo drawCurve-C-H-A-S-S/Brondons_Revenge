@@ -7,7 +7,7 @@ import { renderControllerPrompt, renderDpadText } from "../player/controllerIcon
 
 export function formatDialogue(element: HTMLElement, text: string) {
   const match =
-    /^(Prime|Brondon|Branden|Brendan|Donus|Caleb|Husain|Andre'?|Sibusiso|Sohrab|Sudoers 5):\s*/i.exec(
+    /^(Prime|Brondon|Branden|Brendan|Donus|Caleb|Husain|André|Sibusiso|Sohrab|Sudoers 5):\s*/i.exec(
       text,
     );
   if (!match) {

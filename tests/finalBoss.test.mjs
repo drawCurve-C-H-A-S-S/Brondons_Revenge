@@ -56,6 +56,35 @@ function advance(update, seconds) {
   }
 }
 
+test("Opus keeps the white palette through power-up recovery, including articulated hands", async () => {
+  const { MECH_PALETTES, HERO_REVENGE_PALETTE } = await server.ssrLoadModule(
+    "/scripts/level-3/finaleMaterials.ts",
+  );
+  const skin = createIndustrialSkin("hero");
+  const materials = ["platelight", "platemid", "plateshad",
+    "FinaleArticulatedHands_platelight"].map((name) =>
+    new THREE.MeshStandardMaterial({ name, color: 0x752e38 }));
+  try {
+    for (const material of materials) skin.finishAuthoredMaterial(material);
+    for (const progress of [0, 0.5, 1, 0.25, 0]) {
+      skin.setPowerUp(progress);
+      for (const material of materials) {
+        const name = material.name.endsWith("platelight") ? "platelight" : material.name;
+        const expected = new THREE.Color(MECH_PALETTES.hero[name])
+          .lerp(new THREE.Color(HERO_REVENGE_PALETTE[name]), progress);
+        assert.ok(material.color.equals(expected), `${material.name} diffuse at ${progress}`);
+        assert.ok(material.emissive.equals(expected), `${material.name} cel colour at ${progress}`);
+      }
+    }
+    const white = new THREE.Color(MECH_PALETTES.hero.platelight);
+    assert.ok(Math.min(white.r, white.g, white.b) > 0.8);
+    assert.ok(Math.max(white.r, white.g, white.b) - Math.min(white.r, white.g, white.b) < 0.15);
+  } finally {
+    skin.dispose();
+    materials.forEach((material) => material.dispose());
+  }
+});
+
 function waitForEnemyAttack(duel, attack) {
   for (let frame = 0; frame < 30 * 120; frame++) {
     duel.update(1 / 120);

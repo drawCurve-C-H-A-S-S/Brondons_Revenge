@@ -9,7 +9,7 @@ import {
 import { BAY_THIRTEEN_MAP } from "../level 1 stage 2/stageTwoLayout.js";
 import * as CANNON from "cannon-es";
 import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
-import { loadBrendanModel, preloadBossModels } from "../../core/loader.js";
+import { loadBrandenModel, preloadBossModels } from "../../core/loader.js";
 import {
   createScenePhysics,
   PHYSICS,
@@ -56,7 +56,11 @@ export const ARENA_PILLAR_SUPPLIES = [
 let lastAttemptSupplies = new Set<string>();
 
 export function preloadAssets() {
-  return Promise.all([preloadMusic(MUSIC_URLS.ship), preloadBossModels()]);
+  return Promise.all([
+    preloadMusic(MUSIC_URLS.ship),
+    preloadMusic(MUSIC_URLS["broken-chains"]),
+    preloadBossModels(),
+  ]);
 }
 
 /** Bay 13 arena, reached through the surveillance service elevator. */
@@ -70,7 +74,7 @@ export function createScene({
   onFinisherComplete,
   onDescend,
   onRespawn,
-  loadBoy = loadBrendanModel,
+  loadBoy = loadBrandenModel,
   loadDrone,
   loadBoss,
   renderer,
@@ -514,8 +518,9 @@ export function createScene({
     );
   else if (entryState) player.restoreTransition(entryState, door.frame);
   else player.setRotation(Math.PI);
-  if (checkpoint) player.setPosition(0, 0.3, defeated ? -6.2 : -10.2);
-  door.openImmediately();
+  if (checkpoint || defeated) player.setPosition(0, 0.3, defeated ? -6.2 : -10.2);
+  if (defeated) door.setLocked(true);
+  else door.openImmediately();
   let deathClock = 0;
   let respawnAtPhaseFour = startAtPhaseFour;
   const markPhaseFour = () => {
@@ -523,7 +528,8 @@ export function createScene({
     if (p === "zeroG" || p === "phaseFourReturn" || p === "phaseFourAwakening")
       respawnAtPhaseFour = true;
   };
-  let bossVictory = false;
+  let bossVictory = false,
+    revengeMusicStarted = false;
   let disposed = false,
     cleared = defeated,
     cinematic:
@@ -1108,7 +1114,7 @@ export function createScene({
     consoleRoot.position.y = 0;
     cinematic = null;
     cleared = true;
-    door.setLocked(false);
+    door.setLocked(true);
     consoleBody.collisionResponse = true;
     player.setPosition(revealPlayerKneel.x, player.radius, revealPlayerKneel.z);
     returnToBattle();
@@ -1119,6 +1125,7 @@ export function createScene({
   let approachEnd = 8.4,
     BLAST_AT = 30.8,
     WALK_AWAY_AT = 26,
+    DONUS_WARNING_AT = WALK_AWAY_AT + 0.15,
     KNEEL_AT = BLAST_AT + 3.2,
     DISSOLVE_AT = BLAST_AT + 11.5,
     STAND_AT = BLAST_AT + 16.5,
@@ -1765,6 +1772,7 @@ export function createScene({
     }
     approachEnd = Math.max(emergeEnd + 0.55, revealApproachWalkEnd + 0.45);
     WALK_AWAY_AT = approachEnd + 17.6;
+    DONUS_WARNING_AT = WALK_AWAY_AT + 0.15;
     BLAST_AT = WALK_AWAY_AT + 4.4;
     KNEEL_AT = BLAST_AT + 1.65;
     revealShoveStart
@@ -1909,7 +1917,7 @@ export function createScene({
         WALK_AWAY_AT,
         "Brondon: Then that's where we're going. Come on.",
       ],
-      [WALK_AWAY_AT + 0.15, BLAST_AT - 0.65, "Donus: Not so fast."],
+      [DONUS_WARNING_AT, BLAST_AT - 0.65, "Donus: Not so fast."],
       [BLAST_AT - 0.55, BLAST_AT, "Branden: Look out!"],
       [BLAST_AT, BLAST_AT + 2.4, "Brondon: Brandennnn!!"],
       [lastWordsAt, lastWordsAt + 2.5, "Branden: Save the students..."],
@@ -1934,6 +1942,7 @@ export function createScene({
   }
   function updateReveal(dt: number) {
     const t = cinematicTime;
+    if (t >= DONUS_WARNING_AT) revengeMusicStarted = true;
     const facePlayer = (yaw: number) => {
       const current = player.getState().yaw;
       const turn = Math.atan2(Math.sin(yaw - current), Math.cos(yaw - current));
@@ -2004,7 +2013,7 @@ export function createScene({
       glow.position.x = 0;
       glow.visible = t < BLAST_AT;
     }
-    // The rescue, shove and collapse all use clips from Brendan's authored rig.
+    // The rescue, shove and collapse all use clips from Branden's authored rig.
     if (boy && !boy.userData.disintegrated) {
       boy.visible = t >= emergeAt && t < DISSOLVE_AT + DISSOLVE_SECONDS;
       const forward = Math.atan2(revealD.x, revealD.z);
@@ -3662,7 +3671,8 @@ export function createScene({
         position: supply.pickup.root.position.clone(),
       })),
     hasBossVictory: () => bossVictory,
-    getMusicTrack: () => "ship" as const,
+    getMusicTrack: (): "ship" | "broken-chains" =>
+      revengeMusicStarted ? "broken-chains" : "ship",
     controllerTeleport(action: "place" | "throw", heldSeconds: number) {
       if (action === "throw")
         throwChargedCrystal(
@@ -4100,7 +4110,7 @@ export function createScene({
         }
         if (piece.life <= 0) piece.mesh.visible = false;
       }
-      door.update(dt, player, cleared && !cinematic && door.near(player));
+      door.update(dt, player, false);
       if (disposed) return;
 
       arenaSupplyTime += cinematicDelta;

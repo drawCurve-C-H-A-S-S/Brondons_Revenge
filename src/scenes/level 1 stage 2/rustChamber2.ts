@@ -113,67 +113,24 @@ function signTexture(title: string, lines: string[], color: string) {
 
 function splitDeckHintTexture() {
   const canvas = document.createElement("canvas");
-  canvas.width = 1536;
-  canvas.height = 1024;
+  canvas.width = 1024;
+  canvas.height = 512;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Unable to draw the split-deck wall hint");
   context.fillStyle = "#101b22";
   context.fillRect(0, 0, canvas.width, canvas.height);
   context.strokeStyle = "#b99b71";
   context.lineWidth = 6;
-  context.strokeRect(24, 24, 1488, 976);
-  context.fillStyle = "#dfbd87";
-  context.font = "bold 28px monospace";
-  context.fillText("RUST BAY 02 / COUNTERWEIGHT TRANSFER", 72, 90);
+  context.strokeRect(16, 16, 992, 480);
+  context.textAlign = "center";
+  context.textBaseline = "middle";
   context.fillStyle = "#fff1d8";
   context.font = "bold 64px monospace";
-  context.fillText("THE SPLIT DECK", 72, 176);
+  context.fillText("THE SPLIT DECK", 512, 128);
   context.fillStyle = "#c8d7dc";
-  context.font = "italic 30px monospace";
-  context.fillText("Across the rust, let crystal fly;", 72, 244);
-  context.fillText("A matching glow will guide it high.", 72, 288);
-  const steps = [
-    ["01", "BANK THE CRYSTAL", "Throw onto the mat; press T after it lands."],
-    [
-      "02",
-      "FREE THE COUNTERWEIGHT",
-      "Across the gap: break orange, then press E.",
-    ],
-    [
-      "03",
-      "TIME THE SHOT",
-      "Shoot the blue link as the load swings over the mat.",
-    ],
-    [
-      "04",
-      "OPEN THE GLASS DOOR",
-      "Carry the landed load with E; set it on the plate.",
-    ],
-    [
-      "05",
-      "BOUNCE BACK FOR THE KEYCARD",
-      "Shoot the wall beacon, then bank another crystal.",
-    ],
-  ];
-  steps.forEach(([number, title, detail], index) => {
-    const y = 370 + index * 106;
-    context.fillStyle = "#dfbd87";
-    context.font = "bold 36px monospace";
-    context.fillText(number, 72, y);
-    context.fillStyle = "#fff1d8";
-    context.font = "bold 34px monospace";
-    context.fillText(title, 164, y);
-    context.fillStyle = "#c8d7dc";
-    context.font = "30px monospace";
-    context.fillText(detail, 164, y + 42);
-  });
-  context.fillStyle = "#ff4fa3";
-  context.fillRect(72, 934, 20, 20);
-  context.font = "bold 28px monospace";
-  context.fillText("PINK / FAR DECK", 108, 956);
-  context.fillStyle = "#35e0ff";
-  context.fillRect(800, 934, 20, 20);
-  context.fillText("CYAN / ENTRANCE", 836, 956);
+  context.font = "italic 38px Georgia, serif";
+  context.fillText("Across the rust, let crystal fly;", 512, 264);
+  context.fillText("A matching glow will guide it high.", 512, 326);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
@@ -370,19 +327,47 @@ export function createScene({
     box([0.4, HEIGHT, 0.35], [-0.1, HEIGHT / 2, z], ship.steel, false);
     box([0.4, HEIGHT, 0.35], [WIDTH + 0.1, HEIGHT / 2, z], ship.steel, false);
   }
-  for (const z of [5, 11, 17]) {
-    box(
-      [WIDTH + 5, 0.6, 0.4],
-      [(WIDTH + 5) / 2, HEIGHT - 0.9, z],
+  const roofTop = HEIGHT - 0.14,
+    roofBottom = HEIGHT - 1.25,
+    roofRise = roofTop - roofBottom,
+    roofBay = (WIDTH - 1) / 8;
+  for (const z of [4, 9, 14, 19]) {
+    const upper = box([WIDTH, 0.28, 0.35], [WIDTH / 2, roofTop, z], steel, false);
+    const lower = box([WIDTH, 0.22, 0.3], [WIDTH / 2, roofBottom, z], steel, false);
+    upper.name = "RustChamber2RoofUpperChord";
+    lower.name = "RustChamber2RoofLowerChord";
+    upper.userData.minimap = lower.userData.minimap = false;
+    for (let bay = 0; bay < 8; bay++) {
+      const brace = box(
+        [Math.hypot(roofBay, roofRise), 0.14, 0.22],
+        [0.5 + (bay + 0.5) * roofBay, (roofTop + roofBottom) / 2, z],
+        steel,
+        false,
+      );
+      brace.rotation.z = (bay % 2 ? -1 : 1) * Math.atan2(roofRise, roofBay);
+      brace.name = "RustChamber2RoofBrace";
+      brace.userData.minimap = false;
+    }
+    for (const x of [0.5, WIDTH - 0.5]) {
+      const end = box(
+        [0.14, roofRise, 0.22],
+        [x, (roofTop + roofBottom) / 2, z],
+        steel,
+        false,
+      );
+      end.name = "RustChamber2RoofEndPost";
+      end.userData.minimap = false;
+    }
+  }
+  for (let beam = 0; beam <= 4; beam++) {
+    const longitudinal = box(
+      [0.2, 0.25, DEPTH],
+      [0.5 + beam * (WIDTH - 1) / 4, roofTop, CHASM_Z],
       steel,
       false,
     );
-    for (const x of [6, 20, 30, 44, 52]) {
-      const web = new THREE.Mesh(new THREE.BoxGeometry(5, 0.14, 0.3), steel);
-      web.position.set(x, HEIGHT - 1.1, z);
-      web.rotation.z = x < 25 ? 0.4 : -0.4;
-      scene.add(web);
-    }
+    longitudinal.name = "RustChamber2RoofLongitudinal";
+    longitudinal.userData.minimap = false;
   }
   // Each torn deck segment and its collider share the same flat-topped polygon.
   function splitDeck(baseX: number, west: boolean, phase: number) {
@@ -475,7 +460,7 @@ export function createScene({
   rustWater.mesh.name = "RustChamber2CorrosiveWater";
   scene.add(rustWater.mesh);
   const hintPoster = new THREE.Mesh(
-    new THREE.PlaneGeometry(6.6, 4.4),
+    new THREE.PlaneGeometry(6.6, 3.3),
     new THREE.MeshBasicMaterial({
       map: splitDeckHintTexture(),
       toneMapped: false,
@@ -483,7 +468,7 @@ export function createScene({
   );
   hintPoster.name = "RustChamber2HintPoster";
   hintPoster.position.set(9.5, 2.7, 0.24);
-  box([6.9, 4.7, 0.12], [9.5, 2.7, 0.15], worn, false);
+  box([6.9, 3.6, 0.12], [9.5, 2.7, 0.15], worn, false);
   scene.add(hintPoster);
 
   // ---- Pendulum: rust cradle holds the load against the west wall; the button on the far ledge drops it.
@@ -525,7 +510,7 @@ export function createScene({
   suspension.name = "RustChamber2SuspensionRig";
   suspension.position.copy(ANCHOR);
   scene.add(suspension);
-  box([0.55, 0.65, DEPTH - 0.6], [ANCHOR.x, HEIGHT - 0.4, CHASM_Z], worn);
+  box([2.1, 0.65, DEPTH - 0.6], [ANCHOR.x - 0.25, HEIGHT - 0.4, CHASM_Z], worn);
   for (const z of [0.55, DEPTH - 0.55]) {
     box([0.35, HEIGHT, 0.35], [ANCHOR.x - 1, HEIGHT / 2, z], worn);
   }

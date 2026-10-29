@@ -1,4 +1,4 @@
-import { playSfx } from "../../helpers/audio/sfx.js";
+import { playDoorMovement } from "../../helpers/audio/sfx.js";
 import * as THREE from "three";
 import { disposeComicEffects } from "./comicEffects.js";
 import { createShipSurfaceMaterial, createShipServiceDetails } from "./shipInterior.js";
@@ -62,6 +62,25 @@ export function roomBox(
   return mesh;
 }
 
+/** A visual-only blackout at the threshold; walking and transitions stay unobstructed. */
+export function createBulkheadVoid(width: number, height: number) {
+  const opening = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, height),
+    new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      side: THREE.DoubleSide,
+      fog: false,
+      toneMapped: false,
+    }),
+  );
+  opening.name = "BulkheadOpeningVoid";
+  opening.position.y = height / 2;
+  opening.userData.minimap = false;
+  opening.userData.teleportIgnore = true;
+  opening.userData.preserveComicAppearance = true;
+  return opening;
+}
+
 /** Frames point out of their room. Panels and colliders retract into solid wall pockets. */
 export function createSlidingPortal(
   scene: THREE.Scene,
@@ -75,6 +94,7 @@ export function createSlidingPortal(
     closeSpeed?: number;
     sign?: boolean;
     landingFloor?: boolean;
+    surfaceStyle?: "ship" | "plain";
     cargo?: () => Array<{ position: { x: number; y: number; z: number } }>;
   } = {},
 ) {
@@ -83,8 +103,22 @@ export function createSlidingPortal(
   group.rotation.y = frame.yaw;
   group.name = `Door-${label}`;
   scene.add(group);
-  const wall = createShipSurfaceMaterial("panel", 0x81919c);
-  const steel = createShipSurfaceMaterial("machinery", 0x455967);
+  const wall = options.surfaceStyle === "plain"
+    ? new THREE.MeshStandardMaterial({
+        color: 0x81919c, roughness: 0.66, metalness: 0.12,
+      })
+    : createShipSurfaceMaterial("panel", 0x81919c);
+  const steel = options.surfaceStyle === "plain"
+    ? new THREE.MeshStandardMaterial({
+        color: 0x455967, roughness: 0.7, metalness: 0.55,
+      })
+    : createShipSurfaceMaterial("machinery", 0x455967);
+  const plainDoorPanel = new THREE.MeshStandardMaterial({
+    color: wall.color.clone(), roughness: 0.66, metalness: 0.12,
+  });
+  const plainDoorEdge = new THREE.MeshStandardMaterial({
+    color: steel.color.clone(), roughness: 0.7, metalness: 0.55,
+  });
   const indicator = new THREE.MeshStandardMaterial({
     color: 0xffb34b,
     emissive: 0xff8a15,
@@ -130,10 +164,11 @@ export function createSlidingPortal(
   }
   for (const x of [-1.56, 1.56])
     localBox([0.12, h, 0.62], [x, h / 2, 0], steel, false);
+  group.add(createBulkheadVoid(w, h));
   const panels = [-1, 1].map((sign) => {
-    const panel = localBox([1.5, h, 0.12], [sign * 0.75, h / 2, 0], steel);
+    const panel = localBox([1.5, h, 0.12], [sign * 0.75, h / 2, 0], plainDoorEdge);
     for (const face of [-1, 1]) {
-      const inset = new THREE.Mesh(new THREE.BoxGeometry(1.26, h - 0.42, 0.022), wall);
+      const inset = new THREE.Mesh(new THREE.BoxGeometry(1.26, h - 0.42, 0.022), plainDoorPanel);
       inset.position.z = face * 0.071;
       inset.name = "PressureDoorArmorInset";
       panel.mesh.add(inset);
@@ -213,7 +248,7 @@ export function createSlidingPortal(
         open > 0.9 &&
         ((Math.abs(p.x) < 1.8 && Math.abs(p.z) < 1.1 && p.y < h) ||
           cargoInside);
-      if (open === 0 && !locked && (allowed || occupied)) playSfx("shipDoor");
+      if (dt > 0) playDoorMovement(group, open, Number(!locked && (allowed || occupied)));
       open = THREE.MathUtils.clamp(
         open +
           (!locked && (allowed || occupied)

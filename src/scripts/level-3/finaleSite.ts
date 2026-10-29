@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { createForestSoundscape } from "../../helpers/audio/gameSoundscape.js";
 import { loadBrendanModel } from "../../core/loader.js";
 import { createEscapeShip } from "../items/createEscapeShip.js";
 import { FINALE_DECK_Y, FINALE_ROOFTOP } from "./finaleWorld.js";
@@ -80,9 +81,9 @@ export function createFinaleSite() {
   const glazing = createFacilityOfficeGlazing().root;
   officeInterior.add(glazing);
   const deck = createFacilityDeck(officeInterior);
-  const officeLight = new THREE.PointLight(0xffe2bb, 30, 20);
+  const officeLight = new THREE.PointLight(0xffe2bb, 12, 20);
   officeLight.position.set(0, 7.4, FACILITY_OFFICE.tableZ);
-  const mezzLight = new THREE.PointLight(0xc7f3ec, 36, 25);
+  const mezzLight = new THREE.PointLight(0xc7f3ec, 18, 25);
   mezzLight.position.set(0, 7, -10);
   officeInterior.add(officeLight, mezzLight);
   const officeGlass = new THREE.MeshPhysicalMaterial({
@@ -193,8 +194,8 @@ export function createFinaleSite() {
     blastLight.intensity = age < 0 ? charge * 12 : 160 * fade * fade;
     const interiorPower = 1 - THREE.MathUtils.smootherstep(time, blastStart, blastClear);
     officeInterior.visible = time < blastClear;
-    officeLight.intensity = 30 * interiorPower;
-    mezzLight.intensity = 36 * interiorPower;
+    officeLight.intensity = 12 * interiorPower;
+    mezzLight.intensity = 18 * interiorPower;
   }
   const roofElevator = new THREE.Group();
   roofElevator.name = "FacilityRoofElevator";
@@ -485,6 +486,11 @@ export function createFinaleSite() {
     })),
   );
   const ship = createEscapeShip();
+  const forestSound = createForestSoundscape(
+    scene,
+    trees.map((tree) => ({ ...tree, alive: () => tree.age < 0 })),
+    () => backdrop.visible && backdrop.parent?.visible !== false && !scene.userData.forestQuiet,
+  );
   ship.root.position.copy(RESCUE_SITE.ship);
   ship.setThrust(0);
   ship.setFlying(false, true);
@@ -592,6 +598,7 @@ export function createFinaleSite() {
     dispose() {
       if (disposed) return;
       disposed = true;
+      forestSound.dispose();
       mixer?.stopAllAction();
       mixer?.uncacheRoot(mixer.getRoot());
       boy.traverse((node) => {

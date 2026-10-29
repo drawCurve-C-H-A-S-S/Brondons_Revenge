@@ -68,9 +68,11 @@ export function finaleMusicTrack(
   phase: FinalePhase,
   _bombDetonated = false,
   creditsPerformance = false,
+  victoryRemembrance = false,
 ): BackgroundMusicTrack {
   if (phase === "credits" || phase === "done")
     return creditsPerformance ? "puzzle" : "credits";
+  if (phase === "victory" && victoryRemembrance) return "prologue";
   if (phase === "rupture" || phase === "revenge") return "broken-chains";
   if (
     phase === "loading" ||
@@ -117,7 +119,7 @@ export function createGameMusic() {
       autoplay: !paused,
     };
     const immediate =
-      next === "prologue" ||
+      (next === "prologue" && sceneId !== "scene21") ||
       next === "stealth-alert" ||
       (next === "puzzle" && sceneId === "scene21") ||
       (next === "broken-chains" && sceneId !== "scene21");
@@ -153,8 +155,12 @@ export function createGameMusic() {
         );
       }
       if (id === "scene21") {
-        void Promise.all([preloadMusic(MUSIC_URLS.credits), preloadMusic(MUSIC_URLS.puzzle)]).catch((error) =>
-          console.warn("[Audio] Credits preparation failed:", error),
+        void Promise.all([
+          preloadMusic(MUSIC_URLS.credits),
+          preloadMusic(MUSIC_URLS.puzzle),
+          preloadMusic(MUSIC_URLS.prologue),
+        ]).catch((error) =>
+          console.warn("[Audio] Finale music preparation failed:", error),
         );
       }
     },

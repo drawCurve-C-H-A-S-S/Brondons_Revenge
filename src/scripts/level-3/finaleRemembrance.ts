@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { loadBrendanModel } from "../../core/loader.js";
+import { clone } from "three/addons/utils/SkeletonUtils.js";
+import { loadBrandenModel, loadBrendanModel } from "../../core/loader.js";
 import { FINALE_DURATION, type FinalePhase } from "../global/finaleDirector.js";
 import { captureFinaleResources, normalizeFinaleActor } from "./finaleActors.js";
 
@@ -14,6 +15,7 @@ export function createFinaleRemembrance(scene: THREE.Scene, viewCamera: THREE.Pe
   scene.add(root);
   const ghosts: {
     model: THREE.Object3D;
+    creditsModel: THREE.Object3D;
     mixer: THREE.AnimationMixer;
     action: THREE.AnimationAction;
     animations: THREE.AnimationClip[];
@@ -22,7 +24,7 @@ export function createFinaleRemembrance(scene: THREE.Scene, viewCamera: THREE.Pe
   const resources: ReturnType<typeof captureFinaleResources>[] = [];
   const camera = { position: new THREE.Vector3(), target: new THREE.Vector3() };
   let disposed = false, active = false, clock = 0;
-  const ready = Promise.all([loadBrendanModel(), loadBrendanModel()]).then((assets) => {
+  const ready = Promise.all([loadBrandenModel(), loadBrendanModel()]).then((assets) => {
     assets.forEach((asset, index) => {
       const owned = captureFinaleResources(asset.scene);
       if (disposed) {
@@ -30,6 +32,9 @@ export function createFinaleRemembrance(scene: THREE.Scene, viewCamera: THREE.Pe
         return;
       }
       resources.push(owned);
+      // Credits keep the solid authored palette, independent of the memory effect.
+      const creditsModel = clone(asset.scene);
+      resources.push(captureFinaleResources(creditsModel, true));
       const actor = new THREE.Group();
       actor.name = index === 0 ? "MemoryOfBranden" : "MemoryOfBrendan";
       actor.position.set(index === 0 ? -4.5 : 4.5, 17, 5);
@@ -65,6 +70,7 @@ export function createFinaleRemembrance(scene: THREE.Scene, viewCamera: THREE.Pe
       action.paused = true;
       ghosts.push({
         model: asset.scene,
+        creditsModel,
         mixer,
         action,
         animations: asset.animations,
@@ -77,7 +83,7 @@ export function createFinaleRemembrance(scene: THREE.Scene, viewCamera: THREE.Pe
     getCreditsCast() {
       return ghosts.map((ghost, index) => ({
         name: index === 0 ? "Branden" : "Brendan",
-        model: ghost.model,
+        model: ghost.creditsModel,
         animations: ghost.animations,
       }));
     },

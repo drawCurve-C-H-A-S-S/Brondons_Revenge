@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { createMechMovementAudio } from "../../helpers/audio/gameSoundscape.js";
 import { emitComicEffect } from "../global/comicEffects.js";
 import * as CANNON from "cannon-es";
 import { registerPhysicsActor } from "../../helpers/physics/scenePhysics.js";
@@ -289,6 +290,7 @@ export function createLoadingBayBoss(
   const root = new THREE.Group();
   root.name = "LoadingBayBoss";
   scene.add(root);
+  const movementSound = createMechMovementAudio(scene, root);
 
   // --- Black shader material for the mech with subtle emissive glow. ---
   const blackMat = new THREE.MeshStandardMaterial({
@@ -447,7 +449,6 @@ export function createLoadingBayBoss(
   let phase: BossPhase = "dormant";
   let phaseTime = 0,
     elapsed = 0,
-    servoClock = 0,
     shotClock = 0,
     headCooldown = 0,
     scanning = false,
@@ -2710,6 +2711,7 @@ export function createLoadingBayBoss(
         fragments.splice(i, 1);
       }
     }
+    movementSound.update(dt, zeroGActive, phase !== "defeated" && modelLoaded && (bossWalking || charging));
     if (phase === "defeated" || !modelLoaded) return;
     targetMaterials.forEach((material) => material.update(dt));
     backTargetMaterial.update(dt);
@@ -2717,11 +2719,6 @@ export function createLoadingBayBoss(
     if (phase === "finisher") {
       pose();
       return;
-    }
-    servoClock -= dt;
-    if (servoClock <= 0) {
-      servoClock = 0.8;
-      playSfx("servo", 0.35, bossWalking ? 1.1 : 0.9);
     }
     if (phase === "droneExplosion") {
       updateDrones(dt);
@@ -3283,6 +3280,7 @@ export function createLoadingBayBoss(
     dispose() {
       if (disposed) return;
       disposed = true;
+      movementSound.dispose();
       if (phase === "droneExplosion") options.onDroneExplosionEnd?.();
       clearConfusionEffect();
       unregister();

@@ -200,12 +200,41 @@ export function createScene({
     box([6, z === 6 ? 8.5 : 7, 0.5], [17, z === 6 ? 9.75 : 10.5, z], rusted);
   }
   box([34, 0.4, 22], [17, 14.2, 17], ship.dark);
+  function roofBrace(from: THREE.Vector3, to: THREE.Vector3) {
+    const direction = to.clone().sub(from);
+    const brace = box(
+      [direction.length(), 0.14, 0.22],
+      [(from.x + to.x) / 2, (from.y + to.y) / 2, (from.z + to.z) / 2],
+      steel,
+      false,
+    );
+    brace.name = "RustChamberRoofBrace";
+    brace.quaternion.setFromUnitVectors(
+      new THREE.Vector3(1, 0, 0),
+      direction.normalize(),
+    );
+    brace.userData.minimap = false;
+  }
   for (const z of [9, 13, 17, 21, 25]) {
-    box([33, 0.45, 0.4], [17, 13.1, z], steel, false);
-    for (const x of [6, 12, 22, 28]) {
-      const brace = box([4.6, 0.12, 0.25], [x, 12.7, z], steel, false);
-      brace.rotation.z = x < 17 ? 0.45 : -0.45;
+    const upper = box([34, 0.3, 0.35], [17, 13.85, z], steel, false);
+    const lower = box([34, 0.25, 0.3], [17, 12.65, z], steel, false);
+    upper.name = "RustChamberRoofUpperChord";
+    lower.name = "RustChamberRoofLowerChord";
+    upper.userData.minimap = lower.userData.minimap = false;
+    for (let bay = 0; bay < 8; bay++) {
+      const x = 0.5 + bay * 4.125;
+      roofBrace(
+        new THREE.Vector3(x, bay % 2 ? 13.85 : 12.65, z),
+        new THREE.Vector3(x + 4.125, bay % 2 ? 12.65 : 13.85, z),
+      );
     }
+    for (const x of [0.5, 33.5])
+      roofBrace(new THREE.Vector3(x, 12.65, z), new THREE.Vector3(x, 13.85, z));
+  }
+  for (const x of [0.5, 8.75, 17, 25.25, 33.5]) {
+    const beam = box([0.2, 0.25, 16.35], [x, 13.85, 17], steel, false);
+    beam.name = "RustChamberRoofLongitudinal";
+    beam.userData.minimap = false;
   }
   for (const x of [0.3, 33.7]) {
     box([0.18, 0.45, 21], [x, 0.24, 17], worn, false);

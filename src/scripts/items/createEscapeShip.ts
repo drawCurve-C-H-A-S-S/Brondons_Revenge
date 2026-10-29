@@ -8,6 +8,7 @@ import {
 } from "../global/earthTexture.js";
 import { disposeRoom } from "../global/shipRoom.js";
 import { createStarfield, type Starfield } from "../global/starfield.js";
+import { MECH_PALETTES } from "../level-3/finaleMaterials.js";
 
 const cockpitGeometry = new Map<string, THREE.BufferGeometry>();
 
@@ -21,17 +22,17 @@ export function createEscapeShip() {
   const root = new THREE.Group();
   root.name = "EscapeShuttle";
   const hull = new THREE.MeshStandardMaterial({
-    color: 0xc1ced3,
+    color: MECH_PALETTES.hero.platelight,
     metalness: 0.65,
     roughness: 0.42,
   });
   const dark = new THREE.MeshStandardMaterial({
-    color: 0x172934,
+    color: MECH_PALETTES.hero.plateshad,
     metalness: 0.6,
     roughness: 0.4,
   });
   const orange = new THREE.MeshStandardMaterial({
-    color: 0xd98535,
+    color: MECH_PALETTES.hero.platemid,
     metalness: 0.4,
     roughness: 0.5,
   });
@@ -452,6 +453,7 @@ export function createEscapeShip() {
     },
     setThrust(amount: number) {
       thrust = Math.max(0, amount);
+      root.userData.engineThrust = thrust;
       thrusters.forEach((t, i) => {
         t.visible = amount > 0;
         t.scale.y =

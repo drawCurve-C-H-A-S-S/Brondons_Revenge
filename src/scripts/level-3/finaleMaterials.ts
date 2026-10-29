@@ -4,9 +4,9 @@ import type { MechSide } from "../npc/mechDuel.js";
 export const MECH_HEIGHT = 16;
 export const MECH_PALETTES = {
   hero: {
-    platelight: 0xdcc8bf,
-    platemid: 0xb89494,
-    plateshad: 0x755967,
+    platelight: 0xe8f1f5,
+    platemid: 0xc0d7e2,
+    plateshad: 0x78909e,
     innerframelight: 0x575757,
     innerframedark: 0x292929,
     gemlight: 0xb93875,
@@ -267,7 +267,8 @@ export function createIndustrialSkin(side: MechSide) {
         const name = swatch[0] as keyof typeof HERO_REVENGE_PALETTE;
         const transformed =
           side === "hero" ? HERO_REVENGE_PALETTE[name] : swatch[1];
-        const baseColor = source.color.clone();
+        const baseColor =
+          side === "hero" ? new THREE.Color(swatch[1]) : source.color.clone();
         authoredColors.set(source, { base: swatch[1], baseColor, transformed });
         paletteTarget.setHex(transformed);
         source.color.lerpColors(baseColor, paletteTarget, powerUp);

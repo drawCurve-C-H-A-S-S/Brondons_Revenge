@@ -82,7 +82,7 @@ export function createShipServiceDetails({
   }
   const half = width / 2;
   for (const side of [-1, 1]) {
-    box([0.32, 0.16, depth - 0.6], [side * (half - 0.38), height - 0.14, 0], dark);
+    box([0.32, 0.16, depth - 0.6], [side * (half - 0.38), height - 0.18, 0], dark);
     for (const offset of [-0.1, 0.1])
       box([0.035, 0.045, depth - 0.7], [side * (half - 0.38) + offset, height - 0.245, 0], steel);
     // Short luminous sections give direction without adding more real lights.
@@ -90,12 +90,12 @@ export function createShipServiceDetails({
       box([0.022, 0.025, Math.min(1.2, spacing * 0.4)], [side * (half - 0.58), height - 0.1, along], light);
       box([0.46, 0.035, 0.09], [side * (half - 0.38), height - 0.27, along], steel);
       if (ribs)
-        box([0.12, 0.56, 0.17], [side * (half - 0.28), height - 0.37, along], steel, side * -Math.PI / 4);
+        box([0.12, 0.56, 0.17], [side * (half - 0.45), height - 0.37, along], steel, side * -Math.PI / 4);
     }
   }
   if (ribs)
     for (let along = -depth / 2 + 1.4; along < depth / 2 - 0.7; along += spacing)
-      box([width - 0.18, 0.14, 0.2], [0, height - 0.075, along], steel);
+      box([width - 0.4, 0.14, 0.2], [0, height - 0.16, along], steel);
   const boxGeometry = new THREE.BoxGeometry(1, 1, 1);
   for (const [material, matrices] of batches) {
     const mesh = new THREE.InstancedMesh(boxGeometry, material, matrices.length);
@@ -120,7 +120,7 @@ export function createShipServiceDetails({
   for (let along = -depth / 2 + 2.4; along < depth / 2 - 1; along += spacing * 2) {
     const vent = new THREE.Mesh(ventGeometry, ventMaterial);
     vent.name = "ShipCeilingVent";
-    vent.position.set(half - 1.25, height - 0.025, along);
+    vent.position.set(half - 1.25, height - 0.11, along);
     vent.userData.minimap = false;
     root.add(vent);
   }

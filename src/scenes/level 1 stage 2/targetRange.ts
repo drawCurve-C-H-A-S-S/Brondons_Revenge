@@ -1,4 +1,4 @@
-import { playSfx } from "../../helpers/audio/sfx.js";
+import { playSfx, playDoorMovement } from "../../helpers/audio/sfx.js";
 /**
  * Scene 6 - Target range, reached via the surveillance camera.
  * Same door/threshold mechanics as scene4, entered from a single back door.
@@ -795,7 +795,7 @@ export function createScene({
       sLightMat.emissive.setHex(0xff0000);
     }
     const slideDelta = doorSlideSpeed * dt;
-    if (doorBack.open === 0 && doorBack.targetOpen > 0) playSfx("shipDoor");
+    if (dt > 0) playDoorMovement(doorBack.panelL, doorBack.open, doorBack.targetOpen);
     if (doorBack.open < doorBack.targetOpen)
       doorBack.open = Math.min(doorBack.open + slideDelta, 1);
     else if (doorBack.open > doorBack.targetOpen)

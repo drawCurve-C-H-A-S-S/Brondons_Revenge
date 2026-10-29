@@ -1,4 +1,4 @@
-import { playSfx } from "../../helpers/audio/sfx.js";
+import { playSfx, playWorldSfx } from "../../helpers/audio/sfx.js";
 import * as THREE from "three";
 import * as CANNON from "cannon-es";
 import { createScenePhysics } from "../../helpers/physics/scenePhysics.js";
@@ -1196,12 +1196,14 @@ export function createScene({
       new THREE.Vector3(f.laneX, f.laneY, 440),
     );
   }
+  const lastWeaponSound = new WeakMap<THREE.Object3D, number>();
   function launchBolt(
     from: THREE.Vector3,
     target: THREE.Vector3,
     damage: number,
     speed = 230,
     source?: THREE.Object3D,
+    weaponSound: "capitalShot" | "interceptorShot" = "interceptorShot",
   ) {
     const direction = target.clone().sub(from).normalize();
     const mesh = new THREE.Mesh(beamGeo, boltMaterial);
@@ -1224,6 +1226,17 @@ export function createScene({
     burst(from, 3, 0x88ffbb);
     emitComicEffect(scene, "pew", { source, position: from, size: 12 });
     playSfx("pew", damage >= 18 ? 0.42 : 0.19, damage >= 18 ? 0.82 : 1.12);
+    const emitter = source ?? scene;
+    const soundTime = performance.now();
+    if (soundTime - (lastWeaponSound.get(emitter) ?? -Infinity) >= 80) {
+      lastWeaponSound.set(emitter, soundTime);
+      playWorldSfx(
+        weaponSound,
+        from,
+        weaponSound === "capitalShot" ? 1600 : 1100,
+        weaponSound === "capitalShot" ? 0.9 : 0.7,
+      );
+    }
   }
   function updateFighters(dt: number) {
     const relativePosition = new THREE.Vector3(),
@@ -1457,6 +1470,7 @@ export function createScene({
             18,
             195,
             boss.root,
+            "capitalShot",
           );
         }
       announce(
@@ -1481,6 +1495,7 @@ export function createScene({
           18,
           235,
           boss.root,
+          "capitalShot",
         );
       }
       if (phase === "bossCore") {
@@ -1494,6 +1509,7 @@ export function createScene({
             18,
             235,
             boss.root,
+            "capitalShot",
           );
       }
     }
@@ -1590,6 +1606,7 @@ export function createScene({
     const shot = playerShots.find((s) => s.life <= 0);
     if (!shot) return false;
     tone(1200, 250, 0.065, 0.018);
+    playSfx("shipShot", 0.65);
     scene.updateMatrixWorld(true);
     const muzzle = arcadeView()
       ? ship.root.position

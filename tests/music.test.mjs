@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
-import { access, readdir } from "node:fs/promises";
+import { access, readdir, readFile } from "node:fs/promises";
 import { createServer } from "vite";
 
 let server,
@@ -210,6 +210,43 @@ test("pause music overrides gameplay, stays uninterrupted across submenus, and r
   assert.equal(gameplay.volume, 0.2);
 });
 
+test("the lobby and its settings keep the current soundtrack playing without starting menu music", async (t) => {
+  const source = await readFile(
+    new URL("../src/main.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    source,
+    /music\.setMenuOpen\(quickMenuOpen && !storySetupPending\)/,
+  );
+  assert.match(
+    source,
+    /music\.setPaused\(\s*\(quickMenuOpen && !storySetupPending\)/,
+  );
+  const music = fixture(t);
+  music.enterScene("scene1");
+  await flush();
+  const opening = latest("loading");
+  opening.currentTime = 12.5;
+  const playCount = opening.playCount;
+  for (const screen of [
+    "story-setup",
+    "display",
+    "sound",
+    "controls",
+    "story-setup",
+  ]) {
+    music.setMenuOpen(false);
+    music.setPaused(false);
+    music.update(0.1);
+    await flush();
+    assert.deepEqual(playing(), [opening], screen);
+    assert.equal(opening.currentTime, 12.5, screen);
+    assert.equal(opening.playCount, playCount, screen);
+    assert.equal(latest("menu"), undefined, screen);
+  }
+});
+
 test("weapon-wheel and local flight pauses suspend music without starting the menu track", async (t) => {
   const music = fixture(t);
   music.enterScene("scene15", {});
@@ -344,9 +381,11 @@ for (const fps of [30, 60, 144]) {
   test(`final boss smoothly crossfades Broken Chains through the whole rupture and returns to DonRevBGM1 at ${fps} FPS`, async (t) => {
     const music = fixture(t);
     let phase = "reveal",
-      bombDetonated = false;
+      bombDetonated = false,
+      victoryRemembrance = false;
     const finale = {
-      getMusicTrack: () => finaleMusicTrack(phase, bombDetonated),
+      getMusicTrack: () =>
+        finaleMusicTrack(phase, bombDetonated, false, victoryRemembrance),
       hasBossVictory: () => phase === "victory",
     };
     music.enterScene("scene21", finale);
@@ -426,12 +465,21 @@ for (const fps of [30, 60, 144]) {
     await flush();
     assert.deepEqual(playing(), [orbitalBattle]);
     assert.equal(orbitalBattle.currentTime, 8);
+    victoryRemembrance = true;
+    music.update(0);
+    await flush();
+    const emotional = latest("prologue");
+    assert.equal(emotional.volume, 0);
+    assert.equal(orbitalBattle.paused, false);
+    music.update(3);
+    assert.deepEqual(playing(), [emotional]);
     phase = "credits";
     music.update(0);
     await flush();
     const credits = latest("credits");
     music.update(3);
     assert.equal(orbitalBattle.paused, true);
+    assert.equal(emotional.paused, true);
     assert.equal(credits.loop, true);
     assert.deepEqual(playing(), [credits]);
     credits.currentTime = 7;
@@ -454,6 +502,7 @@ test("finale music keeps all rupture cutaways on Broken Chains and both duels on
   assert.equal(finaleMusicTrack("rupture", true), "broken-chains");
   for (const phase of ["space", "finisher", "victory"])
     assert.equal(finaleMusicTrack(phase), "ship", phase);
+  assert.equal(finaleMusicTrack("victory", true, false, true), "prologue");
   assert.equal(
     finaleMusicTrack("defeat"),
     "ship",

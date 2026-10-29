@@ -1,4 +1,4 @@
-import { playSfx } from "../../helpers/audio/sfx.js";
+import { playSfx, playWorldSfx } from "../../helpers/audio/sfx.js";
 import * as THREE from "three";
 import * as CANNON from "cannon-es";
 import { loadToolModel, preloadToolModel } from "../../core/loader.js";
@@ -1132,7 +1132,7 @@ export function createScene({
 
   function endPeek(open: boolean) {
     peeking = false;
-    if (open !== doorOpen) playSfx("door");
+    if (open !== doorOpen) playWorldSfx(open ? "door" : "doorClose", doorPivot);
     doorOpen = open;
     player.setInputLocked(false);
     player.setLookLocked(false);
@@ -1274,10 +1274,10 @@ export function createScene({
     else if (!checkpoint && nearDoor()) {
       if (player.body.position.z < 0) {
         doorOpen = !doorOpen;
-        playSfx("door");
+        playWorldSfx(doorOpen ? "door" : "doorClose", doorPivot);
       } else if (doorOpen) {
         doorOpen = false;
-        playSfx("door");
+        playWorldSfx("doorClose", doorPivot);
       } else beginPeek();
     } else if (nearQuartersDoor()) {
       quartersRequested = !quartersRequested;

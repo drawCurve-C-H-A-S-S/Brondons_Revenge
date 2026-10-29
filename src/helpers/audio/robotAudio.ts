@@ -16,6 +16,8 @@ export function playRobotChatter(
   const dx = robotPosition.x - camera.position.x;
   const dz = robotPosition.z - camera.position.z;
   const distance = Math.hypot(dx, dz);
+  const falloff = Math.max(0, 1 - distance / 24) ** 2;
+  if (falloff === 0) return;
 
   // Stereo panning based on robot position relative to camera
   const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
@@ -41,7 +43,7 @@ export function playRobotChatter(
       frequency * 0.6,
       start + 0.12,
     );
-    gain.gain.setValueAtTime(0.09, start);
+    gain.gain.setValueAtTime(0.09 * falloff, start);
     gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.13);
     oscillator.connect(gain);
     gain.connect(pan);

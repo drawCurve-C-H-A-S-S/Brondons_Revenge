@@ -16,9 +16,11 @@ import type { FlightExitState } from "./scene15.js";
 import {
   createRescueSite,
   RESCUE_SITE,
+  JUNGLE_PATH,
   JUNGLE_ENTRY_YAW,
   type RescueArrival,
 } from "../../scripts/global/rescueSite.js";
+import { FACILITY } from "../../scripts/global/facilityArchitecture.js";
 import { prepareSceneRendering } from "../../core/renderer.js";
 
 /** An uninterrupted handoff, then pursuit, atmospheric entry, and the crash. */
@@ -250,6 +252,7 @@ export function createScene({
     if (site.scene.visible)
       site.updateVisibility(viewCamera, player.body.position);
   };
+  site.releasePropCulling(site.boy);
   site.boy.visible = false;
   site.ship.setFlying(true, true);
   const groundPoint = (x: number, y: number, z: number) =>
@@ -273,16 +276,7 @@ export function createScene({
     RESCUE_SITE.ship.clone().add(new THREE.Vector3(0, 12, 10)),
     groundShipHover,
   );
-  const revealPath = new THREE.CatmullRomCurve3([
-    groundPoint(1, 2.3, 17),
-    new THREE.Vector3(-59, 8, 63),
-    new THREE.Vector3(-60, 11, 38),
-    new THREE.Vector3(-70, 15, 23),
-    new THREE.Vector3(-58, 12, 17),
-    new THREE.Vector3(-34, 13, -8),
-    new THREE.Vector3(-18, 17, -31),
-    new THREE.Vector3(0, 20, -43),
-  ]);
+  const facilityLook = new THREE.Vector3(FACILITY.x, 14, FACILITY.z);
   const crashBits = new THREE.InstancedMesh(
     new THREE.BoxGeometry(0.18, 0.12, 0.35),
     new THREE.MeshStandardMaterial({ color: 0x898779, roughness: 0.8 }),
@@ -382,18 +376,17 @@ export function createScene({
         site.boy.position.clone().add(new THREE.Vector3(0, 1.1, 0)),
       );
       camera.fov = 56;
-    } else {
-      const rush = THREE.MathUtils.smootherstep(t, 23, 28),
-        pan = THREE.MathUtils.smootherstep(t, 28, 33),
-        handoff = THREE.MathUtils.smootherstep(t, 33, 38);
-      camera.position
-        .copy(revealPath.getPointAt(rush))
-        .lerp(new THREE.Vector3(-20, 25, -30), pan);
-      const target = revealPath.getPointAt(Math.min(1, rush + 0.08));
-      target.lerp(
-        new THREE.Vector3(0, 14, -71),
-        THREE.MathUtils.smoothstep(t, 27, 31),
+    } else if (t < 33) {
+      const rush = THREE.MathUtils.smootherstep(t, 23, 28);
+      camera.position.copy(JUNGLE_PATH.getPointAt(rush * 0.8));
+      camera.position.y = THREE.MathUtils.lerp(2.3, 12, rush);
+      camera.lookAt(facilityLook);
+      camera.fov = THREE.MathUtils.lerp(
+        56,
+        68,
+        THREE.MathUtils.smoothstep(t, 23, 23.7),
       );
+    } else {
       const shoulder = RESCUE_SITE.player
         .clone()
         .add(
@@ -403,7 +396,7 @@ export function createScene({
             Math.cos(JUNGLE_ENTRY_YAW) * 4,
           ),
         );
-      camera.position.lerp(shoulder, handoff);
+      camera.position.copy(shoulder);
       const pathLook = RESCUE_SITE.player
         .clone()
         .add(
@@ -413,13 +406,8 @@ export function createScene({
             -Math.cos(JUNGLE_ENTRY_YAW) * 15,
           ),
         );
-      target.lerp(pathLook, handoff);
-      camera.lookAt(target);
-      camera.fov = THREE.MathUtils.lerp(
-        THREE.MathUtils.lerp(56, 68, THREE.MathUtils.smoothstep(t, 23, 23.7)),
-        75,
-        handoff,
-      );
+      camera.lookAt(pathLook);
+      camera.fov = 75;
     }
     const shake = Math.max(0, 1 - Math.abs(t - 2.25) / 1.1) * 0.38;
     camera.position.x += Math.sin(t * 71) * shake;
@@ -514,7 +502,7 @@ export function createScene({
       -THREE.MathUtils.smoothstep(t, 13, 14.5) * 1.5;
     site.pod.getObjectByName("PodExitDoor")!.rotation.y =
       THREE.MathUtils.smoothstep(t, 13, 14.5) * Math.PI * 0.6;
-    site.boy.visible = t >= 14;
+    site.boy.visible = t >= 16.5;
     site.pod.updateMatrixWorld(true);
     const podInterior = site.pod
       .localToWorld(new THREE.Vector3(0, -0.8, -0.25))

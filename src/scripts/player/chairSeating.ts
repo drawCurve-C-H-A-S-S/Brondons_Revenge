@@ -7,6 +7,8 @@ import type { Player, PlayerState } from "./player.js";
 export interface ChairSeat {
   root: THREE.Object3D;
   yaw: number;
+  mode?: "sit" | "lie";
+  cameraOffset?: THREE.Vector3;
   /** World-space cushion point, for seats whose proxy has no top face to raycast. */ surface?: () => THREE.Vector3;
   onStand?: () => void;
   prompt?: string;
@@ -20,6 +22,7 @@ interface SeatingOptions {
   prompt: HTMLElement | null;
 }
 interface Sitting {
+  mode: "sit" | "lie";
   phase: "enter" | "rest" | "exit";
   time: number;
   healTime: number;
@@ -34,6 +37,7 @@ interface Sitting {
   cameraPosition: THREE.Vector3;
   cameraRotation: THREE.Quaternion;
   cameraFov: number;
+  cameraOffset?: THREE.Vector3;
   onStand?: () => void;
 }
 
@@ -195,9 +199,12 @@ export function createChairSeating({
       }
       return false;
     }
-    const position = bounds.getCenter(new THREE.Vector3());
-    position.y = bounds.min.y + player.radius;
+    const mode = seat.mode ?? "sit";
+    const position = mode === "lie"
+      ? surface.clone().add(new THREE.Vector3(0, player.radius, 0))
+      : bounds.getCenter(new THREE.Vector3()).setY(bounds.min.y + player.radius);
     sitting = {
+      mode,
       phase: "enter",
       time: 0,
       healTime: 0,
@@ -212,6 +219,7 @@ export function createChairSeating({
       cameraPosition: camera.position.clone(),
       cameraRotation: camera.quaternion.clone(),
       cameraFov: camera.fov,
+      cameraOffset: seat.cameraOffset?.clone(),
       onStand: seat.onStand,
     };
     player.setInputLocked(true);
@@ -296,7 +304,7 @@ export function createChairSeating({
         restore();
         return;
       }
-      if (state.phase === "rest") {
+      if (state.phase === "rest" && state.mode === "sit") {
         state.healTime += lastDelta;
         if (state.healTime >= HEAL_SECONDS) {
           player.heal(1);
@@ -337,7 +345,9 @@ export function createChairSeating({
       }
       if (prompt) {
         prompt.textContent = inputHint(
-          sitting ? "E / Stand up" : (chair?.prompt ?? "E / Sit and rest"),
+          sitting
+            ? sitting.mode === "lie" ? "E / Get up" : "E / Stand up"
+            : (chair?.prompt ?? "E / Sit and rest"),
         );
         prompt.classList.remove("hidden");
         ownsPrompt = true;
@@ -362,6 +372,19 @@ export function createChairSeating({
     },
     getPose(): CinematicPose | null {
       if (!sitting) return null;
+      if (sitting.mode === "lie") {
+        const weight = sitting.phase === "enter"
+          ? THREE.MathUtils.smootherstep(sitting.time, 0, ENTER_SECONDS)
+          : sitting.phase === "exit"
+            ? 1 - THREE.MathUtils.smootherstep(sitting.time, 0, EXIT_SECONDS)
+            : 1;
+        return {
+          clip: "Idle_Loop",
+          time: sitting.time,
+          loop: true,
+          bodyPitch: (-Math.PI / 2 + 0.05) * weight,
+        };
+      }
       const pose: CinematicPose =
         sitting.phase === "enter"
           ? {
@@ -410,8 +433,12 @@ export function createChairSeating({
     applyCamera() {
       const state = sitting;
       if (!state) return false;
-      const focus = state.surface.clone().add(new THREE.Vector3(0, 0.45, 0));
-      const offset = new THREE.Vector3(
+      const focus = state.mode === "lie"
+        ? state.surface.clone().add(new THREE.Vector3(
+            Math.sin(state.yaw) * 0.9, 0.15, Math.cos(state.yaw) * 0.9,
+          ))
+        : state.surface.clone().add(new THREE.Vector3(0, 0.45, 0));
+      const offset = state.cameraOffset?.clone() ?? new THREE.Vector3(
         Math.sin(state.yaw) * 2.5 + Math.cos(state.yaw) * 0.6,
         0.9,
         Math.cos(state.yaw) * 2.5 - Math.sin(state.yaw) * 0.6,

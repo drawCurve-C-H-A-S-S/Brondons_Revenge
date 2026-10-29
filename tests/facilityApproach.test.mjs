@@ -694,6 +694,95 @@ test("waterfall has lit flowing water, shared foam/spray timing, and world-space
   assert.match(shader.vertexShader, /vRockWorldPosition = \(modelMatrix/);
 });
 
+test("waterfall cave collision matches the rendered tunnel and fully transformed cave rocks", async (t) => {
+  const { data } = await fixture(t);
+  data.site.updateActivePhysics([data.site.waterfall.center]);
+  const meshes = data.site.mountain.children.filter(
+    (mesh) =>
+      mesh.name === "WesternMountainAndWaterfallCave" ||
+      (mesh.isMesh && mesh.geometry.type === "DodecahedronGeometry" &&
+        mesh.scale.x === 1.3 && mesh.scale.y === 1.7) ||
+      (mesh.isMesh && mesh.geometry.type === "ConeGeometry"),
+  );
+  assert.equal(meshes.length, 20, "Tunnel, fourteen rocks and five stalactites");
+  for (const mesh of meshes) {
+    mesh.updateWorldMatrix(true, false);
+    const origin = mesh.getWorldPosition(new THREE.Vector3()),
+      positions = mesh.geometry.getAttribute("position"),
+      index = mesh.geometry.getIndex();
+    const body = data.physicsWorld.bodies.find(
+      (body) =>
+        body.position.distanceTo(new CANNON.Vec3(origin.x, origin.y, origin.z)) < 1e-6 &&
+        body.shapes.length === 1 &&
+        body.shapes[0] instanceof CANNON.Trimesh &&
+        body.shapes[0].vertices.length === positions.count * 3,
+    );
+    assert.ok(body, `Missing mesh collider for ${mesh.name || mesh.geometry.type}`);
+    const shape = body.shapes[0];
+    assert.deepEqual(
+      Array.from(shape.indices),
+      Array.from({ length: index?.count ?? positions.count }, (_, i) =>
+        index ? index.getX(i) : i),
+    );
+    for (let i = 0; i < positions.count; i++) {
+      const visible = new THREE.Vector3()
+        .fromBufferAttribute(positions, i)
+        .applyMatrix4(mesh.matrixWorld);
+      const solid = new THREE.Vector3(
+        shape.vertices[i * 3] + body.position.x,
+        shape.vertices[i * 3 + 1] + body.position.y,
+        shape.vertices[i * 3 + 2] + body.position.z,
+      );
+      assert.ok(visible.distanceTo(solid) < 1e-5);
+    }
+  }
+});
+
+test("waterfall tunnel walls, roof and back stop moving player-sized spheres at the visible surface", async (t) => {
+  const { data } = await fixture(t);
+  const cliff = data.scene.getObjectByName("WesternMountainAndWaterfallCave"),
+    positions = cliff.geometry.getAttribute("position"),
+    indices = Array.from(cliff.geometry.getIndex().array);
+  data.site.updateActivePhysics([data.site.waterfall.center]);
+  const collider = data.physicsWorld.bodies.find(
+    (body) => body.shapes.length === 1 &&
+      body.shapes[0] instanceof CANNON.Trimesh &&
+      body.shapes[0].vertices.length === positions.count * 3,
+  );
+  assert.ok(collider);
+  for (const end of [
+    new CANNON.Vec3(-97, 3.35, 28),
+    new CANNON.Vec3(-97, 3.35, 6),
+    new CANNON.Vec3(-97, 12, 17),
+    new CANNON.Vec3(-114, 3.35, 17),
+  ]) {
+    const world = new CANNON.World({ gravity: new CANNON.Vec3(0, 0, 0) }),
+      wall = new CANNON.Body({
+        mass: 0,
+        position: collider.position.clone(),
+        shape: new CANNON.Trimesh(Array.from(collider.shapes[0].vertices), indices),
+      }),
+      start = new CANNON.Vec3(-97, 3.35, 17),
+      direction = end.vsub(start).unit(),
+      hit = new CANNON.RaycastResult();
+    world.addBody(wall);
+    assert.equal(world.raycastClosest(start, end, { skipBackfaces: false }, hit), true);
+    const sphere = new CANNON.Body({
+      mass: 1,
+      position: start.clone(),
+      velocity: direction.scale(8),
+      shape: new CANNON.Sphere(0.3),
+      linearDamping: 0,
+    });
+    let contacted = false;
+    sphere.addEventListener("collide", () => { contacted = true; });
+    world.addBody(sphere);
+    for (let frame = 0; frame < 480 && !contacted; frame++) world.step(1 / 120);
+    assert.equal(contacted, true, "Collision must stop the sphere before it enters the rock");
+    assert.ok(sphere.position.vsub(start).dot(direction) < hit.distance - 0.1);
+  }
+});
+
 test("waterfall rendering and contact particles stop behind rock or outside the camera, but the cave view stays open", async (t) => {
   const { data } = await fixture(t),
     site = data.site,

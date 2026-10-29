@@ -29,7 +29,11 @@ import {
   FACILITY_ROOF_SEQUENCE,
   sampleFacilityLift,
 } from "../global/facilityArchitecture.js";
-import { FACILITY_OFFICE, FACILITY_OFFICE_SEATS } from "./facilityOffice.js";
+import {
+  FACILITY_OFFICE,
+  FACILITY_OFFICE_SEATS,
+  facilityOfficeCameraLimit,
+} from "./facilityOffice.js";
 
 export interface FinaleCameraContext {
   phase: FinalePhase;
@@ -1092,9 +1096,7 @@ export function createFinaleCamera(
       const insideOffice = phase === "loading" || phase === "error" || phase === "reveal" ||
         (phase === "enemyTransform" && t < FACILITY_ROOF_SEQUENCE.cutStart);
       if (insideOffice) {
-        const lensMargin = Math.max(0.6, camera.near *
-          Math.tan(THREE.MathUtils.degToRad(fov / 2)) * Math.hypot(1, camera.aspect) + 0.3);
-        position.z = Math.min(position.z, FACILITY.z + FACILITY_OFFICE.front - lensMargin);
+        position.z = Math.min(position.z, facilityOfficeCameraLimit(camera, fov));
         frame(position, target, fov, frameRoll);
       }
       previousTarget.copy(target);

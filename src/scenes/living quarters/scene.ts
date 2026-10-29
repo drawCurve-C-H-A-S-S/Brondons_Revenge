@@ -52,7 +52,10 @@ import { inputHint } from "../../scripts/player/gamepadInput.js";
 import { setInputHint } from "../../scripts/global/inputPrompts.js";
 import { getPrimeHintsEnabled } from "../../scripts/player/primeHints.js";
 import { popupDuration } from "../../scripts/global/popupTiming.js";
-import { createChairSeating } from "../../scripts/player/chairSeating.js";
+import {
+  createChairSeating,
+  type ChairSeat,
+} from "../../scripts/player/chairSeating.js";
 import { playSfx } from "../../helpers/audio/sfx.js";
 
 interface QuartersOptions {
@@ -80,6 +83,7 @@ interface Interaction {
     | "forward"
     | "keypad"
     | "chest"
+    | "bed"
     | "poster"
     | "computer"
     | "fixture";
@@ -218,7 +222,7 @@ export function createScene({
     target: Interaction | null = null;
   let cinematic: Cinematic | null = null;
   let inspectionCaptionTime = 0;
-  let computerReminderTime = 0;
+  let primeReminderTime = 0;
   let active = !deferActivation;
 
   function element<K extends keyof HTMLElementTagNameMap>(
@@ -273,12 +277,26 @@ export function createScene({
     player.clearInput();
     player.enable();
   });
+  function bedroomSeat(): ChairSeat | null {
+    const room = location === "brondon" ? interiors.get("brondon") : null;
+    return room ? {
+      root: room.bed,
+      yaw: Math.PI,
+      mode: "lie",
+      surface: () => room.bed.localToWorld(new THREE.Vector3(0, 0.9, 0.88)),
+      cameraOffset: new THREE.Vector3(-brondon.side * 2, 1.6, 0.9),
+      prompt: "E / Lie down",
+    } : null;
+  }
   const seating = createChairSeating({
     scene,
     camera,
     player,
     prompt,
-    chairs: () => bathroom.seats,
+    chairs: () => {
+      const bed = developerAccess ? bedroomSeat() : null;
+      return bed ? [...bathroom.seats, bed] : bathroom.seats;
+    },
     canInteract: () =>
       active &&
       !disposed &&
@@ -639,6 +657,14 @@ export function createScene({
         point: cabinDoorPoint(cabin).setY(1.3),
       });
       if (room) {
+        if (cabin.id === "brondon")
+          candidates.push({
+            kind: "bed",
+            cabin: location,
+            root: room.bed,
+            point: room.bed.getWorldPosition(new THREE.Vector3())
+              .add(new THREE.Vector3(0, 0.7, 0)),
+          });
         if (cabin.role === "lecturer")
           candidates.push({
             kind: "chest",
@@ -735,6 +761,8 @@ export function createScene({
         return `E / ${progress.bulkheadUnlocked ? "Inspect unlocked" : "Use bulkhead"} keypad`;
       case "chest":
         return `E / ${progress.openedChests.has(candidate.cabin!) ? "Inspect" : "Open"} personal chest`;
+      case "bed":
+        return "E / Lie down";
       case "poster":
         return "E / Read expedition poster";
       case "computer":
@@ -821,13 +849,23 @@ export function createScene({
           7,
         );
         break;
+      case "bed": {
+        if (developerAccess) {
+          const bed = bedroomSeat();
+          if (bed) seating.sit(bed);
+        } else {
+          caption("Brondon, this is no time for a nap. Your crew needs you.");
+          primeReminderTime = popupDuration(7);
+        }
+        break;
+      }
       case "computer": {
         const room = interiors.get(candidate.cabin!);
         if (candidate.cabin === "brondon" && room) {
           caption(
             "Brondon! Lock in. Your crewmembers need saving, not another gaming session.",
           );
-          computerReminderTime = popupDuration(9);
+          primeReminderTime = popupDuration(9);
         } else if (candidate.cabin === "branden" && room?.desktop) {
           inspect({
             screen: room.screen,
@@ -956,7 +994,7 @@ export function createScene({
   window.addEventListener("keydown", onKey);
 
   function caption(text: string) {
-    computerReminderTime = 0;
+    primeReminderTime = 0;
     speaker.textContent = "Prime";
     setInputHint(subtitleText, text, "foot", true);
     subtitle.classList.remove("hidden");
@@ -1121,9 +1159,9 @@ export function createScene({
     const frame = Number.isFinite(dt) ? THREE.MathUtils.clamp(dt, 0, 0.1) : 0;
     lastDelta = frame;
     clock += frame;
-    if (computerReminderTime > 0) {
-      computerReminderTime = Math.max(0, computerReminderTime - frame);
-      if (computerReminderTime === 0) subtitle.classList.add("hidden");
+    if (primeReminderTime > 0) {
+      primeReminderTime = Math.max(0, primeReminderTime - frame);
+      if (primeReminderTime === 0) subtitle.classList.add("hidden");
     }
     skipHold.update(frame);
     seating.update(frame);

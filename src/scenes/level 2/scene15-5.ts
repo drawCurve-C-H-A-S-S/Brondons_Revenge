@@ -15,6 +15,7 @@ type Options = {
     damage: number,
     speed?: number,
     source?: THREE.Object3D,
+    weaponSound?: "capitalShot" | "interceptorShot",
   ) => void;
   burst: (position: THREE.Vector3, size: number, color?: number) => void;
   explode?: (
@@ -429,6 +430,7 @@ export function createSidescrollPhase({
                 14,
                 160,
                 boss,
+                "capitalShot",
               );
             }
           } else {
@@ -439,6 +441,7 @@ export function createSidescrollPhase({
                 12,
                 180,
                 boss,
+                "capitalShot",
               );
           }
         }

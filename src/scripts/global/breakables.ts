@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { playSfx } from "../../helpers/audio/sfx.js";
+import { playWorldSfx, type SfxName } from "../../helpers/audio/sfx.js";
 import * as CANNON from "cannon-es";
 import type { DamageTarget, DamageWeapon } from "../weapons/pistol.js";
 import { BreakableMaterial } from "./breakableMaterial.js";
@@ -16,6 +16,7 @@ export interface Breakable extends DamageTarget {
 interface BreakableOptions {
   hits?: number;
   showBox?: boolean;
+  soundMaterial?: "metal" | "wood" | "glass";
   decorate?: (root: THREE.Group, material: BreakableMaterial) => void;
 }
 
@@ -177,9 +178,14 @@ export function createBreakables(scene: THREE.Scene, world: CANNON.World) {
           return false;
         item.hitsRemaining--;
         material.hit(hits - item.hitsRemaining);
-        if (item.hitsRemaining > 0) return true;
+        const sound: SfxName = options.soundMaterial === "wood" ? "woodBreak" :
+          options.soundMaterial === "glass" ? "glassBreak" : "blockBreak";
+        if (item.hitsRemaining > 0) {
+          playWorldSfx(options.soundMaterial === "wood" ? "woodBreak" : "metalHit", root, 22, 0.35);
+          return true;
+        }
         item.broken = true;
-        playSfx("blockBreak", 0.65);
+        playWorldSfx(sound, root, 32, 0.85);
         root.removeFromParent();
         world.removeBody(body);
         debris.emit(root.getWorldPosition(new THREE.Vector3()), size);

@@ -213,9 +213,12 @@ function bakeRetargetedClip(source, target, clip) {
 }
 
 const destination = path.join(project, "src", "assets", "animations");
-const rigNames = ["hero", "enemy", "brondon"];
-const bindPose = (target) =>
-  ["root", "pelvis", "upperarm_r", "thigh_r"].map((name) => {
+const rigNames = ["hero", "enemy", "brondon", "brendan", "branden"];
+const bindPose = (target, complete = false) =>
+  (complete
+    ? target.orderedJoints.map((index) => target.nodes[index].name)
+    : ["root", "pelvis", "upperarm_r", "thigh_r"]
+  ).map((name) => {
     const bone = target.nodes.find((node) => node.name === name);
     if (!bone) throw new Error(`The target rig is missing ${name}`);
     return {
@@ -225,7 +228,30 @@ const bindPose = (target) =>
     };
   });
 
-if (sourceDirectory === "--brondon") {
+if (sourceDirectory === "--arcade") {
+  const libraryPath = path.join(destination, "quaterniusCombat.json");
+  const library = JSON.parse(await readFile(libraryPath, "utf8"));
+  const source = await readRig(
+    path.join(project, "src", "assets", "models", "Don.glb"),
+  );
+  const clips = library.rigs.brondon.map((serialized) =>
+    THREE.AnimationClip.parse(serialized),
+  );
+  for (const [name, filename] of [
+    ["brendan", "DonfromStreets.glb"],
+    ["branden", "branden-the-dripless-export.glb"],
+  ]) {
+    const target = await readRig(
+      path.join(project, "src", "assets", "models", filename),
+    );
+    library.bindPoses[name] = bindPose(target, true);
+    library.rigs[name] = clips.map((clip) =>
+      bakeRetargetedClip(source, target, clip),
+    );
+    console.log(`Retargeted ${clips.length} combat clips for ${name}`);
+  }
+  await writeFile(libraryPath, JSON.stringify(library));
+} else if (sourceDirectory === "--brondon") {
   const libraryPath = path.join(destination, "quaterniusCombat.json");
   const library = JSON.parse(await readFile(libraryPath, "utf8"));
   const [source, target] = await Promise.all(
@@ -248,7 +274,13 @@ if (sourceDirectory === "--brondon") {
     ),
   );
   const targets = await Promise.all(
-    ["MC.glb", "Subject.glb", "Don.glb"].map((name) =>
+    [
+      "MC.glb",
+      "Subject.glb",
+      "Don.glb",
+      "DonfromStreets.glb",
+      "branden-the-dripless-export.glb",
+    ].map((name) =>
       readRig(path.join(project, "src", "assets", "models", name)),
     ),
   );
@@ -265,7 +297,10 @@ if (sourceDirectory === "--brondon") {
       "Quaternius Universal Animation Library 2 [Standard]",
     ],
     bindPoses: Object.fromEntries(
-      targets.map((target, index) => [rigNames[index], bindPose(target)]),
+      targets.map((target, index) => [
+        rigNames[index],
+        bindPose(target, index >= 3),
+      ]),
     ),
     rigs: Object.fromEntries(
       targets.map((target, index) => [

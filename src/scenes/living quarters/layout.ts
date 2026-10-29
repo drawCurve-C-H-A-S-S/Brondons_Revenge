@@ -113,7 +113,7 @@ export const CABINS: readonly CabinDefinition[] = [
   cabin(
     "student-03",
     26,
-    "Andre'",
+    "André",
     1,
     1,
     0xc891d9,

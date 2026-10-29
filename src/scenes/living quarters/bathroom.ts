@@ -1,5 +1,6 @@
 import {
   playSfx,
+  playWorldSfx,
   stopRunningWaterAudio,
   updateRunningWaterAudio,
 } from "../../helpers/audio/sfx.js";
@@ -9,7 +10,10 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import toiletUrl from "../../assets/models/toilet (1).glb";
 import toiletPaperUrl from "../../assets/models/toilet_paper.glb";
 import { createScenePhysics } from "../../helpers/physics/scenePhysics.js";
-import { createShipInteriorMaterials } from "../../scripts/global/shipInterior.js";
+import {
+  createShipInteriorMaterials,
+  createShipSurfaceMaterial,
+} from "../../scripts/global/shipInterior.js";
 import { QUARTERS, CABINS } from "./layout.js";
 import { comicNameTexture } from "./furnishings.js";
 import type { ChairSeat } from "../../scripts/player/chairSeating.js";
@@ -48,16 +52,19 @@ interface DropField {
  */
 export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
   const { steel, dark, trim, cyan, deck } = createShipInteriorMaterials(6, 6, "crew");
+  const stallDoorMaterial = new THREE.MeshStandardMaterial({
+    color: steel.color.clone(),
+    roughness: 0.66,
+    metalness: 0.12,
+  });
   const tile = new THREE.MeshStandardMaterial({
     color: 0xc9dae2,
     roughness: 0.35,
     metalness: 0.15,
   });
-  const porcelain = new THREE.MeshStandardMaterial({
-    color: 0xeef4f6,
-    roughness: 0.25,
-    metalness: 0.05,
-  });
+  const porcelain = createShipSurfaceMaterial("porcelain", 0xeef4f6);
+  const sinkCabinet = createShipSurfaceMaterial("painted-metal", 0x45535e);
+  const lockerPaint = createShipSurfaceMaterial("painted-metal", 0x9daeb7);
   const chrome = new THREE.MeshStandardMaterial({
     color: 0xd5dde2,
     roughness: 0.18,
@@ -68,6 +75,7 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
     roughness: 0.8,
     transparent: true,
     opacity: 0.7,
+    depthWrite: false,
     side: THREE.DoubleSide,
   });
   const waterMaterial = new THREE.MeshBasicMaterial({
@@ -320,7 +328,7 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
     "SinkCounter",
     [0.8, 0.88, 14.2],
     [counterX, 0.44, counterZ],
-    dark,
+    sinkCabinet,
     true,
   );
   box(
@@ -328,7 +336,7 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
     "SinkCounterTop",
     [0.86, 0.06, 14.26],
     [counterX, 0.91, counterZ],
-    trim,
+    porcelain,
   );
   const fixtures: BathroomFixture[] = [];
   const streams: Array<{ mesh: THREE.Mesh; fixture: BathroomFixture }> = [];
@@ -338,8 +346,20 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
     sink.name = `Placeholder-Sink-${index + 1}`;
     sink.position.set(counterX + 0.05, 0.94, z);
     root.add(sink);
-    cylinder(sink, "SinkRim", 0.27, 0.06, [0, 0.03, 0]);
-    cylinder(sink, "SinkBasin", 0.21, 0.07, [0, 0.045, 0], dark);
+    const basin = new THREE.Mesh(
+      new THREE.LatheGeometry([
+        [0, 0], [0.18, 0], [0.24, 0.025], [0.27, 0.1],
+        [0.27, 0.12], [0.255, 0.135], [0.24, 0.12],
+        [0.21, 0.06], [0.14, 0.028], [0.06, 0.018], [0, 0.018],
+      ].map(([radius, height]) => new THREE.Vector2(radius, height)), 48),
+      porcelain,
+    );
+    basin.name = "SinkBasin";
+    basin.castShadow = basin.receiveShadow = true;
+    sink.add(basin);
+    cylinder(sink, "SinkDrain", 0.035, 0.008, [0, 0.022, 0], chrome);
+    for (const x of [-0.015, 0, 0.015])
+      cylinder(sink, "SinkDrainHole", 0.004, 0.002, [x, 0.027, 0], sinkCabinet);
     const tap = new THREE.Group();
     tap.name = `SinkTap-${index + 1}`;
     tap.position.set(-0.3, 0, 0);
@@ -348,11 +368,11 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
     box(tap, "TapSpout", [0.19, 0.03, 0.03], [0.09, 0.17, 0], chrome);
     const knob = box(tap, "TapKnob", [0.04, 0.03, 0.14], [0, 0.17, 0], chrome);
     const stream = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.008, 0.008, 0.1, 8),
+      new THREE.CylinderGeometry(0.008, 0.008, 0.15, 8),
       waterMaterial,
     );
     stream.name = "TapWater";
-    stream.position.set(-0.12, 0.12, 0);
+    stream.position.set(-0.12, 0.085, 0);
     stream.visible = false;
     sink.add(stream);
     const fixture: BathroomFixture = {
@@ -405,9 +425,9 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
     box(
       root,
       "ShowerPartition",
-      [1.34, 2.0, 0.06],
-      [showerX, 1.15, z],
-      steel,
+      [1.3, 2.3, 0.06],
+      [showerX - 0.05, 1.2, z],
+      porcelain,
       true,
     );
   const drops: DropField[] = [];
@@ -422,15 +442,50 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
     const stall = new THREE.Group();
     stall.name = `Placeholder-Shower-${index + 1}`;
     root.add(stall);
-    box(stall, "ShowerTray", [1.3, 0.05, 1.72], [showerX, 0.025, z], porcelain);
+    const trayFront = showerX - 0.65,
+      trayBack = wallInner - 0.105,
+      trayWidth = trayBack - trayFront,
+      trayCenter = (trayFront + trayBack) / 2;
+    box(
+      stall,
+      "ShowerBackPanel",
+      [0.035, 2.3, 1.72],
+      [wallInner - 0.065, 1.2, z],
+      porcelain,
+    );
+    box(
+      stall,
+      "ShowerTray",
+      [trayWidth, 0.05, 1.72],
+      [trayCenter, 0.025, z],
+      porcelain,
+    );
+    for (const x of [trayFront + 0.03, trayBack - 0.03])
+      box(stall, "ShowerTrayRim", [0.06, 0.08, 1.72], [x, 0.09, z], porcelain);
+    for (const side of [-1, 1])
+      box(
+        stall,
+        "ShowerTrayRim",
+        [trayWidth, 0.08, 0.06],
+        [trayCenter, 0.09, z + side * 0.83],
+        porcelain,
+      );
     cylinder(
       stall,
       "ShowerDrain",
       0.09,
       0.01,
       [showerX + 0.25, 0.055, z],
-      dark,
+      chrome,
     );
+    for (const offset of [-0.03, 0, 0.03])
+      box(
+        stall,
+        "ShowerDrainSlot",
+        [0.11, 0.002, 0.012],
+        [showerX + 0.25, 0.061, z + offset],
+        dark,
+      );
     const curtain = box(
       stall,
       "ShowerCurtain",
@@ -455,21 +510,37 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
       stall,
       "ShowerPipe",
       0.025,
-      0.55,
-      [wallInner - 0.06, 1.9, z],
+      1.05,
+      [wallInner - 0.14, 1.675, z + 0.55],
       chrome,
     );
+    cylinder(
+      stall,
+      "ShowerPipeReturn",
+      0.025,
+      0.55,
+      [wallInner - 0.14, 2.2, z + 0.275],
+      chrome,
+    ).rotation.x = Math.PI / 2;
+    cylinder(
+      stall,
+      "ShowerHeadArm",
+      0.025,
+      0.26,
+      [wallInner - 0.27, 2.2, z],
+      chrome,
+    ).rotation.z = Math.PI / 2;
     const head = new THREE.Mesh(
       new THREE.CylinderGeometry(0.1, 0.1, 0.03, 16),
       chrome,
     );
     head.name = "ShowerHead";
-    head.rotation.z = Math.PI / 2 - 0.6;
-    head.position.set(wallInner - 0.2, 2.18, z);
+    head.rotation.z = -Math.PI / 8;
+    head.position.set(wallInner - 0.4, 2.18, z);
     stall.add(head);
     const valve = new THREE.Group();
     valve.name = `ShowerValve-${index + 1}`;
-    valve.position.set(wallInner - 0.03, 1.15, z + 0.55);
+    valve.position.set(wallInner - 0.095, 1.15, z + 0.55);
     stall.add(valve);
     cylinder(valve, "ValvePlate", 0.07, 0.03, [0, 0, 0], chrome).rotation.z =
       Math.PI / 2;
@@ -499,7 +570,7 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
     points.frustumCulled = false;
     points.visible = false;
     stall.add(points);
-    const origin = new THREE.Vector3(wallInner - 0.28, 2.15, z);
+    const origin = new THREE.Vector3(wallInner - 0.43, 2.15, z);
     for (let i = 0; i < count; i++) respawn(positions, speeds, i, origin, true);
     drops.push({ points, positions, speeds, origin });
     const fixture: BathroomFixture = {
@@ -622,14 +693,14 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
       "StallDoorPanelA",
       [panel, 1.85, 0.04],
       [panel / 2, 1.05, 0],
-      steel,
+      stallDoorMaterial,
     );
     box(
       foldB,
       "StallDoorPanelB",
       [panel, 1.85, 0.04],
       [panel / 2, 1.05, 0],
-      steel,
+      stallDoorMaterial,
     );
     box(
       foldB,
@@ -679,7 +750,7 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
           Math.abs(lastPlayer.z - doorZ) < 0.55;
         if (door.open && blocking) return;
         door.open = !door.open;
-        playSfx("door");
+        playWorldSfx(door.open ? "door" : "doorClose", hinge, 14, 0.55);
       },
     });
   }
@@ -760,15 +831,16 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
           "LockerDoor",
           [0.025, 1.8, lockerDoorWidth],
           [0, 0, (dir * lockerDoorWidth) / 2],
-          steel,
+          lockerPaint,
         );
-        box(
-          hinge,
-          "LockerVent",
-          [0.012, 0.03, lockerDoorWidth - 0.3],
-          [side * 0.014, 0.7, (dir * lockerDoorWidth) / 2],
-          dark,
-        );
+        for (let vent = 0; vent < 3; vent++)
+          box(
+            hinge,
+            vent === 0 ? "LockerVent" : `LockerVent-${vent + 1}`,
+            [0.012, 0.025, lockerDoorWidth - 0.3],
+            [side * 0.018, 0.7 - vent * 0.07, (dir * lockerDoorWidth) / 2],
+            sinkCabinet,
+          );
         box(
           hinge,
           "LockerHandle",
@@ -802,7 +874,7 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
           `E / ${state.open ? "Close" : "Open"} ${name}${name.endsWith("'") ? "s" : "'s"} locker`,
         toggle: () => {
           state.open = !state.open;
-          playSfx("door", 0.7);
+          playWorldSfx(state.open ? "door" : "doorClose", locker, 12, 0.4);
           leaves.forEach((leaf) => {
             leaf.open = state.open;
           });
@@ -926,6 +998,7 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
       material.dispose();
     }
     curtainMaterial.dispose();
+    stallDoorMaterial.dispose();
     porcelain.dispose();
     chrome.dispose();
     tile.dispose();

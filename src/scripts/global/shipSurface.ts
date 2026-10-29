@@ -1,6 +1,8 @@
 import * as THREE from "three";
 
-export type ShipSurface = "panel" | "clean-panel" | "deck" | "machinery" | "trim" | "vent";
+export type ShipSurface =
+  | "panel" | "clean-panel" | "deck" | "machinery" | "trim" | "vent"
+  | "porcelain" | "painted-metal" | "fabric";
 
 type SurfaceMaps = {
   map: THREE.DataTexture;
@@ -19,6 +21,9 @@ const surfaceSize: Record<ShipSurface, number> = {
   machinery: 2,
   trim: 1,
   vent: 1.4,
+  porcelain: 0.45,
+  "painted-metal": 1.2,
+  fabric: 0.24,
 };
 
 function noise(x: number, y: number, salt = 0) {
@@ -40,6 +45,10 @@ function generateSurface(kind: ShipSurface): SurfaceMaps {
   const machinery = kind === "machinery";
   const vent = kind === "vent";
   const clean = kind === "clean-panel";
+  const porcelain = kind === "porcelain";
+  const painted = kind === "painted-metal";
+  const fabric = kind === "fabric";
+  const fineFinish = porcelain || painted || fabric;
   const cellWidth = deck ? 256 : size;
   const cellHeight = trim ? size : 256;
   const smooth = THREE.MathUtils.smoothstep;
@@ -49,8 +58,8 @@ function generateSurface(kind: ShipSurface): SurfaceMaps {
       const px = x % cellWidth;
       const py = y % cellHeight;
       const edge = Math.min(px, cellWidth - 1 - px, py, cellHeight - 1 - py);
-      const seam = trim ? 0 : 1 - smooth(edge, 2, 7);
-      const bevel = trim ? 0 : smooth(edge, 5, 9) * (1 - smooth(edge, 10, 15));
+      const seam = trim || fineFinish ? 0 : 1 - smooth(edge, 2, 7);
+      const bevel = trim || fineFinish ? 0 : smooth(edge, 5, 9) * (1 - smooth(edge, 10, 15));
       const grain = noise(x, y);
       const panelTone = noise(Math.floor(x / cellWidth), Math.floor(y / cellHeight), 91);
       let shade = 207 + panelTone * 16 + (grain - 0.5) * 5;
@@ -60,7 +69,25 @@ function generateSurface(kind: ShipSurface): SurfaceMaps {
       shade *= 1 - seam * 0.68;
       shade += bevel * 13;
 
-      if (trim) {
+      if (porcelain) {
+        shade = 248 + (grain - 0.5) * 3;
+        relief = 0.5 + (grain - 0.5) * 0.003;
+        roughness = 0.24;
+        metalness = 0;
+      } else if (painted) {
+        const brush = noise(Math.floor(x / 48), y, 71);
+        const scuff = py % 173 === 61 && px > 105 && px < 184 ? 1 : 0;
+        shade = 233 + (grain - 0.5) * 7 + (brush - 0.5) * 4 - scuff * 10;
+        relief = 0.5 + (grain - 0.5) * 0.012 - scuff * 0.012;
+        roughness = 0.64 + scuff * 0.12;
+        metalness = 0.16;
+      } else if (fabric) {
+        const weave = Math.sin(x * Math.PI / 2) * Math.cos(y * Math.PI / 2);
+        shade = 239 + weave * 4 + (grain - 0.5) * 5;
+        relief = 0.5 + weave * 0.035;
+        roughness = 0.98;
+        metalness = 0;
+      } else if (trim) {
         shade += (noise(Math.floor(x / 24), y, 71) - 0.5) * 16;
         roughness += (noise(Math.floor(x / 32), y) - 0.5) * 0.12;
       } else {
@@ -177,7 +204,10 @@ export function createShipSurfaceMaterial(kind: ShipSurface, color: THREE.ColorR
     color,
     map,
     normalMap,
-    normalScale: new THREE.Vector2(0.7, 0.7),
+    normalScale: new THREE.Vector2().setScalar(
+      kind === "porcelain" ? 0.15 : kind === "painted-metal" ? 0.25 :
+        kind === "fabric" ? 0.5 : 0.7,
+    ),
     roughness: 1,
     metalness: 1,
     roughnessMap,

@@ -1778,13 +1778,13 @@ export function createScene(options: StageTwoOptions) {
       elapsed += frame;
       phaseTime += frame;
       seating.update(frame);
+      monitors.forEach((monitor) => monitor.update(frame));
       physics.step(frame, player, thirdPerson);
       maze.update(elapsed);
       ventChest.update(frame);
       crowbarChest.update(frame);
       hangingCrystal.rotation.y += frame * 1.2;
       hangingCrystal.position.y = height - 1.3 + Math.sin(elapsed * 2) * 0.05;
-      monitors.forEach((monitor) => monitor.update(frame));
       captionTime = Math.max(0, captionTime - frame);
       if (!captionTime) {
         caption.classList.add("hidden");

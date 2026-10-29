@@ -6,7 +6,7 @@ import type { Player, PlayerTransitionState } from "../player/player.js";
 import type { DamageTarget } from "../weapons/pistol.js";
 import { inputHint } from "../player/gamepadInput.js";
 import { BreakableMaterial } from "./breakableMaterial.js";
-import { playSfx } from "../../helpers/audio/sfx.js";
+import { playWorldSfx } from "../../helpers/audio/sfx.js";
 import {
   CARGO,
   beltMoving,
@@ -59,7 +59,7 @@ export function createCargoController(
   function destroy(id: string) {
     const item = objects.get(id);
     if (!item) return false;
-    playSfx("blockBreak", 0.65);
+    playWorldSfx("woodBreak", item.root, 30, 0.8);
     if (held === item) release();
     item.record.position = { ...item.body.position };
     for (let i = 0; i < 10; i++) {

@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { createForestSoundscape } from "../../helpers/audio/gameSoundscape.js";
 import * as CANNON from "cannon-es";
 import { loadBrendanModel } from "../../core/loader.js";
 import {
@@ -826,6 +827,35 @@ export function createRescueSite(
   const mountain = new THREE.Group();
   mountain.name = "ImpassableWesternMountain";
   scene.add(mountain);
+  function addMountainCollider(mesh: THREE.Mesh) {
+    mesh.updateWorldMatrix(true, false);
+    const origin = mesh.getWorldPosition(new THREE.Vector3()),
+      positions = mesh.geometry.getAttribute("position"),
+      index = mesh.geometry.getIndex(),
+      vertices: number[] = [],
+      vertex = new THREE.Vector3();
+    for (let i = 0; i < positions.count; i++) {
+      vertex
+        .fromBufferAttribute(positions, i)
+        .applyMatrix4(mesh.matrixWorld)
+        .sub(origin);
+      vertices.push(vertex.x, vertex.y, vertex.z);
+    }
+    const body = new CANNON.Body({
+      mass: 0,
+      material: physics.solidMaterial,
+      position: new CANNON.Vec3(origin.x, origin.y, origin.z),
+      shape: new CANNON.Trimesh(
+        vertices,
+        Array.from(
+          { length: index?.count ?? positions.count },
+          (_, i) => (index ? index.getX(i) : i),
+        ),
+      ),
+    });
+    physics.world.addBody(body);
+    trackStaticBody(body);
+  }
   const cliffMaterial = new THREE.MeshStandardMaterial({
     name: "WeatheredMountainRock",
     color: 0xffffff,
@@ -1006,6 +1036,7 @@ export function createRescueSite(
   cliff.name = "WesternMountainAndWaterfallCave";
   cliff.castShadow = cliff.receiveShadow = true;
   mountain.add(cliff);
+  addMountainCollider(cliff);
   const ridge = new THREE.PlaneGeometry(142, 240, 24, 60);
   ridge.rotateX(-Math.PI / 2);
   ridge.translate(-168, 0, 0);
@@ -1078,7 +1109,7 @@ export function createRescueSite(
     rock.scale.set(1.3, 1.7, 1.2);
     rock.rotation.set(index * 0.2, index, 0);
     mountain.add(rock);
-    physics.addBox({ x: 2, y: 2.8, z: 1.6 }, rock.position);
+    addMountainCollider(rock);
     if (index % 3 === 0) {
       const stalactite = new THREE.Mesh(
         new THREE.ConeGeometry(0.4, 1.7, 6),
@@ -1087,6 +1118,7 @@ export function createRescueSite(
       stalactite.rotation.z = Math.PI;
       stalactite.position.set(x, 6.4, 17 + side * 3.2);
       mountain.add(stalactite);
+      addMountainCollider(stalactite);
     }
   }
   for (let z = -110; z <= 110; z += 20) {
@@ -1776,6 +1808,7 @@ export function createRescueSite(
       conifer(x, z, 22 + random() * 14, 0.5 + random() * 0.4);
     }
   const pinecones = createFallingPinecones(scene, pineconeTrees);
+  const forestSound = createForestSoundscape(scene, pineconeTrees);
   for (const [mesh, count, range, shadow, lod] of [
     [trunks, treeCount, 145, true, undefined],
     [branches, branchCount, 46, false, "near"],
@@ -1992,7 +2025,7 @@ export function createRescueSite(
     FACILITY.entranceSpan,
     FACILITY.entranceHeight,
     "AI RESEARCH / ACCESS",
-    { landingFloor: false, sign: false },
+    { landingFloor: false, sign: false, surfaceStyle: "plain" },
   );
   const sentinelHull = new THREE.MeshStandardMaterial({
     color: 0x171921,
@@ -2439,6 +2472,7 @@ export function createRescueSite(
       if (disposed) return;
       disposed = true;
       brendan?.dispose();
+      forestSound.dispose();
       pinecones.dispose();
       waterfall.setLocked(false);
       if (ledgeBody.world === physics.world)

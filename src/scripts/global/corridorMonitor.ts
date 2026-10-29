@@ -11,6 +11,7 @@ export const CORRIDOR_FOOTAGE = [
   corridorTwo,
   corridorThree,
 ] as const;
+
 interface CorridorClip {
   frames: { pixels: Uint8ClampedArray; until: number }[];
   duration: number;
@@ -22,15 +23,13 @@ export function decodeCorridorGif(buffer: ArrayBuffer): CorridorClip {
     width = parsed.lsd.width,
     height = parsed.lsd.height;
   if (width !== 384 || height !== 216)
-    throw new Error("Corridor GIF footage must be 384 x 216");
+    throw new Error("Surveillance GIF footage must be 384 x 216");
   const source = decompressFrames(parsed, true);
   if (source.length < 2)
-    throw new Error(
-      "Corridor footage must contain an animated GIF, not a still image",
-    );
-  let duration = 0,
-    pixels = new Uint8ClampedArray(width * height * 4),
-    restore: Uint8ClampedArray | null = null;
+    throw new Error("Surveillance footage must contain an animated GIF");
+  let duration = 0;
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  let restore: Uint8ClampedArray | null = null;
   const frames: CorridorClip["frames"] = [];
   source.forEach((frame, index) => {
     const previous = source[index - 1],
@@ -56,7 +55,7 @@ export function decodeCorridorGif(buffer: ArrayBuffer): CorridorClip {
       frame.patch.length !== dims.width * dims.height * 4 ||
       !Number.isFinite(frame.delay)
     )
-      throw new Error("Invalid corridor GIF frame");
+      throw new Error("Invalid surveillance GIF frame");
     for (let y = 0; y < dims.height; y++)
       for (let x = 0; x < dims.width; x++) {
         const from = (y * dims.width + x) * 4;
@@ -79,7 +78,7 @@ function corridorClip(url: string) {
     pending = fetchAsset(url)
       .then(async (response) => {
         if (!response.ok)
-          throw new Error(`Corridor monitor footage: HTTP ${response.status}`);
+          throw new Error(`Surveillance footage: HTTP ${response.status}`);
         return decodeCorridorGif(await response.arrayBuffer());
       })
       .catch((error) => {
@@ -91,19 +90,22 @@ function corridorClip(url: string) {
   return pending;
 }
 
-export async function preloadCorridorFootage() {
-  for (const url of CORRIDOR_FOOTAGE) {
+export async function preloadMonitorFootage(
+  urls: readonly string[] = CORRIDOR_FOOTAGE,
+) {
+  for (const url of new Set(urls)) {
     await corridorClip(url);
     await yieldToMainThread();
   }
 }
 
-export function createCorridorMonitor(index: number) {
+export function createCorridorMonitor(index: number, footage?: string) {
   const canvas = document.createElement("canvas");
   canvas.width = 384;
   canvas.height = 216;
   const context = canvas.getContext("2d");
-  if (!context) throw new Error("Unable to create the corridor monitor canvas");
+  if (!context)
+    throw new Error("Unable to create the surveillance monitor canvas");
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   const image = context.createImageData(384, 216);
@@ -122,6 +124,7 @@ export function createCorridorMonitor(index: number) {
     currentFrame = frame;
   };
   const url =
+    footage ??
     CORRIDOR_FOOTAGE[
       (index + Math.floor(Math.random() * CORRIDOR_FOOTAGE.length)) %
         CORRIDOR_FOOTAGE.length
@@ -142,6 +145,7 @@ export function createCorridorMonitor(index: number) {
     },
     getFrameIndex: () => currentFrame,
     dispose() {
+      if (disposed) return;
       disposed = true;
       clip = null;
       texture.dispose();

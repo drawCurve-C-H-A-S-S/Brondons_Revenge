@@ -833,6 +833,24 @@
         <section class="credit-section">
           <h2 class="credit-role">Sound effects</h2>
           <p class="credit-detail">
+            Additional foley, robot and mech movement, doors, machinery,
+            impacts, flight lasers and shield effects:
+            <a href="https://kenney.nl/assets/impact-sounds" target="_blank" rel="noreferrer">Kenney - Impact Sounds</a>
+            and
+            <a href="https://kenney.nl/assets/sci-fi-sounds" target="_blank" rel="noreferrer">Sci-fi Sounds</a><br />
+            Sword clashes:
+            <a href="https://opengameart.org/content/20-sword-sound-effects-attacks-and-clashes" target="_blank" rel="noreferrer">StarNinjas</a><br />
+            Distant birds:
+            <a href="https://opengameart.org/content/ambient-bird-sounds" target="_blank" rel="noreferrer">isaiah658</a><br />
+            Wind:
+            <a href="https://opengameart.org/content/wind" target="_blank" rel="noreferrer">IgnasD</a><br />
+            Leaf rustling:
+            <a href="https://opengameart.org/content/20-rustles-dry-leaves" target="_blank" rel="noreferrer">qubodup</a><br />
+            Fire crackling:
+            <a href="https://opengameart.org/content/fire-crackling" target="_blank" rel="noreferrer">AntumDeluge</a>
+            <span class="credit-license">CC0 1.0 / Public domain</span>
+          </p>
+          <p class="credit-detail">
             Footsteps by
             <a
               href="https://pixabay.com/users/yarzur_ofc-49620193/"
@@ -951,7 +969,9 @@
         <span class="menu-title-main" data-text="BRONDON'S REVENGE"
           >BRONDON'S REVENGE</span
         >
-        <span class="menu-title-kicker">A tale of vengeance</span>
+        <span class="menu-title-kicker" data-text="A TALE OF VENGEANCE"
+          >A tale of vengeance</span
+        >
       </div>
       <div id="title-actions" class="menu-actions">
         <button id="play-btn" class="menu-btn">PLAY</button>
@@ -979,14 +999,22 @@
         <h2>Choose your character</h2>
         <div class="character-cards">
           <button class="character-card" type="button" data-character="brondon">
+            <img class="character-portrait" data-character-portrait="brondon" alt="" width="256" height="256" />
             <span class="character-card-name">Brondon</span>
             <span class="character-card-note">The hero of the story</span>
           </button>
           <button class="character-card" type="button" data-character="brendan">
+            <img class="character-portrait" data-character-portrait="brendan" alt="" width="256" height="256" />
             <span class="character-card-name">Brendan</span>
             <span class="character-card-note">Street-smart wildcard</span>
           </button>
+          <button class="character-card" type="button" data-character="branden">
+            <img class="character-portrait" data-character-portrait="branden" alt="" width="256" height="256" />
+            <span class="character-card-name">Branden</span>
+            <span class="character-card-note">The mining-bot engineer</span>
+          </button>
         </div>
+        <p id="character-select-status" role="status"></p>
         <button
           id="character-back-btn"
           class="menu-btn menu-btn-quiet"
@@ -1150,31 +1178,36 @@
       <h1 id="pause-menu-title" class="hidden">Pause</h1>
       <section
         id="story-setup-panel"
-        class="pause-panel hidden"
-        aria-label="Story setup"
+        class="pause-panel menu-form-panel hidden"
+        aria-labelledby="story-setup-heading"
       >
-        <h2>Before the story begins</h2>
-        <p>
-          Configure your controller, display and Prime hints. Settings reset
-          when you reload the page.
-        </p>
-        <button
-          type="button"
-          class="menu-button"
-          data-story-settings="controls"
-        >
-          Controller &amp; controls
-        </button>
-        <button type="button" class="menu-button" data-story-settings="display">
-          Display &amp; Prime hints
-        </button>
-        <button type="button" class="menu-button" data-story-settings="sound">
-          Sound
-        </button>
-        <button id="story-setup-start" type="button" class="menu-button">
-          Begin story
-        </button>
-        <button type="button" class="menu-button" data-pause-back>Back</button>
+        <header class="menu-panel-heading">
+          <p class="menu-panel-eyebrow">Story mode</p>
+          <h2 id="story-setup-heading">Before the story begins</h2>
+          <p>Set things up for your journey, then step into Brondon's story.</p>
+        </header>
+        <div class="menu-panel-content lobby-settings">
+          <button type="button" class="menu-button lobby-setting" data-story-settings="controls">
+            <span class="lobby-setting-number" aria-hidden="true">01</span>
+            <span><strong>Controller &amp; controls</strong><small>Choose your input and configure your controller.</small></span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
+          </button>
+          <button type="button" class="menu-button lobby-setting" data-story-settings="display">
+            <span class="lobby-setting-number" aria-hidden="true">02</span>
+            <span><strong>Display &amp; Prime hints</strong><small>Adjust the look, interface, and guidance.</small></span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
+          </button>
+          <button type="button" class="menu-button lobby-setting" data-story-settings="sound">
+            <span class="lobby-setting-number" aria-hidden="true">03</span>
+            <span><strong>Sound</strong><small>Balance the music and sound effects.</small></span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
+          </button>
+          <p class="menu-settings-note">Settings apply immediately and reset when you reload the page.</p>
+        </div>
+        <footer class="menu-panel-footer">
+          <button id="story-setup-start" type="button" class="menu-button">Begin story</button>
+          <button type="button" class="menu-button" data-pause-back>Back</button>
+        </footer>
       </section>
       <section id="pause-home" class="pause-panel">
         <button id="pause-resume" type="button" class="menu-button">
@@ -1261,10 +1294,14 @@
       </section>
       <section
         id="pause-controls-panel"
-        class="pause-panel hidden"
-        aria-label="Controls reference"
+        class="pause-panel menu-form-panel hidden"
+        aria-labelledby="controls-settings-heading"
       >
-        <div class="controls-group">
+        <header class="menu-panel-heading">
+          <p class="menu-panel-eyebrow">Settings</p>
+          <h2 id="controls-settings-heading">Controls</h2>
+        </header>
+        <div class="menu-panel-content controls-settings">
           <div id="input-mode-tabs" role="tablist" aria-label="Input device">
             <button
               id="input-keyboard"
@@ -1285,19 +1322,18 @@
               aria-controls="controller-controls-settings pause-controls-list"
               tabindex="-1"
             >
-              Connected controllers (0)
+              Controllers (0)
             </button>
           </div>
-        </div>
-        <div class="controls-group">
-          <div
+          <fieldset
             id="controller-controls-settings"
-            class="hidden"
+            class="settings-group hidden"
             role="region"
             aria-label="Controller settings"
           >
+            <legend>Controller</legend>
             <label class="controller-device-label" for="controller-device"
-              >Controller to configure</label
+              >Device</label
             >
             <select
               id="controller-device"
@@ -1306,10 +1342,6 @@
             ></select>
             <fieldset id="controller-type-options">
               <legend>Button-label layout</legend>
-              <p>
-                Detected automatically for each connected device. Override the
-                layout if your adapter reports the wrong controller type.
-              </p>
               <select id="controller-type-select" aria-label="Controller type">
                 <option value="switch">Switch</option>
                 <option value="xbox">Xbox</option>
@@ -1318,27 +1350,18 @@
               </select>
             </fieldset>
             <p id="controller-status" role="status" aria-live="polite">
-              Plug in a controller, then press a button to let the browser
-              detect it. Keyboard and mouse are always supported.
+              Connect a controller and press a button.
             </p>
-            <label id="controller-layout-options" class="hidden">
-              <input id="controller-swap-ab" type="checkbox" />
+            <label id="controller-layout-options" class="settings-toggle hidden">
               <span id="controller-swap-label"
                 >Swap A/B for this controller</span
               >
+              <input id="controller-swap-ab" type="checkbox" />
             </label>
             <div id="controller-setup" class="hidden">
               <p>
-                Calibration covers only the buttons used for gameplay, menus and
-                skipping cinematics, plus both sticks and the right-stick click
-                (R3). Left-stick clicks, system buttons and unused extras are
-                not required. Release all buttons and center both sticks before
-                starting.
-              </p>
-              <p>
-                Press Escape, choose Cancel calibration, or hold any two
-                controller buttons together for one second to cancel.
-                Unfinished changes are discarded; your previous controls stay.
+                Center sticks and release buttons. Cancel with Escape or hold
+                two buttons for one second.
               </p>
               <p
                 id="controller-setup-step"
@@ -1361,123 +1384,133 @@
                 Cancel calibration
               </button>
             </div>
+          </fieldset>
+          <div class="settings-group controls-reference">
+            <div
+              id="pause-controls-list"
+              role="tabpanel"
+              aria-labelledby="input-keyboard"
+              aria-describedby="controls-scroll-hint"
+              tabindex="0"
+            ></div>
+            <p id="controls-scroll-hint" class="controls-scroll-hint hidden">
+              <span>More controls</span>
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M3 5.5 8 10.5 13 5.5" />
+              </svg>
+            </p>
           </div>
-          <p id="pause-controls-description"></p>
-          <div
-            id="pause-controls-list"
-            role="tabpanel"
-            aria-labelledby="input-keyboard"
-            aria-describedby="controls-scroll-hint"
-            tabindex="0"
-          ></div>
-          <p id="controls-scroll-hint" class="controls-scroll-hint hidden">
-            <span>Scroll for more controls</span>
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M3 5.5 8 10.5 13 5.5" />
-            </svg>
-          </p>
         </div>
-        <button type="button" data-pause-back class="menu-button">Back</button>
+        <footer class="menu-panel-footer">
+          <button type="button" data-pause-back class="menu-button">Back</button>
+        </footer>
       </section>
       <section
         id="pause-sound-panel"
-        class="pause-panel hidden"
-        aria-label="Sound settings"
+        class="pause-panel menu-form-panel hidden"
+        aria-labelledby="sound-settings-heading"
       >
-        <div class="sound-slider-group menu-tilt">
-          <label for="bgm-volume"
-            >BGM
-            <output id="bgm-volume-value" for="bgm-volume">100%</output></label
-          >
-          <input
-            id="bgm-volume"
-            type="range"
-            min="0"
-            max="100"
-            step="1"
-            value="100"
-          />
+        <header class="menu-panel-heading">
+          <p class="menu-panel-eyebrow">Settings</p>
+          <h2 id="sound-settings-heading">Sound</h2>
+        </header>
+        <div class="menu-panel-content settings-grid sound-settings">
+          <fieldset class="settings-group">
+            <legend>Music</legend>
+            <label for="bgm-volume"
+              >Volume
+              <output id="bgm-volume-value" for="bgm-volume">100%</output></label
+            >
+            <input
+              id="bgm-volume"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value="100"
+            />
+          </fieldset>
+          <fieldset class="settings-group">
+            <legend>Sound effects</legend>
+            <label for="sfx-volume"
+              >Volume
+              <output id="sfx-volume-value" for="sfx-volume">100%</output></label
+            >
+            <input
+              id="sfx-volume"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value="100"
+            />
+          </fieldset>
         </div>
-        <div class="sound-slider-group menu-tilt">
-          <label for="sfx-volume"
-            >SFX
-            <output id="sfx-volume-value" for="sfx-volume">100%</output></label
-          >
-          <input
-            id="sfx-volume"
-            type="range"
-            min="0"
-            max="100"
-            step="1"
-            value="100"
-          />
-        </div>
-        <button type="button" data-pause-back class="menu-button">Back</button>
+        <footer class="menu-panel-footer">
+          <button type="button" data-pause-back class="menu-button">Back</button>
+        </footer>
       </section>
       <section
         id="pause-display-panel"
-        class="pause-panel hidden"
-        aria-label="Display settings"
+        class="pause-panel menu-form-panel hidden"
+        aria-labelledby="display-settings-heading"
       >
-        <div class="sound-slider-group menu-tilt">
-          <label id="pause-prime-settings" for="prime-hints-toggle">
-            <span>Prime hints (all levels)</span>
-            <input id="prime-hints-toggle" type="checkbox" checked />
-          </label>
+        <header class="menu-panel-heading">
+          <p class="menu-panel-eyebrow">Settings</p>
+          <h2 id="display-settings-heading">Display</h2>
+          <p>Fine-tune the look and the information on screen.</p>
+        </header>
+        <div class="menu-panel-content settings-grid display-settings">
+          <fieldset class="settings-group display-appearance">
+            <legend>Appearance</legend>
+            <div class="display-setting display-wide">
+              <label for="menu-font-select">Menu font</label>
+              <select id="menu-font-select">
+                <option value="normal" selected>Normal (Scene 1 Sefa)</option>
+                <option value="sefa">Serra (Sefa) everywhere</option>
+                <option value="comic-sans">Comic Sans</option>
+              </select>
+            </div>
+            <label class="display-setting settings-toggle" for="comic-look-toggle">
+              <span><strong>Comic look</strong><small>Stylized colors and shading</small></span>
+              <input id="comic-look-toggle" type="checkbox" />
+            </label>
+            <label class="display-setting settings-toggle" for="outlines-toggle">
+              <span><strong>Outlines</strong><small>Ink around scene edges</small></span>
+              <input id="outlines-toggle" type="checkbox" />
+            </label>
+            <div class="display-setting display-wide">
+              <label for="bloom-level">Bloom <output id="bloom-level-value" for="bloom-level">0%</output></label>
+              <input id="bloom-level" type="range" min="0" max="100" step="1" value="0" />
+            </div>
+          </fieldset>
+          <fieldset class="settings-group">
+            <legend>Interface &amp; guidance</legend>
+            <label id="pause-prime-settings" class="display-setting settings-toggle" for="prime-hints-toggle">
+              <span><strong>Prime hints</strong><small>Guidance across all levels</small></span>
+              <input id="prime-hints-toggle" type="checkbox" checked />
+            </label>
+            <label class="display-setting settings-toggle" for="interface-visibility-toggle">
+              <span><strong>Hide HUD</strong><small>Also toggle with /</small></span>
+              <input id="interface-visibility-toggle" type="checkbox" />
+            </label>
+          </fieldset>
+          <fieldset class="settings-group">
+            <legend>Performance</legend>
+            <label class="display-setting settings-toggle" for="fps-counter-toggle">
+              <span><strong>Show FPS</strong><small>Frames per second</small></span>
+              <input id="fps-counter-toggle" type="checkbox" />
+            </label>
+            <label class="display-setting settings-toggle" for="perf-timers-toggle">
+              <span><strong>Performance timers</strong><small>Detailed timing overlay</small></span>
+              <input id="perf-timers-toggle" type="checkbox" />
+            </label>
+          </fieldset>
+          <p class="menu-settings-note display-wide">Changes apply immediately. No save button needed.</p>
         </div>
-        <div class="sound-slider-group menu-tilt">
-          <label for="menu-font-select">Menu font</label>
-          <select id="menu-font-select">
-            <option value="normal" selected>Normal (Scene 1 Sefa)</option>
-            <option value="sefa">Serra (Sefa) everywhere</option>
-            <option value="comic-sans">Comic Sans</option>
-          </select>
-        </div>
-        <div class="sound-slider-group menu-tilt">
-          <label for="comic-look-toggle"
-            >Comic Look
-            <input id="comic-look-toggle" type="checkbox" />
-          </label>
-        </div>
-        <div class="sound-slider-group menu-tilt">
-          <label for="outlines-toggle"
-            >Outlines
-            <input id="outlines-toggle" type="checkbox" />
-          </label>
-        </div>
-        <div class="sound-slider-group menu-tilt">
-          <label for="bloom-level"
-            >Bloom
-            <output id="bloom-level-value" for="bloom-level">0%</output></label
-          >
-          <input
-            id="bloom-level"
-            type="range"
-            min="0"
-            max="100"
-            step="1"
-            value="0"
-          />
-        </div>
-        <div class="sound-slider-group menu-tilt">
-          <label for="interface-visibility-toggle"
-            >Hide HUD (/)
-            <input id="interface-visibility-toggle" type="checkbox" />
-          </label>
-        </div>
-        <div class="sound-slider-group menu-tilt">
-          <label for="fps-counter-toggle"
-            >Show FPS
-            <input id="fps-counter-toggle" type="checkbox" />
-          </label>
-        </div>
-        <div class="sound-slider-group menu-tilt">
-          <label for="perf-timers-toggle"
-            >Perf timers
-            <input id="perf-timers-toggle" type="checkbox" />
-          </label>
-        </div>
-        <button type="button" data-pause-back class="menu-button">Back</button>
+        <footer class="menu-panel-footer">
+          <button type="button" data-pause-back class="menu-button">Back</button>
+        </footer>
       </section>
       <section id="pause-developer-form" class="pause-panel hidden">
         <h1 class="menu-tilt" style="color: white">

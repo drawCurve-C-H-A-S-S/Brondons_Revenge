@@ -15,6 +15,7 @@ let server,
 let createPhysics,
   createPlayer,
   createCctv,
+  cameraFootage,
   createEquipment,
   createRust,
   createRust2,
@@ -57,9 +58,8 @@ before(async () => {
     "/helpers/physics/scenePhysics.ts",
   ));
   ({ createPlayer } = await server.ssrLoadModule("/scripts/player/player.ts"));
-  ({ createCctvSystem: createCctv } = await server.ssrLoadModule(
-    "/scripts/npc/cctv.ts",
-  ));
+  ({ createCctvSystem: createCctv, CAMERA_FOOTAGE: cameraFootage } =
+    await server.ssrLoadModule("/scripts/npc/cctv.ts"));
   ({ createScene: createEquipment } = await server.ssrLoadModule(
     "/scenes/level 1 stage 2/equipmentRoom.ts",
   ));
@@ -162,6 +162,9 @@ function browser(t) {
     }
     setAttribute(name, value) {
       this[name] = value;
+    }
+    removeAttribute(name) {
+      delete this[name];
     }
     closest(selector) {
       return selector
@@ -573,12 +576,25 @@ test("vent completion drops through a real hole and loads Phase Two exactly once
 test("Phase Two loading uses the actual camera-wall screenshot and holds it for at least three seconds", async (t) => {
   browser(t);
   const previous = globalThis.requestAnimationFrame;
+  const previousImage = globalThis.Image;
+  const requested = [];
+  t.mock.method(Math, "random", () => 0.99);
+  t.mock.method(globalThis, "fetch", async (source) => {
+    requested.push(source);
+    return new Response(new Uint8Array([0xff, 0xd8, 0xff]), {
+      headers: { "Content-Type": "image/jpeg" },
+    });
+  });
+  globalThis.Image = class {
+    async decode() {}
+  };
   globalThis.requestAnimationFrame = (callback) => {
     callback(0);
     return 1;
   };
   t.after(() => {
     globalThis.requestAnimationFrame = previous;
+    globalThis.Image = previousImage;
   });
   const { createCinematicLoadingScreen } = await server.ssrLoadModule(
     "/scripts/global/cinematicLoading.ts",
@@ -588,14 +604,19 @@ test("Phase Two loading uses the actual camera-wall screenshot and holds it for 
   const root = document.body.children.find((element) =>
     element.classList.contains("cinematic-loading"),
   );
+  await new Promise((resolve) => setImmediate(resolve));
+  const { LOADING_CHAPTERS } = await server.ssrLoadModule("/core/chapters.ts");
   assert.equal(root.dataset.destination, "stage2");
   assert.equal(
     root.querySelector(".cinematic-loading-chapter").textContent,
-    "PHASE 2 / SURVEILLANCE",
+    LOADING_CHAPTERS.stage2.chapter,
   );
-  assert.equal(root.querySelector("h1").textContent, "THE CAMERA HUB");
-  assert.match(root.querySelector("img").src, /stage2-camera-wall/);
-  root.querySelector("img").onload();
+  assert.equal(
+    root.querySelector("h1").textContent,
+    LOADING_CHAPTERS.stage2.title,
+  );
+  assert.ok(requested.some((source) => /stage2-camera-wall/.test(source)));
+  assert.match(root.querySelector("img").src, /^blob:/);
   let presented = false;
   void transition.presented.then(() => {
     presented = true;
@@ -1883,6 +1904,28 @@ test("Rust water shares an opaque rust finish and properly subdivided ripples in
   }
 });
 
+test("shared ceiling fittings stay inside room walls and below the passage roof skin", async (t) => {
+  const { createShipServiceDetails } = await server.ssrLoadModule(
+    "/scripts/global/shipInterior.ts",
+  );
+  const { disposeRoom } = await server.ssrLoadModule(
+    "/scripts/global/shipRoom.ts",
+  );
+  for (const dimensions of [
+    { width: 5, depth: 27.6, height: 3.05 },
+    { width: 10, depth: 10, height: 4.5 },
+  ]) {
+    const services = createShipServiceDetails(dimensions);
+    t.after(() => disposeRoom(services));
+    const bounds = new THREE.Box3().setFromObject(services);
+    assert.ok(bounds.min.x >= -dimensions.width / 2 + 0.14 - 1e-6);
+    assert.ok(bounds.max.x <= dimensions.width / 2 - 0.14 + 1e-6);
+    assert.ok(bounds.min.z >= -dimensions.depth / 2 + 0.2 - 1e-6);
+    assert.ok(bounds.max.z <= dimensions.depth / 2 - 0.2 + 1e-6);
+    assert.ok(bounds.max.y <= dimensions.height - 0.08 + 1e-6);
+  }
+});
+
 test("rust chamber 2 has a lower roof, matching rust walls, flat torn decks, and a centered release button", async (t) => {
   browser(t);
   const { data } = await rustTwo(t);
@@ -1892,6 +1935,25 @@ test("rust chamber 2 has a lower roof, matching rust walls, flat torn decks, and
       ceiling.position.y - ceiling.geometry.parameters.height / 2 - 8.4,
     ) < 1e-6,
   );
+  const roof = data.scene.children.filter((node) =>
+    node.name.startsWith("RustChamber2Roof"),
+  );
+  assert.equal(
+    roof.filter((node) => node.name.endsWith("UpperChord")).length,
+    4,
+  );
+  assert.equal(
+    roof.filter((node) => node.name.endsWith("LowerChord")).length,
+    4,
+  );
+  assert.equal(roof.filter((node) => node.name.endsWith("Brace")).length, 32);
+  for (const member of roof) {
+    const bounds = new THREE.Box3().setFromObject(member);
+    assert.ok(bounds.min.x >= -1e-6 && bounds.max.x <= 64 + 1e-6);
+    assert.ok(bounds.min.z >= -1e-6 && bounds.max.z <= 22 + 1e-6);
+    assert.ok(bounds.max.y <= 8.4 + 1e-6);
+    assert.equal(member.userData.minimap, false);
+  }
   const wall = data.scene.getObjectByName("RustChamber2RiftWall");
   assert.equal(wall.material.roughness, 0.91);
   assert.ok(wall.material.map.isCanvasTexture);
@@ -2286,16 +2348,11 @@ test("rust chamber 2 rust water melts and respawns without erasing releases", as
   );
 });
 
-test("camera wall has eight feeds in two rows with Rust 2 directly under Rust 1; vents and prison are view-only", async (t) => {
+test("camera wall plays eight room GIFs without a renderer or preview scenes", async (t) => {
   browser(t);
-  const rendered = [];
-  const renderer = {
-    shadowMap: { autoUpdate: true },
-    getRenderTarget: () => null,
-    setRenderTarget() {},
-    render: (_scene, camera) => rendered.push(camera),
-  };
-  const feedCamera = new THREE.PerspectiveCamera();
+  const sources = [];
+  let updates = 0,
+    disposals = 0;
   const definitions = [
     ...layout.STAGE_TWO_MINIGAMES,
     { id: "stage2-vents", label: "Vent maze" },
@@ -2303,17 +2360,43 @@ test("camera wall has eight feeds in two rows with Rust 2 directly under Rust 1;
   ].map((item) => ({
     ...item,
     cleared: () => item.id === "stage2-vents" || item.id === "stage2-prison",
-    load: async () => ({
-      scene: new THREE.Scene(),
-      camera: feedCamera,
-      dispose() {},
-    }),
   }));
-  const cctv = createCctv(renderer, definitions);
+  const cctv = createCctv(definitions, (index, url) => {
+    assert.equal(url, cameraFootage[definitions[index].id]);
+    const source = {
+      texture: new THREE.Texture(),
+      ready: Promise.resolve(),
+      update() {
+        updates++;
+      },
+      getFrameIndex: () => 0,
+      dispose() {
+        disposals++;
+        source.texture.dispose();
+      },
+    };
+    sources.push(source);
+    return source;
+  });
   t.cleanup(() => cctv.dispose());
   await cctv.prepareFeeds();
+  assert.equal(sources.length, 8);
+  assert.equal(disposals, 0);
+  definitions.forEach((definition, index) => {
+    assert.equal(
+      cctv.panel.getObjectByName(`cctv-screen-${definition.id}`).material.map,
+      sources[index].texture,
+    );
+  });
   const scene = new THREE.Scene();
   cctv.update(0.2, scene, true);
+  assert.equal(updates, 8);
+  cctv.update(0.2, scene, true, true);
+  assert.equal(updates, 8, "paused wall GIFs do not advance");
+  cctv.update(0.2, scene, false);
+  assert.equal(updates, 8, "inactive wall GIFs do not advance");
+  cctv.update(0.2, scene, true);
+  assert.equal(updates, 16);
   assert.equal(
     cctv.panel.children.filter((item) => /^cctv-screen-/.test(item.name))
       .length,
@@ -2334,8 +2417,6 @@ test("camera wall has eight feeds in two rows with Rust 2 directly under Rust 1;
   const rust2 = cctv.panel.getObjectByName("cctv-screen-stage2-rust2");
   assert.equal(rust.position.x, rust2.position.x);
   assert.ok(Math.abs(rust.position.y - rust2.position.y - 1.18) < 1e-6);
-  assert.equal(rendered.length, 8);
-  assert.ok(rendered.every((camera) => camera === feedCamera));
   const ventScreen = cctv.panel.getObjectByName("cctv-screen-stage2-vents");
   scene.updateMatrixWorld(true);
   const targetPoint = ventScreen.getWorldPosition(new THREE.Vector3()),
@@ -2347,9 +2428,88 @@ test("camera wall has eight feeds in two rows with Rust 2 directly under Rust 1;
   assert.equal(cctv.getTarget(camera).status, "ready");
   cctv.detach();
   assert.equal(cctv.getTarget(camera), null);
+  cctv.update(1, scene, true);
+  assert.equal(
+    sources.length,
+    8,
+    "reattaching reuses the existing GIF players",
+  );
+  cctv.clearSources();
+  assert.equal(disposals, 8);
+  cctv.clearSources();
+  assert.equal(disposals, 8, "GIF players are not disposed twice");
 });
 
-test("each desk monitor really advances decoded GIF frames without a playable scene or teleport target", async (t) => {
+test("failed wall GIFs release their textures and remain retryable", async (t) => {
+  browser(t);
+  t.mock.method(console, "error", () => {});
+  let fail = true,
+    disposals = 0;
+  const cctv = createCctv(
+    [
+      {
+        id: "scene5",
+        label: "Cargo",
+      },
+    ],
+    () => ({
+      texture: new THREE.Texture(),
+      ready: fail
+        ? Promise.reject(new Error("GIF unavailable"))
+        : Promise.resolve(),
+      update() {},
+      getFrameIndex: () => 0,
+      dispose() {
+        disposals++;
+      },
+    }),
+  );
+  t.cleanup(() => cctv.dispose());
+  await assert.rejects(cctv.prepareFeeds(), /Camera links unavailable: Cargo/);
+  assert.equal(disposals, 1);
+  assert.equal(cctv.panel.visible, true);
+  fail = false;
+  cctv.retryFeed("scene5");
+  await cctv.prepareFeeds();
+  assert.equal(disposals, 1, "the successfully loaded GIF remains alive");
+  cctv.dispose();
+  assert.equal(disposals, 2);
+});
+
+test("wall footage contains eight prerecorded room GIFs and runtime never captures previews", async () => {
+  const urls = Object.values(cameraFootage);
+  assert.equal(new Set(urls).size, 8);
+  for (const url of urls) {
+    assert.match(url, /\.gif$/);
+    const buffer = await readFile(new URL(`../src${url}`, import.meta.url));
+    const clip = corridorMonitor.decodeCorridorGif(
+      buffer.buffer.slice(
+        buffer.byteOffset,
+        buffer.byteOffset + buffer.byteLength,
+      ),
+    );
+    assert.equal(clip.frames.length, 24);
+    assert.ok(Math.abs(clip.duration - 2.4) < 1e-8);
+  }
+  const runtime = await readFile(
+    new URL("../src/scripts/npc/cctv.ts", import.meta.url),
+    "utf8",
+  );
+  const main = await readFile(
+    new URL("../src/main.ts", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(
+    runtime,
+    /WebGLRenderTarget|renderer\.|captureFeed|CctvFeedSource/,
+  );
+  assert.doesNotMatch(
+    main,
+    /async function cameraFeed|load: \(\) => cameraFeed/,
+  );
+});
+
+test("desk monitors advance and loop the original corridor GIFs without playable scenes", async (t) => {
   browser(t);
   const buffer = await readFile(
     new URL("../src/assets/surveillance/corridor-bots-1.gif", import.meta.url),
@@ -2361,22 +2521,25 @@ test("each desk monitor really advances decoded GIF frames without a playable sc
   const clip = corridorMonitor.decodeCorridorGif(bytes);
   assert.equal(clip.frames.length, 24);
   assert.ok(Math.abs(clip.duration - 2.4) < 1e-8);
-  assert.notDeepEqual(
-    clip.frames[0].pixels,
-    clip.frames[6].pixels,
-    "recorded bots really move between frames",
-  );
+  assert.notDeepEqual(clip.frames[0].pixels, clip.frames[6].pixels);
   t.mock.method(globalThis, "fetch", async () => new Response(bytes));
   const monitor = corridorMonitor.createCorridorMonitor(0);
   t.cleanup(() => monitor.dispose());
   await monitor.ready;
+  assert.equal(monitor.texture.colorSpace, THREE.SRGBColorSpace);
   assert.equal(monitor.getFrameIndex(), 0);
   const version = monitor.texture.version;
-  monitor.update(0.1);
+  monitor.update(0.01);
+  assert.equal(
+    monitor.texture.version,
+    version,
+    "no upload within the same GIF frame",
+  );
+  monitor.update(0.09);
   monitor.update(0.1);
   assert.equal(monitor.getFrameIndex(), 2);
   assert.ok(monitor.texture.version > version);
-  for (let i = 0; i < 24; i++) monitor.update(0.1);
+  for (let frame = 0; frame < 24; frame++) monitor.update(0.1);
   assert.equal(monitor.getFrameIndex(), 2, "recording loops");
   assert.equal("scene" in monitor, false);
   assert.equal("camera" in monitor, false);

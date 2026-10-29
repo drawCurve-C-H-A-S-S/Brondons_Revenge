@@ -732,16 +732,16 @@ export function createGamepadInput(options: GamepadInputOptions) {
       message:
         failure ||
         (!controllerType
-          ? "Keyboard & mouse are available. Connect a controller and press a button to let the browser detect it."
+          ? "Connect a controller and press a button."
           : !pad
-            ? "No controller detected. Plug it in, then press a controller button to let the browser detect it."
+            ? "Connect a controller and press a button."
             : !capable
-              ? "Controller detected, but this layout needs two sticks and the game action buttons."
+              ? "Two sticks and all game buttons are required."
               : setup
-                ? `Controller setup: follow each prompt using the physical ${profiles[controllerType].name} button labels.`
+                ? `${profiles[controllerType].name}: follow the calibration prompt.`
                 : !layout
-                  ? "Controller detected without a standard browser mapping. Center both sticks, release all buttons, then choose Calibrate game controls."
-                  : `${profiles[controllerType].name} layout. ${mode === "controller" ? "Controller input is active." : "Keyboard & mouse active. Use a controller button or stick to switch."}`),
+                  ? "Calibration required."
+                  : `${profiles[controllerType].name} ready. ${mode === "controller" ? "Controller active." : "Press a controller button to switch."}`),
       setupStep: setup
         ? `${setup.index + 1} / ${setup.steps.length}: ${setup.error || (setup.wait ? "Release the control and center both sticks" : instruction)}`
         : null,
