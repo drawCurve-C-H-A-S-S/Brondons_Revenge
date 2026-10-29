@@ -8,6 +8,7 @@ import {
   PHYSICS,
 } from "../../helpers/physics/scenePhysics.js";
 import { roomBox, disposeRoom } from "../../scripts/global/shipRoom.js";
+import { createShipSurfaceMaterial, createShipServiceDetails } from "../../scripts/global/shipInterior.js";
 import {
   createPlayer,
   type PlayerTransitionState,
@@ -85,16 +86,13 @@ export function createHangarFourteenSet(
   scene: THREE.Scene,
   physics: ReturnType<typeof createScenePhysics>,
 ) {
-  const steel = new THREE.MeshStandardMaterial({
-    color: 0x435667,
-    metalness: 0.6,
-    roughness: 0.5,
-  });
-  const dark = new THREE.MeshStandardMaterial({
-    color: 0x1b2c3a,
-    metalness: 0.45,
-    roughness: 0.7,
-  });
+  const steel = createShipSurfaceMaterial("panel", 0x8294a4);
+  const dark = createShipSurfaceMaterial("machinery", 0x3d5060);
+  const deck = createShipSurfaceMaterial("deck", 0x465a6a);
+  scene.add(createShipServiceDetails({
+    width: 36, depth: 72, height: 15, spacing: 6, ribs: false,
+    label: "BAY 14 / FLIGHT OPERATIONS", accent: 0x9ac9dc,
+  }));
   const amber = new THREE.MeshStandardMaterial({
     color: 0xe4a14a,
     emissive: 0xa86614,
@@ -107,11 +105,11 @@ export function createHangarFourteenSet(
     mat: THREE.Material = steel,
     solid = true,
   ) => roomBox(scene, physics, s, p, mat, solid);
-  box([13, 0.5, 72], [-11.5, -0.25, 0], dark);
-  box([13, 0.5, 72], [11.5, -0.25, 0], dark);
-  box([10, 0.5, 60], [0, -0.25, 6], dark);
-  box([10, 0.5, 2], [0, -0.25, -35], dark);
-  box([10, 0.3, 10], [0, -0.65, -29], dark);
+  box([13, 0.5, 72], [-11.5, -0.25, 0], deck);
+  box([13, 0.5, 72], [11.5, -0.25, 0], deck);
+  box([10, 0.5, 60], [0, -0.25, 6], deck);
+  box([10, 0.5, 2], [0, -0.25, -35], deck);
+  box([10, 0.3, 10], [0, -0.65, -29], deck);
   box([0.5, 15, 72], [-18, 7.5, 0]);
   box([0.5, 15, 72], [18, 7.5, 0]);
   box([36, 15, 0.5], [0, 7.5, -36]);

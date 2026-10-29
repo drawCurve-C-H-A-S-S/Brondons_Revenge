@@ -3,6 +3,7 @@ import { createScenePhysics } from "../../helpers/physics/scenePhysics.js";
 import { roomBox, createSlidingPortal } from "../../scripts/global/shipRoom.js";
 import {
   createShipInteriorMaterials,
+  createShipServiceDetails,
   SHIP_INTERIOR_PALETTE,
 } from "../../scripts/global/shipInterior.js";
 
@@ -26,11 +27,13 @@ export function createStealthPassage(
     trim,
     cyan: lightStrip,
     deck: floor,
-    deckTexture,
   } = createShipInteriorMaterials(14, 2.5);
   const storageFloor = floor.clone();
-  storageFloor.map = deckTexture.clone();
-  storageFloor.map.repeat.set(1.8, 1.65);
+  scene.add(createShipServiceDetails({
+    width: 5, depth: 27.6, height: roomHeight,
+    y: deckY, z: -2.5, yaw: Math.PI / 2,
+    label: "DECK 01 / PRESSURIZED TRANSIT", spacing: 4,
+  }));
   const crate = wall.clone();
   crate.color.setHex(0x536b7d);
   const yellow = new THREE.MeshStandardMaterial({

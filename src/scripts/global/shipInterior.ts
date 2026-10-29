@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import { createShipSurfaceMaterial } from "./shipSurface.js";
+export { createShipSurfaceMaterial } from "./shipSurface.js";
 
 export const SHIP_INTERIOR_PALETTE = {
   steel: 0x536375,
@@ -10,41 +12,149 @@ export const SHIP_INTERIOR_PALETTE = {
   light: 0xb6dfec,
 } as const;
 
-export function createShipInteriorMaterials(repeatX: number, repeatZ: number) {
-  const steel = new THREE.MeshStandardMaterial({
-    color: SHIP_INTERIOR_PALETTE.steel,
-    metalness: 0.6,
-    roughness: 0.66,
-  });
-  const dark = new THREE.MeshStandardMaterial({
-    color: SHIP_INTERIOR_PALETTE.dark,
-    metalness: 0.55,
-    roughness: 0.7,
-  });
-  const trim = new THREE.MeshStandardMaterial({
-    color: SHIP_INTERIOR_PALETTE.trim,
-    metalness: 0.7,
-    roughness: 0.4,
-  });
+// Legacy repeat arguments remain accepted; structural UVs now use physical meters.
+export function createShipInteriorMaterials(
+  _repeatX: number,
+  _repeatZ: number,
+  profile: "industrial" | "crew" | "command" = "industrial",
+) {
+  const steel = createShipSurfaceMaterial(
+    profile === "crew" ? "clean-panel" : "panel",
+    profile === "crew" ? 0x9daeb7 : profile === "command" ? 0x788fa3 : 0x81909c,
+  );
+  const dark = createShipSurfaceMaterial("machinery", 0x3b4a58);
+  const trim = createShipSurfaceMaterial("trim", SHIP_INTERIOR_PALETTE.trim);
   const cyan = new THREE.MeshBasicMaterial({
     color: SHIP_INTERIOR_PALETTE.cyan,
     toneMapped: false,
   });
-  const deck = dark.clone(),
-    pixels = new Uint8Array(64 * 64 * 4);
-  for (let y = 0; y < 64; y++)
-    for (let x = 0; x < 64; x++) {
-      const offset = (y * 64 + x) * 4,
-        shade = x % 32 < 1 || y % 32 < 1 ? 55 : 135 + ((x * 13 + y * 7) % 12);
-      pixels.set([shade, shade + 5, shade + 10, 255], offset);
-    }
-
-  const deckTexture = new THREE.DataTexture(pixels, 64, 64);
-  deckTexture.wrapS = deckTexture.wrapT = THREE.RepeatWrapping;
-  deckTexture.repeat.set(repeatX, repeatZ);
-  deckTexture.needsUpdate = true;
-  deck.map = deckTexture;
+  const deck = createShipSurfaceMaterial("deck", profile === "crew" ? 0x536573 : 0x435260);
+  const deckTexture = deck.map!;
   return { steel, dark, trim, cyan, deck, deckTexture };
+}
+
+/** Cosmetic overhead services stay out of navigation, cover, and doorway collision. */
+export function createShipServiceDetails({
+  width,
+  depth,
+  height,
+  x = 0,
+  y = 0,
+  z = 0,
+  yaw = 0,
+  spacing = 4,
+  ribs = true,
+  label = "SHIP SYSTEMS / SERVICE ACCESS",
+  accent = SHIP_INTERIOR_PALETTE.cyan,
+}: {
+  width: number;
+  depth: number;
+  height: number;
+  x?: number;
+  y?: number;
+  z?: number;
+  yaw?: number;
+  spacing?: number;
+  ribs?: boolean;
+  label?: string;
+  accent?: number;
+}) {
+  const root = new THREE.Group();
+  root.name = "ShipOverheadServices";
+  root.position.set(x, y, z);
+  root.rotation.y = yaw;
+  root.userData.minimap = false;
+  root.userData.teleportIgnore = true;
+  const steel = new THREE.MeshStandardMaterial({ color: 0x748796, metalness: 0.7, roughness: 0.42 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x24333f, metalness: 0.45, roughness: 0.76 });
+  const light = new THREE.MeshBasicMaterial({ color: accent, toneMapped: false });
+  const batches = new Map<THREE.Material, THREE.Matrix4[]>();
+  const transform = new THREE.Object3D();
+  function box(size: [number, number, number], position: [number, number, number], material: THREE.Material, angle = 0) {
+    transform.position.set(...position);
+    transform.scale.set(...size);
+    transform.rotation.set(0, 0, angle);
+    transform.updateMatrix();
+    const matrices = batches.get(material) ?? [];
+    matrices.push(transform.matrix.clone());
+    batches.set(material, matrices);
+  }
+  const half = width / 2;
+  for (const side of [-1, 1]) {
+    box([0.32, 0.16, depth - 0.6], [side * (half - 0.38), height - 0.14, 0], dark);
+    for (const offset of [-0.1, 0.1])
+      box([0.035, 0.045, depth - 0.7], [side * (half - 0.38) + offset, height - 0.245, 0], steel);
+    // Short luminous sections give direction without adding more real lights.
+    for (let along = -depth / 2 + 1.4; along < depth / 2 - 0.7; along += spacing) {
+      box([0.022, 0.025, Math.min(1.2, spacing * 0.4)], [side * (half - 0.58), height - 0.1, along], light);
+      box([0.46, 0.035, 0.09], [side * (half - 0.38), height - 0.27, along], steel);
+      if (ribs)
+        box([0.12, 0.56, 0.17], [side * (half - 0.28), height - 0.37, along], steel, side * -Math.PI / 4);
+    }
+  }
+  if (ribs)
+    for (let along = -depth / 2 + 1.4; along < depth / 2 - 0.7; along += spacing)
+      box([width - 0.18, 0.14, 0.2], [0, height - 0.075, along], steel);
+  const boxGeometry = new THREE.BoxGeometry(1, 1, 1);
+  for (const [material, matrices] of batches) {
+    const mesh = new THREE.InstancedMesh(boxGeometry, material, matrices.length);
+    mesh.name = "ShipServiceBatch";
+    mesh.userData.minimap = false;
+    mesh.userData.teleportIgnore = true;
+    matrices.forEach((matrix, index) => mesh.setMatrixAt(index, matrix));
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.receiveShadow = true;
+    root.add(mesh);
+  }
+  const pipeGeometry = new THREE.CylinderGeometry(0.055, 0.055, depth - 0.75, 8);
+  pipeGeometry.rotateX(Math.PI / 2);
+  for (const side of [-1, 1]) {
+    const pipe = new THREE.Mesh(pipeGeometry, steel);
+    pipe.position.set(side * (half - 0.8), height - 0.2, 0);
+    pipe.userData.minimap = false;
+    root.add(pipe);
+  }
+  const ventMaterial = createShipSurfaceMaterial("vent", 0x697d89);
+  const ventGeometry = new THREE.BoxGeometry(0.7, 0.035, 1.3);
+  for (let along = -depth / 2 + 2.4; along < depth / 2 - 1; along += spacing * 2) {
+    const vent = new THREE.Mesh(ventGeometry, ventMaterial);
+    vent.name = "ShipCeilingVent";
+    vent.position.set(half - 1.25, height - 0.025, along);
+    vent.userData.minimap = false;
+    root.add(vent);
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = 768;
+  canvas.height = 128;
+  const context = canvas.getContext("2d");
+  if (context) {
+    context.fillStyle = "#18242e";
+    context.fillRect(0, 0, 768, 128);
+    context.fillStyle = "#c3a254";
+    for (let i = -128; i < 768; i += 56) {
+      context.beginPath();
+      context.moveTo(i, 0);
+      context.lineTo(i + 24, 0);
+      context.lineTo(i + 42, 18);
+      context.lineTo(i + 18, 18);
+      context.fill();
+    }
+    context.fillStyle = "#d8e3e8";
+    context.font = "bold 30px monospace";
+    context.textAlign = "center";
+    context.fillText(label, 384, 77, 720);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const sign = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.8, 0.3),
+    new THREE.MeshBasicMaterial({ map: texture, toneMapped: false }),
+  );
+  sign.name = "ShipServiceStencil";
+  sign.position.set(half - 0.11, height - 0.48, -depth / 2 + 1.8);
+  sign.rotation.y = -Math.PI / 2;
+  root.add(sign);
+  return root;
 }
 
 export function createShipTerminal(texture: THREE.Texture) {

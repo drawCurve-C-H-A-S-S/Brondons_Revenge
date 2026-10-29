@@ -13,6 +13,7 @@ import {
 } from "../../scripts/global/shipRoom.js";
 import {
   createShipInteriorMaterials,
+  createShipServiceDetails,
   createShipServerRack,
   createShipTerminal,
   SHIP_INTERIOR_PALETTE,
@@ -248,6 +249,11 @@ export function createSurveillanceHubSet(
     { doorHeight: 2.65, sign: false, landingFloor: false },
   );
   root.add(frontDoor.group);
+  root.add(createShipServiceDetails({
+    width: 18, depth: 22, height, x: 28, z: -53,
+    ribs: false, spacing: 5,
+    label: "SURVEILLANCE / OPTICAL NETWORK", accent: 0x8ac4db,
+  }));
   return { root, returnAirlock, frontDoor };
 }
 
@@ -511,7 +517,7 @@ export function createScene(options: StageTwoOptions) {
     0.05,
     120,
   );
-  const materials = createShipInteriorMaterials(17, 25);
+  const materials = createShipInteriorMaterials(17, 25, "command");
   materials.deck.color.setHex(0x3b4c5d);
   const pale = new THREE.MeshStandardMaterial({
     color: 0xbfcad0,

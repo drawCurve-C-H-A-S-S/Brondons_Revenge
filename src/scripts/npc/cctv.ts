@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { withoutComicLook } from "../../core/comicShading.js";
+import { prepareEnvironmentComicShading, withoutComicLook } from "../../core/comicShading.js";
 import { disposeRoom } from "../global/shipRoom.js";
 import {
   STAGE_TWO,
@@ -25,8 +25,8 @@ export interface CctvTarget {
 }
 
 export function createCctvWall(
-  definitions: readonly Pick<CctvFeedDefinition, "id" | "label">[],
-  screenTextures: readonly THREE.Texture[],
+  definitions: readonly { id: string; label: string }[],
+  screenTextures: readonly (THREE.Texture | null)[],
 ) {
   if (
     !definitions.length ||
@@ -103,6 +103,7 @@ export function createCctvWall(
   const screens = definitions.map((definition, index) => {
     const material = new THREE.MeshBasicMaterial({
       map: screenTextures[index],
+      color: screenTextures[index] ? 0xffffff : 0x020406,
       toneMapped: false,
     });
     const mesh = new THREE.Mesh(
@@ -273,6 +274,7 @@ export function createCctvSystem(
             source.dispose();
             return false;
           }
+          prepareEnvironmentComicShading(source.scene);
           record.source = source;
           record.status = "ready";
           screens[index].material.map = targets[index].texture;

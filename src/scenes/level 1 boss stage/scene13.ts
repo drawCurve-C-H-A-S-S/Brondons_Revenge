@@ -19,6 +19,7 @@ import {
   createSlidingPortal,
   disposeRoom,
 } from "../../scripts/global/shipRoom.js";
+import { createShipSurfaceMaterial, createShipServiceDetails } from "../../scripts/global/shipInterior.js";
 import { createHangarVersus } from "../../scripts/global/hangarVersus.js";
 import { createHoldToSkip } from "../../scripts/global/holdToSkip.js";
 import { createRecoveryPickup } from "../../scripts/global/recoveryPickup.js";
@@ -111,21 +112,14 @@ export function createScene({
       needsCollision.call(this, a, b)
     );
   };
-  const steel = new THREE.MeshStandardMaterial({
-    color: 0x3e5060,
-    metalness: 0.65,
-    roughness: 0.48,
-  });
-  const wall = new THREE.MeshStandardMaterial({
-    color: 0x566575,
-    metalness: 0.4,
-    roughness: 0.7,
-  });
-  const dark = new THREE.MeshStandardMaterial({
-    color: 0x202d3a,
-    metalness: 0.6,
-    roughness: 0.55,
-  });
+  const steel = createShipSurfaceMaterial("trim", 0x738696);
+  const wall = createShipSurfaceMaterial("panel", 0x7d8e9e);
+  const dark = createShipSurfaceMaterial("machinery", 0x3c4e5d);
+  const deckMaterial = createShipSurfaceMaterial("deck", 0x46596a);
+  scene.add(createShipServiceDetails({
+    width: 40, depth: 48, height: 14, spacing: 6, ribs: false,
+    label: "BAY 13 / HEAVY SERVICE", accent: 0xd3af71,
+  }));
   const amber = new THREE.MeshStandardMaterial({
     color: 0xeaa64c,
     emissive: 0xb36419,
@@ -155,7 +149,7 @@ export function createScene({
   });
   deckGeometry.rotateX(-Math.PI / 2);
   deckGeometry.translate(0, -0.5, 0);
-  const deck = new THREE.Mesh(deckGeometry, dark);
+  const deck = new THREE.Mesh(deckGeometry, deckMaterial);
   deck.receiveShadow = true;
   scene.add(deck);
   const vertices = Array.from(deckGeometry.attributes.position.array);

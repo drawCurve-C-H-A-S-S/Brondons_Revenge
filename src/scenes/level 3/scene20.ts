@@ -18,6 +18,7 @@ import {
 } from "../../core/loader.js";
 import hideoutImageUrl from "../../assets/textures/sudoers-hideout.png?url";
 import facilityPreviewUrl from "../../assets/textures/fla-screen-preview.png?url";
+import halcyonPreviewUrl from "../../assets/surveillance/halcyon-9.png?url";
 import { createPlayer } from "../../scripts/player/player.js";
 import {
   createChairSeating,
@@ -29,6 +30,7 @@ import {
   FACILITY_OFFICE,
 } from "../../scripts/level-3/facilityOffice.js";
 import { createFacilityBrowser } from "../../scripts/global/facilityBrowser.js";
+import { createCctvWall } from "../../scripts/npc/cctv.js";
 import { createHoldToSkip } from "../../scripts/global/holdToSkip.js";
 import { createFacilityDeck } from "../../scripts/level-3/facilityDeck.js";
 import { createFacilityCoreDisplay } from "../../scripts/level-3/facilityCore.js";
@@ -51,6 +53,28 @@ import {
 
 // The stair climbs north from the atrium to the mezzanine edge, centred in the room.
 const STAIR_RUN = 9;
+
+// Top row: 01–04; bottom row: 05–08. Null images stay blank; null links stay inactive.
+export const FACILITY_CAMERA_FEEDS: readonly {
+  id: string;
+  label: string;
+  screenshotUrl: string | null;
+  url: string | null;
+}[] = [
+  {
+    id: "facility-01",
+    label: "HALCYON-9",
+    screenshotUrl: halcyonPreviewUrl,
+    url: "https://lamp.ms.wits.ac.za/students/sgroup3893/",
+  },
+  { id: "facility-02", label: "CAMERA 02", screenshotUrl: null, url: null },
+  { id: "facility-03", label: "CAMERA 03", screenshotUrl: null, url: null },
+  { id: "facility-04", label: "CAMERA 04", screenshotUrl: null, url: null },
+  { id: "facility-05", label: "CAMERA 05", screenshotUrl: null, url: null },
+  { id: "facility-06", label: "CAMERA 06", screenshotUrl: null, url: null },
+  { id: "facility-07", label: "CAMERA 07", screenshotUrl: null, url: null },
+  { id: "facility-08", label: "CAMERA 08", screenshotUrl: null, url: null },
+];
 
 export function createScene({
   entryState,
@@ -569,10 +593,16 @@ export function createScene({
     metalness: 0.5,
     roughness: 0.4,
   });
-  interface FacilityWorkstation {
+  interface FacilityDisplay {
     screen: THREE.Mesh<THREE.PlaneGeometry, THREE.Material>;
-    seat: ChairSeat;
     previewMaterial: THREE.Material;
+  }
+  interface FacilityWorkstation extends FacilityDisplay {
+    seat: ChairSeat;
+  }
+  interface FacilityCameraDisplay extends FacilityDisplay {
+    url: string | null;
+    label: string;
   }
   const workstationByScreen = new Map<THREE.Object3D, FacilityWorkstation>();
   function workstation(
@@ -748,6 +778,58 @@ export function createScene({
     );
     stairs.group.add(edge);
   }
+
+  // The rear monitor bank sits below the mezzanine, clear of the stairs and archives.
+  const cameraWall = createCctvWall(
+    FACILITY_CAMERA_FEEDS,
+    FACILITY_CAMERA_FEEDS.map(() => null),
+  );
+  cameraWall.panel.name = "FacilityCameraWall";
+  cameraWall.panel.position.set(0, 1.85, -D + 4);
+  cameraWall.panel.rotation.y = 0;
+  scene.add(cameraWall.panel);
+  const cameraWallBounds = new THREE.Box3().setFromObject(cameraWall.panel);
+  physics.addBox(
+    cameraWallBounds.getSize(new THREE.Vector3()),
+    cameraWallBounds.getCenter(new THREE.Vector3()),
+  );
+  box([8.85, 0.6, 0.6], [0, 0.3, -D + 4], dark).name =
+    "FacilityCameraWallBase";
+  box([8.45, 0.025, 0.025], [0, 0.57, -D + 4.31], stripe, false);
+  const cameraWallByScreen = new Map<THREE.Object3D, FacilityCameraDisplay>();
+  const cameraWallTargets: THREE.Object3D[] = [];
+  const cameraWallReady = Promise.all(
+    cameraWall.screens.map(({ mesh, material, overlay }, index) => {
+      const feed = FACILITY_CAMERA_FEEDS[index];
+      overlay.visible = false;
+      mesh.userData.cameraFeed = feed;
+      cameraWallByScreen.set(mesh, {
+        screen: mesh,
+        previewMaterial: material,
+        url: feed.url,
+        label: feed.label,
+      });
+      if (feed.url) cameraWallTargets.push(mesh);
+      if (!feed.screenshotUrl) return;
+      return loadTexture(feed.screenshotUrl)
+        .then((texture) => {
+          if (disposed) {
+            texture.dispose();
+            return;
+          }
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.minFilter = THREE.LinearFilter;
+          texture.magFilter = THREE.LinearFilter;
+          material.map = texture;
+          material.color.setHex(0xffffff);
+          material.needsUpdate = true;
+        })
+        .catch((error) => {
+          if (!disposed)
+            console.warn(`[FacilityCameraWall] Unable to load ${feed.label}`, error);
+        });
+    }),
+  );
 
   createFacilityDeck(scene, physics);
   const office = createFacilityOffice(scene, physics, loadModel, loadStudents);
@@ -989,7 +1071,7 @@ export function createScene({
   // ── Interaction (E key) ────────────────────────────────────────────────────
   const prompt = document.getElementById("interact-prompt");
   let computerPending: FacilityWorkstation | null = null;
-  let activeComputer: FacilityWorkstation | null = null;
+  let activeComputer: FacilityDisplay | null = null;
   const computerRaycaster = new THREE.Raycaster();
   const computerScreenCenter = new THREE.Vector2();
   const computerEye = new THREE.Vector3();
@@ -1020,30 +1102,38 @@ export function createScene({
     browser?.material.dispose();
     browser = null;
   }
-  function openComputer(workstation: FacilityWorkstation) {
-    activeComputer = workstation;
+  function openComputer(
+    display: FacilityDisplay,
+    options: { url?: string; title?: string } = {},
+  ) {
+    activeComputer = display;
     browser = createFacilityBrowser(
       () => {
         player.clearInput();
+        player.disable();
         prompt?.classList.add("hidden");
       },
       () => {
         closeComputer();
-        if (!disposed) {
+        if (!disposed && !finished) {
           player.clearInput();
-          seating.stand();
+          if (seating.active) seating.stand();
+          else {
+            player.enable();
+            player.updateCamera(0);
+          }
         }
       },
+      options,
     );
-    browser.register(workstation.screen);
-    workstation.screen.material = browser.material;
-    browser.open(workstation.screen, camera);
+    browser.register(display.screen);
+    display.screen.material = browser.material;
+    browser.open(display.screen, camera);
   }
   function focusedComputerScreen() {
-    if (browser?.active || disposed || workstationByScreen.size === 0)
-      return null;
+    if (browser?.active || disposed) return null;
     camera.updateWorldMatrix(true, false);
-    const screens = [...workstationByScreen.keys()];
+    const screens = [...workstationByScreen.keys(), ...cameraWallTargets];
     for (const screen of screens) screen.updateWorldMatrix(true, false);
     computerRaycaster.setFromCamera(computerScreenCenter, camera);
     computerEye.set(
@@ -1058,11 +1148,18 @@ export function createScene({
     );
   }
   function currentTarget():
-    { kind: "peek" } | { kind: "browser"; screen: THREE.Object3D } | null {
+    | { kind: "peek" }
+    | { kind: "camera"; display: FacilityCameraDisplay }
+    | { kind: "browser"; screen: THREE.Object3D }
+    | null {
     if (seating.active) return null;
     if (office.canPeek(player.body.position)) return { kind: "peek" };
     const screen = focusedComputerScreen();
-    if (screen) return { kind: "browser", screen };
+    if (screen) {
+      const display = cameraWallByScreen.get(screen);
+      if (display?.url) return { kind: "camera", display };
+      return { kind: "browser", screen };
+    }
     return null;
   }
   function onKey(event: KeyboardEvent) {
@@ -1091,6 +1188,12 @@ export function createScene({
       player.disable();
       prompt?.classList.add("hidden");
       message("BRONDON: Let me have a look...", 3);
+    } else if (target.kind === "camera") {
+      if (target.display.url)
+        openComputer(target.display, {
+          url: target.display.url,
+          title: target.display.label,
+        });
     } else {
       const workstation = workstationByScreen.get(target.screen);
       if (!workstation)
@@ -1168,7 +1271,9 @@ export function createScene({
         prompt.textContent = inputHint(
           target.kind === "peek"
             ? "E: peek into the office"
-            : "E: sit down and use fla.capitalsigma.biz",
+            : target.kind === "camera"
+              ? `E: open ${target.display.label}`
+              : "E: sit down and use fla.capitalsigma.biz",
         );
       } else prompt.classList.add("hidden");
     } else if (!seatingOwnsPrompt) prompt?.classList.add("hidden");
@@ -1241,6 +1346,7 @@ export function createScene({
       office.ready,
       wallScreensReady,
       monitorPreviewReady,
+      cameraWallReady,
     ]),
     hideMinimap: () => true,
     getMinimapState: () => ({

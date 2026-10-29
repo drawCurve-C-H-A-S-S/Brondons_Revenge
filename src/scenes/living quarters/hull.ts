@@ -1,7 +1,7 @@
 import { playSfx } from "../../helpers/audio/sfx.js";
 import * as THREE from "three";
 import { createScenePhysics } from "../../helpers/physics/scenePhysics.js";
-import { createShipInteriorMaterials } from "../../scripts/global/shipInterior.js";
+import { createShipInteriorMaterials, createShipServiceDetails } from "../../scripts/global/shipInterior.js";
 import { CABINS, QUARTERS, cabinCenter, cabinDoorPoint } from "./layout.js";
 import { comicNameTexture } from "./furnishings.js";
 import { createBulkheadKeypad } from "./surfaces.js";
@@ -15,7 +15,12 @@ export function createQuartersHull(
   physics: Physics,
   progress: QuartersProgress,
 ) {
-  const { steel, dark, trim, cyan, deck } = createShipInteriorMaterials(3, 12);
+  const { steel, dark, trim, cyan, deck } = createShipInteriorMaterials(3, 12, "crew");
+  scene.add(createShipServiceDetails({
+    width: QUARTERS.hallwayWidth, depth: QUARTERS.hallwayLength,
+    height: QUARTERS.height, ribs: false, spacing: 7.6,
+    label: "HABITATION / LIFE SUPPORT", accent: 0xc2dce3,
+  }));
   const red = new THREE.MeshBasicMaterial({
     color: 0xf2766e,
     toneMapped: false,
@@ -207,6 +212,11 @@ export function createQuartersHull(
     shell.name = `CabinShell-${cabin.id}`;
     shell.position.copy(cabinCenter(cabin));
     scene.add(shell);
+    shell.add(createShipServiceDetails({
+      width: QUARTERS.cabinWidth, depth: QUARTERS.cabinDepth,
+      height: QUARTERS.height, ribs: false, spacing: 5,
+      label: `LIFE SUPPORT / ${cabin.code}`, accent: 0xd3ddd8,
+    }));
     box(
       shell,
       "CabinDeck",

@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { prepareShipSurfaceMesh } from "../scripts/global/shipSurface.js";
 import environmentCel from "../shaders/frag/environmentCel.frag.glsl?raw";
 import characterInk from "../shaders/vert/characterInk.vert.glsl?raw";
 import environmentInkVertex from "../shaders/vert/environmentInk.vert.glsl?raw";
@@ -170,7 +171,9 @@ export function prepareEnvironmentComicShading(scene: THREE.Scene) {
         tracked.add(node);
         node.addEventListener("childadded", (event) => pending.add(event.child));
       }
-      if (!(node instanceof THREE.Mesh) || preserveAppearance(node)) return;
+      if (!(node instanceof THREE.Mesh)) return;
+      prepareShipSurfaceMesh(node);
+      if (preserveAppearance(node)) return;
       const materials = Array.isArray(node.material) ? node.material : [node.material];
       for (const material of materials) {
         if (!(material instanceof THREE.MeshStandardMaterial) ||

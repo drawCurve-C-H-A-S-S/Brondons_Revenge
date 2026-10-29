@@ -8,6 +8,7 @@ import { playSfx } from "../../helpers/audio/sfx.js";
 import { roomBox, disposeRoom } from "../../scripts/global/shipRoom.js";
 import {
   createShipInteriorMaterials,
+  createShipServiceDetails,
   SHIP_INTERIOR_PALETTE,
 } from "../../scripts/global/shipInterior.js";
 import { createCameraVisitUI } from "../../scripts/global/cameraVisit.js";
@@ -159,6 +160,10 @@ export function createScene({
     90,
   );
   const materials = createShipInteriorMaterials(9, 11);
+  scene.add(createShipServiceDetails({
+    width: HALF_W * 2, depth: HALF_D * 2, height: HEIGHT,
+    spacing: 5, ribs: false, label: "TRAINING / EQUIPMENT SERVICES", accent: 0xbac9ba,
+  }));
   const ownedMaterials: THREE.Material[] = [],
     ownedTextures: THREE.Texture[] = [];
   const own = <T extends THREE.Material>(material: T) => {

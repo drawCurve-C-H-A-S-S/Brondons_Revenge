@@ -47,7 +47,7 @@ interface DropField {
  * and can be replaced with an imported model without touching the rest of the room.
  */
 export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
-  const { steel, dark, trim, cyan, deck } = createShipInteriorMaterials(6, 6);
+  const { steel, dark, trim, cyan, deck } = createShipInteriorMaterials(6, 6, "crew");
   const tile = new THREE.MeshStandardMaterial({
     color: 0xc9dae2,
     roughness: 0.35,

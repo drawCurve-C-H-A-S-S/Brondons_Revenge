@@ -1,6 +1,7 @@
 import { playSfx } from "../../helpers/audio/sfx.js";
 import * as THREE from "three";
 import { disposeComicEffects } from "./comicEffects.js";
+import { createShipSurfaceMaterial, createShipServiceDetails } from "./shipInterior.js";
 import {
   createScenePhysics,
   PHYSICS,
@@ -82,16 +83,8 @@ export function createSlidingPortal(
   group.rotation.y = frame.yaw;
   group.name = `Door-${label}`;
   scene.add(group);
-  const wall = new THREE.MeshStandardMaterial({
-    color: 0x52616a,
-    roughness: 0.78,
-    metalness: 0.25,
-  });
-  const steel = new THREE.MeshStandardMaterial({
-    color: 0x23353f,
-    metalness: 0.7,
-    roughness: 0.45,
-  });
+  const wall = createShipSurfaceMaterial("panel", 0x81919c);
+  const steel = createShipSurfaceMaterial("machinery", 0x455967);
   const indicator = new THREE.MeshStandardMaterial({
     color: 0xffb34b,
     emissive: 0xff8a15,
@@ -137,10 +130,16 @@ export function createSlidingPortal(
   }
   for (const x of [-1.56, 1.56])
     localBox([0.12, h, 0.62], [x, h / 2, 0], steel, false);
-  const panels = [-1, 1].map((sign) => ({
-    ...localBox([1.5, h, 0.12], [sign * 0.75, h / 2, 0], steel),
-    sign,
-  }));
+  const panels = [-1, 1].map((sign) => {
+    const panel = localBox([1.5, h, 0.12], [sign * 0.75, h / 2, 0], steel);
+    for (const face of [-1, 1]) {
+      const inset = new THREE.Mesh(new THREE.BoxGeometry(1.26, h - 0.42, 0.022), wall);
+      inset.position.z = face * 0.071;
+      inset.name = "PressureDoorArmorInset";
+      panel.mesh.add(inset);
+    }
+    return { ...panel, sign };
+  });
   localBox([2.6, 0.055, 0.04], [0, h + 0.07, 0.28], indicator, false);
   const canvas = document.createElement("canvas");
   canvas.width = 768;
@@ -249,6 +248,7 @@ export function disposeRoom(scene: THREE.Object3D) {
     materials = new Set<THREE.Material>(),
     textures = new Set<THREE.Texture>();
   scene.traverse((node) => {
+    if (node instanceof THREE.InstancedMesh) node.dispose();
     if (
       node instanceof THREE.DirectionalLight ||
       node instanceof THREE.SpotLight ||
@@ -284,16 +284,8 @@ export function createDropRoom(
   scene.background = new THREE.Color(0x111d28);
   const physics = createScenePhysics(),
     physicsWorld = physics.world;
-  const wall = new THREE.MeshStandardMaterial({
-    color: 0x596970,
-    metalness: 0.3,
-    roughness: 0.7,
-  });
-  const floor = new THREE.MeshStandardMaterial({
-    color: 0x263743,
-    metalness: 0.4,
-    roughness: 0.65,
-  });
+  const wall = createShipSurfaceMaterial("panel", 0x81919c);
+  const floor = createShipSurfaceMaterial("deck", 0x4a5b68);
   const box = (
     s: [number, number, number],
     p: [number, number, number],
@@ -321,6 +313,10 @@ export function createDropRoom(
   for (const x of [-5.76, 5.76])
     for (const z of [-4, 0, 4])
       box([0.025, 0.08, 2.4], [x, 2.5, z], stripe, false);
+  scene.add(createShipServiceDetails({
+    width: 12, depth: 12, height: 4.5, ribs: false,
+    label: `${id} / TRANSFER SYSTEMS`,
+  }));
   scene.add(new THREE.HemisphereLight(0xbce5ff, 0x30393f, 2.5));
   for (const x of [-3, 3]) {
     const light = new THREE.PointLight(0xc4e8ff, 35, 15);

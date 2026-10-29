@@ -1,5 +1,6 @@
 /** Prologue Scene 1 - "Awakening". */
 import * as THREE from "three";
+import { createShipSurfaceMaterial, createShipServiceDetails } from "../../scripts/global/shipInterior.js";
 import {
   isControllerEvent,
   inputHint,
@@ -224,21 +225,13 @@ export function createScene({
 
   // ------------------------------------------------------------------- room
   const roomSize = { x: 7, y: 3.6, z: 9 };
-  const wallMat = new THREE.MeshStandardMaterial({
-    color: 0x14181f,
-    roughness: 0.6,
-    metalness: 0.55,
-  });
-  const floorMat = new THREE.MeshStandardMaterial({
-    color: 0x0b0d12,
-    roughness: 0.75,
-    metalness: 0.3,
-  });
-  const ceilingMat = new THREE.MeshStandardMaterial({
-    color: 0x090b10,
-    roughness: 0.9,
-    metalness: 0.2,
-  });
+  const wallMat = createShipSurfaceMaterial("panel", 0x35424f);
+  const floorMat = createShipSurfaceMaterial("deck", 0x26303b);
+  const ceilingMat = createShipSurfaceMaterial("machinery", 0x212d37);
+  scene.add(createShipServiceDetails({
+    width: roomSize.x, depth: roomSize.z, height: roomSize.y,
+    label: "DETENTION / PRESSURE SEALED", accent: 0x558899,
+  }));
 
   const floor = new THREE.Mesh(
     new THREE.BoxGeometry(roomSize.x, 0.2, roomSize.z),

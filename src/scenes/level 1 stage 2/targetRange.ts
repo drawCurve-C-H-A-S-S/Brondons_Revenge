@@ -20,7 +20,7 @@ import { createBreakables } from "../../scripts/global/breakables.js";
 import { createRewardChest } from "../../scripts/global/rewardChest.js";
 import { disposeRoom } from "../../scripts/global/shipRoom.js";
 import { createCameraVisitUI } from "../../scripts/global/cameraVisit.js";
-import { SHIP_INTERIOR_PALETTE } from "../../scripts/global/shipInterior.js";
+import { SHIP_INTERIOR_PALETTE, createShipSurfaceMaterial, createShipServiceDetails } from "../../scripts/global/shipInterior.js";
 import { teleportPlayer } from "../../scripts/global/teleportationDevice.js";
 import { cameraVisitMap, type CameraRoomProgress } from "./stageTwoLayout.js";
 import { loadToolModel } from "../../core/loader.js";
@@ -88,59 +88,15 @@ export function createScene({
   const floorPhysMat = physics.solidMaterial;
 
   // --- Procedural tile texture ---
-  const tileCanvas = document.createElement("canvas");
-  tileCanvas.width = 256;
-  tileCanvas.height = 256;
-  const tileCtx = tileCanvas.getContext("2d")!;
-  tileCtx.fillStyle = "#8a7a7a";
-  tileCtx.fillRect(0, 0, 256, 256);
-  tileCtx.strokeStyle = "#6a5a5a";
-  tileCtx.lineWidth = 2;
-  for (let x = 0; x <= 256; x += 64) {
-    tileCtx.beginPath();
-    tileCtx.moveTo(x, 0);
-    tileCtx.lineTo(x, 256);
-    tileCtx.stroke();
-  }
-  for (let y = 0; y <= 256; y += 64) {
-    tileCtx.beginPath();
-    tileCtx.moveTo(0, y);
-    tileCtx.lineTo(256, y);
-    tileCtx.stroke();
-  }
-  const tileTexture = new THREE.CanvasTexture(tileCanvas);
-  tileTexture.wrapS = THREE.RepeatWrapping;
-  tileTexture.wrapT = THREE.RepeatWrapping;
-
   // --- Materials ---
-  const floorMat = new THREE.MeshStandardMaterial({
-    map: tileTexture.clone(),
-    color: remoteVisit ? 0x536375 : 0x776666,
-    roughness: 0.7,
-    metalness: 0.15,
-    emissive: 0x140a0a,
-    emissiveIntensity: 0.35,
-  });
-  floorMat.map!.repeat.set(5, 5);
-  const wallMat = new THREE.MeshStandardMaterial({
-    map: tileTexture.clone(),
-    color: remoteVisit ? 0x536375 : 0x6f5f5f,
-    roughness: 0.75,
-    metalness: 0.1,
-    emissive: 0x140a0a,
-    emissiveIntensity: 0.3,
-  });
-  wallMat.map!.repeat.set(5, 2);
-  const ceilingMat = new THREE.MeshStandardMaterial({
-    color: remoteVisit ? 0x182431 : 0x453a3a,
-    roughness: 0.8,
-    metalness: 0.1,
-  });
-  const doorFrameMat = new THREE.MeshStandardMaterial({
-    color: 0x555566,
-    metalness: 0.5,
-    roughness: 0.4,
-  });
+  const floorMat = createShipSurfaceMaterial("deck", remoteVisit ? 0x536375 : 0x776666);
+  const wallMat = createShipSurfaceMaterial("panel", remoteVisit ? 0x81919c : 0x998b88);
+  const ceilingMat = createShipSurfaceMaterial("machinery", 0x4c4d57);
+  const doorFrameMat = createShipSurfaceMaterial("trim", 0x8395a5);
+  scene.add(createShipServiceDetails({
+    width: roomWidth, depth: roomDepth, height: roomHeight,
+    label: "RANGE / KEEP FIRING LANES CLEAR", accent: 0xcf9d78,
+  }));
   function makeComicMaterial(color: number) {
     return new THREE.ShaderMaterial({
       vertexShader: comicVert,

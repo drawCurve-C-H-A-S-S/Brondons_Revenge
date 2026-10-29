@@ -3,6 +3,7 @@ import { createScenePhysics } from "../../helpers/physics/scenePhysics.js";
 import { roomBox } from "../../scripts/global/shipRoom.js";
 import {
   createShipInteriorMaterials,
+  createShipServiceDetails,
   SHIP_INTERIOR_PALETTE,
 } from "../../scripts/global/shipInterior.js";
 import { LADDER } from "../../utils/constants.js";
@@ -134,6 +135,11 @@ export function createStealthHangar(
 
   const { minZ, maxZ } = HANGAR_LAYOUT.bounds;
   const roomDepth = maxZ - minZ;
+  scene.add(createShipServiceDetails({
+    width: 72, depth: roomDepth, height: 12,
+    x: 50, y: deckY, ribs: false, spacing: 8,
+    label: "DECK 01 / CARGO HANDLING", accent: 0xc4b17b,
+  }));
   box([72, 0.3, roomDepth], [50, -0.15, 0], floor).name = "DeckOneHangarFloor";
   const roof = new THREE.Group();
   roof.name = "HangarRoof";
