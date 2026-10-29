@@ -61,6 +61,7 @@ export function createShipServiceDetails({
 }) {
   const root = new THREE.Group();
   root.name = "ShipOverheadServices";
+  root.userData.compartment = label;
   root.position.set(x, y, z);
   root.rotation.y = yaw;
   root.userData.minimap = false;
@@ -123,37 +124,6 @@ export function createShipServiceDetails({
     vent.userData.minimap = false;
     root.add(vent);
   }
-  const canvas = document.createElement("canvas");
-  canvas.width = 768;
-  canvas.height = 128;
-  const context = canvas.getContext("2d");
-  if (context) {
-    context.fillStyle = "#18242e";
-    context.fillRect(0, 0, 768, 128);
-    context.fillStyle = "#c3a254";
-    for (let i = -128; i < 768; i += 56) {
-      context.beginPath();
-      context.moveTo(i, 0);
-      context.lineTo(i + 24, 0);
-      context.lineTo(i + 42, 18);
-      context.lineTo(i + 18, 18);
-      context.fill();
-    }
-    context.fillStyle = "#d8e3e8";
-    context.font = "bold 30px monospace";
-    context.textAlign = "center";
-    context.fillText(label, 384, 77, 720);
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  const sign = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.8, 0.3),
-    new THREE.MeshBasicMaterial({ map: texture, toneMapped: false }),
-  );
-  sign.name = "ShipServiceStencil";
-  sign.position.set(half - 0.11, height - 0.48, -depth / 2 + 1.8);
-  sign.rotation.y = -Math.PI / 2;
-  root.add(sign);
   return root;
 }
 
