@@ -10,6 +10,21 @@ import { cachedAssetUrl } from "../../core/assetCache.js";
 const clamp = (value, minimum, maximum) =>
   Math.min(Math.max(value, minimum), maximum);
 const volumes = { bgm: 1, sfx: 1 };
+const VOICE_ACTING_KEY = "brondons-revenge-voice-acting";
+let voiceActing = false;
+let voiceActingAvailable = false;
+let preferredVoiceActing = false;
+try {
+  if (typeof window !== "undefined") {
+    const saved = window.localStorage?.getItem(VOICE_ACTING_KEY);
+    if (saved === "on") preferredVoiceActing = true;
+    else if (saved === "off") preferredVoiceActing = false;
+    else if (saved !== null && saved !== undefined && saved !== "on")
+      console.warn("[Audio] Invalid saved voice-acting setting:", saved);
+  }
+} catch (error) {
+  console.warn("[Audio] Unable to read voice-acting setting:", error);
+}
 /** The Sound slider still spans 0-100%, but a fully raised effects slider plays at 30% of full scale. */
 export const SFX_MAX_GAIN = 0.3;
 const MUFFLED_BGM_GAIN = 0.55;
@@ -30,7 +45,8 @@ export function preloadAudio(source) {
   preparedAudio.set(source, audio);
 }
 
-/** @type {Set<(settings: { bgm: number, sfx: number, paused: boolean }) => void>} */
+/** @typedef {{ bgm: number, sfx: number, paused: boolean, voiceActing: boolean, voiceActingAvailable: boolean }} AudioSettings */
+/** @type {Set<(settings: AudioSettings) => void>} */
 const settingsListeners = new Set();
 
 const mutedEmbed =
@@ -43,7 +59,31 @@ if (mutedEmbed) {
 }
 
 export function getAudioSettings() {
-  return { ...volumes, paused: menuPaused };
+  return { ...volumes, paused: menuPaused, voiceActing, voiceActingAvailable };
+}
+/** @param {boolean} enabled */
+export function setVoiceActingDeveloperMode(enabled) {
+  if (typeof enabled !== "boolean")
+    throw new TypeError("Developer voice access must be enabled or disabled");
+  voiceActingAvailable = enabled;
+  voiceActing = enabled && preferredVoiceActing;
+  notifyAudioSettings();
+}
+/** @param {boolean} enabled */
+export function setVoiceActingEnabled(enabled) {
+  if (typeof enabled !== "boolean")
+    throw new TypeError("Voice acting must be enabled or disabled");
+  if (enabled && !voiceActingAvailable)
+    throw new Error("Voice acting is only available in developer mode");
+  preferredVoiceActing = enabled;
+  voiceActing = enabled;
+  try {
+    if (typeof window !== "undefined")
+      window.localStorage?.setItem(VOICE_ACTING_KEY, enabled ? "on" : "off");
+  } catch (error) {
+    console.warn("[Audio] Unable to save voice-acting setting:", error);
+  }
+  notifyAudioSettings();
 }
 /** Effective gain for every sound effect: the player's slider scaled by the global effects ceiling. */
 export function getSfxGain() {
@@ -60,7 +100,7 @@ export function setAudioVolume(channel, value) {
   volumes[channel] = clamp(value, 0, 1);
   notifyAudioSettings();
 }
-/** @param {(settings: { bgm: number, sfx: number, paused: boolean }) => void} listener */
+/** @param {(settings: AudioSettings) => void} listener */
 export function subscribeAudioSettings(listener) {
   settingsListeners.add(listener);
   listener(getAudioSettings());
@@ -82,6 +122,8 @@ export class AudioManager {
     this.camera = camera;
     this.getFile = getFile || (() => null);
     this.pauseWithMenu = pauseWithMenu;
+    this.menuPaused = menuPaused;
+    this.voiceAudio = new Set();
     /** @type {BgmTrack | null} */
     this.bgm = null;
     /** @type {{ outgoing: { track: BgmTrack, gain: number }[], elapsed: number, duration: number } | null} */
@@ -333,12 +375,19 @@ export class AudioManager {
 
   playSfx(
     path,
-    { position = null, volume = 1, radius = 12, loop = false } = {},
+    {
+      position = null,
+      volume = 1,
+      radius = 12,
+      loop = false,
+      voice = false,
+    } = {},
   ) {
     const audio = this.createAudio(path, { loop });
-    const entry = { audio, position, volume, radius };
+    const entry = { audio, position, volume, radius, voice };
+    if (voice) this.voiceAudio.add(audio);
     this.activeSfx.add(entry);
-    audio.addEventListener("ended", () => this.activeSfx.delete(entry), {
+    audio.addEventListener("ended", () => this.stopSfx(audio), {
       once: true,
     });
     this.applySpatialVolume(entry);
@@ -346,8 +395,36 @@ export class AudioManager {
     return audio;
   }
 
+  /** @param {string} path */
+  playVoice(path) {
+    if (!voiceActing) return null;
+    return this.playSfx(path, { voice: true });
+  }
+
+  /** @param {HTMLAudioElement} audio */
+  stopSfx(audio) {
+    this.cancelledPlayback.add(audio);
+    this.autoplayQueue.delete(audio);
+    this.menuSuspended.delete(audio);
+    this.voiceAudio.delete(audio);
+    audio.pause();
+    for (const entry of this.activeSfx)
+      if (entry.audio === audio) this.activeSfx.delete(entry);
+  }
+
+  isPlaybackPaused(audio) {
+    return (
+      (this.menuPaused && this.pauseWithMenu) ||
+      (this.voiceAudio.has(audio) &&
+        typeof document !== "undefined" &&
+        document.hidden)
+    );
+  }
+
   setMenuPaused(paused) {
     if (!this.pauseWithMenu) return;
+    if (this.menuPaused === paused) return;
+    this.menuPaused = paused;
     if (paused) {
       const audioNodes = [
         this.bgm?.audio,
@@ -373,7 +450,7 @@ export class AudioManager {
       throw new RangeError("Audio timing must be finite and nonnegative");
     if (
       this.bgmFade &&
-      (!menuPaused || !this.pauseWithMenu) &&
+      (!this.menuPaused || !this.pauseWithMenu) &&
       !this.bgm.audio.paused &&
       !this.autoplayQueue.has(this.bgm.audio)
     ) {
@@ -412,10 +489,17 @@ export class AudioManager {
         volume: entry.data.volume ?? 1,
         radius: entry.data.radius ?? 12,
       });
-    for (const entry of this.activeSfx) this.applySpatialVolume(entry);
+    for (const entry of this.activeSfx) {
+      if (entry.voice && !voiceActing) this.stopSfx(entry.audio);
+      else this.applySpatialVolume(entry);
+    }
   }
 
-  applySpatialVolume({ audio, position, volume, radius }) {
+  applySpatialVolume({ audio, position, volume, radius, voice = false }) {
+    if (voice) {
+      audio.volume = clamp(volume, 0, 1) * volumes.sfx;
+      return;
+    }
     if (!position || !this.camera) {
       audio.volume = clamp(volume, 0, 1) * getSfxGain();
       return;
@@ -432,7 +516,7 @@ export class AudioManager {
 
   playAudio(audio) {
     this.cancelledPlayback.delete(audio);
-    if (menuPaused && this.pauseWithMenu) {
+    if (this.isPlaybackPaused(audio)) {
       this.autoplayQueue.add(audio);
       return;
     }
@@ -444,7 +528,7 @@ export class AudioManager {
           return;
         }
         this.autoplayQueue.delete(audio);
-        if (menuPaused && this.pauseWithMenu && !audio.paused && !audio.ended) {
+        if (this.isPlaybackPaused(audio) && !audio.paused && !audio.ended) {
           this.menuSuspended.add(audio);
           audio.pause();
         }
@@ -489,6 +573,7 @@ export class AudioManager {
       entry.audio.pause();
     }
     this.activeSfx.clear();
+    this.voiceAudio.clear();
     this.autoplayQueue.clear();
     for (const type of [
       "pointerdown",

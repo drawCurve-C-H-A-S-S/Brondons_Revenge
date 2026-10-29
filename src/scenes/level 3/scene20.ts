@@ -2,6 +2,11 @@ import * as THREE from "three";
 import * as CANNON from "cannon-es";
 import { inputHint } from "../../scripts/player/gamepadInput.js";
 import {
+  sayDialogue,
+  stopDialogueVoice,
+  dialogueVoiceDuration,
+} from "../../helpers/audio/dialogueVoice.js";
+import {
   createScenePhysics,
   PHYSICS,
 } from "../../helpers/physics/scenePhysics.js";
@@ -919,11 +924,23 @@ export function createScene({
   dialogue.append(dialogueSpeaker, dialogueText);
   document.body.appendChild(dialogue);
   // Arrival cutscene: Prime remarks on the resort, then Brondon approaches the hideout picture.
+  const primeLineTime = Math.max(
+    3.6,
+    dialogueVoiceDuration("Prime", "This looks more like a resort than a prison.") + 0.25,
+  );
+  const firstLineTime = Math.max(
+    3.4,
+    dialogueVoiceDuration("Brondon", "They were behind this. All of it.") + 0.25,
+  );
+  const lastLineTime = Math.max(
+    4.6,
+    dialogueVoiceDuration("Brondon", "I need to hear the truth from them.") + 0.25,
+  );
   const INTRO = Object.freeze({
-    primeEnd: 3.6,
-    walkEnd: 15.2,
-    firstLineEnd: 18.6,
-    end: 23.2,
+    primeEnd: primeLineTime,
+    walkEnd: primeLineTime + 11.6,
+    firstLineEnd: primeLineTime + 11.6 + firstLineTime,
+    end: primeLineTime + 11.6 + firstLineTime + lastLineTime,
   });
   const introStart = new THREE.Vector3(
     player.body.position.x,
@@ -955,6 +972,7 @@ export function createScene({
   introSkipButton.className = "scene-dialogue-skip facility-intro-skip";
   document.body.appendChild(introSkipButton);
   function setIntroDialogue(speaker = "", text = "") {
+    sayDialogue(dialogueText, speaker, text, scene);
     dialogue.classList.toggle("hidden", !text);
     dialogueSpeaker.textContent = speaker;
     dialogueText.textContent = text;
@@ -1358,6 +1376,7 @@ export function createScene({
     getMusicTrack: (): "puzzle" => "puzzle",
     updatePhysics,
     dispose() {
+      stopDialogueVoice(dialogueText);
       if (disposed) return;
       disposed = true;
       closeComputer();

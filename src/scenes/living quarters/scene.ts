@@ -50,6 +50,11 @@ import {
 } from "./inspectionView.js";
 import { inputHint } from "../../scripts/player/gamepadInput.js";
 import { setInputHint } from "../../scripts/global/inputPrompts.js";
+import {
+  sayDialogue,
+  stopDialogueVoice,
+  dialogueVoiceDuration,
+} from "../../helpers/audio/dialogueVoice.js";
 import { getPrimeHintsEnabled } from "../../scripts/player/primeHints.js";
 import { popupDuration } from "../../scripts/global/popupTiming.js";
 import {
@@ -272,6 +277,7 @@ export function createScene({
   const censor = createShowerCensor(ui, camera);
   const inspection = createInspectionView(camera, ui, () => {
     inspectionCaptionTime = 0;
+    stopDialogueVoice(subtitleText);
     subtitle.classList.add("hidden");
     document.body.classList.remove("quarters-cinematic");
     player.clearInput();
@@ -307,6 +313,7 @@ export function createScene({
   });
 
   function inspect(surface: InspectionTarget) {
+    stopDialogueVoice(subtitleText);
     player.clearInput();
     player.disable();
     target = null;
@@ -460,6 +467,7 @@ export function createScene({
     skipHold.reset();
     bars.classList.add("hidden");
     skip.classList.add("hidden");
+    stopDialogueVoice(subtitleText);
     subtitle.classList.add("hidden");
     loading.classList.add("hidden");
     if (active) document.body.classList.remove("quarters-cinematic");
@@ -993,9 +1001,15 @@ export function createScene({
   }
   window.addEventListener("keydown", onKey);
 
-  function caption(text: string) {
+  function caption(text: string, windowSeconds?: number) {
     primeReminderTime = 0;
     speaker.textContent = "Prime";
+    if (cinematic && cinematic.kind !== "arrival")
+      cinematic.duration = Math.max(
+        cinematic.duration,
+        dialogueVoiceDuration("Prime", text) + 0.25,
+      );
+    sayDialogue(subtitleText, "Prime", text, scene, windowSeconds);
     setInputHint(subtitleText, text, "foot", true);
     subtitle.classList.remove("hidden");
   }
@@ -1023,6 +1037,7 @@ export function createScene({
             : t < 19
               ? "The prison camera is looped. We need to reach our ship in Hangar 14 before Donus catches on."
               : "Look around the crew cabins for useful items before you leave. Then we get off this mothership and bring everyone home.",
+        t < 5 ? 5 : t < 19 ? 7 : shot.duration - 19,
       );
     } else if (shot.kind === "pistol") {
       caption("Your pistol. Still in working order.");
@@ -1358,6 +1373,7 @@ export function createScene({
     dispose() {
       if (disposed) return;
       disposed = true;
+      stopDialogueVoice(subtitleText);
       window.removeEventListener("keydown", onKey);
       seating.dispose();
       skipHold.dispose();

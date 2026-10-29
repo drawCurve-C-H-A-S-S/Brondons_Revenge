@@ -107,6 +107,11 @@ function sampleUrl(name: SfxName) {
   return clips[index];
 }
 const synthesized = new Map<SynthSfxName, AudioBuffer>();
+const activeShouts = new Set<() => void>();
+subscribeAudioSettings(({ voiceActing, paused }) => {
+  if (!voiceActing || paused)
+    for (const stop of [...activeShouts]) stop();
+});
 let synthWarningShown = false;
 function isSynthSfx(name: SfxName): name is SynthSfxName {
   return SYNTH_SFX.some((key) => key === name);
@@ -202,25 +207,35 @@ function playSynthSfx(name: SynthSfxName, level: number, rate: number) {
   let stopped = false;
   source.onended = () => {
     stopped = true;
+    activeShouts.delete(stop);
     source.disconnect();
     gain.disconnect();
   };
-  source.start();
-  return () => {
+  const stop = () => {
     if (stopped) return;
     stopped = true;
+    activeShouts.delete(stop);
     source.stop();
   };
+  if (name === "revengeShout") activeShouts.add(stop);
+  source.start();
+  return stop;
 }
 
 export function playSfx(name: SfxName, volume = 1, rate = 1) {
-  if (getAudioSettings().paused) return;
+  const settings = getAudioSettings();
+  if (
+    settings.paused ||
+    (!settings.voiceActing && (name === "brendan" || name === "revengeShout"))
+  ) return;
   const now = performance.now();
   if (now - (lastPlayed.get(name) ?? -1e9) < (MIN_GAP_MS[name] ?? 0)) return;
   lastPlayed.set(name, now);
   const level =
     Math.min(1, Math.max(0, volume * (SFX_MIX[name] ?? 1)));
   if (level <= 0 || getSfxGain() <= 0) return;
+  if (name === "brendan")
+    return playSample(brendanUrl, { volume: level, rate, voice: true });
   if (recorded(name)) {
     const url = sampleUrl(name);
     if (url) return playSample(url, { volume: level, rate });
@@ -268,6 +283,7 @@ export function playWorldSfx(name: SfxName, position: SoundPosition, radius = 25
     position: position instanceof THREE.Object3D ? position.getWorldPosition(new THREE.Vector3()) : position,
     radius, volume: Math.min(1, Math.max(0, volume * (SFX_MIX[name] ?? 1))),
     rate: rate * (0.97 + Math.random() * 0.06),
+    voice: name === "brendan",
   });
 }
 

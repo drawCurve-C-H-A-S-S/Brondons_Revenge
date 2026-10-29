@@ -1047,8 +1047,6 @@ export function createScene({
         id === "hero-lock" ? FRAME_COLORS.hero : FRAME_COLORS.enemy,
         65,
       );
-    } else if (id === "revenge-shout") {
-      presentation.sound("shout");
     } else if (id === "revenge-burst") {
       const center = heroMech.getChest();
       effects.ring(center, 16, HERO_REVENGE_PALETTE.platelight, true, 1.3);
@@ -1263,6 +1261,7 @@ export function createScene({
           clock < reply
             ? "Our ambition knows no limits."
             : "Neither does my vengeance.",
+          reply,
         );
         return;
       }
@@ -1289,13 +1288,18 @@ export function createScene({
       presentation.dialogue(
         cue?.speaker ?? "",
         cue && clock >= cue.start && clock < cue.end ? cue.text : "",
+        cue ? cue.end - cue.start : undefined,
       );
       return;
     }
     const line = LINES[phase]?.find(
       (item) => phaseTime >= item.start && phaseTime < item.end,
     );
-    presentation.dialogue(line?.speaker ?? "", line?.text ?? "");
+    presentation.dialogue(
+      line?.speaker ?? "",
+      line?.text ?? "",
+      line ? line.end - line.start : undefined,
+    );
   }
 
   function updateObjective(phase: FinalePhase, phaseTime: number) {

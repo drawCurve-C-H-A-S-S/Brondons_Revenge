@@ -29,6 +29,7 @@ import hologramVertexShader from "../../shaders/vert/hologram.vert.glsl?raw";
 import hologramFragmentShader from "../../shaders/frag/hologram.frag.glsl?raw";
 import { prepareSceneRendering } from "../../core/renderer.js";
 import { createPrisonLight } from "../../scripts/global/prisonLight.js";
+import { sayDialogue, stopDialogueVoice, dialogueVoiceDuration } from "../../helpers/audio/dialogueVoice.js";
 
 interface PrologueOptions {
   onPlayable?: () => void;
@@ -845,6 +846,7 @@ export function createScene({
 
   function finishCutscene(): void {
     if (playable || finished) return;
+    stopDialogueVoice(textEl);
     playable = true;
     dialogueActive = false;
     activeShot = "present";
@@ -893,6 +895,7 @@ export function createScene({
   function showDialogueLine(): void {
     const line = lines[dialogueIndex];
     if (!line) return;
+    if (!preview) sayDialogue(textEl, line.speaker, line.text, scene);
     beatTime = 0;
     const nextShot = line.shot ?? "present";
     shotChanged = nextShot !== activeShot;
@@ -957,6 +960,7 @@ export function createScene({
     }
     dialogueIndex += 1;
     if (dialogueIndex >= lines.length) {
+      stopDialogueVoice(textEl);
       dialogueActive = false;
       overlay.classList.add("hidden");
       activeShot = "present";
@@ -1327,7 +1331,11 @@ export function createScene({
       if (
         line?.automatic &&
         beatTime >=
-          Math.max(line.duration ?? 6, line.text.length / TYPE_SPEED + 1.4)
+          Math.max(
+            line.duration ?? 6,
+            line.text.length / TYPE_SPEED + 1.4,
+            dialogueVoiceDuration(line.speaker, line.text) + 0.25,
+          )
       )
         advanceDialogue();
     }
@@ -1335,6 +1343,7 @@ export function createScene({
   }
 
   function dispose(): void {
+    stopDialogueVoice(textEl);
     if (disposed) return;
     disposed = true;
     window.removeEventListener("mousedown", onClick);

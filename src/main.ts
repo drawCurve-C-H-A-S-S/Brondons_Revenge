@@ -140,11 +140,15 @@ import {
   getAudioSettings,
   setAudioVolume,
   setAudioMenuPaused,
+  setVoiceActingEnabled,
+  setVoiceActingDeveloperMode,
+  subscribeAudioSettings,
 } from "./helpers/audio/AudioManager.js";
 import { preloadMusic } from "./helpers/audio/bufferedMusic.js";
 import { createGameMusic, MUSIC_URLS } from "./helpers/audio/gameMusic.js";
 import { createGameSoundscape } from "./helpers/audio/gameSoundscape.js";
 import { updateSpatialAudio } from "./helpers/audio/spatialAudio.js";
+import { updateDialogueVoice } from "./helpers/audio/dialogueVoice.js";
 import {
   loadToolModel,
   PLAYABLE_CHARACTER_NAMES,
@@ -694,7 +698,11 @@ function installPrimeDialoguePlacement() {
       return;
     }
     if (element.children.length || text.length > 400) return;
-    const rendered = formatDialogue(element, text);
+    const rendered = formatDialogue(
+      element,
+      text,
+      element.dataset.inputHint ?? text,
+    );
     if (rendered !== text) element.textContent = rendered;
   };
   new MutationObserver((records) => {
@@ -5077,6 +5085,16 @@ function setupSceneQuickMenu() {
         `${slider.value}%`;
     });
   }
+  const voiceActingToggle = document.getElementById(
+    "voice-acting-toggle",
+  ) as HTMLInputElement;
+  subscribeAudioSettings((settings) => {
+    voiceActingToggle.checked = settings.voiceActing;
+    voiceActingToggle.disabled = !settings.voiceActingAvailable;
+  });
+  voiceActingToggle.addEventListener("change", () =>
+    setVoiceActingEnabled(voiceActingToggle.checked),
+  );
   const bloomSlider = document.getElementById(
     "bloom-level",
   ) as HTMLInputElement;
@@ -5169,6 +5187,7 @@ function setupSceneQuickMenu() {
       event.stopPropagation();
       if (menuScreen !== "developer" || !pauseMenu.open) return;
       developerUnlocked = true;
+      setVoiceActingDeveloperMode(true);
       setPauseMenu("scenes");
     });
   quickMenu.addEventListener("click", (event) => {
@@ -5444,6 +5463,16 @@ function animate() {
   }
   cinematicLoading.update(delta);
   const soundScene = currentSceneData?.getRenderScene?.() ?? activeScene;
+  updateDialogueVoice(
+    activeScene,
+    cinematicLoading.active ||
+      quickMenuOpen ||
+      weaponWheelOpen ||
+      freeCameraOpen ||
+      teleportLoading ||
+      document.hidden ||
+      !!currentSceneData?.isMusicPaused?.(),
+  );
   updateSpatialAudio(
     soundScene, activeCamera,
     cinematicLoading.active || quickMenuOpen || weaponWheelOpen || freeCameraOpen || teleportLoading || document.hidden || !!currentSceneData?.isMusicPaused?.(),

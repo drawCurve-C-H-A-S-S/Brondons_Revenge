@@ -1,5 +1,6 @@
 import { playSfx, playWorldSfx } from "../../helpers/audio/sfx.js";
 import * as THREE from "three";
+import { sayDialogue, stopDialogueVoice } from "../../helpers/audio/dialogueVoice.js";
 import * as CANNON from "cannon-es";
 import { loadToolModel, preloadToolModel } from "../../core/loader.js";
 import {
@@ -779,6 +780,7 @@ export function createScene({
   }
   function hideHint() {
     hintTime = 0;
+    stopDialogueVoice(hintText);
     hint.classList.add("hidden");
   }
   function showHint(id: string, text: string) {
@@ -793,6 +795,7 @@ export function createScene({
     )
       return;
     usedHints.add(id);
+    sayDialogue(hintText, "Prime", text, scene);
     hintText.textContent = inputHint(text);
     hintTime = 4.5;
     hintCooldown = 30;

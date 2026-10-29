@@ -20,6 +20,7 @@ interface SampleOptions {
   loop?: boolean;
   gain?: () => number;
   pitch?: () => number;
+  voice?: boolean;
 }
 interface Voice {
   stop(): void;
@@ -89,6 +90,7 @@ function getOutput() {
       context.currentTime,
     );
     if (!audible()) for (const voice of [...voices]) voice.stop();
+    else for (const voice of [...voices]) voice.sync();
   };
   subscribeAudioSettings(sync);
   document.addEventListener("visibilitychange", sync);
@@ -127,7 +129,7 @@ function resolvePosition(position: SoundPosition, listener: SoundPoint) {
 }
 
 export function playSample(url: string, options: SampleOptions = {}) {
-  if (!audible()) return;
+  if (!audible() || (options.voice && !getAudioSettings().voiceActing)) return;
   if (
     typeof window === "undefined" ||
     typeof window.AudioContext !== "function"
@@ -192,7 +194,12 @@ export function playSample(url: string, options: SampleOptions = {}) {
       filter?.disconnect();
     },
     sync() {
-      if (stopped || !gain || !pan || !filter) return;
+      if (stopped) return;
+      if (options.voice && !getAudioSettings().voiceActing) {
+        voice.stop();
+        return;
+      }
+      if (!gain || !pan || !filter) return;
       const values = mix();
       gain.gain.setTargetAtTime(values.gain, context.currentTime, 0.06);
       pan.pan.setTargetAtTime(values.pan, context.currentTime, 0.06);
@@ -216,8 +223,9 @@ export function playSample(url: string, options: SampleOptions = {}) {
       if (stopped) return;
       if (
         !audible() ||
+        (options.voice && !getAudioSettings().voiceActing) ||
         owner !== activeScene ||
-        (!loop && performance.now() - created > 350)
+        (!loop && !options.voice && performance.now() - created > 350)
       ) {
         voice.stop();
         return;

@@ -4,14 +4,16 @@ import {
   type ControllerContext,
 } from "../player/gamepadInput.js";
 import { renderControllerPrompt, renderDpadText } from "../player/controllerIcons.js";
+import { sayDialogue, stopDialogueVoice } from "../../helpers/audio/dialogueVoice.js";
 
-export function formatDialogue(element: HTMLElement, text: string) {
+export function formatDialogue(element: HTMLElement, text: string, source = text) {
   const match =
     /^(Prime|Brondon|Branden|Brendan|Donus|Caleb|Husain|André|Sibusiso|Sohrab|Sudoers 5):\s*/i.exec(
       text,
     );
   if (!match) {
     if (text !== element.dataset.dialogueLine) {
+      if (element.dataset.dialogueSpeaker) stopDialogueVoice(element);
       delete element.dataset.dialogueSpeaker;
       delete element.dataset.dialogueLine;
       delete element.dataset.primeLine;
@@ -25,6 +27,7 @@ export function formatDialogue(element: HTMLElement, text: string) {
   }
   const speaker = match[1].toUpperCase();
   const line = text.slice(match[0].length);
+  sayDialogue(element, speaker, source.replace(/^[^:]+:\s*/, ""));
   element.dataset.dialogueSpeaker = speaker;
   element.dataset.dialogueLine = line;
   element.classList.add("dialogue-tagged");
@@ -47,7 +50,7 @@ export function setInputHint(
   element.dataset.inputContext = context;
   element.dataset.inputDialogue = String(dialogue);
   const converted = (dialogue ? inputDialogue : inputHint)(text, context);
-  const rendered = dialogue ? formatDialogue(element, converted) : converted;
+  const rendered = dialogue ? formatDialogue(element, converted, text) : converted;
   renderControllerPrompt(element, rendered);
   element.dataset.inputRendered = element.textContent ?? "";
 }

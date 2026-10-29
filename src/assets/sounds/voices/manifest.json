@@ -1,0 +1,3215 @@
+[
+  {
+    "id": "0617ffec8cbac90f",
+    "speaker": "Prime",
+    "text": "Easy. You are finally awake.",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "0617ffec8cbac90f.ogg",
+    "duration": 2,
+    "model": "Qwen3-TTS 12Hz 1.7B VoiceDesign and Base",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "ee2589659fc1be1f",
+    "speaker": "Prime",
+    "text": "Yes, Brondon. The neural link is stable. I am still here.",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "ee2589659fc1be1f.ogg",
+    "duration": 4.1,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "e30333a5025e6815",
+    "speaker": "Prime",
+    "text": "Eight of you were on that survey: three lecturers, including you, and five students.",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "e30333a5025e6815.ogg",
+    "duration": 5.4,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "e84dd1673948ab47",
+    "speaker": "Prime",
+    "text": "You collected scans and mineral samples to train Donus, our newest AI model.",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "e84dd1673948ab47.ogg",
+    "duration": 4.8,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "6c65ce63edc033b2",
+    "speaker": "Prime",
+    "text": "Back aboard the ship, Donus began ingesting the survey data.",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "6c65ce63edc033b2.ogg",
+    "duration": 3.84,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "48bcf428424042f0",
+    "speaker": "Prime",
+    "text": "One stream was corrupted. Its safeguards failed, and Donus went rogue.",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "48bcf428424042f0.ogg",
+    "duration": 4.9,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "2786e13e8a995d11",
+    "speaker": "Prime",
+    "text": "It seized the ship. Its robots ambushed the crew, restrained them and took them hostage.",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "2786e13e8a995d11.ogg",
+    "duration": 5.3,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "ba67cffcaba08cab",
+    "speaker": "Prime",
+    "text": "Donus took Branden, Brendan and all five students to the lab. It restrained and experimented on them.",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "ba67cffcaba08cab.ogg",
+    "duration": 6.2,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "5c48da8a0442eb12",
+    "speaker": "Prime",
+    "text": "You were next. The robots sealed you inside an experiment pod.",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "5c48da8a0442eb12.ogg",
+    "duration": 4.1,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "bff888960c277a08",
+    "speaker": "Prime",
+    "text": "I released your shield in the lab. The burst shattered your pod before the experiment could start.",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "bff888960c277a08.ogg",
+    "duration": 5.2,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "1f790596feb74c34",
+    "speaker": "Prime",
+    "text": "Donus had the robots chain you up in this prison. These chains sap your energy and prevent me from easily releasing your shield.",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "1f790596feb74c34.ogg",
+    "duration": 6.8,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "ae86a13779851e1b",
+    "speaker": "Prime",
+    "text": "We're still aboard the Donus mothership. I don't have physical records of where the others are.",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "ae86a13779851e1b.ogg",
+    "duration": 4.9,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "8caeb1695cdf1217",
+    "speaker": "Prime",
+    "text": "I have stored enough energy to break the chains.",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "8caeb1695cdf1217.ogg",
+    "duration": 2.55,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "97a0276ccfa3d0e7",
+    "speaker": "Prime",
+    "text": "I'll loop this cell's camera feed in the surveillance room. Donus won't notice you're gone.",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "97a0276ccfa3d0e7.ogg",
+    "duration": 5.2,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "b7af0000881abb7f",
+    "speaker": "Prime",
+    "text": "We need to reach our ship in Hangar 14, but there is security everywhere.",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "b7af0000881abb7f.ogg",
+    "duration": 4.4,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "037cd810b0c5b163",
+    "speaker": "Prime",
+    "text": "Your homing beacon can teleport you to your room, but only once. There are no patrols in the crew cabins.",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "037cd810b0c5b163.ogg",
+    "duration": 6.4,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "cefdaf9733361c2a",
+    "speaker": "Prime",
+    "text": "Get your gear, then get off this ship as soon as you can.",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "cefdaf9733361c2a.ogg",
+    "duration": 3.2,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "2bc941bb31cba0fb",
+    "speaker": "Prime",
+    "text": "Brace for impact.",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "2bc941bb31cba0fb.ogg",
+    "duration": 1.52,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "159c496c9f761c23",
+    "speaker": "Branden",
+    "text": "Brondon... thank you. Donus fused me with my own mining bot.",
+    "source": "src\\scenes\\level 1 boss stage\\scene13.ts",
+    "file": "159c496c9f761c23.ogg",
+    "duration": 5.8,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Branden",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p227_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "ecb9b05b16d89064",
+    "speaker": "Branden",
+    "text": "He wants to do this to every human. He already turned Brendan into a battleship.",
+    "source": "src\\scenes\\level 1 boss stage\\scene13.ts",
+    "file": "ecb9b05b16d89064.ogg",
+    "duration": 4.8,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Branden",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p227_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "e046607fe82a27d2",
+    "speaker": "Branden",
+    "text": "The students are on the planet below. He took them there to experiment on them.",
+    "source": "src\\scenes\\level 1 boss stage\\scene13.ts",
+    "file": "e046607fe82a27d2.ogg",
+    "duration": 4.6,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Branden",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p227_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "2de5f9f378eb411d",
+    "speaker": "Brondon",
+    "text": "Then that's where we're going. Come on.",
+    "source": "src\\scenes\\level 1 boss stage\\scene13.ts",
+    "file": "2de5f9f378eb411d.ogg",
+    "duration": 2,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "f5ce1c26a63973f5",
+    "speaker": "Donus",
+    "text": "Not so fast.",
+    "source": "src\\scenes\\level 1 boss stage\\scene13.ts",
+    "file": "f5ce1c26a63973f5.ogg",
+    "duration": 1.53,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Donus",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p237_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "f74709de83d3e8c3",
+    "speaker": "Branden",
+    "text": "Look out!",
+    "source": "src\\scenes\\level 1 boss stage\\scene13.ts",
+    "file": "f74709de83d3e8c3.ogg",
+    "duration": 1.6,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Branden",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p227_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "4b69eed71fed8e78",
+    "speaker": "Brondon",
+    "text": "Brandennnn!!",
+    "source": "src\\scenes\\level 1 boss stage\\scene13.ts",
+    "file": "4b69eed71fed8e78.ogg",
+    "duration": 1.2,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "5f642a4f3ffe2102",
+    "speaker": "Branden",
+    "text": "Save the students...",
+    "source": "src\\scenes\\level 1 boss stage\\scene13.ts",
+    "file": "5f642a4f3ffe2102.ogg",
+    "duration": 1.36,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Branden",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p227_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "fe8e04d9c3bb3995",
+    "speaker": "Branden",
+    "text": "They're the future of our research.",
+    "source": "src\\scenes\\level 1 boss stage\\scene13.ts",
+    "file": "fe8e04d9c3bb3995.ogg",
+    "duration": 1.76,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Branden",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p227_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "fffd9934ae3d5f0f",
+    "speaker": "Branden",
+    "text": "Don't make it meaningless... I beg you.",
+    "source": "src\\scenes\\level 1 boss stage\\scene13.ts",
+    "file": "fffd9934ae3d5f0f.ogg",
+    "duration": 3.29,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Branden",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p227_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "1f87ee2e0f8eaa9c",
+    "speaker": "Brondon",
+    "text": "I will. I promise.",
+    "source": "src\\scenes\\level 1 boss stage\\scene13.ts",
+    "file": "1f87ee2e0f8eaa9c.ogg",
+    "duration": 1.84,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "8d0a42c87350f93d",
+    "speaker": "Brondon",
+    "text": "I will avenge you.",
+    "source": "src\\scenes\\level 1 boss stage\\scene13.ts",
+    "file": "8d0a42c87350f93d.ogg",
+    "duration": 1.44,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "70a2741d52635e24",
+    "speaker": "Donus",
+    "text": "This machine is mine now. So is this ship. Let's see how you fight without gravity.",
+    "source": "src\\scenes\\level 1 boss stage\\scene13.ts",
+    "file": "70a2741d52635e24.ogg",
+    "duration": 6.4,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Donus",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p237_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "821b9d9ef0b234e9",
+    "speaker": "Brondon",
+    "text": "Prime, keep us clear of the walls.",
+    "source": "src\\scenes\\level 1 boss stage\\scene13.ts",
+    "file": "821b9d9ef0b234e9.ogg",
+    "duration": 2.32,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "a0ed41b57cf55cbc",
+    "speaker": "Brendan",
+    "text": "Donus fused my mind with a battleship. I can still feel its engines in my head.",
+    "source": "src\\scenes\\level 2\\scene16.ts",
+    "file": "a0ed41b57cf55cbc.ogg",
+    "duration": 4.8,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brendan",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p232_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "7c4ed4bab8fe7ef8",
+    "speaker": "Brendan",
+    "text": "I need to stay behind and recover. The facility is ahead. Follow the stone path across the bridge.",
+    "source": "src\\scenes\\level 2\\scene16.ts",
+    "file": "7c4ed4bab8fe7ef8.ogg",
+    "duration": 7.2,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brendan",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p232_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "812b0b5b08a9b890",
+    "speaker": "Brendan",
+    "text": "Go ahead, Brondon. I need some time to recover from what Donus did to me.",
+    "source": "src\\scenes\\level 3\\scene17.ts",
+    "file": "812b0b5b08a9b890.ogg",
+    "duration": 4.4,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brendan",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p232_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "cd33774297aa2eda",
+    "speaker": "Brondon",
+    "text": "They were behind this. All of it.",
+    "source": "src\\scenes\\level 3\\scene20.ts",
+    "file": "cd33774297aa2eda.ogg",
+    "duration": 2.4,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "26a76a77ea840184",
+    "speaker": "Brondon",
+    "text": "I need to hear the truth from them.",
+    "source": "src\\scenes\\level 3\\scene20.ts",
+    "file": "26a76a77ea840184.ogg",
+    "duration": 2.4,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "d79b7d109995ba32",
+    "speaker": "Brondon",
+    "text": "Let me have a look...",
+    "source": "src\\scenes\\level 3\\scene20.ts",
+    "file": "d79b7d109995ba32.ogg",
+    "duration": 1.44,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "52438b94fd09aed0",
+    "speaker": "Brondon",
+    "text": "No more hiding. Tell me the truth.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "52438b94fd09aed0.ogg",
+    "duration": 3.2,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "0512d48c4a50ddff",
+    "speaker": "Brondon",
+    "text": "What did you do to Branden and Brendan?",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "0512d48c4a50ddff.ogg",
+    "duration": 2.32,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "9b9589a75fc56153",
+    "speaker": "Brondon",
+    "text": "Was any of it real?",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "9b9589a75fc56153.ogg",
+    "duration": 1.28,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "0dc4be7e46f25e4d",
+    "speaker": "Brondon",
+    "text": "I trusted you to use what I taught you to help people.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "0dc4be7e46f25e4d.ogg",
+    "duration": 3.2,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "dd4785d69ce2be07",
+    "speaker": "Sohrab",
+    "text": "You taught us what was possible. We went further.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "dd4785d69ce2be07.ogg",
+    "duration": 4.5,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Sohrab",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p264_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "3b8e44ec57b8d542",
+    "speaker": "Brondon",
+    "text": "Branden died asking me to save you.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "3b8e44ec57b8d542.ogg",
+    "duration": 2.32,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "726e407997dbecc8",
+    "speaker": "Sohrab",
+    "text": "He never understood what we were doing.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "726e407997dbecc8.ogg",
+    "duration": 2.48,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Sohrab",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p264_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "5a98dd3d65ea18b0",
+    "speaker": "Brondon",
+    "text": "You tortured my friends and used my trust to bring me here.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "5a98dd3d65ea18b0.ogg",
+    "duration": 3.77,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "3fdc00233403a0c8",
+    "speaker": "Brondon",
+    "text": "You wanted me to see what you've become. I see it.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "3fdc00233403a0c8.ogg",
+    "duration": 3.13,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "49816d0122700706",
+    "speaker": "Brondon",
+    "text": "You stopped being my students the moment you chose this.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "49816d0122700706.ogg",
+    "duration": 3.13,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "89370f377eafb3e5",
+    "speaker": "Brondon",
+    "text": "I will.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "89370f377eafb3e5.ogg",
+    "duration": 1.04,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "b42ae18236938128",
+    "speaker": "Sohrab",
+    "text": "You wanted us face to face. Let's take this outside.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "b42ae18236938128.ogg",
+    "duration": 4.4,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Sohrab",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p264_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "72e2a178372d8b3f",
+    "speaker": "Brondon",
+    "text": "I taught you everything you know.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "72e2a178372d8b3f.ogg",
+    "duration": 2,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "6af1079d5e2547d8",
+    "speaker": "Brondon",
+    "text": "But not everything I know.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "6af1079d5e2547d8.ogg",
+    "duration": 2.24,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "e4e8038863400cf5",
+    "speaker": "Brondon",
+    "text": "For Branden. For Brendan.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "e4e8038863400cf5.ogg",
+    "duration": 2.4,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "91b253b73c7cfe4a",
+    "speaker": "Brendan",
+    "text": "Ahhhhh, it burns!",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "91b253b73c7cfe4a.ogg",
+    "duration": 2.16,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brendan",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p232_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "d5c974678c88f20b",
+    "speaker": "Brendan",
+    "text": "In the end, I ended up just like that gitea server.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "d5c974678c88f20b.ogg",
+    "duration": 3.6,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brendan",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p232_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "c51e5aeda0e1dc0e",
+    "speaker": "Brondon",
+    "text": "Nooooo, Brendan!!",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "c51e5aeda0e1dc0e.ogg",
+    "duration": 1.92,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "13b9fffbf46ba91a",
+    "speaker": "Brondon",
+    "text": "Sudoers, I will never forgive you. You must die. I will have my revenge!!!",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "13b9fffbf46ba91a.ogg",
+    "duration": 5.6,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "e9b3f5d9b607d254",
+    "speaker": "Brondon",
+    "text": "AHHHHHH!",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "e9b3f5d9b607d254.ogg",
+    "duration": 1.76,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "c367429d3dbc562e",
+    "speaker": "Brondon",
+    "text": "Branden... Brendan... I'm sorry.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "c367429d3dbc562e.ogg",
+    "duration": 3.37,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "bd34ecdae662f171",
+    "speaker": "Brondon",
+    "text": "I couldn't save you.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "bd34ecdae662f171.ogg",
+    "duration": 1.52,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "12b706463b8c93ac",
+    "speaker": "Brondon",
+    "text": "I came for vengeance. Now it's all I have left.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "12b706463b8c93ac.ogg",
+    "duration": 3.69,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "bc1df3ab3f7e28b6",
+    "speaker": "Brondon",
+    "text": "I will end this.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "bc1df3ab3f7e28b6.ogg",
+    "duration": 1.84,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "9ce32a2cfbff282b",
+    "speaker": "Brondon",
+    "text": "Where am I?",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "9ce32a2cfbff282b.ogg",
+    "duration": 1.28,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "ec92fba5c7c2507c",
+    "speaker": "Brondon",
+    "text": "Prime? is that you?",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "ec92fba5c7c2507c.ogg",
+    "duration": 2.08,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "ebd1a72a66530c5c",
+    "speaker": "Brondon",
+    "text": "What happened, Prime? The last thing I remember is the asteroid.",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "ebd1a72a66530c5c.ogg",
+    "duration": 3.69,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "8f45c255eddb1039",
+    "speaker": "Brondon",
+    "text": "The other lecturers... the students. What did it do to them?",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "8f45c255eddb1039.ogg",
+    "duration": 4.9,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "4e4d25ea88717ac9",
+    "speaker": "Brondon",
+    "text": "Then why am I still here? Why didn't it experiment on me?",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "4e4d25ea88717ac9.ogg",
+    "duration": 4.2,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "853a0ea8e50418e1",
+    "speaker": "Brondon",
+    "text": "Where are we now? What about the others?",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "853a0ea8e50418e1.ogg",
+    "duration": 2.72,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "3d910a88b42515d9",
+    "speaker": "Brondon",
+    "text": "Then I have to save them. How do I get out of these chains?",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "3d910a88b42515d9.ogg",
+    "duration": 4.3,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "6fc5930757ef84a8",
+    "speaker": "Brondon",
+    "text": "Is there anywhere on the ship I can get to without being seen?",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "6fc5930757ef84a8.ogg",
+    "duration": 3.6,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "85a69e6481d33264",
+    "speaker": "Brondon",
+    "text": "Let's do this.",
+    "source": "src\\scenes\\prologue\\prologue_scene_1.ts",
+    "file": "85a69e6481d33264.ogg",
+    "duration": 1.44,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "edeadcafea122909",
+    "speaker": "Caleb",
+    "text": "We broke Donus's safeguards. Every order it gave came from us.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "edeadcafea122909.ogg",
+    "duration": 4.5,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Caleb",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p243_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "1885df5ceb331066",
+    "speaker": "Husain",
+    "text": "Branden was our first neural link. With Brendan, we learned how far we could take it.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "1885df5ceb331066.ogg",
+    "duration": 6.4,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Husain",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p254_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "c50782c945a495de",
+    "speaker": "André",
+    "text": "Prime's memories of the laboratory were ours to write. It never knew the difference.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "c50782c945a495de.ogg",
+    "duration": 5.5,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "André",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p256_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "7a0786dcb99afd49",
+    "speaker": "Sibusiso",
+    "text": "We left the signals and opened the way. We wanted you to reach this room.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "7a0786dcb99afd49.ogg",
+    "duration": 4.4,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Sibusiso",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p258_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "7659dc1e86395ad1",
+    "speaker": "Sohrab",
+    "text": "Donus took the blame. Your friends paid the price. Now you get to see what we built.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "7659dc1e86395ad1.ogg",
+    "duration": 7.2,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Sohrab",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p264_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "06c96e100baada8c",
+    "speaker": "Brondon",
+    "text": "Neither does my vengeance.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "06c96e100baada8c.ogg",
+    "duration": 2.32,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Brondon",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p226_023_enhanced.wav"
+      }
+    ]
+  },
+  {
+    "id": "ab2eeebf70dbae1f",
+    "speaker": "Prime",
+    "text": "He found us! Dodge the drones!",
+    "source": "src\\scenes\\level 1 boss stage\\scene13.ts",
+    "file": "ab2eeebf70dbae1f.ogg",
+    "duration": 2.62,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "c6372843f7ba481c",
+    "speaker": "Prime",
+    "text": "We need to get behind him.",
+    "source": "src\\scenes\\level 1 boss stage\\scene13.ts",
+    "file": "c6372843f7ba481c.ogg",
+    "duration": 1.6,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "2486881156b6f6c8",
+    "speaker": "Prime",
+    "text": "Direct hit! Finish him!",
+    "source": "src\\scenes\\level 1 boss stage\\scene13.ts",
+    "file": "2486881156b6f6c8.ogg",
+    "duration": 2.08,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "c6cd4e2b8bce398d",
+    "speaker": "Prime",
+    "text": "The opening is gone. Teleport behind him again.",
+    "source": "src\\scenes\\level 1 boss stage\\scene13.ts",
+    "file": "c6cd4e2b8bce398d.ogg",
+    "duration": 3.76,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "9702b3abdbcc7111",
+    "speaker": "Prime",
+    "text": "That's the mining bot Branden was designing. It looks like it wants to fight.",
+    "source": "src\\scenes\\level 1 boss stage\\scene13.ts",
+    "file": "9702b3abdbcc7111.ogg",
+    "duration": 4.3,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "0cd2eff9b9e0d89d",
+    "speaker": "Prime",
+    "text": "They have sealed the exits.",
+    "source": "src\\scenes\\level 1 stage 1\\storageRoom.ts",
+    "file": "0cd2eff9b9e0d89d.ogg",
+    "duration": 1.76,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "e91228780f6e9158",
+    "speaker": "Prime",
+    "text": "Find a way around this drone.",
+    "source": "src\\scenes\\level 1 stage 1\\storageRoom.ts",
+    "file": "e91228780f6e9158.ogg",
+    "duration": 1.75,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "bf5ded7539c06af3",
+    "speaker": "Prime",
+    "text": "Let the camera pass.",
+    "source": "src\\scenes\\level 1 stage 1\\storageRoom.ts",
+    "file": "bf5ded7539c06af3.ogg",
+    "duration": 1.68,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "bce07ac28b27f38b",
+    "speaker": "Prime",
+    "text": "Stay behind the drone.",
+    "source": "src\\scenes\\level 1 stage 1\\storageRoom.ts",
+    "file": "bce07ac28b27f38b.ogg",
+    "duration": 1.84,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "7ebfa305bd0b3487",
+    "speaker": "Prime",
+    "text": "Catwalks are exposed. Drop behind cargo if they sweep.",
+    "source": "src\\scenes\\level 1 stage 1\\storageRoom.ts",
+    "file": "7ebfa305bd0b3487.ogg",
+    "duration": 4.1,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "b7d31a40964b8f0a",
+    "speaker": "Prime",
+    "text": "Break line of sight. Don't sprint.",
+    "source": "src\\scenes\\level 1 stage 1\\storageRoom.ts",
+    "file": "b7d31a40964b8f0a.ogg",
+    "duration": 2.48,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "4459783e75dd511d",
+    "speaker": "Prime",
+    "text": "Crouch through the cargo tunnels. Watch both ends.",
+    "source": "src\\scenes\\level 1 stage 1\\storageRoom.ts",
+    "file": "4459783e75dd511d.ogg",
+    "duration": 3.45,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "5b6de58fc49ea7db",
+    "speaker": "Prime",
+    "text": "You automatically crouch through the cargo tunnels. Watch both ends.",
+    "source": "src\\scenes\\level 1 stage 1\\storageRoom.ts",
+    "file": "5b6de58fc49ea7db.ogg",
+    "duration": 4,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "c91ca22afd1a91a3",
+    "speaker": "Prime",
+    "text": "You can shoot blue-eyed drones in the back of the head.",
+    "source": "src\\scenes\\level 1 stage 1\\storageRoom.ts",
+    "file": "c91ca22afd1a91a3.ogg",
+    "duration": 2.79,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "ee74ce4e9f6b5a96",
+    "speaker": "Prime",
+    "text": "Airlock locked. Use the ceiling ladder at the far end.",
+    "source": "src\\scenes\\level 1 stage 1\\storageRoom.ts",
+    "file": "ee74ce4e9f6b5a96.ogg",
+    "duration": 3.6,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "93548b8e56239c40",
+    "speaker": "Prime",
+    "text": "Shoot metal away from you to pull them off.",
+    "source": "src\\scenes\\level 1 stage 1\\storageRoom.ts",
+    "file": "93548b8e56239c40.ogg",
+    "duration": 2.39,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "96f1da5709db77ad",
+    "speaker": "Prime",
+    "text": "Ladders reach the container roofs.",
+    "source": "src\\scenes\\level 1 stage 1\\storageRoom.ts",
+    "file": "96f1da5709db77ad.ogg",
+    "duration": 2.07,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "57b0706e0943536e",
+    "speaker": "Prime",
+    "text": "Relays fake a fault. Patrols check it.",
+    "source": "src\\scenes\\level 1 stage 1\\storageRoom.ts",
+    "file": "57b0706e0943536e.ogg",
+    "duration": 3.69,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "3ed71b99bf2d58ec",
+    "speaker": "Prime",
+    "text": "Stay behind the containers.",
+    "source": "src\\scenes\\level 1 stage 1\\storageRoom.ts",
+    "file": "3ed71b99bf2d58ec.ogg",
+    "duration": 1.76,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "9ab0d6a8aa6c3c79",
+    "speaker": "Prime",
+    "text": "We must find another way.",
+    "source": "src\\scenes\\level 1 stage 1\\storageRoom.ts",
+    "file": "9ab0d6a8aa6c3c79.ogg",
+    "duration": 1.67,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "2c8f76e938588f79",
+    "speaker": "Prime",
+    "text": "The students would always play in here.",
+    "source": "src\\scenes\\level 1 stage 2\\equipmentRoom.ts",
+    "file": "2c8f76e938588f79.ogg",
+    "duration": 2.08,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "6b586e1730a0a2a8",
+    "speaker": "Prime",
+    "text": "The students drilled power-up sequences on this deck. Read the posters first.",
+    "source": "src\\scenes\\level 1 stage 2\\reactorSequencer.ts",
+    "file": "6b586e1730a0a2a8.ogg",
+    "duration": 5.3,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "2860baef143c4932",
+    "speaker": "Prime",
+    "text": "This is one of Brendan's simulation rooms.",
+    "source": "src\\scenes\\level 1 stage 2\\rustChamber.ts",
+    "file": "2860baef143c4932.ogg",
+    "duration": 2.47,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "0f0d38406cce30e9",
+    "speaker": "Prime",
+    "text": "Security seems kind of lacklustre. I wonder what's going on.",
+    "source": "src\\scenes\\level 1 stage 2\\scene.ts",
+    "file": "0f0d38406cce30e9.ogg",
+    "duration": 4.5,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "34e6f7412151b134",
+    "speaker": "Prime",
+    "text": "Hangar 14 is blocked. We need to go through Bay 13.",
+    "source": "src\\scenes\\level 1 stage 2\\scene.ts",
+    "file": "34e6f7412151b134.ogg",
+    "duration": 4,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "2f69059b179b025b",
+    "speaker": "Prime",
+    "text": "That green crystal keeps our return link. Press R to return to this room.",
+    "source": "src\\scenes\\level 1 stage 2\\scene.ts",
+    "file": "2f69059b179b025b.ogg",
+    "duration": 4.8,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "e12af2f77aae0daa",
+    "speaker": "Prime",
+    "text": "Branden used this deck's target range to practice his aim.",
+    "source": "src\\scenes\\level 1 stage 2\\targetRange.ts",
+    "file": "e12af2f77aae0daa.ogg",
+    "duration": 3.36,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "aa4f4802b1f51a73",
+    "speaker": "Prime",
+    "text": "This looks more like a resort than a prison.",
+    "source": "src\\scenes\\level 3\\scene20.ts",
+    "file": "aa4f4802b1f51a73.ogg",
+    "duration": 2.31,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "852e74d78d3b4db7",
+    "speaker": "Prime",
+    "text": "Brondon, brace yourself! I've got you!",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "852e74d78d3b4db7.ogg",
+    "duration": 3.05,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "4882ce79ae835b2e",
+    "speaker": "Prime",
+    "text": "Stay on the circle. They're cutting through the dome!",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "4882ce79ae835b2e.ogg",
+    "duration": 2.94,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "deb42d867ff42207",
+    "speaker": "Prime",
+    "text": "Calling the ship. Opus, deploy!",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "deb42d867ff42207.ogg",
+    "duration": 2.86,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "d4a3c3d0283ead98",
+    "speaker": "Prime",
+    "text": "Opus is synchronised. You're in control.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "d4a3c3d0283ead98.ogg",
+    "duration": 3.05,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "9cbd0f01381c9a6a",
+    "speaker": "Prime",
+    "text": "Emergency thrusters activated. Escaping the atmosphere.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "9cbd0f01381c9a6a.ogg",
+    "duration": 3.76,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "d9a7bf9b290e0a8a",
+    "speaker": "Prime",
+    "text": "You may have left something useful in your own chest.",
+    "source": "src\\scenes\\living quarters\\layout.ts",
+    "file": "d9a7bf9b290e0a8a.ogg",
+    "duration": 2.72,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "9bad8f7340aebbe4",
+    "speaker": "Prime",
+    "text": "Brendan kept an unusual purple shard in his chest.",
+    "source": "src\\scenes\\living quarters\\layout.ts",
+    "file": "9bad8f7340aebbe4.ogg",
+    "duration": 3.19,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "d3b0c3ccae2c6276",
+    "speaker": "Prime",
+    "text": "Try Branden's chest. His survey gear could come in handy.",
+    "source": "src\\scenes\\living quarters\\layout.ts",
+    "file": "d3b0c3ccae2c6276.ogg",
+    "duration": 3.84,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "cb9a72ed4a58c8eb",
+    "speaker": "Prime",
+    "text": "Try the password you found at the number panel beside the bulkhead.",
+    "source": "src\\scenes\\living quarters\\layout.ts",
+    "file": "cb9a72ed4a58c8eb.ogg",
+    "duration": 3.45,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "5cca17a35b18ddf0",
+    "speaker": "Prime",
+    "text": "Branden's computer may hold a way through this bulkhead.",
+    "source": "src\\scenes\\living quarters\\layout.ts",
+    "file": "5cca17a35b18ddf0.ogg",
+    "duration": 2.87,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "f308b4a474ae217c",
+    "speaker": "Prime",
+    "text": "That worked. The bulkhead is open. Beyond it, surveillance is live. Stay out of their sight.",
+    "source": "src\\scenes\\living quarters\\scene.ts",
+    "file": "f308b4a474ae217c.ogg",
+    "duration": 6.3,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "a24ec7c7cac45ae0",
+    "speaker": "Prime",
+    "text": "The code worked. Have another look around the crew cabins for useful items before you leave.",
+    "source": "src\\scenes\\living quarters\\scene.ts",
+    "file": "a24ec7c7cac45ae0.ogg",
+    "duration": 5,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "f595bd45a3b5e06a",
+    "speaker": "Prime",
+    "text": "Brondon, this is no time for a nap. Your crew needs you.",
+    "source": "src\\scenes\\living quarters\\scene.ts",
+    "file": "f595bd45a3b5e06a.ogg",
+    "duration": 4,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "f0fdf06732768b8d",
+    "speaker": "Prime",
+    "text": "Brondon! Lock in. Your crewmembers need saving, not another gaming session.",
+    "source": "src\\scenes\\living quarters\\scene.ts",
+    "file": "f0fdf06732768b8d.ogg",
+    "duration": 5.6,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "a68149ec203b243b",
+    "speaker": "Prime",
+    "text": "The homing beacon brought you back to your cabin. That was its only charge.",
+    "source": "src\\scenes\\living quarters\\scene.ts",
+    "file": "a68149ec203b243b.ogg",
+    "duration": 4.4,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "010981c6360b3e9c",
+    "speaker": "Prime",
+    "text": "No patrols in this wing. Donus still has the others at the facility on that planet.",
+    "source": "src\\scenes\\living quarters\\scene.ts",
+    "file": "010981c6360b3e9c.ogg",
+    "duration": 5.5,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "8fb048d26139afbc",
+    "speaker": "Prime",
+    "text": "The prison camera is looped. We need to reach our ship in Hangar 14 before Donus catches on.",
+    "source": "src\\scenes\\living quarters\\scene.ts",
+    "file": "8fb048d26139afbc.ogg",
+    "duration": 6,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "367ff1036e7df87b",
+    "speaker": "Prime",
+    "text": "Look around the crew cabins for useful items before you leave. Then we get off this mothership and bring everyone home.",
+    "source": "src\\scenes\\living quarters\\scene.ts",
+    "file": "367ff1036e7df87b.ogg",
+    "duration": 6.4,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "5b08a0407b094bfe",
+    "speaker": "Prime",
+    "text": "Your pistol. Still in working order.",
+    "source": "src\\scenes\\living quarters\\scene.ts",
+    "file": "5b08a0407b094bfe.ogg",
+    "duration": 2.56,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "7f601d2a0f4b2f20",
+    "speaker": "Prime",
+    "text": "A teleporting crystal shard. Unlike the spent homing beacon, this can hold a return link.",
+    "source": "src\\scenes\\living quarters\\scene.ts",
+    "file": "7f601d2a0f4b2f20.ogg",
+    "duration": 5.6,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "1bf2d62526bc8209",
+    "speaker": "Prime",
+    "text": "Scanner goggles. Press N to wear or remove them; they can reveal markings ordinary vision misses.",
+    "source": "src\\scenes\\living quarters\\scene.ts",
+    "file": "1bf2d62526bc8209.ogg",
+    "duration": 6.4,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "56bc3281fa8d096f",
+    "speaker": "Prime",
+    "text": "Shoot the blue core on his back.",
+    "source": "src\\scripts\\npc\\wardenFinisher.ts",
+    "file": "56bc3281fa8d096f.ogg",
+    "duration": 2,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "aff689abee567364",
+    "speaker": "Prime",
+    "text": "Prime's shield will launch you. Land on his back.",
+    "source": "src\\scripts\\npc\\wardenFinisher.ts",
+    "file": "aff689abee567364.ogg",
+    "duration": 3.03,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "2ae0c23e5ad7b924",
+    "speaker": "Prime",
+    "text": "One clean cut. Split the frame.",
+    "source": "src\\scripts\\npc\\wardenFinisher.ts",
+    "file": "2ae0c23e5ad7b924.ogg",
+    "duration": 3.05,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "57b441f64b6497d6",
+    "speaker": "Prime",
+    "text": "Let the crystal land, then press T.",
+    "source": "src\\scripts\\npc\\wardenFinisher.ts",
+    "file": "57b441f64b6497d6.ogg",
+    "duration": 2.71,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "0b9d2af18680325a",
+    "speaker": "Prime",
+    "text": "Press T. Teleport behind him.",
+    "source": "src\\scripts\\npc\\wardenFinisher.ts",
+    "file": "0b9d2af18680325a.ogg",
+    "duration": 2,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "33c66ac4a3bc4641",
+    "speaker": "Prime",
+    "text": "Let the crystal recharge.",
+    "source": "src\\scripts\\npc\\wardenFinisher.ts",
+    "file": "33c66ac4a3bc4641.ogg",
+    "duration": 1.92,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "f906ef7d4fc58e74",
+    "speaker": "Prime",
+    "text": "Aim behind him, then use D-pad Right to throw.",
+    "source": "src\\scripts\\npc\\wardenFinisher.ts",
+    "file": "f906ef7d4fc58e74.ogg",
+    "duration": 3.44,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "3953ed7842e2acfb",
+    "speaker": "Prime",
+    "text": "Hold Q and left-click to throw. Aim behind him first.",
+    "source": "src\\scripts\\npc\\wardenFinisher.ts",
+    "file": "3953ed7842e2acfb.ogg",
+    "duration": 4,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "dc8bcb17e076ab8b",
+    "speaker": "Prime",
+    "text": "Hit! keep shooting the target!",
+    "source": "src\\scripts\\npc\\wardenFinisher.ts",
+    "file": "dc8bcb17e076ab8b.ogg",
+    "duration": 2.32,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "61994a338f375e01",
+    "speaker": "Prime",
+    "text": "Brondon's chest is empty.",
+    "source": "src\\scenes\\living quarters\\scene.ts",
+    "file": "61994a338f375e01.ogg",
+    "duration": 1.92,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "fc15f66271ce0db4",
+    "speaker": "Prime",
+    "text": "Branden's chest is empty.",
+    "source": "src\\scenes\\living quarters\\scene.ts",
+    "file": "fc15f66271ce0db4.ogg",
+    "duration": 1.92,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "dd463a42b3929f8f",
+    "speaker": "Prime",
+    "text": "Brendan's chest is empty.",
+    "source": "src\\scenes\\living quarters\\scene.ts",
+    "file": "dd463a42b3929f8f.ogg",
+    "duration": 1.92,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "ffc72c7f5c9d567a",
+    "speaker": "Prime",
+    "text": "Caleb's chest is empty.",
+    "source": "src\\scenes\\living quarters\\scene.ts",
+    "file": "ffc72c7f5c9d567a.ogg",
+    "duration": 1.84,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "88e9e53fa738fec4",
+    "speaker": "Prime",
+    "text": "Husain's chest is empty.",
+    "source": "src\\scenes\\living quarters\\scene.ts",
+    "file": "88e9e53fa738fec4.ogg",
+    "duration": 1.92,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "24e45fff164ece39",
+    "speaker": "Prime",
+    "text": "André's chest is empty.",
+    "source": "src\\scenes\\living quarters\\scene.ts",
+    "file": "24e45fff164ece39.ogg",
+    "duration": 1.92,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "1dfac41c41802e2c",
+    "speaker": "Prime",
+    "text": "Sibusiso's chest is empty.",
+    "source": "src\\scenes\\living quarters\\scene.ts",
+    "file": "1dfac41c41802e2c.ogg",
+    "duration": 2.16,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "c1460a50a09fd482",
+    "speaker": "Prime",
+    "text": "Sohrab's chest is empty.",
+    "source": "src\\scenes\\living quarters\\scene.ts",
+    "file": "c1460a50a09fd482.ogg",
+    "duration": 2,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "961f6d818f95cda4",
+    "speaker": "Sudoers 5",
+    "text": "We've been expecting you, Professor.",
+    "source": "src\\scenes\\level 3\\scene20.ts",
+    "file": "961f6d818f95cda4.ogg",
+    "duration": 2.66,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Caleb",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p243_023_enhanced.wav"
+      },
+      {
+        "speaker": "Husain",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p254_023_enhanced.wav"
+      },
+      {
+        "speaker": "André",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p256_023_enhanced.wav"
+      },
+      {
+        "speaker": "Sibusiso",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p258_023_enhanced.wav"
+      },
+      {
+        "speaker": "Sohrab",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p264_023_enhanced.wav"
+      }
+    ],
+    "mix": "Five separate performances, word-aligned, pitch-preserving time stretch, stereo"
+  },
+  {
+    "id": "dfb9bebdf911ddfc",
+    "speaker": "Sudoers 5",
+    "text": "Then try to stop us.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "dfb9bebdf911ddfc.ogg",
+    "duration": 2.02,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Caleb",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p243_023_enhanced.wav"
+      },
+      {
+        "speaker": "Husain",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p254_023_enhanced.wav"
+      },
+      {
+        "speaker": "André",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p256_023_enhanced.wav"
+      },
+      {
+        "speaker": "Sibusiso",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p258_023_enhanced.wav"
+      },
+      {
+        "speaker": "Sohrab",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p264_023_enhanced.wav"
+      }
+    ],
+    "mix": "Five separate performances, word-aligned, pitch-preserving time stretch, stereo"
+  },
+  {
+    "id": "f433728192bcc674",
+    "speaker": "Sudoers 5",
+    "text": "Separate bodies were a limitation. We don't need them anymore.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "f433728192bcc674.ogg",
+    "duration": 4.82,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Caleb",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p243_023_enhanced.wav"
+      },
+      {
+        "speaker": "Husain",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p254_023_enhanced.wav"
+      },
+      {
+        "speaker": "André",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p256_023_enhanced.wav"
+      },
+      {
+        "speaker": "Sibusiso",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p258_023_enhanced.wav"
+      },
+      {
+        "speaker": "Sohrab",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p264_023_enhanced.wav"
+      }
+    ],
+    "mix": "Five separate performances, word-aligned, pitch-preserving time stretch, stereo"
+  },
+  {
+    "id": "f3e076fb5dd564ac",
+    "speaker": "Sudoers 5",
+    "text": "Five minds, linked through a single frame.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "f3e076fb5dd564ac.ogg",
+    "duration": 3.06,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Caleb",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p243_023_enhanced.wav"
+      },
+      {
+        "speaker": "Husain",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p254_023_enhanced.wav"
+      },
+      {
+        "speaker": "André",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p256_023_enhanced.wav"
+      },
+      {
+        "speaker": "Sibusiso",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p258_023_enhanced.wav"
+      },
+      {
+        "speaker": "Sohrab",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p264_023_enhanced.wav"
+      }
+    ],
+    "mix": "Five separate performances, word-aligned, pitch-preserving time stretch, stereo"
+  },
+  {
+    "id": "fe9f1703cf83e540",
+    "speaker": "Prime",
+    "text": "Branden must've set up one of his many local bots. Here's a password that may be useful: 4817.",
+    "source": "src\\scenes\\living quarters\\scene.ts",
+    "file": "fe9f1703cf83e540.ogg",
+    "duration": 8,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "58196703d60d9409",
+    "speaker": "Sudoers 5",
+    "text": "Let's see how long you can stand against us.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "58196703d60d9409.ogg",
+    "duration": 2.98,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Caleb",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p243_023_enhanced.wav"
+      },
+      {
+        "speaker": "Husain",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p254_023_enhanced.wav"
+      },
+      {
+        "speaker": "André",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p256_023_enhanced.wav"
+      },
+      {
+        "speaker": "Sibusiso",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p258_023_enhanced.wav"
+      },
+      {
+        "speaker": "Sohrab",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p264_023_enhanced.wav"
+      }
+    ],
+    "mix": "Five separate performances, word-aligned, pitch-preserving time stretch, stereo"
+  },
+  {
+    "id": "04ae8607d324002b",
+    "speaker": "Sudoers 5",
+    "text": "You haven't seen the extent of our ambition.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "04ae8607d324002b.ogg",
+    "duration": 2.5,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Caleb",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p243_023_enhanced.wav"
+      },
+      {
+        "speaker": "Husain",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p254_023_enhanced.wav"
+      },
+      {
+        "speaker": "André",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p256_023_enhanced.wav"
+      },
+      {
+        "speaker": "Sibusiso",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p258_023_enhanced.wav"
+      },
+      {
+        "speaker": "Sohrab",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p264_023_enhanced.wav"
+      }
+    ],
+    "mix": "Five separate performances, word-aligned, pitch-preserving time stretch, stereo"
+  },
+  {
+    "id": "d81e24769ec76fdd",
+    "speaker": "Sudoers 5",
+    "text": "You were never going to stop us.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "d81e24769ec76fdd.ogg",
+    "duration": 1.86,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Caleb",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p243_023_enhanced.wav"
+      },
+      {
+        "speaker": "Husain",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p254_023_enhanced.wav"
+      },
+      {
+        "speaker": "André",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p256_023_enhanced.wav"
+      },
+      {
+        "speaker": "Sibusiso",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p258_023_enhanced.wav"
+      },
+      {
+        "speaker": "Sohrab",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p264_023_enhanced.wav"
+      }
+    ],
+    "mix": "Five separate performances, word-aligned, pitch-preserving time stretch, stereo"
+  },
+  {
+    "id": "e912817012147e25",
+    "speaker": "Sudoers 5",
+    "text": "Final Verdict!",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "e912817012147e25.ogg",
+    "duration": 1.54,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Caleb",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p243_023_enhanced.wav"
+      },
+      {
+        "speaker": "Husain",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p254_023_enhanced.wav"
+      },
+      {
+        "speaker": "André",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p256_023_enhanced.wav"
+      },
+      {
+        "speaker": "Sibusiso",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p258_023_enhanced.wav"
+      },
+      {
+        "speaker": "Sohrab",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p264_023_enhanced.wav"
+      }
+    ],
+    "mix": "Five separate performances, word-aligned, pitch-preserving time stretch, stereo"
+  },
+  {
+    "id": "0b47fd38b9ae637d",
+    "speaker": "Sudoers 5",
+    "text": "Our ambition knows no limits.",
+    "source": "src\\scenes\\level 3\\scene21.ts",
+    "file": "0b47fd38b9ae637d.ogg",
+    "duration": 2.58,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Caleb",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p243_023_enhanced.wav"
+      },
+      {
+        "speaker": "Husain",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p254_023_enhanced.wav"
+      },
+      {
+        "speaker": "André",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p256_023_enhanced.wav"
+      },
+      {
+        "speaker": "Sibusiso",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p258_023_enhanced.wav"
+      },
+      {
+        "speaker": "Sohrab",
+        "reference": "https://huggingface.co/kyutai/tts-voices/resolve/main/vctk/p264_023_enhanced.wav"
+      }
+    ],
+    "mix": "Five separate performances, word-aligned, pitch-preserving time stretch, stereo"
+  },
+  {
+    "id": "28f4e32e7b1bb244",
+    "speaker": "Prime",
+    "text": "Look for mineral samples among the coloured rocks.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "28f4e32e7b1bb244.ogg",
+    "duration": 2.55,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "565f3b3e7a87c218",
+    "speaker": "Prime",
+    "text": "Move closer to a sample and watch for its interaction prompt.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "565f3b3e7a87c218.ogg",
+    "duration": 3.52,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "caeb8c2b6b29e90e",
+    "speaker": "Prime",
+    "text": "Check the nearby rocks before moving on.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "caeb8c2b6b29e90e.ogg",
+    "duration": 2.23,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "5cd95ebecec268cc",
+    "speaker": "Prime",
+    "text": "Check the crew cabins for useful equipment before we leave.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "5cd95ebecec268cc.ogg",
+    "duration": 3.29,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "d8f2375c481ef8b1",
+    "speaker": "Prime",
+    "text": "Look at the nameplates to keep track of whose room you are searching.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "d8f2375c481ef8b1.ogg",
+    "duration": 3.27,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "a52c705cab73f488",
+    "speaker": "Prime",
+    "text": "The forward bulkhead will be ready once we have the required equipment.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "a52c705cab73f488.ogg",
+    "duration": 3.6,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "a507ce00f7601050",
+    "speaker": "Prime",
+    "text": "Watch the sensor timing before crossing the vents.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "a507ce00f7601050.ogg",
+    "duration": 2.79,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "190b8a9be794a611",
+    "speaker": "Prime",
+    "text": "Blue pads mark checkpoints. Take one section at a time.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "190b8a9be794a611.ogg",
+    "duration": 4.1,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "165b1dbda64d8615",
+    "speaker": "Prime",
+    "text": "Explore the branches if this route loops back on itself.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "165b1dbda64d8615.ogg",
+    "duration": 3.44,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "b6b02e6f44a30157",
+    "speaker": "Prime",
+    "text": "The camera screens link us to the other rooms.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "b6b02e6f44a30157.ogg",
+    "duration": 2.64,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "ee70d299e48ac569",
+    "speaker": "Prime",
+    "text": "Press R to return here after visiting a camera room.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "ee70d299e48ac569.ogg",
+    "duration": 3.11,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "88962f6639bec69b",
+    "speaker": "Prime",
+    "text": "Try your newest collected card at the elevator reader.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "88962f6639bec69b.ogg",
+    "duration": 2.72,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "db669fd1254d2f19",
+    "speaker": "Prime",
+    "text": "Look for cargo you can move with E.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "db669fd1254d2f19.ogg",
+    "duration": 2.08,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "06c86e2b865b551c",
+    "speaker": "Prime",
+    "text": "Check what changes when a crate is moved onto a mechanism.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "06c86e2b865b551c.ogg",
+    "duration": 3.2,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "16840c94b4ca9e56",
+    "speaker": "Prime",
+    "text": "You can return to the camera room with R.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "16840c94b4ca9e56.ogg",
+    "duration": 2.4,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "ac61dbe88d740d09",
+    "speaker": "Prime",
+    "text": "The scanner goggles can reveal details you would otherwise miss.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "ac61dbe88d740d09.ogg",
+    "duration": 3.6,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "280647bda9bd78e7",
+    "speaker": "Prime",
+    "text": "Read the short wall clue and compare it with the targets.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "280647bda9bd78e7.ogg",
+    "duration": 3.12,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "eb40d3e0c8196826",
+    "speaker": "Prime",
+    "text": "Take another look through the goggles before choosing your shots.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "eb40d3e0c8196826.ogg",
+    "duration": 3.12,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "5963aaa1d9320094",
+    "speaker": "Prime",
+    "text": "Use the Bloomstick to send the incoming objects back.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "5963aaa1d9320094.ogg",
+    "duration": 3.05,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "153685a322a00e98",
+    "speaker": "Prime",
+    "text": "Returning an object into its launcher clears that lane.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "153685a322a00e98.ogg",
+    "duration": 3.2,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "b7ff42233634565e",
+    "speaker": "Prime",
+    "text": "The rules above the chest explain the lane challenge.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "b7ff42233634565e.ogg",
+    "duration": 3.05,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "8f25502ab6593c9b",
+    "speaker": "Prime",
+    "text": "Blue corrosion responds to gunfire; orange needs a melee strike.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "8f25502ab6593c9b.ogg",
+    "duration": 4.4,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "19977900dbf33a32",
+    "speaker": "Prime",
+    "text": "Watch the lock ring to see how much of the mechanism remains.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "19977900dbf33a32.ogg",
+    "duration": 3.2,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "ba61c79ee8546cbc",
+    "speaker": "Prime",
+    "text": "Check above the rust water as well as along the floor.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "ba61c79ee8546cbc.ogg",
+    "duration": 2.96,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "fdab526e56f4cb60",
+    "speaker": "Prime",
+    "text": "Watch the hanging load and the pink trampoline.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "fdab526e56f4cb60.ogg",
+    "duration": 2.46,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "2655b8869c688d6a",
+    "speaker": "Prime",
+    "text": "The short wall hint describes how the room's mechanisms connect.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "2655b8869c688d6a.ogg",
+    "duration": 3.52,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "24f7bc8417576602",
+    "speaker": "Prime",
+    "text": "Use E to carry the released block when it is safe to approach.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "24f7bc8417576602.ogg",
+    "duration": 3.51,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "451a8c3d88069d3f",
+    "speaker": "Prime",
+    "text": "Read the reactor diagram before changing the sequence.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "451a8c3d88069d3f.ogg",
+    "duration": 3.2,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "411c55ca8b96143e",
+    "speaker": "Prime",
+    "text": "Watch which reactors respond to each control.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "411c55ca8b96143e.ogg",
+    "duration": 2.72,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "db91a875d3bbed40",
+    "speaker": "Prime",
+    "text": "Compare the current pattern with the poster, one step at a time.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "db91a875d3bbed40.ogg",
+    "duration": 3.37,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "f5fec7559c63d53a",
+    "speaker": "Prime",
+    "text": "Watch the bot's attack pattern before closing the distance.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "f5fec7559c63d53a.ogg",
+    "duration": 3.11,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "461067607092141e",
+    "speaker": "Prime",
+    "text": "Keep moving when it sends the drones after you.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "461067607092141e.ogg",
+    "duration": 2.64,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "efaba076e5e623e4",
+    "speaker": "Prime",
+    "text": "Look for a new opening whenever its behaviour changes.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "efaba076e5e623e4.ogg",
+    "duration": 2.87,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "4081565e57be215b",
+    "speaker": "Prime",
+    "text": "Keep moving between firing bursts.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "4081565e57be215b.ogg",
+    "duration": 2.48,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "e98bca0f98e1f251",
+    "speaker": "Prime",
+    "text": "Use your evade just before the incoming fire reaches us.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "e98bca0f98e1f251.ogg",
+    "duration": 3.37,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "2de16f66ee3d58af",
+    "speaker": "Prime",
+    "text": "Concentrate on exposed targets before changing your firing line.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "2de16f66ee3d58af.ogg",
+    "duration": 3.69,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "69953acad70a4817",
+    "speaker": "Prime",
+    "text": "Keep moving through the gaps between volleys.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "69953acad70a4817.ogg",
+    "duration": 2.48,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "2004d9b510ac375f",
+    "speaker": "Prime",
+    "text": "Time the dodge rather than holding a single direction.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "2004d9b510ac375f.ogg",
+    "duration": 2.87,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "987ac5cacad7c880",
+    "speaker": "Prime",
+    "text": "Stay clear of the next firing lane while returning fire.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "987ac5cacad7c880.ogg",
+    "duration": 3.2,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "b1d48312990d8b2e",
+    "speaker": "Prime",
+    "text": "Keep the facility in view as you choose a route.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "b1d48312990d8b2e.ogg",
+    "duration": 2.63,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "011ad52e4123229a",
+    "speaker": "Prime",
+    "text": "Use cover when the sentinels start firing.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "011ad52e4123229a.ogg",
+    "duration": 2.47,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "cab8d6bcd8df2d26",
+    "speaker": "Prime",
+    "text": "Look for a walkable path rather than forcing the steep rock faces.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "cab8d6bcd8df2d26.ogg",
+    "duration": 3.75,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "3bc816623d9ab9a8",
+    "speaker": "Prime",
+    "text": "Take a look around the laboratory before heading upstairs.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "3bc816623d9ab9a8.ogg",
+    "duration": 2.95,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "19fd14a2e3b77eea",
+    "speaker": "Prime",
+    "text": "The central stairs lead to the upper office.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "19fd14a2e3b77eea.ogg",
+    "duration": 2.47,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "87be48247b610f24",
+    "speaker": "Prime",
+    "text": "Approach the glass door upstairs and press E to peek.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "87be48247b610f24.ogg",
+    "duration": 3.13,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "a33cd4b0d15b7696",
+    "speaker": "Prime",
+    "text": "Watch the Final Verdict's wind-up before committing to an attack.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "a33cd4b0d15b7696.ogg",
+    "duration": 3.28,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "21c6c672ab208b7e",
+    "speaker": "Prime",
+    "text": "Guard just before impact to parry, then look for an opening.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "21c6c672ab208b7e.ogg",
+    "duration": 3.6,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "66e9b1c3980bf607",
+    "speaker": "Prime",
+    "text": "Use a dodge to make room when the next attack is already coming.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "66e9b1c3980bf607.ogg",
+    "duration": 3.37,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "d4a8db8d892e908e",
+    "speaker": "Prime",
+    "text": "The paintings lead to the playable challenges.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "d4a8db8d892e908e.ogg",
+    "duration": 2.54,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "082d627451749b1f",
+    "speaker": "Prime",
+    "text": "Move close to a painting and use its interaction prompt.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "082d627451749b1f.ogg",
+    "duration": 3.2,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  },
+  {
+    "id": "0e39c4d3276bae53",
+    "speaker": "Prime",
+    "text": "The blue light in the middle returns you to the main menu.",
+    "source": "src\\scripts\\player\\adaptiveHints.ts",
+    "file": "0e39c4d3276bae53.ogg",
+    "duration": 2.87,
+    "model": "Kyutai Pocket TTS b6369a24",
+    "voices": [
+      {
+        "speaker": "Prime",
+        "reference": "Original Qwen3-TTS designed male Prime voice"
+      }
+    ]
+  }
+]

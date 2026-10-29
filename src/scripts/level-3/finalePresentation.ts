@@ -1,7 +1,4 @@
-import {
-  getAudioSettings,
-  subscribeAudioSettings,
-} from "../../helpers/audio/AudioManager.js";
+import { getAudioSettings } from "../../helpers/audio/AudioManager.js";
 import { playSfx, playWorldSfx, type SfxName } from "../../helpers/audio/sfx.js";
 import type { SoundPosition } from "../../helpers/audio/spatialAudio.js";
 import { DUEL } from "../npc/mechDuel.js";
@@ -10,6 +7,7 @@ import { createComicEffectArtwork } from "../global/comicEffects.js";
 import { isControllerActive, inputHint } from "../player/gamepadInput.js";
 import { renderControllerPrompt } from "../player/controllerIcons.js";
 import { setInputHint } from "../global/inputPrompts.js";
+import { sayDialogue, stopDialogueVoice } from "../../helpers/audio/dialogueVoice.js";
 import { renderDirectionalPrompt } from "../player/directionalPrompt.js";
 
 export const FINALE_SOUND_MAP = {
@@ -153,7 +151,6 @@ export function createFinalePresentation(
   const performance = get<HTMLElement>(".finale-credits-performance");
   const events = new AbortController();
   let muted = false;
-  let stopShout: (() => void) | undefined;
   const heldPointers = new Map<number, string>();
   const reducedMotion = window.matchMedia(
     "(prefers-reduced-motion: reduce)",
@@ -196,11 +193,6 @@ export function createFinalePresentation(
     heldPointers.clear();
   }
   window.addEventListener("blur", clearPointers, { signal: events.signal });
-
-  const settingsOff = subscribeAudioSettings((settings) => {
-    if (!settings.paused) return;
-    stopShout?.();
-  });
 
   return {
     root,
@@ -259,7 +251,8 @@ export function createFinalePresentation(
             );
       get(".finale-ending-fade").style.opacity = String(progress);
     },
-    dialogue(name: string, text: string) {
+    dialogue(name: string, text: string, windowSeconds?: number) {
+      sayDialogue(line, name, text, undefined, windowSeconds);
       speaker.textContent = name;
       setInputHint(line, text, "finale", true);
       dialogue.dataset.speaker = name;
@@ -399,16 +392,8 @@ export function createFinalePresentation(
     pause(value: boolean) {
       muted = value;
       clearPointers();
-      if (value) stopShout?.();
     },
-    sound(kind: keyof typeof FINALE_SOUND_MAP | "shout", position?: SoundPosition) {
-      if (kind === "shout") {
-        if (!muted && !getAudioSettings().paused) {
-          stopShout?.();
-          stopShout = playSfx("revengeShout", 0.95);
-        }
-        return;
-      }
+    sound(kind: keyof typeof FINALE_SOUND_MAP, position?: SoundPosition) {
       if (muted || getAudioSettings().paused) return;
       if (kind === "swing") {
         playSfx("slash", 0.8);
@@ -419,10 +404,9 @@ export function createFinalePresentation(
       else playSfx(FINALE_SOUND_MAP[kind], 0.65);
     },
     dispose() {
+      stopDialogueVoice(line);
       clearPointers();
-      stopShout?.();
       events.abort();
-      settingsOff();
       root.remove();
       document.body.classList.remove("finale-active");
     },

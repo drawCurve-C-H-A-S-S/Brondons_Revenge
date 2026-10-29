@@ -892,7 +892,7 @@
             >
             from Pixabay<br />
             Gunshot, red bombs, waterfall, spaceship door, robot clank, punch,
-            toilet flush and Brendan's voice by
+            toilet flush and Brendan's hit reaction by
             <a
               href="https://pixabay.com/users/freesound_community-46691455/"
               target="_blank"
@@ -900,6 +900,26 @@
               >freesound_community</a
             >
             from Pixabay
+          </p>
+        </section>
+        <section class="credit-section">
+          <h2 class="credit-role">AI character voices</h2>
+          <p class="credit-detail">
+            Synthetic fictional performances generated with
+            <a href="https://github.com/kyutai-labs/pocket-tts" target="_blank" rel="noreferrer">Kyutai Pocket TTS</a>
+            (model weights: CC BY 4.0), through the free
+            <a href="https://huggingface.co/spaces/D3vShoaib/pocket-tts" target="_blank" rel="noreferrer">Pocket TTS demo</a>.<br />
+            Prime's original voice designed with
+            <a href="https://huggingface.co/spaces/Qwen/Qwen3-TTS" target="_blank" rel="noreferrer">Qwen3-TTS</a>
+            (Apache-2.0).<br />
+            Other cast references: CSTR VCTK Corpus 0.92 by Junichi Yamagishi,
+            Christophe Veaux and Kirsten MacDonald, via
+            <a href="https://huggingface.co/kyutai/tts-voices" target="_blank" rel="noreferrer">Kyutai's voice catalogue</a>
+            under
+            <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">CC BY 4.0</a>;
+            enhanced by ai-coustics. Generated dialogue, pitch/EQ processing and
+            five-voice group mixes are modifications. No provider or dataset
+            speaker endorsement is implied.
           </p>
         </section>
         <section class="credit-section">
@@ -1199,10 +1219,10 @@
           </button>
           <button type="button" class="menu-button lobby-setting" data-story-settings="sound">
             <span class="lobby-setting-number" aria-hidden="true">03</span>
-            <span><strong>Sound</strong><small>Balance the music and sound effects.</small></span>
+            <span><strong>Sound</strong><small>Voice acting, music and sound effects.</small></span>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
           </button>
-          <p class="menu-settings-note">Settings apply immediately and reset when you reload the page.</p>
+          <p class="menu-settings-note">Settings apply immediately. Voice acting is remembered on this device; other settings reset when you reload.</p>
         </div>
         <footer class="menu-panel-footer">
           <button id="story-setup-start" type="button" class="menu-button">Begin story</button>
@@ -1415,6 +1435,23 @@
           <h2 id="sound-settings-heading">Sound</h2>
         </header>
         <div class="menu-panel-content settings-grid sound-settings">
+          <fieldset class="settings-group">
+            <legend>Voice acting</legend>
+            <label class="settings-toggle" for="voice-acting-toggle">
+              <span><strong>Character voices</strong><small>Developer mode only. Off by default.</small></span>
+              <input
+                id="voice-acting-toggle"
+                type="checkbox"
+                aria-describedby="voice-acting-note"
+                disabled
+              />
+            </label>
+            <p id="voice-acting-note" class="menu-settings-note">
+              Unlock Developer mode to enable voiced dialogue. Subtitles stay on
+              in both modes; music and effects are unchanged. Your developer
+              preference is remembered on this device.
+            </p>
+          </fieldset>
           <fieldset class="settings-group">
             <legend>Music</legend>
             <label for="bgm-volume"

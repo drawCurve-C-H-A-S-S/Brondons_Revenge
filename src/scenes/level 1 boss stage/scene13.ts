@@ -1,5 +1,10 @@
 import { playSfx, playItemPickupSound } from "../../helpers/audio/sfx.js";
 import * as THREE from "three";
+import {
+  sayDialogue,
+  stopDialogueVoice,
+  dialogueVoiceDuration,
+} from "../../helpers/audio/dialogueVoice.js";
 import { inputHint } from "../../scripts/player/gamepadInput.js";
 import { renderDirectionalPrompt } from "../../scripts/player/directionalPrompt.js";
 import {
@@ -687,7 +692,7 @@ export function createScene({
     fill = document.getElementById("boss-health-fill");
   const label = document.getElementById("boss-health-label");
   const subtitles = document.getElementById("boss-subtitles");
-  function showSubtitle(text: string) {
+  function showSubtitle(text: string, windowSeconds?: number) {
     if (!subtitles) return;
     delete subtitles.dataset.primeHint;
     const colon = text.indexOf(":"),
@@ -697,6 +702,7 @@ export function createScene({
       subtitles.dataset.dialogueSpeaker === speaker &&
       subtitles.dataset.dialogueLine === line &&
       subtitles.textContent === line;
+    sayDialogue(subtitles, speaker, line, scene, windowSeconds);
     if (subtitles.textContent !== text && !formatted)
       subtitles.textContent = text;
     subtitles.classList.toggle("prime-line", speaker === "PRIME");
@@ -1366,7 +1372,6 @@ export function createScene({
       throw new Error(`Branden's rig is missing the ${name} animation`);
     const previousName = boyClipName;
     boyClipName = name;
-    if (name === "talk") playSfx("brendan", 0.8);
     const next = boyMixer.clipAction(clip);
     next.reset();
     next.setLoop(
@@ -1896,6 +1901,9 @@ export function createScene({
     scorchMaterial.opacity = Math.min(scorchMaterial.opacity, 0.75);
   }
   function revealSubtitle(t: number) {
+    const lookoutAt =
+      BLAST_AT -
+      Math.max(0.55, dialogueVoiceDuration("Branden", "Look out!") + 0.1);
     const lines: Array<[number, number, string]> = [
       [
         approachEnd,
@@ -1917,8 +1925,12 @@ export function createScene({
         WALK_AWAY_AT,
         "Brondon: Then that's where we're going. Come on.",
       ],
-      [DONUS_WARNING_AT, BLAST_AT - 0.65, "Donus: Not so fast."],
-      [BLAST_AT - 0.55, BLAST_AT, "Branden: Look out!"],
+      [
+        DONUS_WARNING_AT,
+        Math.min(BLAST_AT - 0.65, lookoutAt),
+        "Donus: Not so fast.",
+      ],
+      [lookoutAt, BLAST_AT, "Branden: Look out!"],
       [BLAST_AT, BLAST_AT + 2.4, "Brondon: Brandennnn!!"],
       [lastWordsAt, lastWordsAt + 2.5, "Branden: Save the students..."],
       [
@@ -1937,8 +1949,11 @@ export function createScene({
     const line = lines.find(([from, to]) => t >= from && t < to);
     if (!subtitles) return;
     if (line) {
-      showSubtitle(line[2]);
-    } else subtitles.classList.add("hidden");
+      showSubtitle(line[2], line[1] - line[0]);
+    } else {
+      stopDialogueVoice(subtitles);
+      subtitles.classList.add("hidden");
+    }
   }
   function updateReveal(dt: number) {
     const t = cinematicTime;

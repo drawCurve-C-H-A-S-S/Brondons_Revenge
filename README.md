@@ -61,6 +61,34 @@ of music. Menus and hidden tabs silence them, and scene changes release outgoing
 emitters. Sources, licenses and gameplay mappings are documented in
 [sound asset credits](./src/assets/sounds/foley/SOURCES.md) and the in-game credits.
 
+**M > Sound > Voice acting > Character voices** switches between voiced and
+unvoiced playback without a separate build. It defaults to **Off** and is disabled
+until **Developer mode** is unlocked. Normal play remains unvoiced even if this
+device has a saved developer preference of On. Unlocking Developer mode restores
+that preference. Turning it off immediately stops
+character vocals and prevents new ones, while keeping subtitles, music and
+non-vocal effects unchanged. The choice is remembered on this device when browser
+storage is available. Voice clips use the Sound effects volume.
+
+Dialogue uses downloaded AI performances, not browser speech synthesis or a live
+API. No account, payment, key or backend is required to play them. The ten male
+characters have separate voice references; Sudoers 5 group lines mix five distinct
+performances. Prime uses a calm, higher-pitched voice with restrained robotic
+processing. See [voice credits and cast](./src/assets/sounds/voices/SOURCES.md).
+
+Use `sayDialogue(element, speaker, text)` from `dialogueVoice` for dialogue,
+passing the owning scene as the fourth argument when cueing during scene
+construction. Use the original keyboard text, not translated controller prompts.
+Repeated per-frame cues are deduplicated; `stopDialogueVoice(element)` cancels a
+skipped or disposed panel. Prefixed dialogue rendered with `setInputHint` is
+automatically connected. Other recorded character vocals must use
+`playSample(url, { voice: true })`. New lines need downloaded recordings and an
+entry in the voice manifest; missing recordings warn rather than using a runtime
+service. Timed finale cues pass their full caption window as the optional fifth
+argument to `sayDialogue`; longer recordings are fitted with pitch-preserving
+playback instead of cutting words off. Prologue and pickup timings can extend to
+the recorded duration.
+
 ### Code quality
 
 Check linting, formatting, and TypeScript without changing files:

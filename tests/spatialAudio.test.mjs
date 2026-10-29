@@ -145,6 +145,8 @@ beforeEach(() => {
   spatial.stopSceneAudio();
   settings.setAudioMenuPaused(false);
   settings.setAudioVolume("sfx", 1);
+  settings.setVoiceActingDeveloperMode(true);
+  settings.setVoiceActingEnabled(true);
   document.hidden = false;
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera();
@@ -200,6 +202,129 @@ test("both distance and mute are applied before new sounds are started", async (
   spatial.playSample("muted-test.ogg");
   await flush();
   assert.equal(Context.instance.sources.length, previous);
+});
+
+test("voice mode stops only vocals and preserves effects, music and sound volume", async () => {
+  const before = settings.getAudioSettings();
+  spatial.playSample("voice-mode-dialogue.ogg", { voice: true });
+  spatial.playSample("voice-mode-effect.ogg");
+  await flush();
+  assert.equal(live().length, 2);
+  const [dialogue, effect] = live();
+  settings.setVoiceActingEnabled(false);
+  assert.equal(dialogue.stopped, true);
+  assert.equal(effect.stopped, false);
+  assert.deepEqual(settings.getAudioSettings(), {
+    ...before,
+    voiceActing: false,
+  });
+  const count = Context.instance.sources.length;
+  spatial.playSample("disabled-dialogue.ogg", { voice: true });
+  sfx.playSfx("brendan");
+  sfx.playWorldSfx("brendan", { x: 0, y: 0, z: 0 });
+  sfx.playSfx("revengeShout");
+  await flush();
+  assert.equal(Context.instance.sources.length, count);
+  settings.setVoiceActingEnabled(true);
+  assert.equal(
+    dialogue.stopped,
+    true,
+    "Re-enabling never replays old dialogue",
+  );
+  spatial.playSample("new-dialogue.ogg", { voice: true });
+  await flush();
+  assert.equal(live().length, 2);
+});
+
+test("disabling voices cancels pending voice decoding without cancelling effects", async (t) => {
+  let release;
+  t.mock.method(
+    globalThis,
+    "fetch",
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  spatial.playSample("pending-voice-mode.ogg", { voice: true });
+  await flush();
+  settings.setVoiceActingEnabled(false);
+  settings.setVoiceActingEnabled(true);
+  release(new Response(new Uint8Array([79, 103, 103, 83])));
+  await flush();
+  assert.equal(live().length, 0);
+});
+
+test("voice mode also stops an active synthesized character shout", () => {
+  sfx.playSfx("revengeShout");
+  const shout = latest();
+  assert.equal(shout.stopped, false);
+  settings.setVoiceActingEnabled(false);
+  assert.equal(shout.stopped, true);
+});
+
+test("voices are unavailable outside developer mode, including a remembered On preference", async () => {
+  spatial.playSample("developer-only-dialogue.ogg", { voice: true });
+  spatial.playSample("developer-only-effect.ogg");
+  await flush();
+  const [dialogue, effect] = live();
+  settings.setVoiceActingDeveloperMode(false);
+  assert.equal(settings.getAudioSettings().voiceActing, false);
+  assert.equal(settings.getAudioSettings().voiceActingAvailable, false);
+  assert.equal(dialogue.stopped, true);
+  assert.equal(effect.stopped, false);
+  assert.throws(
+    () => settings.setVoiceActingEnabled(true),
+    /only available in developer mode/,
+  );
+  const count = Context.instance.sources.length;
+  spatial.playSample("locked-developer-dialogue.ogg", { voice: true });
+  sfx.playSfx("brendan");
+  await flush();
+  assert.equal(Context.instance.sources.length, count);
+  settings.setVoiceActingDeveloperMode(true);
+  assert.equal(settings.getAudioSettings().voiceActing, true);
+  assert.equal(dialogue.stopped, true);
+  assert.throws(() => settings.setVoiceActingDeveloperMode("on"), TypeError);
+});
+
+test("voice preference persists and blocked storage is reported without blocking the setting", (t) => {
+  const stored = new Map();
+  const previousStorage = window.localStorage;
+  window.localStorage = { setItem: (key, value) => stored.set(key, value) };
+  t.after(() => {
+    if (previousStorage === undefined) delete window.localStorage;
+    else window.localStorage = previousStorage;
+  });
+  settings.setVoiceActingEnabled(false);
+  assert.equal(stored.get("brondons-revenge-voice-acting"), "off");
+  settings.setVoiceActingEnabled(true);
+  assert.equal(stored.get("brondons-revenge-voice-acting"), "on");
+  t.mock.method(window.localStorage, "setItem", () => {
+    throw new DOMException("Storage blocked", "SecurityError");
+  });
+  const warnings = [];
+  t.mock.method(console, "warn", (...args) => warnings.push(args));
+  settings.setVoiceActingEnabled(false);
+  assert.equal(settings.getAudioSettings().voiceActing, false);
+  assert.match(warnings[0][0], /Unable to save voice-acting setting/);
+  assert.throws(() => settings.setVoiceActingEnabled("off"), TypeError);
+});
+
+test("a saved developer On preference cannot enable voices at startup", async (t) => {
+  const previousStorage = window.localStorage;
+  window.localStorage = { getItem: () => "on" };
+  t.after(() => {
+    if (previousStorage === undefined) delete window.localStorage;
+    else window.localStorage = previousStorage;
+  });
+  const fresh = await server.ssrLoadModule(
+    "/helpers/audio/AudioManager.js?developer-default-test",
+  );
+  assert.equal(fresh.getAudioSettings().voiceActing, false);
+  assert.equal(fresh.getAudioSettings().voiceActingAvailable, false);
+  fresh.setVoiceActingDeveloperMode(true);
+  assert.equal(fresh.getAudioSettings().voiceActing, true);
 });
 
 test("looping emitters virtualize at distance and restart after pause, mute and tab hiding", async () => {

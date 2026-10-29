@@ -11,6 +11,7 @@ import { MUSIC_URLS } from "../helpers/audio/gameMusic.js";
 import { preloadMusic } from "../helpers/audio/bufferedMusic.js";
 import { RECORDED_SOUND_URLS } from "../helpers/audio/recordedSounds.js";
 import { SFX_URLS } from "../helpers/audio/sfx.js";
+import { DIALOGUE_VOICE_URLS } from "../helpers/audio/dialogueVoice.js";
 import { preloadSample } from "../helpers/audio/spatialAudio.js";
 import {
   CORRIDOR_FOOTAGE,
@@ -39,6 +40,7 @@ export const GAME_ASSET_URLS = [
     ...Object.values(MUSIC_URLS),
     ...RECORDED_SOUND_URLS,
     ...Object.values(SFX_URLS),
+    ...DIALOGUE_VOICE_URLS,
     ...CORRIDOR_FOOTAGE,
     ...Object.values(CAMERA_FOOTAGE),
     ...COMBAT_ANIMATION_URLS,

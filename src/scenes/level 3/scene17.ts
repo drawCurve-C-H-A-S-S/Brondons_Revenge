@@ -1943,7 +1943,6 @@ export function createScene({
         }
     },
   });
-  let boyVoiced = false;
   function updateHud() {
     if (completed || deathClock > 0 || sharkClock >= 0)
       return;
@@ -1955,10 +1954,6 @@ export function createScene({
         player.body.position.z - boy.position.z,
       ) < 12;
     caption?.classList.toggle("hidden", !nearBoy);
-    if (nearBoy && !boyVoiced) {
-      boyVoiced = true;
-      playSfx("brendan", 0.8);
-    }
     if (nearBoy && caption)
       caption.textContent =
         "Brendan: Go ahead, Brondon. I need some time to recover from what Donus did to me.";
