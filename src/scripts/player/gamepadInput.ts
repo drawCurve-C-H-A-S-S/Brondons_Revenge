@@ -9,7 +9,9 @@ export type ControllerContext =
   | "finale-qte"
   | "escape"
   | "cinematic"
-  | "inspection";
+  | "inspection"
+  | "free-camera"
+  | "free-camera-parked";
 export type ControllerMenuAction =
   "up" | "down" | "left" | "right" | "confirm" | "back" | "pause";
 export const CONTROLLER_DEAD_ZONE = 0.18;
@@ -95,6 +97,11 @@ interface GamepadInputOptions {
   onMapNavigate?: (input: ControllerMapInput, delta: number) => void;
   onTitleOrbit?: (x: number, y: number, delta: number) => void;
   onTeleportAction?: (action: "place" | "throw", heldSeconds: number) => void;
+  onFreeCameraAnalog?: (input: {
+    movement: { x: number; y: number };
+    look: { x: number; y: number };
+    speed: number;
+  }) => void;
   aimWheel: (x: number, y: number) => void;
   cancelWheel: () => void;
 }
@@ -364,6 +371,19 @@ const contextKeys: Record<
     left: "KeyR",
     minus: "Enter",
   },
+  "free-camera": {
+    b: "Space",
+    y: "KeyC",
+    a: "KeyE",
+    x: "KeyH",
+    r3: "Escape",
+    zl: "ShiftLeft",
+    minus: "Enter",
+    down: "Slash",
+    left: "KeyP",
+  },
+  // Foot controls with the camera frozen; D-pad Left resumes the free camera.
+  "free-camera-parked": { ...footKeys, left: "KeyP" },
 };
 const labels: Record<string, string> = {
   KeyW: "Left stick up",
@@ -566,6 +586,13 @@ export const CONTROLLER_LESSONS: Record<string, string[]> = {
     "{x} - Branden's Tears rifle salvo / Hold {zl} - shield and parry",
     "{b} - dodge boost / {a} - Brendan's Will (18-second recharge) / {plus} - pause / Hold {minus} - skip intro",
     "D-pad Left - retry after defeat",
+  ],
+  "free-camera": [
+    "Left stick - move / Right stick - look around",
+    "{b} - rise up / {y} - descend / Hold {zl} - move faster",
+    "{x} - hide/show free camera HUD / D-pad Down - hide/show all HUD",
+    "D-pad Left - park/unpark camera (control player while camera stays fixed)",
+    "{r3} - exit free camera / {plus} - pause",
   ],
 };
 
@@ -1296,14 +1323,26 @@ export function createGamepadInput(options: GamepadInputOptions) {
       const desired = new Set<string>();
       movement = left;
       if (
-        ["foot", "flight", "platformer", "finale", "finale-qte"].includes(kind)
+        [
+          "foot",
+          "flight",
+          "platformer",
+          "finale",
+          "finale-qte",
+          "free-camera",
+          "free-camera-parked",
+        ].includes(kind)
       ) {
         if (movement.y < -0.25) desired.add("KeyW");
         if (movement.y > 0.25) desired.add("KeyS");
         if (movement.x < -0.25) desired.add("KeyA");
         if (movement.x > 0.25) desired.add("KeyD");
       } else movement = { x: 0, y: 0 };
-      if (kind === "foot" || kind === "platformer") {
+      if (
+        kind === "foot" ||
+        kind === "platformer" ||
+        kind === "free-camera-parked"
+      ) {
         if (pressed("down")) options.onTeleportAction?.("place", 0);
         if (pressed("right")) teleportThrowTime = 0;
         if (teleportThrowTime !== null) {
@@ -1331,12 +1370,28 @@ export function createGamepadInput(options: GamepadInputOptions) {
         setKey(code, true);
         if (epoch !== inputEpoch) break;
       }
+      
+      // Handle free-camera analog input
+      if (kind === "free-camera" && options.onFreeCameraAnalog) {
+        const speed = buttonValue(pad!, layout!.buttons.zr);
+        options.onFreeCameraAnalog({
+          movement: { x: left.x, y: left.y },
+          look: { x: look.x, y: look.y },
+          speed: speed,
+        });
+      }
+      
       if (
         epoch === inputEpoch &&
         !options.getContext().wheelOpen &&
-        ["foot", "flight", "platformer", "inspection", "cinematic"].includes(
-          kind,
-        )
+        [
+          "foot",
+          "flight",
+          "platformer",
+          "inspection",
+          "cinematic",
+          "free-camera-parked",
+        ].includes(kind)
       ) {
         if (kind !== "cinematic" && (look.x || look.y)) {
           const dx = look.x * Math.abs(look.x) * 900 * dt,

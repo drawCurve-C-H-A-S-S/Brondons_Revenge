@@ -10,7 +10,7 @@ test("development free camera is bound to = and pauses scene simulation", async 
   assert.match(main, /event\.code === "Equal"/);
   assert.match(main, /freeCamera\.update\(delta\)/);
   assert.match(main, /freeCameraOpen/);
-  assert.match(controller, /WASD move/);
+  assert.match(controller, /WASD\/Left stick move/);
   assert.match(controller, /requestPointerLock/);
   assert.match(controller, /savedQuaternion/);
 });

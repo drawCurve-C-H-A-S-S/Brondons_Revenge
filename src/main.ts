@@ -297,6 +297,7 @@ let activeSceneId = "scene1";
 let quickMenuOpen = false;
 let freeCameraOpen = false;
 let freeCamera: FreeCameraController | null = null;
+let freeCameraAnalogInput = { movement: { x: 0, y: 0 }, look: { x: 0, y: 0 }, speed: 0 };
 let weaponWheelOpen = false;
 let controllerInput: ReturnType<typeof createGamepadInput> | null = null;
 let controllerNoticeTime = 0;
@@ -514,7 +515,7 @@ const pistol = new PistolController(
     camera: activeCamera,
     world: currentSceneData?.physicsWorld ?? null,
     player:
-      freeCameraOpen ||
+      (freeCameraOpen && !freeCamera?.isParked()) ||
       returnTeleportPending ||
       currentSceneData?.ownsWeaponInput ||
       currentSceneData?.isCinematic?.() ||
@@ -546,7 +547,7 @@ const crowbar = new CrowbarController(() => ({
   camera: activeCamera,
   world: currentSceneData?.physicsWorld ?? null,
   player:
-    freeCameraOpen ||
+    (freeCameraOpen && !freeCamera?.isParked()) ||
     returnTeleportPending ||
     currentSceneData?.ownsWeaponInput ||
     currentSceneData?.isCinematic?.() ||
@@ -576,7 +577,7 @@ const bloomstick = new BloomstickController(() => ({
   camera: activeCamera,
   world: currentSceneData?.physicsWorld ?? null,
   player:
-    freeCameraOpen ||
+    (freeCameraOpen && !freeCamera?.isParked()) ||
     returnTeleportPending ||
     currentSceneData?.ownsWeaponInput ||
     currentSceneData?.isCinematic?.() ||
@@ -606,7 +607,7 @@ const unarmedCombat = new UnarmedCombatController(() => ({
   scene: activeScene,
   world: currentSceneData?.physicsWorld ?? null,
   player:
-    freeCameraOpen ||
+    (freeCameraOpen && !freeCamera?.isParked()) ||
     returnTeleportPending ||
     currentSceneData?.ownsWeaponInput ||
     currentSceneData?.isCinematic?.() ||
@@ -622,7 +623,7 @@ const unarmedCombat = new UnarmedCombatController(() => ({
 }));
 const goggles = new GogglesController(() => ({
   player:
-    freeCameraOpen ||
+    (freeCameraOpen && !freeCamera?.isParked()) ||
     returnTeleportPending ||
     currentSceneData?.ownsWeaponInput ||
     currentSceneData?.isCinematic?.() ||
@@ -926,6 +927,19 @@ function setFreeCamera(open: boolean) {
       return;
     clearSceneInput();
     freeCamera = new FreeCameraController(activeCamera, renderer.domElement);
+    freeCamera.setAnalogInputProvider(() => 
+      isControllerActive() ? freeCameraAnalogInput : null
+    );
+    freeCamera.setParkCallbacks(
+      () => {
+        document.body.classList.add("free-camera-parked");
+        currentSceneData?.setMenuPaused?.(false);
+      },
+      () => {
+        document.body.classList.remove("free-camera-parked");
+        currentSceneData?.setMenuPaused?.(true);
+      },
+    );
     freeCamera.enter();
     freeCameraOpen = true;
     document.body.classList.add("free-camera-open");
@@ -935,8 +949,16 @@ function setFreeCamera(open: boolean) {
   freeCamera?.dispose();
   freeCamera = null;
   freeCameraOpen = false;
-  document.body.classList.remove("free-camera-open");
+  freeCameraAnalogInput = { movement: { x: 0, y: 0 }, look: { x: 0, y: 0 }, speed: 0 };
+  document.body.classList.remove("free-camera-open", "free-camera-parked");
   currentSceneData?.setMenuPaused?.(false);
+}
+
+/** Camera the scene is drawn with; a parked free camera overrides gameplay. */
+function viewCamera(fallback: THREE.PerspectiveCamera) {
+  return freeCamera?.isParked()
+    ? freeCamera.getRenderCamera(fallback)
+    : fallback;
 }
 
 // --- Initialize App ---
@@ -4054,20 +4076,24 @@ function setupControllerInput() {
       const scene = currentSceneData?.getSceneId?.() ?? activeSceneId;
       const phase = currentSceneData?.getControllerPhase?.() ?? "";
       let kind: ControllerContext =
-        scene === "scene21"
-          ? ["ground", "space"].includes(phase)
-            ? "finale"
-            : "cinematic"
-          : scene === "scene14" || (scene === "scene13" && phase === "finisher")
-            ? "escape"
-            : activeSceneId === "scene15"
-              ? "flight"
-              : document.body.classList.contains("quarters-interface")
-                ? "inspection"
-                : currentSceneData?.isCinematic?.() ||
-                    !currentPlayer?.isEnabled()
-                  ? "cinematic"
-                  : "foot";
+        freeCameraOpen && freeCamera?.isParked()
+          ? "free-camera-parked"
+          : freeCameraOpen
+            ? "free-camera"
+            : scene === "scene21"
+              ? ["ground", "space"].includes(phase)
+                ? "finale"
+                : "cinematic"
+              : scene === "scene14" || (scene === "scene13" && phase === "finisher")
+                ? "escape"
+                : activeSceneId === "scene15"
+                  ? "flight"
+                  : document.body.classList.contains("quarters-interface")
+                    ? "inspection"
+                    : currentSceneData?.isCinematic?.() ||
+                        !currentPlayer?.isEnabled()
+                      ? "cinematic"
+                      : "foot";
       if (cinematicLoading.active || teleportLoading || deathPresentation)
         kind = "cinematic";
       return {
@@ -4106,6 +4132,9 @@ function setupControllerInput() {
     },
     onMapNavigate: (input, delta) =>
       shipMap?.navigateWithController(input, delta),
+    onFreeCameraAnalog(input) {
+      freeCameraAnalogInput = input;
+    },
     onTitleOrbit(x, y, delta) {
       if (
         activeSceneId !== "scene1" ||
@@ -5496,7 +5525,7 @@ function animate() {
   cinematicLoading.update(delta);
   music.setPaused(
     quickMenuOpen ||
-      freeCameraOpen ||
+      (freeCameraOpen && !freeCamera?.isParked()) ||
       teleportLoading ||
       document.hidden ||
       (!weaponWheelOpen && !!currentSceneData?.isMusicPaused?.()),
@@ -5516,13 +5545,17 @@ function animate() {
       return;
     }
     controlCard.classList.add("hidden");
-    freeCamera.update(delta);
-    if (activeScene && activeCamera) {
-      const scene = currentSceneData?.getRenderScene?.() ?? activeScene;
-      updateComicEffects(scene, activeCamera, delta, renderer);
-      renderGameplayFrame(scene, activeCamera);
+    if (!freeCamera.isParked()) {
+      freeCamera.update(delta);
+      if (activeScene && activeCamera) {
+        const scene = currentSceneData?.getRenderScene?.() ?? activeScene;
+        updateComicEffects(scene, activeCamera, delta, renderer);
+        renderGameplayFrame(scene, activeCamera);
+      }
+      return;
     }
-    return;
+    // Parked: keep the game running with normal player controls. The frame is
+    // drawn later with the locked camera instead of the player's view.
   }
   scene1SkipHold?.update(delta);
   if (quickMenuOpen || weaponWheelOpen || teleportLoading || document.hidden) {
@@ -5531,7 +5564,7 @@ function animate() {
     if (activeScene && activeCamera)
       renderGameplayFrame(
         currentSceneData?.getRenderScene?.() ?? activeScene,
-        activeCamera,
+        viewCamera(activeCamera),
       );
     return;
   }
@@ -5745,8 +5778,9 @@ function animate() {
   // Render
   if (activeScene && activeCamera) {
     const scene = currentSceneData?.getRenderScene?.() ?? activeScene;
-    updateComicEffects(scene, activeCamera, delta, renderer);
-    renderGameplayFrame(scene, activeCamera);
+    const camera = viewCamera(activeCamera);
+    updateComicEffects(scene, camera, delta, renderer);
+    renderGameplayFrame(scene, camera);
   }
 }
 

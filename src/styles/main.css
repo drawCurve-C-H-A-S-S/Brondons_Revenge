@@ -5007,7 +5007,7 @@ body[data-scene="scene15"] #flight-hud {
   pointer-events: none;
   z-index: 2500;
 }
-body.free-camera-open
+body.free-camera-open:not(.free-camera-parked)
   :is(
     #hud,
     #control-card,
