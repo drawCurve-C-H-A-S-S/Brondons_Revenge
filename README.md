@@ -118,9 +118,10 @@ Always test the production build locally before deploying. The LAMP server serve
 
 ### Main character model
 
-Brondon uses `src/assets/models/Don.glb` from the `brondon-model` branch
-(commit `97050dc`). The player loader keeps the existing 1.83 m gameplay height.
-His authored materials and animations are preserved. The branch's two-tone cel
+Brondon uses the latest supplied `src/assets/models/Brondon.glb` export, shared
+by Story, Arcade, the Museum statue and photo booth. The player loader keeps
+the existing 1.83 m gameplay height.
+His authored materials and animations are preserved. The existing two-tone cel
 shader uses the emissive colour (or base colour), with half-bright shadows and
 flat-colour face skin and eye whites. It is applied through the standard skinned
 material pipeline so silhouette and teleport/melt effects remain compatible.
@@ -162,6 +163,7 @@ restored from Caleb's identical mesh and bind pose, preserving Sohrab's own
 materials and animation clips.
 The students use Brondon's two-tone cel-shadow shader, including their cloned
 credits models and final dance. All five GLBs are included in asset caching.
+The cutscene actors display without floating diamond badges beside them.
 All five are also selectable in **Arcade mode**, alongside Brondon, Brendan
 and Branden. The character picker renders their actual model headshots.
 Their identical 65-joint skeletons share a separately retargeted combat/slide

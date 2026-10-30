@@ -241,7 +241,7 @@ test("teleport and melt shaders keep unlit outlines free of lighting-only variab
 test("latest Brondon model loads with retargeted combat and preserves gameplay scale and locomotion", async (t) => {
   const { character, frame, key, weight, template } = await fixture(
     t,
-    "Don.glb",
+    "Brondon.glb",
   );
   // Check normalization in the bind pose, before procedural animation changes its bounds.
   const bounds = new THREE.Box3().setFromObject(template.scene);
@@ -380,7 +380,7 @@ for (const [selected, asset] of [
 }
 
 test("seated character aligns the real animated pelvis and skin with the cushion", async (t) => {
-  const f = await fixture(t, "Don.glb");
+  const f = await fixture(t, "Brondon.glb");
   const cushion = new THREE.Vector3(2, 0.49, -3);
   for (const time of [0, 0.4, 1.2]) {
     for (let frame = 0; frame < 12; frame++)
@@ -523,7 +523,7 @@ test("wake-up initializes grounded state before the first animation update", asy
   assert.equal(player.getState().isMoving, false);
 });
 
-for (const asset of ["Don.glb", "MC.glb", "Subject.glb"]) {
+for (const asset of ["Brondon.glb", "MC.glb", "Subject.glb"]) {
   test(`${asset} loads the slide on its actual skinned joints, including the capital-H head bone`, async (t) => {
     const { character, player } = await fixture(t, asset);
     const slide = character.mixer._actions.find(

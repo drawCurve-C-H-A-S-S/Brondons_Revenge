@@ -232,7 +232,7 @@ if (sourceDirectory === "--arcade") {
   const libraryPath = path.join(destination, "quaterniusCombat.json");
   const library = JSON.parse(await readFile(libraryPath, "utf8"));
   const source = await readRig(
-    path.join(project, "src", "assets", "models", "Don.glb"),
+    path.join(project, "src", "assets", "models", "Brondon.glb"),
   );
   const clips = library.rigs.brondon.map((serialized) =>
     THREE.AnimationClip.parse(serialized),
@@ -256,7 +256,7 @@ if (sourceDirectory === "--arcade") {
   const libraryPath = path.join(destination, "quaterniusCombat.json");
   const library = JSON.parse(await readFile(libraryPath, "utf8"));
   const [source, target] = await Promise.all(
-    ["MC.glb", "Don.glb"].map((name) =>
+    ["MC.glb", "Brondon.glb"].map((name) =>
       readRig(path.join(project, "src", "assets", "models", name)),
     ),
   );
@@ -278,7 +278,7 @@ if (sourceDirectory === "--arcade") {
     [
       "MC.glb",
       "Subject.glb",
-      "Don.glb",
+      "Brondon.glb",
       "DonfromStreets.glb",
       "branden-the-dripless-export.glb",
       "Caleb.glb",

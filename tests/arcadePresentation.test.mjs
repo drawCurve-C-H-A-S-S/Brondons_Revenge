@@ -239,7 +239,7 @@ for (const fps of [30, 60, 144]) {
 
 test("Brondon's real asset supplies the statue's idle and dance clips", async () => {
   const bytes = await readFile(
-    new URL("../src/assets/models/Don.glb", import.meta.url),
+    new URL("../src/assets/models/Brondon.glb", import.meta.url),
   );
   const asset = JSON.parse(
     bytes.toString("utf8", 20, 20 + bytes.readUInt32LE(12)),

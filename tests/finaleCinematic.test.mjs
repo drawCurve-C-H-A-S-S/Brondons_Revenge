@@ -995,6 +995,11 @@ test("finale and credits retain each student's model and individual animation cl
   );
   for (const [index, student] of actors.students.entries()) {
     assert.equal(student.model.name, studentNames[index]);
+    assert.deepEqual(
+      student.root.children,
+      [student.wrapper],
+      "Students display their animated model without floating diamond badges",
+    );
     assert.equal(cast[index].model, student.model);
     assert.equal(cast[index].animations, student.animations);
     if (index > 0) assert.notEqual(cast[index].animations, cast[0].animations);

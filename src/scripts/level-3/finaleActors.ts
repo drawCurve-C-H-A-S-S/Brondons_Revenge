@@ -106,8 +106,6 @@ export function createFinaleStudents(loadModel = loadStudentModel) {
   let disposed = false,
     chairResources: ReturnType<typeof captureFinaleResources> | null = null;
   let sourceResources: ReturnType<typeof captureFinaleResources>[] = [];
-  const badgeGeometry = new THREE.OctahedronGeometry(0.055),
-    badges: THREE.MeshBasicMaterial[] = [];
   const loaded = Promise.allSettled([
     ...SUDOERS_5.map((student) => loadModel(student.name)),
     loadVergilsChair(),
@@ -186,14 +184,6 @@ export function createFinaleStudents(loadModel = loadStudentModel) {
         actions.pose.clampWhenFinished = true;
         actions.board.setLoop(THREE.LoopOnce, 1);
         actions.board.clampWhenFinished = true;
-        const badgeMaterial = new THREE.MeshBasicMaterial({
-          color: student.color,
-          toneMapped: false,
-        });
-        badges.push(badgeMaterial);
-        const badge = new THREE.Mesh(badgeGeometry, badgeMaterial);
-        badge.position.set(-0.2, 1.35, 0.2);
-        actor.add(badge);
         students.push({
           root: actor,
           model,
@@ -286,7 +276,5 @@ export function createFinaleStudents(loadModel = loadStudentModel) {
           : [child.material];
         materials.forEach((material) => material.dispose());
       }
-    badgeGeometry.dispose();
-    badges.forEach((material) => material.dispose());
   }
 }

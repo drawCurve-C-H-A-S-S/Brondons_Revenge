@@ -966,7 +966,7 @@ test("gem collection preserves the shader light layout and no weapon consumes T/
   }
 });
 
-for (const name of ["Don.glb", "Subject.glb"]) {
+for (const name of ["Brondon.glb", "Subject.glb"]) {
   test(`${name} retains the remote-main uncompressed geometry contract`, async () => {
     const bytes = await readFile(
       new URL(`../src/assets/models/${name}`, import.meta.url),
@@ -990,7 +990,7 @@ for (const name of ["Don.glb", "Subject.glb"]) {
       }
     assert.match(
       await source("core/loader.ts"),
-      /import playerModelUrl from '\.\.\/assets\/models\/Don\.glb'/,
+      /import playerModelUrl from ["']\.\.\/assets\/models\/Brondon\.glb["']/,
     );
   });
 }

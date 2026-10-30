@@ -10,7 +10,7 @@ import { disposeRoom } from "../../scripts/global/shipRoom.js";
 
 type DisplayAsset = { scene: THREE.Object3D; animations: readonly THREE.AnimationClip[] };
 const FILES: Record<PlayableCharacter, string> = {
-  brondon: "Don.glb", brendan: "DonfromStreets.glb", branden: "branden-the-dripless-export.glb",
+  brondon: "Brondon.glb", brendan: "DonfromStreets.glb", branden: "branden-the-dripless-export.glb",
   caleb: "Caleb.glb", husain: "Husain.glb", andre: "Andre.glb", sibusiso: "Sibusiso.glb", sohrab: "Sohrab.glb",
 };
 const MODELS: Array<{ id: string; label: string; load: () => Promise<DisplayAsset> }> = [
