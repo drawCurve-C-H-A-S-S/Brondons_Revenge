@@ -10,6 +10,7 @@ let server,
   createEarthTextures,
   preloadEarthTextures,
   createEarthGroup,
+  loadEarthModel,
   updateEarthGroup,
   addPlanetBackdrop,
   animatePlanetBackdrop,
@@ -40,6 +41,7 @@ before(async () => {
     "/scripts/global/finaleChoreography.ts",
   ));
   ({ disposeRoom } = await server.ssrLoadModule("/scripts/global/shipRoom.ts"));
+  ({ loadEarthModel } = await server.ssrLoadModule("/core/loader.ts"));
 });
 
 after(async () => server?.close());
@@ -202,6 +204,36 @@ test("Earth groups keep the branch surface, cloud and atmosphere layers at the s
   assert.equal(earth.haze.material.opacity, 0.09);
   assert.equal(earth.atmosphere.material.blending, THREE.AdditiveBlending);
   assert.equal(earth.atmosphere.material.uniforms.uOpacity.value, 1);
+});
+
+test("the photo booth offers André's textured Earth with independently disposable planet models", async (t) => {
+  const source = await readFile(
+    new URL("../src/scenes/museum/museumPhotoStudio.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /id: "earth",[\s\S]*?load: loadEarthModel/);
+  assert.match(source, /Earth texture contribution: André/);
+  const first = await loadEarthModel();
+  const second = await loadEarthModel();
+  t.after(() => {
+    disposeRoom(first.scene);
+    disposeRoom(second.scene);
+  });
+  assert.equal(first.scene.name, "Earth");
+  assert.equal(first.animations.length, 0);
+  for (const name of ["EarthSurface", "EarthClouds", "EarthAtmosphere"])
+    assert.ok(first.scene.getObjectByName(name), `${name} is displayed`);
+  const surface = first.scene.getObjectByName("EarthSurface");
+  const otherSurface = second.scene.getObjectByName("EarthSurface");
+  assert.equal(surface.material.map.image.width, 2048);
+  assert.equal(surface.material.map.image.height, 1024);
+  assert.notEqual(surface.geometry, otherSurface.geometry);
+  assert.notEqual(surface.material.map, otherSurface.material.map);
+  assert.equal(surface.material.map.image.data, otherSurface.material.map.image.data);
+  let otherDisposed = false;
+  otherSurface.material.map.addEventListener("dispose", () => { otherDisposed = true; });
+  disposeRoom(first.scene);
+  assert.equal(otherDisposed, false, "Closing a photo cannot dispose another Earth's textures");
 });
 
 test("surface rotation and faster cloud drift are independent of frame rate", (t) => {

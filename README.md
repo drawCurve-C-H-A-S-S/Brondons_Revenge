@@ -69,6 +69,8 @@ that preference. Turning it off immediately stops
 character vocals and prevents new ones, while keeping subtitles, music and
 non-vocal effects unchanged. The choice is remembered on this device when browser
 storage is available. Voice clips use the Sound effects volume.
+Dialogue recordings and Brendan's voice sample are excluded from startup asset
+caching and audio preparation. They load on demand only when voices are enabled.
 
 Dialogue uses downloaded AI performances, not browser speech synthesis or a live
 API. No account, payment, key or backend is required to play them. The ten male
@@ -153,12 +155,17 @@ Subject. Each student's authored appearance and animation clips are used in
 the facility office, finale and credits. `loadStudentModel(name)` resolves the
 display name (including André's accent), caches the source asset and returns
 an independently disposable rig. The stray unskinned `Cube` and `Cube.001`
-head pieces are removed during loading, without changing the skinned bodies.
+head pieces from older exports are filtered during loading, without changing
+the skinned bodies. The current five models use the updated `us.zip` exports.
+Sohrab's export omitted its body skin binding and vertex weights; these are
+restored from Caleb's identical mesh and bind pose, preserving Sohrab's own
+materials and animation clips.
 The students use Brondon's two-tone cel-shadow shader, including their cloned
 credits models and final dance. All five GLBs are included in asset caching.
 All five are also selectable in **Arcade mode**, alongside Brondon, Brendan
 and Branden. The character picker renders their actual model headshots.
-Their identical skeletons share a separately retargeted combat/slide rig.
+Their identical 65-joint skeletons share a separately retargeted combat/slide
+rig, rebaked for the updated exports.
 After replacing a student's bind pose, regenerate Arcade tracks with
 `node scripts/importQuaterniusAnimations.mjs --arcade` and verify all five
 still share that bind pose.
@@ -212,8 +219,9 @@ Entering Brondon's Museum through Developer Mode enables the same painting
 minigames and results flow as Arcade Mode. Selecting another developer scene
 clears the active Arcade run and uses the regular developer equipment access.
 Minigame progress resets for each Arcade launch and developer scene jump.
-Once Developer Mode has been unlocked, **Return to Museum** is hidden from the
-pause menu; the Museum is still available through the developer scene list.
+Every Arcade minigame's pause menu includes **Return to Museum**, including
+Bridge and Waterfall (Jungle Run) and runs launched through Developer Mode.
+Unlocking Developer Mode does not hide this button.
 At the center of the Museum, beneath the open sky, the prison's blue light
 effect marks the Main Menu exit. Stand in it and press **E** to open the
 no-progress-saved confirmation.
@@ -230,10 +238,19 @@ Arcade opens the Museum without preloading the entire campaign. Its starfield
 shares the game's renderer rather than creating another WebGL context.
 The Museum photo booth uses the menus' comic styling and solid background
 colours only; scene-image backdrops are not loaded.
+Its model picker includes **Earth / textured planet**, with the shared terrain,
+cloud and atmosphere layers and **Earth texture contribution: André** credit.
+Earth supports orbiting, rotation, zoom and PNG export; rig-pose controls are
+disabled because the planet has no character animations.
+The Museum grants a pistol. Land **10 pistol shots on Brondon's stone statue**
+to make it dance once.
+It then returns to its idle pose; another 10 hits trigger the dance again.
+Misses and melee attacks do not count, and hits during the dance are ignored.
 
 The finale's local **1v1** uses the Story fight's compact health cards in the
 top corners and circular charge/control indicators along the bottom edges.
 Shield charge sits inside its control ring, without an extra status panel.
+Arcade 1v1 omits the black-and-white impact frames; Story retains them.
 **X** uses **Branden's Tears** (Opus) or **Rebel** (Final Verdict); **A** uses
 **Brendan's Will** or **Eclipse**, with their Story combat animations.
 Dealing **300 actual health damage** charges **Brondon's Revenge** or **Final
@@ -251,6 +268,8 @@ The space arena spans **320 units horizontally** and **150 vertically**,
 with faster flight and a camera that frames both fighters as they spread out.
 Arcade pause previews use the selected character
 or pausing player's mech in the normal menu's close-up starfield presentation.
+Each Arcade character has a distinct gradient shared by the portrait and its
+backdrop; Story mode keeps the original orange-and-navy gradient.
 
 Arcade rules are isolated from Story mode. Entering a museum screen opens a
 pre-start briefing; gameplay and the run timer remain paused until **Start**.
@@ -604,7 +623,10 @@ before the game starts. Failed preparation stays on the loading screen with
 
 All runtime models, their external texture/buffer dependencies, music, surveillance
 footage, screenshots and chapter code are loaded up front. Unused authoring assets
-and obsolete scenes are excluded. Full-resolution planet maps are generated
+and obsolete scenes are excluded, as are optional voice recordings. The model
+cache includes Gundam, the office chair and both bathroom props; bathroom models
+use the shared cached loader rather than downloading independently.
+Full-resolution planet maps are generated
 offline and loaded as losslessly compressed RGBA pixels, avoiding repeated
 procedural-noise calculations during startup without changing texture quality.
 The maps use a binary asset extension to prevent automatic HTTP gzip decoding,

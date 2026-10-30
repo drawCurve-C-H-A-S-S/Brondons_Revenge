@@ -1,14 +1,14 @@
 import * as THREE from "three";
-import {
-  loadPlayerModel,
-  type PlayableCharacter,
-} from "../../core/loader.js";
+import { loadPlayerModel, type PlayableCharacter } from "../../core/loader.js";
 import {
   createScenePhysics,
   PHYSICS,
 } from "../../helpers/physics/scenePhysics.js";
 import { roomBox, disposeRoom } from "../../scripts/global/shipRoom.js";
-import { applyStoneStatueShader } from "../../scripts/museum/stoneStatue.js";
+import {
+  applyStoneStatueShader,
+  createStatueDance,
+} from "../../scripts/museum/stoneStatue.js";
 import { createStarfield } from "../../scripts/global/starfield.js";
 import { createPlayer } from "../../scripts/player/player.js";
 import { teleportPlayer } from "../../scripts/global/teleportationDevice.js";
@@ -702,22 +702,21 @@ export function createScene({
   statueSpot.shadow.bias = -0.0005;
   scene.add(statueSpot, statueSpot.target);
   const statueRoot = new THREE.Group();
+  statueRoot.name = "BrondonStatue";
   statueRoot.position.set(daisX, 1.85, 0);
   statueRoot.rotation.y = Math.PI / 2;
   scene.add(statueRoot);
+  let statueDance: ReturnType<typeof createStatueDance> | null = null;
   const statueReady = loadPlayerModel()
     .then((gltf) => {
       const model = gltf.scene;
-      model.scale.setScalar(2.6);
-      const pose =
-        gltf.animations.find((clip) => clip.name === "Idle_Loop") ??
-        gltf.animations[0];
-      if (pose) {
-        const mixer = new THREE.AnimationMixer(model);
-        mixer.clipAction(pose).play();
-        mixer.setTime(0.4);
-        model.updateMatrixWorld(true);
+      if (disposed) {
+        disposeRoom(model);
+        return;
       }
+      model.scale.setScalar(2.6);
+      statueDance = createStatueDance(model, gltf.animations);
+      disposables.push(() => statueDance?.dispose());
       applyStoneStatueShader(model, 1);
       const box3 = new THREE.Box3().setFromObject(model);
       model.position.y -= box3.min.y;
@@ -787,10 +786,7 @@ export function createScene({
       });
       scene.add(capitalShip);
       box([size.x + 1, 0.22, size.z + 1], [x, 0.11, z], darkStone, false);
-      physics.addBox(
-        size,
-        new THREE.Vector3(x, 0.22 + size.y / 2, z),
-      );
+      physics.addBox(size, new THREE.Vector3(x, 0.22 + size.y / 2, z));
       const texture = createComicLabel("LEVEL 2 / ENEMY CAPITAL SHIP");
       disposables.push(() => texture.dispose());
       const label = new THREE.Mesh(
@@ -936,7 +932,8 @@ export function createScene({
   scopeFrame.style.cssText =
     "position:relative;display:flex;align-items:center;justify-content:center;height:min(92vh,92vw);width:min(92vh,92vw);overflow:hidden;border-radius:50%;background:#000;box-shadow:0 0 0 10px #3a2a10,0 0 0 16px #b98a3a,0 0 60px #000 inset";
   const scopeImage = document.createElement("img");
-  scopeImage.alt = "Rick Astley in Never Gonna Give You Up, seen through the museum telescope";
+  scopeImage.alt =
+    "Rick Astley in Never Gonna Give You Up, seen through the museum telescope";
   scopeImage.decoding = "async";
   scopeImage.draggable = false;
   scopeImage.hidden = true;
@@ -947,7 +944,8 @@ export function createScene({
     "position:absolute;max-width:70%;margin:0;text-align:center;color:#f4dd9a;font:700 18px sans-serif";
   scopeFrame.append(scopeImage, scopeStatus);
   const scopeHint = document.createElement("div");
-  scopeHint.innerHTML = "<div>Rick Astley — Never Gonna Give You Up (telescope GIF)</div><div>Press E or Esc to stop looking</div>";
+  scopeHint.innerHTML =
+    "<div>Rick Astley — Never Gonna Give You Up (telescope GIF)</div><div>Press E or Esc to stop looking</div>";
   scopeHint.style.cssText =
     "position:absolute;bottom:18px;left:0;right:0;padding:0 12px;text-align:center;color:#f4dd9a;font:700 12px/1.8 sans-serif;text-shadow:0 1px 3px #000";
   scopeView.append(scopeFrame, scopeHint);
@@ -959,8 +957,12 @@ export function createScene({
   const onScopeError = () => {
     scopeImage.hidden = true;
     scopeStatus.hidden = false;
-    scopeStatus.textContent = "The telescope image could not load. Close and look again to retry.";
-    console.error("[Museum] Could not load the telescope animation:", rollGifUrl);
+    scopeStatus.textContent =
+      "The telescope image could not load. Close and look again to retry.";
+    console.error(
+      "[Museum] Could not load the telescope animation:",
+      rollGifUrl,
+    );
   };
   scopeImage.addEventListener("load", onScopeLoad);
   scopeImage.addEventListener("error", onScopeError);
@@ -1028,7 +1030,11 @@ export function createScene({
   station.position.copy(studioPosition);
   station.rotation.y = Math.PI / 4;
   scene.add(station);
-  const stationBox = (size: [number, number, number], at: [number, number, number], material: THREE.Material) => {
+  const stationBox = (
+    size: [number, number, number],
+    at: [number, number, number],
+    material: THREE.Material,
+  ) => {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), material);
     mesh.position.set(...at);
     mesh.castShadow = mesh.receiveShadow = true;
@@ -1039,18 +1045,30 @@ export function createScene({
   stationBox([5.4, 3.2, 0.3], [0, 3.1, 0], darkStone);
   const studioScreen = new THREE.Mesh(
     new THREE.PlaneGeometry(5.15, 2.9),
-    new THREE.MeshBasicMaterial({ map: photoStudio.screenTexture, toneMapped: false }),
+    new THREE.MeshBasicMaterial({
+      map: photoStudio.screenTexture,
+      toneMapped: false,
+    }),
   );
   studioScreen.name = "CharacterStudioScreen";
   studioScreen.position.set(0, 3.1, 0.17);
   station.add(studioScreen);
   const studioLabelMap = createComicLabel("CHARACTER STUDIO / PHOTO BOOTH");
   disposables.push(() => studioLabelMap.dispose());
-  const studioLabel = new THREE.Mesh(new THREE.PlaneGeometry(4.5, 0.7),
-    new THREE.MeshBasicMaterial({ map: studioLabelMap, transparent: true, toneMapped: false }));
+  const studioLabel = new THREE.Mesh(
+    new THREE.PlaneGeometry(4.5, 0.7),
+    new THREE.MeshBasicMaterial({
+      map: studioLabelMap,
+      transparent: true,
+      toneMapped: false,
+    }),
+  );
   studioLabel.position.set(0, 5.15, 0.18);
   station.add(studioLabel);
-  physics.addBox({ x: 4.2, y: 4.75, z: 4.2 }, studioPosition.clone().setY(2.375));
+  physics.addBox(
+    { x: 4.2, y: 4.75, z: 4.2 },
+    studioPosition.clone().setY(2.375),
+  );
   function openStudio() {
     player.disable();
     player.clearInput();
@@ -1112,7 +1130,14 @@ export function createScene({
       }
       return;
     }
-    if (event.code === "KeyE" && !event.repeat && active && !paused && !entering && nearStudio) {
+    if (
+      event.code === "KeyE" &&
+      !event.repeat &&
+      active &&
+      !paused &&
+      !entering &&
+      nearStudio
+    ) {
       event.preventDefault();
       openStudio();
       return;
@@ -1166,13 +1191,21 @@ export function createScene({
     player,
     physicsWorld: physics.world,
     cutsceneManager: null,
-    ready: Promise.all([...figureReady, statueReady]).then(
-      () => undefined,
-    ),
+    ready: Promise.all([...figureReady, statueReady]).then(() => undefined),
     forceThirdPerson: true,
     getMusicTrack: () => "puzzle" as const,
     controlsReady: () => active && !paused && !entering && !photoStudio.isOpen,
-    getSceneMenuRoot: () => photoStudio.isOpen ? photoStudio.element : null,
+    getDamageTargets: () =>
+      !disposed &&
+      active &&
+      !paused &&
+      !entering &&
+      !looking &&
+      !photoStudio.isOpen &&
+      statueDance
+        ? [statueDance.target]
+        : [],
+    getSceneMenuRoot: () => (photoStudio.isOpen ? photoStudio.element : null),
     closeSceneMenu() {
       if (!photoStudio.isOpen) return false;
       photoStudio.close();
@@ -1198,6 +1231,7 @@ export function createScene({
         : 0;
       physics.step(frame, player, thirdPerson);
       time += frame;
+      statueDance?.update(frame);
       fireTime.value = time;
       starfield.update(time);
       mainMenuLight.update(time);
@@ -1246,10 +1280,14 @@ export function createScene({
         Math.abs(p.y - player.radius) < 1;
       nearScope =
         !focus && Math.hypot(p.x - SCOPE_POS.x, p.z - SCOPE_POS.z) < 3.2;
-      nearStudio = !focus && Math.hypot(p.x - studioPosition.x, p.z - studioPosition.z) < 5;
+      nearStudio =
+        !focus &&
+        Math.hypot(p.x - studioPosition.x, p.z - studioPosition.z) < 5;
       if (prompt && !entering && !looking) {
         if (nearStudio) {
-          prompt.textContent = inputHint("E / Open Character Studio: models, poses and photos");
+          prompt.textContent = inputHint(
+            "E / Open Character Studio: models, poses and photos",
+          );
           prompt.classList.remove("hidden");
         } else if (nearMainMenu) {
           prompt.textContent = inputHint("Press E to return to Main Menu");

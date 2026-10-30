@@ -1,4 +1,73 @@
 import * as THREE from "three";
+import type { DamageTarget } from "../weapons/pistol.js";
+
+export const STATUE_DANCE_HITS = 10;
+
+export function createStatueDance(
+  model: THREE.Object3D,
+  animations: THREE.AnimationClip[],
+) {
+  const idleClip = animations.find((clip) => clip.name === "Idle_Loop");
+  const danceClip = animations.find((clip) => clip.name === "Dance_Loop");
+  if (!idleClip || !danceClip)
+    throw new Error(
+      "Museum statue requires Idle_Loop and Dance_Loop animations",
+    );
+
+  const mixer = new THREE.AnimationMixer(model);
+  const idle = mixer.clipAction(idleClip);
+  const dance = mixer.clipAction(danceClip);
+  dance.setLoop(THREE.LoopOnce, 1);
+  dance.clampWhenFinished = true;
+  let hits = 0,
+    dancing = false,
+    disposed = false;
+  function pose() {
+    idle.reset().play();
+    mixer.setTime(0.4);
+    model.updateMatrixWorld(true);
+  }
+  pose();
+
+  const target: DamageTarget = {
+    root: model,
+    damage(amount, weapon) {
+      if (
+        disposed ||
+        dancing ||
+        weapon !== "pistol" ||
+        !Number.isFinite(amount) ||
+        amount <= 0
+      )
+        return false;
+      hits++;
+      if (hits === STATUE_DANCE_HITS) {
+        hits = 0;
+        dancing = true;
+        idle.stop();
+        dance.reset().play();
+      }
+      return true;
+    },
+  };
+  return {
+    target,
+    update(dt: number) {
+      if (disposed || !dancing) return;
+      mixer.update(dt);
+      if (!dance.isRunning()) {
+        dancing = false;
+        dance.stop();
+        pose();
+      }
+    },
+    dispose() {
+      disposed = true;
+      mixer.stopAllAction();
+      mixer.uncacheRoot(model);
+    },
+  };
+}
 
 const vertexDeclarations = /* glsl */ `
   varying vec3 vStonePos;

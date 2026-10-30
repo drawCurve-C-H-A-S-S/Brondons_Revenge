@@ -2682,8 +2682,9 @@ function enterManagedScene(id: string, sceneData: any) {
   teleportDevice.detachMarker();
   teleportArrivalTime = -1;
   if (activeScene) disposeComicEffects(activeScene);
-  // Legacy combat scenes started with the pistol; only the new opening requires recovery.
+  // The Museum and legacy combat scenes start armed; Story's opening requires recovery.
   if (
+    id === "museum" ||
     (id === "stage1-storage" && !sceneData.requiresRecoveredPistol) ||
     (id.startsWith("scene") && Number(id.slice(5)) >= 2)
   )
@@ -4449,10 +4450,7 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
       .getElementById("pause-return-museum")!
       .classList.toggle(
         "hidden",
-        developerUnlocked ||
-          !arcade.active ||
-          activeSceneId === "museum" ||
-          screen !== "home",
+        !arcade.active || activeSceneId === "museum" || screen !== "home",
       );
     document.getElementById("pause-display")!.classList.remove("hidden");
     document

@@ -3,7 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import {
   loadPlayableCharacterModel, PLAYABLE_CHARACTERS, PLAYABLE_CHARACTER_NAMES,
-  loadFinaleMechModel, loadGundamModel,
+  loadFinaleMechModel, loadGundamModel, loadEarthModel,
   type PlayableCharacter,
 } from "../../core/loader.js";
 import { disposeRoom } from "../../scripts/global/shipRoom.js";
@@ -17,6 +17,7 @@ const MODELS: Array<{ id: string; label: string; load: () => Promise<DisplayAsse
   ...PLAYABLE_CHARACTERS.map((id) => ({ id, label: `${PLAYABLE_CHARACTER_NAMES[id]} / ${FILES[id]}`, load: () => loadPlayableCharacterModel(id) })),
   { id: "finale-mech", label: "Finale mech / mechs.glb", load: loadFinaleMechModel },
   { id: "gundam", label: "RX-78-2 Gundam / special reference", load: loadGundamModel },
+  { id: "earth", label: "Earth / textured planet", load: loadEarthModel },
 ];
 const BACKDROPS = [
   { label: "Midnight", color: 0x101827 },
@@ -63,9 +64,9 @@ export function createMuseumPhotoStudio(character: PlayableCharacter, onClose: (
   dialog.className = "museum-photo-studio";
   dialog.setAttribute("aria-labelledby", "museum-studio-heading");
   dialog.innerHTML = `<header><div><small>BRONDON'S MUSEUM / CAST ARCHIVE</small><h1 id="museum-studio-heading">Character Studio</h1></div><button type="button" data-close>BACK TO MUSEUM</button></header>
-    <div class="museum-studio-layout"><section class="museum-studio-stage" aria-label="Character preview"><div class="museum-studio-canvas"></div><p>Drag to orbit · scroll or pinch to zoom · right-drag to pan</p><p class="museum-studio-credit" data-model-credit>Model by Husain Battey</p></section>
+    <div class="museum-studio-layout"><section class="museum-studio-stage" aria-label="Model preview"><div class="museum-studio-canvas"></div><p>Drag to orbit · scroll or pinch to zoom · right-drag to pan</p><p class="museum-studio-credit" data-model-credit>Model by Husain Battey</p></section>
     <section class="museum-studio-settings" aria-label="Photo settings">
-      <label>CHARACTER / GLB<select data-model></select></label>
+      <label>MODEL / ASSET<select data-model></select></label>
       <div class="museum-studio-row"><button type="button" data-prev>PREVIOUS MODEL</button><button type="button" data-next>NEXT MODEL</button></div>
       <label>RIG POSE / ANIMATION<select data-pose><option value="">Rest pose</option></select></label>
       <label>POSE FRAME<input data-time type="range" min="0" max="100" value="35"><output data-frame>35%</output></label>
@@ -75,7 +76,7 @@ export function createMuseumPhotoStudio(character: PlayableCharacter, onClose: (
       <div class="museum-studio-row"><button type="button" data-in>ZOOM IN</button><button type="button" data-out>ZOOM OUT</button><button type="button" data-reset>RESET VIEW</button></div>
       <label>BACKGROUND COLOUR<select data-background></select></label>
       <button type="button" data-download>DOWNLOAD PNG / 1920 × 1080</button>
-      <p class="museum-studio-note">Poses come from the selected GLB's own rig clips. The photo includes the model and backdrop, without the controls.</p>
+      <p class="museum-studio-note">Poses come from the selected model's own rig clips, when available. The photo includes the model and backdrop, without the controls.</p>
       <p role="status" data-status></p>
     </section></div>`;
   dialog.querySelectorAll("button").forEach((button) => button.classList.add("menu-btn"));
@@ -164,6 +165,8 @@ export function createMuseumPhotoStudio(character: PlayableCharacter, onClose: (
     const credit = get("[data-model-credit]");
     if (entry.id === "gundam") {
       credit.innerHTML = `Special reference: <a href="https://sketchfab.com/3d-models/rx-78-2-gundam-8b1ec0f948984aa897e60b63a13b501c" target="_blank" rel="noreferrer">RX-78-2 Gundam</a> by <a href="https://sketchfab.com/nama_140" target="_blank" rel="noreferrer">みそ太郎</a> · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">CC BY 4.0</a>. Rescaled for display; not a CHASS model.`;
+    } else if (entry.id === "earth") {
+      credit.textContent = "Earth texture contribution: André";
     } else credit.textContent = "Model by Husain Battey";
     try {
       const next = await entry.load();
@@ -196,7 +199,7 @@ export function createMuseumPhotoStudio(character: PlayableCharacter, onClose: (
       modelLoading = false;
       samplePose();
       frameModel();
-      status.textContent = unique.length ? `${unique.length} authored rig clips available. Choose a pose and scrub its frame.` : "This GLB has no embedded animation clips; its rest pose is available.";
+      status.textContent = unique.length ? `${unique.length} authored rig clips available. Choose a pose and scrub its frame.` : "This model has no animation clips. Orbit, rotate or zoom to frame your photo.";
     } catch (error) {
       if (version === modelVersion && dialog.open) {
         releaseActor();

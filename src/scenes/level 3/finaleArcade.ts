@@ -374,7 +374,6 @@ export function createScene({ renderer, match, onStory, onMatch, onSetup, onExit
           emitComicEffect(scene, "clank", { position, size: 5.5 * scale });
         }
         playSfx(event.kind === "parry" ? "swordClash" : "shieldHit", 0.7);
-        if (event.kind === "parry") post?.impact();
       } else if (event.kind === "hit" || event.kind === "guardBreak") {
         effects.sparks(position, tint, 10);
         if (event.trace) {
@@ -388,7 +387,6 @@ export function createScene({ renderer, match, onStory, onMatch, onSetup, onExit
         }
         if (event.kind === "guardBreak") effects.ring(position, 3.8 * scale, 0xc9827a, true, 0.35);
         playSfx("metalHit", 0.7);
-        if (event.damage >= 90 || event.kind === "guardBreak") post?.impact();
       } else if (event.kind === "swing") playSfx("slash", 0.65);
       else if (event.kind === "launch") {
         const origin = event.attack === "missiles" ? source.getMuzzle() : source.getBlade().tip;
@@ -483,7 +481,6 @@ export function createScene({ renderer, match, onStory, onMatch, onSetup, onExit
         }
         if (crossed(FINISHER_EXECUTION.appear)) {
           effects.teleport(mech.root.position, true);
-          post?.impact();
         }
         const count = Math.min(FINISHER_EXECUTION.slashes - 1, Math.floor(
           cinematicProgress(f.time, FINISHER_EXECUTION.cuts, FINISHER_EXECUTION.lastCut) * FINISHER_EXECUTION.slashes,
@@ -494,7 +491,6 @@ export function createScene({ renderer, match, onStory, onMatch, onSetup, onExit
           victim.markSlash(from, to);
           effects.slash(from, to, FRAME_COLORS.hero);
           effects.sparks(from.clone().lerp(to, 0.5), 0xd5edf1, 7);
-          if (cut % 9 === 0) post?.impact();
         }
         if (crossed(FINISHER_EXECUTION.lastCut)) {
           const chest = mechs[1 - i].getChest();
@@ -502,7 +498,6 @@ export function createScene({ renderer, match, onStory, onMatch, onSetup, onExit
             effects.slash(chest.clone().add(new THREE.Vector3(-10, sign * 7, 2).multiplyScalar(scale)),
               chest.clone().add(new THREE.Vector3(10, -sign * 7, 2).multiplyScalar(scale)), 0xe8fcff);
           effects.ring(chest, 5 * scale, FRAME_COLORS.hero, true, 0.4);
-          post?.impact();
         }
         if (f.time >= FINISHER_EXECUTION.cuts) phantomCuts[i] = count;
         specialClocks[i] = f.time;
@@ -588,7 +583,6 @@ export function createScene({ renderer, match, onStory, onMatch, onSetup, onExit
         effects.ring(impact, 15 * scale, 0xff6b40, true, 0.6);
         emitComicEffect(scene, "boom", { position: impact, size: 12 * scale });
         playSfx("explosion", 1);
-        post?.impact();
       }
       lastBombTime = t;
     }

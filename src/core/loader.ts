@@ -19,6 +19,8 @@ import bossModelUrl from "../assets/models/bayboss.glb";
 import mothershipModelUrl from "../assets/models/mothership.glb";
 import gundamModelUrl from "../assets/models/gundam.glb";
 import vergilsChairUrl from "../assets/models/vergils chair.glb";
+import toiletUrl from "../assets/models/toilet (1).glb";
+import toiletPaperUrl from "../assets/models/toilet_paper.glb";
 import {
   assetUrl,
   cachedAssetUrl,
@@ -29,6 +31,12 @@ import playerCelUniforms from "../shaders/frag/playerCelUniforms.frag.glsl?raw";
 import playerCelFragment from "../shaders/frag/playerCel.frag.glsl?raw";
 import { applyDroneGlow, applyScavengerAppearance } from "./robotAppearance.js";
 import { addCharacterInk } from "./comicShading.js";
+import {
+  createEarthGroup,
+  createEarthTextures,
+  preloadEarthTextures,
+} from "../scripts/global/earthTexture.js";
+import earthTextureUrl from "../assets/planets/earth-maps.rgba.bin?url";
 
 const gltfLoader = new GLTFLoader();
 const playerLoader = new GLTFLoader();
@@ -317,6 +325,14 @@ export async function loadStudentModel(name: string) {
 export async function loadGundamModel() {
   return cloneModel(await modelTemplate(gundamModelUrl));
 }
+export async function loadEarthModel() {
+  await preloadEarthTextures(earthTextureUrl);
+  const scene = new THREE.Group();
+  scene.name = "Earth";
+  createEarthGroup(scene, new THREE.Vector3(), 1, createEarthTextures());
+  return { scene, animations: [] };
+}
+
 /** The authored backrest sits on -Z, the opposite of Prop_Chair, so callers add half a turn. */
 export async function loadVergilsChair() {
   return cloneModel(await modelTemplate(vergilsChairUrl));
@@ -535,6 +551,10 @@ export const MODEL_ASSET_URLS = [
   sharkModelUrl,
   bossModelUrl,
   mothershipModelUrl,
+  gundamModelUrl,
+  vergilsChairUrl,
+  toiletUrl,
+  toiletPaperUrl,
   ...Object.values(toolAssets),
 ];
 const toolUrls = new Map(

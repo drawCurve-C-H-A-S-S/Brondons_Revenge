@@ -9,6 +9,39 @@ import {
   setPlayerCellShadingEnabled,
 } from "../../core/loader.js";
 import { createStarfield, type Starfield } from "./starfield.js";
+const previewGradients: Record<
+  PlayableCharacter,
+  readonly [number, number, number]
+> = {
+  brondon: [0x0b0e33, 0x774b22, 0xff991a],
+  brendan: [0x071c20, 0x246e52, 0x9be85b],
+  branden: [0x220b25, 0x8c2547, 0xff6253],
+  caleb: [0x081630, 0x28598f, 0x70c9ff],
+  husain: [0x1b1033, 0x694090, 0xd49bff],
+  andre: [0x241322, 0x945364, 0xffb0b8],
+  sibusiso: [0x07242c, 0x187f8c, 0x69f0dc],
+  sohrab: [0x241c0b, 0x8a762b, 0xffe680],
+};
+const previewGradientShader = /* glsl */ `
+  uniform vec3 uGradientBottom;
+  uniform vec3 uGradientMiddle;
+  uniform vec3 uGradientTop;
+  vec3 previewGradient(float t) {
+    return t < 0.5
+      ? mix(uGradientBottom, uGradientMiddle, t * 2.0)
+      : mix(uGradientMiddle, uGradientTop, (t - 0.5) * 2.0);
+  }
+`;
+function createGradientUniforms(character: PlayableCharacter) {
+  const [bottom, middle, top] = previewGradients[character].map((hex) =>
+    new THREE.Color().setHex(hex, THREE.LinearSRGBColorSpace),
+  );
+  return {
+    uGradientBottom: { value: bottom },
+    uGradientMiddle: { value: middle },
+    uGradientTop: { value: top },
+  };
+}
 const starfieldVertShader = `
   #include <common>
   #include <skinning_pars_vertex>
@@ -23,6 +56,7 @@ const starfieldVertShader = `
   }
 `;
 const starfieldFragShader = `
+  ${previewGradientShader}
   uniform float uTime;
   uniform vec3 uColor;
   uniform vec3 uBlendColor;
@@ -132,7 +166,7 @@ const starfieldFragShader = `
   void main() {
     vec4 backdrop = texture2D(uBackdrop, gl_FragCoord.xy / uResolution);
     float gradT = clamp(gl_FragCoord.y / uResolution.y, 0.0, 1.0);
-    vec3 gradient = gradT < 0.5 ? mix(vec3(11.0, 14.0, 51.0) / 255.0, vec3(119.0, 75.0, 34.0) / 255.0, gradT * 2.0) : mix(vec3(119.0, 75.0, 34.0) / 255.0, vec3(255.0, 153.0, 26.0) / 255.0, (gradT - 0.5) * 2.0);
+    vec3 gradient = previewGradient(gradT);
     vec3 emissiveHsl = rgb2hsl(uEmissive);
     vec3 gradientHsl = rgb2hsl(gradient);
     float hueDiff = gradientHsl.x - emissiveHsl.x;
@@ -171,7 +205,8 @@ function clonePreviewModel(source: THREE.Object3D) {
       material.onBeforeCompile = original.onBeforeCompile;
       material.customProgramCacheKey = original.customProgramCacheKey;
       for (const [key, value] of Object.entries(original))
-        if (value instanceof THREE.Texture) Reflect.set(material, key, value.clone());
+        if (value instanceof THREE.Texture)
+          Reflect.set(material, key, value.clone());
       materials.set(original, material);
     }
     return material;
@@ -179,20 +214,27 @@ function clonePreviewModel(source: THREE.Object3D) {
   model.traverse((node) => {
     if (node instanceof THREE.Mesh || node instanceof THREE.LineSegments) {
       node.geometry = node.geometry.clone();
-      node.material = Array.isArray(node.material) ? node.material.map(copy) : copy(node.material);
+      node.material = Array.isArray(node.material)
+        ? node.material.map(copy)
+        : copy(node.material);
     }
   });
   return model;
 }
 function disposePreviewActor(model: THREE.Object3D) {
   const skeletons = new Set<THREE.Skeleton>();
-  model.traverse((node) => { if (node instanceof THREE.SkinnedMesh) skeletons.add(node.skeleton); });
+  model.traverse((node) => {
+    if (node instanceof THREE.SkinnedMesh) skeletons.add(node.skeleton);
+  });
   skeletons.forEach((skeleton) => skeleton.dispose());
   disposeRoom(model);
   model.removeFromParent();
 }
 
-function applyStarfieldBackdrop(scene: THREE.Object3D) {
+function applyStarfieldBackdrop(
+  scene: THREE.Object3D,
+  gradientUniforms: ReturnType<typeof createGradientUniforms>,
+) {
   const materialMap = new Map<THREE.Material, THREE.Material>();
   const originalMaterials = new Map<
     THREE.Mesh,
@@ -253,6 +295,7 @@ function applyStarfieldBackdrop(scene: THREE.Object3D) {
       const blendColor = tintedColor.clone().multiplyScalar(1.3);
 
       const uniforms = {
+        ...gradientUniforms,
         uTime: { value: 0 },
         uColor: { value: tintedColor },
         uBlendColor: { value: blendColor },
@@ -323,6 +366,7 @@ export function startCharacterPreview(
   stopCharacterPreview();
   const generation = previewGeneration;
   const arcadePreview = selected !== undefined;
+  const gradientUniforms = createGradientUniforms(selected ?? "brondon");
   container.classList.add("active");
 
   const width = container.clientWidth || 140;
@@ -383,9 +427,25 @@ export function startCharacterPreview(
   backdropMaterial = new THREE.ShaderMaterial({
     vertexShader:
       "varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }",
-    fragmentShader:
-      "uniform sampler2D tBackdrop; uniform bool uGradient; varying vec2 vUv; void main() { if (vUv.x > 0.65) discard; vec4 c = texture2D(tBackdrop, vUv); float dim = smoothstep(0.2, 0.65, vUv.x) * 0.35; if (uGradient) { vec3 grad = vUv.y < 0.5 ? mix(vec3(11.0, 14.0, 51.0) / 255.0, vec3(119.0, 75.0, 34.0) / 255.0, vUv.y * 2.0) : mix(vec3(119.0, 75.0, 34.0) / 255.0, vec3(255.0, 153.0, 26.0) / 255.0, (vUv.y - 0.5) * 2.0); gl_FragColor = vec4(c.rgb * (1.0 - dim) * c.a + grad * (1.0 - c.a), 1.0); } else { gl_FragColor = vec4(c.rgb * (1.0 - dim), c.a); } }",
+    fragmentShader: /* glsl */ `
+      ${previewGradientShader}
+      uniform sampler2D tBackdrop;
+      uniform bool uGradient;
+      varying vec2 vUv;
+      void main() {
+        if (vUv.x > 0.65) discard;
+        vec4 c = texture2D(tBackdrop, vUv);
+        float dim = smoothstep(0.2, 0.65, vUv.x) * 0.35;
+        if (uGradient) {
+          vec3 grad = previewGradient(vUv.y);
+          gl_FragColor = vec4(c.rgb * (1.0 - dim) * c.a + grad * (1.0 - c.a), 1.0);
+        } else {
+          gl_FragColor = vec4(c.rgb * (1.0 - dim), c.a);
+        }
+      }
+    `,
     uniforms: {
+      ...gradientUniforms,
       tBackdrop: { value: previewRenderTarget.texture },
       uGradient: { value: container.id !== "scene-character-preview" },
     },
@@ -409,7 +469,9 @@ export function startCharacterPreview(
     try {
       let model: THREE.Object3D;
       if (arcadePreview) {
-        model = source ? clonePreviewModel(source) : (await loadPlayableCharacterModel(next)).scene;
+        model = source
+          ? clonePreviewModel(source)
+          : (await loadPlayableCharacterModel(next)).scene;
       } else if (next === "brondon") {
         model = (await loadPlayerModel()).scene;
         setPlayerCellShadingEnabled(model, false);
@@ -426,7 +488,11 @@ export function startCharacterPreview(
         model = new THREE.Group();
         model.add(source);
       }
-      if (token !== loadToken || generation !== previewGeneration || !previewScene) {
+      if (
+        token !== loadToken ||
+        generation !== previewGeneration ||
+        !previewScene
+      ) {
         disposePreviewActor(model);
         return;
       }
@@ -448,12 +514,15 @@ export function startCharacterPreview(
             if (!(object instanceof THREE.SkinnedMesh)) return;
             object.computeBoundingBox();
             if (object.boundingBox)
-              bounds.union(object.boundingBox.clone().applyMatrix4(object.matrixWorld));
+              bounds.union(
+                object.boundingBox.clone().applyMatrix4(object.matrixWorld),
+              );
           });
           if (bounds.isEmpty()) bounds.setFromObject(model, true);
         };
         measureBody();
-        const factor = 1.83 / Math.max(0.01, bounds.getSize(new THREE.Vector3()).y);
+        const factor =
+          1.83 / Math.max(0.01, bounds.getSize(new THREE.Vector3()).y);
         model.scale.multiplyScalar(factor);
         measureBody();
         const center = bounds.getCenter(new THREE.Vector3());
@@ -465,13 +534,15 @@ export function startCharacterPreview(
       model.position.set(1.8, 0.045, -horizontalOffset);
       model.rotation.set(0, Math.PI, 0, "YXZ");
       model.scale.x = -Math.abs(model.scale.x);
-      originals = applyStarfieldBackdrop(model);
+      originals = applyStarfieldBackdrop(model, gradientUniforms);
       releasePreviewModel = () => {
         if (originals) {
           const generated = new Set<THREE.Material>();
           for (const [mesh, original] of originals) {
             const previous = Array.isArray(original) ? original : [original];
-            for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material])
+            for (const material of Array.isArray(mesh.material)
+              ? mesh.material
+              : [mesh.material])
               if (!previous.includes(material)) generated.add(material);
           }
           generated.forEach((material) => material.dispose());
@@ -486,10 +557,12 @@ export function startCharacterPreview(
     }
   }
   void loadVariant(variant);
-  swapPreview = arcadePreview ? null : () => {
-    variant = variant === "brondon" ? "brendan" : "brondon";
-    void loadVariant(variant);
-  };
+  swapPreview = arcadePreview
+    ? null
+    : () => {
+        variant = variant === "brondon" ? "brendan" : "brondon";
+        void loadVariant(variant);
+      };
   if (!arcadePreview) window.addEventListener("keydown", onPreviewKey, true);
 
   const startTime = performance.now() * 0.001;

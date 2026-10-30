@@ -6,7 +6,7 @@ import {
 } from "../../helpers/audio/sfx.js";
 import * as THREE from "three";
 import { Reflector } from "three/addons/objects/Reflector.js";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { loadModel } from "../../core/loader.js";
 import toiletUrl from "../../assets/models/toilet (1).glb";
 import toiletPaperUrl from "../../assets/models/toilet_paper.glb";
 import { createScenePhysics } from "../../helpers/physics/scenePhysics.js";
@@ -108,7 +108,10 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
   ): Promise<THREE.Group> {
     let source = modelCache.get(url);
     if (!source) {
-      source = new GLTFLoader().loadAsync(url).then((gltf) => gltf.scene);
+      source = loadModel(url).catch((error) => {
+        modelCache.delete(url);
+        throw error;
+      });
       modelCache.set(url, source);
     }
     return source.then((model) => {
@@ -672,8 +675,8 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
         roll.position.set(0.12, 0.8, -0.235);
         toilet.add(roll);
       })
-      .catch(() => {
-        /* placeholders stay if a model fails to load */
+      .catch((error) => {
+        console.error("[Bathroom] Fixture models failed to load:", error);
       });
     physics.addBox(
       { x: 0.42, y: 0.8, z: 0.72 },
