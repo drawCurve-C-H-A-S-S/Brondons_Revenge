@@ -61,6 +61,7 @@ import type {
 } from "./scenes/level 2/scene15.js";
 import type { RescueArrival } from "./scripts/global/rescueSite.js";
 import type { FinaleCheckpoint } from "./scripts/global/finaleDirector.js";
+import type { FinaleLocalMatch } from "./scenes/level 3/finaleArcade.js";
 import {
   loadCharacter,
   TELEPORT_TRANSFER_DURATION,
@@ -152,6 +153,7 @@ import { updateDialogueVoice } from "./helpers/audio/dialogueVoice.js";
 import {
   loadToolModel,
   PLAYABLE_CHARACTER_NAMES,
+  isPlayableCharacter,
   yieldToMainThread,
   type PlayableCharacter,
 } from "./core/loader.js";
@@ -189,6 +191,7 @@ const sceneImports = {
   21: () => import("./scenes/level 3/scene21.js"),
   99: () => import("./scenes/museum/museum.js"),
   100: () => import("./scenes/trailer/scene.js"),
+  101: () => import("./scenes/level 3/finaleArcade.js"),
 };
 type SceneModuleId = keyof typeof sceneImports;
 const sceneModules = new Map<SceneModuleId, Promise<unknown>>();
@@ -600,6 +603,7 @@ const bloomstick = new BloomstickController(() => ({
   character: globalCharacter?.model ?? null,
   thirdPerson: isGameplayThirdPerson(),
   hasBloomstick,
+  bladeColor: arcade.active ? globalCharacter?.arcadeBladeColor : undefined,
   attackClips: globalCharacter?.bloomstickAttackClips,
   targets: currentSceneData?.getDamageTargets?.() ?? [],
   setCharacterEquipped: (equipped) =>
@@ -1290,6 +1294,8 @@ function dismissControls() {
 }
 function enterHudScene(id: string) {
   document.body.dataset.scene = id;
+  document.body.classList.toggle("finale-active", id === "scene21" || id === "finaleArcade");
+  document.body.classList.toggle("finale-local-active", id === "finaleArcade");
   hintManager?.recordActivity();
   if (id === "scene1") {
     controllerNoticeTime = 0;
@@ -2069,11 +2075,7 @@ function showMenuButtons() {
   document.querySelectorAll<HTMLElement>(".character-card").forEach((card) =>
     card.addEventListener("click", () => {
       const selected = card.dataset.character;
-      if (
-        selected !== "brondon" &&
-        selected !== "brendan" &&
-        selected !== "branden"
-      )
+      if (!isPlayableCharacter(selected))
         throw new Error(`Unknown arcade character: ${selected}`);
       arcade.character = selected;
       arcade.active = true;
@@ -2146,11 +2148,7 @@ function prepareArcadePortraits() {
         .querySelectorAll<HTMLImageElement>("[data-character-portrait]")
         .forEach((image) => {
           const character = image.dataset.characterPortrait;
-          if (
-            character !== "brondon" &&
-            character !== "brendan" &&
-            character !== "branden"
-          )
+          if (!isPlayableCharacter(character))
             throw new Error(`Unknown portrait character: ${character}`);
           const portrait = portraits.get(character);
           if (!portrait) throw new Error(`Missing ${character} portrait`);
@@ -2196,16 +2194,17 @@ async function startArcade() {
     await new Promise<void>((resolve) =>
       requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
     );
-    await prepareEntireGame(loading);
     await loading.presented;
     loading.setStatus("Lighting the braziers of Brondon's Museum...");
-    await prepareGlobalCharacter();
+    await Promise.all([
+      prepareGlobalCharacter(),
+      prepareFirstPersonHands(),
+      pistol.ready,
+    ]);
     arcadeReturnTo = undefined;
     await enterSceneById(MUSEUM_ID);
     if (activeSceneId !== "museum")
       throw new Error("The museum could not be opened");
-    if (preparationSteps)
-      loading.setProgress(preparationSteps, preparationSteps, "Ready to play");
     loading.finish();
   } catch (error) {
     console.error("[Arcade] Preparation failed:", error);
@@ -2230,6 +2229,7 @@ async function loadMuseum(returnTo?: number) {
       return {
         id: "museum",
         data: module.createScene({
+          renderer,
           character: arcade.character,
           returnTo,
           onEnterStage: startArcadeStage,
@@ -2247,7 +2247,33 @@ async function loadMuseum(returnTo?: number) {
   );
 }
 
-async function startArcadeStage(id: number) {
+async function loadFinaleArcade(match?: FinaleLocalMatch) {
+  arcade.active = true;
+  arcade.run = null;
+  arcadeReturnTo = 21;
+  await prepareChapter("finale", async () => {
+    const module = await prepareScene(101);
+    if (!module) throw new Error("Final boss Arcade could not load");
+    return {
+      id: "finaleArcade",
+      data: module.createScene({
+        renderer,
+        match,
+        onStory: () => { void startArcadeStage(21, true); },
+        onMatch: (next) => { void loadFinaleArcade(next); },
+        onSetup: () => { void loadFinaleArcade(); },
+        onExit: () => { void returnToMuseum(); },
+        onPause: () => setPauseMenu("home"),
+      }),
+    };
+  }, () => { void loadFinaleArcade(match); });
+}
+
+async function startArcadeStage(id: number, finaleStory = false) {
+  if (id === 21 && !finaleStory) {
+    await loadFinaleArcade();
+    return;
+  }
   const difficulty = arcade.run?.id === id ? arcade.run.difficulty : "easy";
   arcade.active = true;
   stageTwoProgress = createStageTwoProgress();
@@ -3363,10 +3389,14 @@ async function loadScene21(
       entryState,
       checkpoint,
       renderer,
-      onVictoryComplete: () => {
-        if (arcade.active && arcade.run) completeArcadeStage();
-      },
       onFinished: () => {
+        // Arcade Story Replay includes the complete credits and ending before results.
+        if (arcade.active && arcade.run?.id === 21) {
+          queueMicrotask(() => {
+            if (currentSceneData === sceneData) completeArcadeStage();
+          });
+          return;
+        }
         if (!developerRun) {
           campaignCompleted = true;
           try {
@@ -3677,12 +3707,14 @@ let developerUnlocked = false;
 let resumePointerTarget: HTMLElement | null = null;
 let controllerFocusedItem: HTMLElement | null = null;
 
-function controllerMenuRoot() {
+function controllerMenuRoot(): HTMLElement | null {
   if (creditsDialog.open) return creditsDialog;
   if (arcade.briefingOpen) return document.getElementById("arcade-briefing");
   if (arcade.resultsOpen) return document.getElementById("arcade-results");
   if (cinematicLoading.active) return cinematicLoading.menuRoot;
   if (quickMenuOpen) return menuScreen === "scenes" ? quickMenu : pauseMenu;
+  const sceneMenu = currentSceneData?.getSceneMenuRoot?.();
+  if (sceneMenu instanceof HTMLElement) return sceneMenu;
   const title = document.getElementById("menu-buttons")!;
   return !title.classList.contains("hidden") ? title : null;
 }
@@ -3940,6 +3972,7 @@ function selectControlsTab(tab: InputMode) {
   if (controllerInput) renderControllerStatus(controllerInput.getStatus());
 }
 function controllerMenuAction(action: ControllerMenuAction) {
+  if (action === "back" && !quickMenuOpen && currentSceneData?.closeSceneMenu?.()) return;
   if (
     (arcade.briefingOpen || arcade.resultsOpen) &&
     (action === "pause" || action === "back")
@@ -4114,6 +4147,7 @@ function setupControllerInput() {
         menuOpen: quickMenuOpen || controllerMenuRoot() !== null,
         wheelOpen: weaponWheelOpen,
         mapOpen: menuScreen === "map" && !!shipMap?.visible,
+        exclusive: !!currentSceneData?.ownsControllerInput && !quickMenuOpen && !cinematicLoading.active,
       };
     },
     onModeChange(next) {
@@ -4469,7 +4503,11 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
   if (screen !== "scenes" && screen !== "credits") {
     const previewContainer = document.getElementById("pause-character-preview");
     if (previewContainer && !previewContainer.querySelector("canvas"))
-      startCharacterPreview(previewContainer);
+      startCharacterPreview(
+        previewContainer,
+        arcade.active ? arcade.character : undefined,
+        arcade.active ? currentSceneData?.getPausePreviewModel?.() ?? globalCharacter?.model : undefined,
+      );
     document.getElementById("pause-overlay")?.classList.add("active");
     document.getElementById("pause-orange")?.classList.add("active");
     document
@@ -4495,7 +4533,11 @@ function setPauseMenu(screen: MenuScreen | null, restorePointer = true) {
       "scene-character-preview",
     );
     if (scenePreviewContainer && !scenePreviewContainer.querySelector("canvas"))
-      startCharacterPreview(scenePreviewContainer);
+      startCharacterPreview(
+        scenePreviewContainer,
+        arcade.active ? arcade.character : undefined,
+        arcade.active ? currentSceneData?.getPausePreviewModel?.() ?? globalCharacter?.model : undefined,
+      );
     document.getElementById("scene-side-bar")?.classList.add("active");
     setTimeout(() => {
       document
@@ -4848,10 +4890,7 @@ async function enterSceneById(id: number) {
         await loadFacility20();
         break;
       case 21:
-        await loadScene21(
-          undefined,
-          arcade.active && arcade.run ? { stage: "ground" } : undefined,
-        );
+        await loadScene21();
         break;
       case 21.5:
         await loadScene21(undefined, { stage: "rupture" });

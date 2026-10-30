@@ -11,7 +11,8 @@ export const UNARMED_ATTACK_CLIPS = [
 export type UnarmedAttackName = (typeof UNARMED_ATTACK_CLIPS)[number];
 export const UNARMED_ATTACK_SPEED = 1.5;
 type SerializedClip = Parameters<typeof THREE.AnimationClip.parse>[0];
-type CombatSide = "hero" | "enemy" | "brondon" | "brendan" | "branden";
+type CombatSide =
+  "hero" | "enemy" | "brondon" | "brendan" | "branden" | "students";
 interface BindPose {
   name: string;
   position: [number, number, number];
@@ -134,9 +135,11 @@ function prepareCombatAnimations() {
           !Array.isArray(data.rigs?.brondon) ||
           !Array.isArray(data.rigs?.brendan) ||
           !Array.isArray(data.rigs?.branden) ||
+          !Array.isArray(data.rigs?.students) ||
           !Array.isArray(data.bindPoses?.brondon) ||
           !Array.isArray(data.bindPoses?.brendan) ||
           !Array.isArray(data.bindPoses?.branden) ||
+          !Array.isArray(data.bindPoses?.students) ||
           !Array.isArray(data.bindPoses?.hero) ||
           !Array.isArray(data.bindPoses?.enemy)
         )
@@ -169,6 +172,7 @@ function prepareCombatAnimations() {
             brondon: prepareClips(data.rigs.brondon),
             brendan: prepareClips(data.rigs.brendan),
             branden: prepareClips(data.rigs.branden),
+            students: prepareClips(data.rigs.students),
           },
           bindPoses: data.bindPoses,
         };
@@ -189,7 +193,14 @@ export async function loadCombatAnimations(side: "hero" | "enemy") {
 
 export async function loadCombatAnimationsForRig(model: THREE.Object3D) {
   const library = await prepareCombatAnimations();
-  for (const side of ["hero", "enemy", "brondon", "brendan", "branden"] as const) {
+  for (const side of [
+    "hero",
+    "enemy",
+    "brondon",
+    "brendan",
+    "branden",
+    "students",
+  ] as const) {
     const compatible = library.bindPoses[side].every((pose) => {
       const bone = model.getObjectByName(pose.name);
       return (

@@ -265,6 +265,7 @@ export function createFinaleWorld(
     layer.frustumCulled = false;
     layer.onBeforeRender = (_renderer, _scene, viewCamera) => {
       viewCamera.getWorldPosition(layer.position);
+      layer.parent?.worldToLocal(layer.position);
       layer.updateMatrixWorld(true);
     };
   }

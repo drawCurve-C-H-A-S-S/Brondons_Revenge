@@ -1919,7 +1919,12 @@ body[data-scene="scene1"] .scene-credits-btn {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 28px;
+  gap: 16px;
+  width: min(1040px, calc(100vw - 32px));
+  max-height: calc(100dvh - 40px);
+  padding: 8px;
+  box-sizing: border-box;
+  overflow-y: auto;
   pointer-events: auto;
 }
 #character-select h2 {
@@ -1931,12 +1936,16 @@ body[data-scene="scene1"] .scene-credits-btn {
   font-size: 24px;
 }
 .character-cards {
-  display: flex;
-  gap: clamp(8px, 2.4vw, 24px);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(8px, 1.5vw, 16px);
+  width: 100%;
 }
 .character-card {
-  width: clamp(92px, 26vw, 220px);
-  padding: clamp(10px, 2vw, 24px) clamp(6px, 1.4vw, 20px);
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 12px 8px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1968,7 +1977,7 @@ body[data-scene="scene1"] .scene-credits-btn {
 }
 .character-portrait {
   display: block;
-  width: 100%;
+  width: min(100%, 140px);
   height: auto;
   aspect-ratio: 1;
   object-fit: contain;
@@ -1985,6 +1994,11 @@ body[data-scene="scene1"] .scene-credits-btn {
 }
 #character-select-status:empty {
   display: none;
+}
+@media (max-width: 600px) {
+  .character-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 #title-icon-bar {
   position: absolute;
@@ -6438,6 +6452,77 @@ body.touch-device #quarters-room-name {
   bottom: 150px;
 }
 
+.museum-photo-studio {
+  box-sizing: border-box;
+  width: min(1500px, 96vw);
+  height: min(940px, 94vh);
+  max-width: none;
+  max-height: none;
+  margin: auto;
+  padding: 22px;
+  border: 4px solid var(--comic-ink);
+  border-radius: 3px;
+  box-shadow: 8px 8px 0 var(--comic-ink);
+  background-color: var(--comic-paper);
+  background-image: var(--comic-dots);
+  background-size: 6px 6px;
+  color: var(--comic-ink);
+  color-scheme: light;
+  font: 13px/1.5 var(--settings-font);
+  overflow: hidden;
+}
+.museum-photo-studio:not([open]) { display: none; }
+.museum-photo-studio[open] { display: flex; flex-direction: column; gap: 20px; animation: comic-panel-open 260ms cubic-bezier(0.18, 0.9, 0.3, 1.18) both; }
+.museum-photo-studio::backdrop { background: rgba(0, 5, 12, 0.78); }
+.museum-photo-studio header { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding-bottom: 16px; border-bottom: 4px solid var(--comic-ink); }
+.museum-photo-studio h1 { margin: 10px 0 0; text-transform: uppercase; font: 400 clamp(24px, 3vw, 40px)/1.1 var(--comic-display); }
+.museum-photo-studio header small { display: inline-block; padding: 3px 7px; color: var(--comic-ink); background: var(--comic-yellow); border: 2px solid var(--comic-ink); font: 700 10px/1.3 var(--comic-body); }
+.museum-studio-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; min-height: 0; flex: 1; }
+.museum-studio-stage { display: grid; grid-template-rows: minmax(0, 1fr) auto auto; gap: 12px; min-width: 0; min-height: 0; margin: 0; padding: 18px; border: 2px solid var(--comic-ink); border-radius: 3px; background: var(--comic-paper); box-sizing: border-box; }
+.museum-studio-canvas { position: relative; width: 100%; height: 100%; min-height: 0; box-sizing: border-box; overflow: hidden; background: #101827; border: 3px solid var(--comic-ink); border-radius: 3px; box-shadow: 4px 4px 0 var(--comic-ink); }
+.museum-studio-canvas canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.museum-studio-stage p { margin: 0; text-align: center; color: #424653; font-size: 12px; }
+.museum-studio-stage .museum-studio-credit { padding-top: 8px; border-top: 1px solid #bdc5cc; font-size: 11px; }
+.museum-studio-credit a { color: inherit; text-decoration: underline; }
+.museum-studio-settings { display: flex; flex-direction: column; gap: 14px; min-height: 0; padding: 4px 8px 12px 4px; overflow-y: auto; scrollbar-color: var(--comic-ink) var(--comic-paper); }
+.museum-studio-settings label { display: flex; flex-direction: column; gap: 8px; color: var(--comic-ink); font-size: 11px; font-weight: 800; }
+.museum-photo-studio button,
+.museum-photo-studio select {
+  min-height: 42px;
+  padding: 9px 12px;
+  font: 800 12px/1.4 var(--settings-font);
+}
+.museum-photo-studio button { min-width: 0; cursor: pointer; }
+.museum-photo-studio select { width: 100%; text-overflow: ellipsis; color: var(--comic-ink); background: var(--comic-paper); border: 3px solid var(--comic-ink); border-radius: 3px; box-shadow: 3px 3px 0 var(--comic-ink); }
+.museum-photo-studio :is(button, select, input):focus-visible,
+.museum-photo-studio .controller-focused { outline: 3px solid var(--comic-cyan); outline-offset: 3px; }
+.museum-photo-studio button:disabled { opacity: 0.45; cursor: default; }
+.museum-photo-studio input[type="range"] { width: 100%; min-height: 24px; accent-color: var(--comic-ink); }
+.museum-studio-row { display: flex; gap: 8px; }
+.museum-studio-row button { flex: 1; padding: 8px; }
+.museum-studio-settings [data-download] { background: var(--comic-cyan); }
+.museum-studio-settings [aria-pressed="true"] { background: var(--comic-yellow); }
+.museum-studio-note,
+.museum-studio-settings [data-status] { margin: 0; font-size: 12px; line-height: 1.5; color: #424653; }
+.museum-studio-settings [data-status] { color: var(--comic-ink); font-weight: 800; }
+body.museum-studio-open :is(#interact-prompt, #crosshair, #look-reticle, #minimap, #touch-controls) { display: none !important; }
+body.quick-menu-open .museum-photo-studio { visibility: hidden; }
+@media (prefers-reduced-motion: reduce) {
+  .museum-photo-studio[open] { animation: none; }
+}
+@media (max-width: 850px) {
+  .museum-photo-studio { padding: 14px; }
+  .museum-studio-layout { grid-template-columns: minmax(0, 1fr) 260px; gap: 12px; }
+}
+@media (max-width: 600px) {
+  .museum-photo-studio { height: 96vh; }
+  .museum-studio-layout { display: flex; flex-direction: column; overflow-y: auto; }
+  .museum-studio-stage { flex: none; height: clamp(260px, 55vh, 480px); padding: 12px; }
+  .museum-studio-settings { overflow: visible; flex: none; }
+  .museum-photo-studio header { gap: 10px; }
+  .museum-photo-studio header button { max-width: 120px; }
+}
+
 .finale-hud {
   position: fixed;
   inset: 0;
@@ -6448,8 +6533,125 @@ body.touch-device #quarters-room-name {
   pointer-events: none;
   text-shadow: 0 2px 8px #050914;
 }
-.finale-hud [hidden] {
+.finale-hud [hidden],
+.finale-local [hidden] {
   display: none !important;
+}
+.finale-local {
+  position: fixed;
+  inset: 0;
+  z-index: 1700;
+  color: var(--comic-ink);
+  font-family: var(--settings-font);
+  pointer-events: none;
+}
+.finale-local-menu,
+.finale-local-result {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: safe center;
+  gap: 18px;
+  padding: max(24px, env(safe-area-inset-top)) 24px;
+  background: var(--comic-dots) 0 0 / 6px 6px, var(--comic-paper);
+  pointer-events: auto;
+  text-align: center;
+}
+.finale-local h1 {
+  margin: 0;
+  font: 400 clamp(28px, 5vw, 64px)/1.05 var(--comic-display, sans-serif);
+  letter-spacing: 0.04em;
+}
+.finale-local h2 { margin: 0 0 10px; font-size: 16px; letter-spacing: 0.08em; }
+.finale-local p { max-width: 850px; line-height: 1.5; margin: 8px 0; }
+.finale-local-kicker { color: var(--comic-ink); background: var(--comic-yellow); border: 2px solid var(--comic-ink); padding: 4px 8px; font-size: 12px; font-weight: 800; }
+.finale-local button {
+  min-height: 48px;
+  padding: 12px 22px;
+  border: 3px solid var(--comic-ink);
+  border-radius: 3px;
+  background: var(--comic-paper);
+  color: var(--comic-ink);
+  box-shadow: 4px 4px 0 var(--comic-ink);
+  font: 800 14px/1.4 var(--settings-font);
+  cursor: pointer;
+}
+.finale-local button:hover { background: var(--comic-yellow); }
+.finale-local button:focus-visible,
+.finale-local button:focus { outline: 3px solid var(--comic-cyan); outline-offset: 4px; }
+.finale-local-modes,
+.finale-local-seats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: min(860px, 100%);
+  gap: 24px;
+}
+.finale-local-modes button { display: flex; flex-direction: column; gap: 18px; padding: 32px 24px; }
+.finale-local-modes strong { font: 400 clamp(24px, 3vw, 38px)/1.2 var(--comic-display, sans-serif); }
+.finale-local-modes span { color: #424653; font-weight: 400; }
+.finale-local-lobby { max-width: 860px; width: 100%; }
+.finale-local-seats { margin: 20px 0; }
+.finale-local-seats article { padding: 20px; border: 3px solid var(--comic-ink); border-top: 8px solid var(--comic-cyan); background: var(--comic-paper); box-shadow: 4px 4px 0 var(--comic-ink); }
+.finale-local-seats article:nth-child(2) { border-top-color: var(--comic-red); }
+.finale-local-seats small { display: block; margin-top: 14px; color: var(--comic-ink); font-weight: 800; }
+.finale-local-status {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top));
+  left: 3%;
+  right: 3%;
+  display: flex;
+  justify-content: space-between;
+  gap: 30px;
+}
+.finale-local-status .finale-player-status { position: static; width: min(310px, 40vw); box-sizing: border-box; }
+.finale-local-status .finale-player-status strong { font-size: clamp(10px, 1.4vw, 18px); }
+.finale-local-edges { position: absolute; inset: 0; pointer-events: none; }
+.finale-local-moves { position: absolute; left: 3vw; bottom: max(18px, env(safe-area-inset-bottom)); max-width: 46vw; display: grid; gap: 9px; }
+.finale-local-moves[data-player="1"] { left: auto; right: 3vw; }
+.finale-local-systems { display: flex; gap: 8px; }
+.finale-local-moves .finale-control { width: clamp(34px, 5.5vw, 68px); }
+.finale-local-moves .finale-local-ultimate kbd { font-size: clamp(9px, 1vw, 13px); white-space: nowrap; }
+.finale-local-moves > small { font: 800 clamp(7px, 0.75vw, 10px)/1.4 var(--comic-body); color: var(--comic-paper); text-shadow: 0 1px 3px #000, 0 0 4px #000; }
+.finale-local-moves[data-player="1"] > small { text-align: right; }
+.finale-local-flash { z-index: 2; }
+.finale-local.transitioning :is(.finale-local-status, .finale-local-edges) { visibility: hidden; }
+.finale-local-banner {
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  top: 40%;
+  text-align: center;
+  font: 400 clamp(24px, 3vw, 44px)/1.3 var(--comic-display, sans-serif);
+  color: var(--comic-paper);
+  text-shadow: 0 3px 4px #000, 0 0 20px #000;
+}
+.finale-local-result { background: var(--comic-dots) 0 0 / 6px 6px, var(--comic-paper); }
+body.finale-local-active #boss-hud,
+body.finale-local-active #arcade-run-clock { display: none !important; }
+body.quick-menu-open .finale-local { visibility: hidden; }
+@media (max-width: 650px) {
+  .finale-local-modes, .finale-local-seats { gap: 12px; }
+  .finale-local-modes button, .finale-local-seats article { padding: 16px 10px; }
+  .finale-local-menu, .finale-local-result { gap: 12px; padding: 18px 12px; }
+  .finale-local-status { left: 1%; right: 1%; gap: 8px; }
+  .finale-local-status .finale-player-status { width: 46%; padding: 6px; }
+  .finale-local-moves { left: 1%; gap: 6px; bottom: max(10px, env(safe-area-inset-bottom)); }
+  .finale-local-moves[data-player="1"] { right: 1%; }
+  .finale-local-systems { gap: 5px; }
+  .finale-local-moves .finale-control kbd { font-size: 12px; }
+  .finale-local-moves .finale-local-ultimate kbd { font-size: 9px; }
+  .finale-local-moves .finale-control small b { font-size: 7px; }
+}
+@media (max-height: 520px) {
+  .finale-local-moves { gap: 5px; bottom: max(8px, env(safe-area-inset-bottom)); }
+  .finale-local-moves .finale-control { width: clamp(34px, 8vh, 48px); padding: 4px; border-width: 2px; }
+  .finale-local-moves .finale-control kbd { font-size: 13px; }
+  .finale-local-moves .finale-local-ultimate kbd { font-size: 9px; }
+  .finale-local-moves .finale-control small b { font-size: 9px; }
+  .finale-local-moves .finale-control small em { display: none; }
 }
 body.finale-active #health-bar,
 body.finale-active #shield-bar,

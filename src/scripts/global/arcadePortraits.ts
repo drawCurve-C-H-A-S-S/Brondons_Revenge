@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import {
   loadPlayableCharacterModel,
+  PLAYABLE_CHARACTERS,
   type PlayableCharacter,
 } from "../../core/loader.js";
 import { disposeRoom } from "./shipRoom.js";
@@ -36,12 +37,13 @@ export async function renderArcadePortraits() {
     renderer.setSize(256, 256);
     renderer.setClearColor(0x000000, 0);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    for (const character of ["brondon", "brendan", "branden"] as const) {
+    for (const character of PLAYABLE_CHARACTERS) {
       const asset = await loadPlayableCharacterModel(character);
       const mixer = new THREE.AnimationMixer(asset.scene);
       try {
         const idle = asset.animations.find((clip) => clip.name === "Idle_Loop");
-        if (!idle) throw new Error(`${character} has no portrait idle animation`);
+        if (!idle)
+          throw new Error(`${character} has no portrait idle animation`);
         mixer.clipAction(idle).play();
         mixer.setTime(0.3);
         frameCharacterHeadshot(asset.scene, camera);

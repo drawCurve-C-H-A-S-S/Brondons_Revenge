@@ -801,26 +801,13 @@ export function createStudentPoseClip(model: THREE.Object3D, index: number) {
       leftLeg: [-0.3, 0, 0.25],
     },
     {
-      spine: [0.38, -0.2, 0],
-      rightArm: [-1.45, 0.3, -0.25],
-      leftArm: [-0.7, -0.1, -1.1],
-      leftLeg: [-0.7, 0, 0.3],
-      leftKnee: [1.15, 0, 0],
-      rightKnee: [0.7, 0, 0],
-    },
-    {
-      spine: [-0.15, 0.25, 0.12],
-      leftArm: [-0.7, 0, 0.3],
-      rightArm: [-1.55, 0, -0.3],
-      leftElbow: [-1.15, 0, 0],
-      head: [-0.18, -0.2, 0],
-    },
-    {
-      spine: [0.06, -0.35, 0.12],
-      leftArm: [-1.3, -0.6, 0.65],
-      leftElbow: [-1.65, 0, 0],
-      rightArm: [-1.35, 0.2, -0.15],
-      rightElbow: [-0.25, 0, 0],
+      spine: [0.38, 0, 0],
+      leftArm: [-1.3, -0.25, -0.6],
+      rightArm: [-1.3, 0.25, 0.6],
+      leftLeg: [-0.5, 0, 0.2],
+      rightLeg: [-0.5, 0, -0.2],
+      leftKnee: [1, 0, 0],
+      rightKnee: [1, 0, 0],
     },
   ];
   return bakeClip(sampler, `Sudoers5_Signature_${index + 1}`, 3.6, (p) => {
@@ -839,9 +826,9 @@ export function createStudentPoseClip(model: THREE.Object3D, index: number) {
     const flourish =
       Math.sin(smooth(p, 0.04, 0.42) * Math.PI) * (1 - smooth(p, 0.5, 0.65));
     pose.leftArm = [-flourish * 1.2, -flourish * 0.4, -1.4 + flourish * 0.85];
-    pose.rightArm = [-flourish * 1.4, flourish * 0.5, 1.4 - flourish * 0.75];
+    pose.rightArm = [-flourish * 1.2, flourish * 0.4, 1.4 - flourish * 0.85];
     const settle = smooth(p, 0.4, 0.82),
-      target = signature[index % signature.length];
+      target = signature[index <= 2 ? index : 4 - index];
     for (const slot of SLOTS) {
       const angles = target[slot];
       if (!angles) continue;
@@ -852,7 +839,19 @@ export function createStudentPoseClip(model: THREE.Object3D, index: number) {
         THREE.MathUtils.lerp(base[2], angles[2], settle),
       ];
     }
-    return pose;
+    if (index <= 2) return pose;
+    const mirrored: RigPose = {};
+    for (const slot of SLOTS) {
+      const opposite = slot.startsWith("left")
+        ? slot.replace("left", "right")
+        : slot.startsWith("right")
+          ? slot.replace("right", "left")
+          : slot;
+      const source = SLOTS.find((candidate) => candidate === opposite);
+      const angles = source && pose[source];
+      if (angles) mirrored[slot] = [angles[0], -angles[1], -angles[2]];
+    }
+    return mirrored;
   });
 }
 

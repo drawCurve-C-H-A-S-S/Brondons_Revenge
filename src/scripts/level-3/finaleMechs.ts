@@ -57,7 +57,7 @@ export interface MechAsset {
   armored?: boolean;
   authoredMaterials?: boolean;
   ownership?: "owned" | "shared";
-  sockets?: Partial<Record<"sword" | "gun" | "chest", string>>;
+  sockets?: Partial<Record<"sword" | "gun" | "chest" | "gem", string>>;
 }
 export type MechFactory = () => Promise<MechAsset>;
 export const DEFAULT_MECH_FACTORIES: Record<MechSide, MechFactory> = {
@@ -108,6 +108,7 @@ export function createFinaleMech(
   let swordBone: THREE.Object3D | null = null,
     gunBone: THREE.Object3D | null = null,
     chestBone: THREE.Object3D | null = null;
+  let gemSocket: THREE.Object3D | null = null;
   const swordGripSocket = new THREE.Object3D();
   const swordFingerGrip: Array<{
     bone: THREE.Object3D;
@@ -386,6 +387,9 @@ export function createFinaleMech(
     chestBone = asset.sockets?.chest
       ? (model.getObjectByName(asset.sockets.chest) ?? null)
       : (animator.slots.spineUpper ?? null);
+    gemSocket = asset.sockets?.gem
+      ? (model.getObjectByName(asset.sockets.gem) ?? null)
+      : null;
     if (!gunBone || !chestBone)
       throw new Error(
         `${root.name} needs gun and chest sockets or semantic hand and upper-spine bones`,
@@ -1315,6 +1319,10 @@ export function createFinaleMech(
           .applyQuaternion(root.quaternion)
           .multiplyScalar(root.scale.x),
       );
+    },
+    getGem(out = new THREE.Vector3()) {
+      if (!gemSocket) throw new Error(`${root.name} has no chest gem socket`);
+      return gemSocket.getWorldPosition(out);
     },
     getHand(side: "left" | "right", out = new THREE.Vector3()) {
       const bone = animator?.slots[side === "left" ? "leftHand" : "rightHand"];

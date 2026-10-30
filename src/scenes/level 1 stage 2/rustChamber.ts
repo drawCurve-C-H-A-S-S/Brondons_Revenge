@@ -520,7 +520,8 @@ export function createScene({
     worn,
   );
   pipe.rotation.x = Math.PI / 2;
-  pipe.position.set(33.3, 6.4, 17);
+  pipe.name = "RustChamberWallPipe";
+  pipe.position.set(33.65, 6.4, 17);
   scene.add(pipe);
 
   const rewardDoor = createSlidingPortal(
@@ -530,7 +531,7 @@ export function createScene({
     6,
     7,
     "",
-    { sign: false, landingFloor: false },
+    { sign: false, landingFloor: false, opaqueOpening: false },
   );
   rewardDoor.setLocked(true);
   box([8, 0.3, 6], [17, -0.17, 31], ship.deck);

@@ -193,6 +193,24 @@ export function createBloomstickBeam(): THREE.Group {
   return beam;
 }
 
+/** Keep blade, white-hot core, halo and nearby lighting on one per-weapon palette. */
+export function setBloomstickColor(root: THREE.Object3D, color: number) {
+  if (root.userData.bladeTint === color) return;
+  root.userData.bladeTint = color;
+  const tint = new THREE.Color(color);
+  const coreTint = tint.clone().lerp(new THREE.Color(0xffffff), 0.82);
+  root.traverse((node) => {
+    if (node instanceof THREE.PointLight && node.name === "bladeLight")
+      node.color.copy(tint);
+    if (!(node instanceof THREE.Mesh)) return;
+    const material = node.material;
+    if ((node.name === "blade" || node.name === "bladeCore") && material instanceof THREE.MeshBasicMaterial)
+      material.color.copy(node.name === "bladeCore" ? coreTint : tint);
+    if (node.name === "bladeGlow" && material instanceof THREE.ShaderMaterial)
+      material.uniforms.uTint.value.copy(tint);
+  });
+}
+
 export function disposeBloomstick(root: THREE.Object3D) {
   const materials = new Set<THREE.Material>();
   root.traverse((child) => {

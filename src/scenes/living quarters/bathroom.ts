@@ -143,6 +143,9 @@ export function createCommunalBathroom(scene: THREE.Scene, physics: Physics) {
     mesh.name = name;
     mesh.position.set(...at);
     mesh.castShadow = mesh.receiveShadow = true;
+    mesh.userData.shipSurfaceContinuous = solid && (
+      material === steel || material === deck || name === "BathroomCeiling"
+    );
     parent.add(mesh);
     if (solid) physics.addBoxFromMesh(mesh);
     return mesh;

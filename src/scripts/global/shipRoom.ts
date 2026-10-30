@@ -94,6 +94,7 @@ export function createSlidingPortal(
     closeSpeed?: number;
     sign?: boolean;
     landingFloor?: boolean;
+    opaqueOpening?: boolean;
     surfaceStyle?: "ship" | "plain";
     cargo?: () => Array<{ position: { x: number; y: number; z: number } }>;
   } = {},
@@ -164,7 +165,7 @@ export function createSlidingPortal(
   }
   for (const x of [-1.56, 1.56])
     localBox([0.12, h, 0.62], [x, h / 2, 0], steel, false);
-  group.add(createBulkheadVoid(w, h));
+  if (options.opaqueOpening !== false) group.add(createBulkheadVoid(w, h));
   const panels = [-1, 1].map((sign) => {
     const panel = localBox([1.5, h, 0.12], [sign * 0.75, h / 2, 0], plainDoorEdge);
     for (const face of [-1, 1]) {

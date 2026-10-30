@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import {
-  loadSubjectModel,
+  loadStudentModel,
   loadToolModel,
   loadVergilsChair,
 } from "../../core/loader.js";
@@ -264,7 +264,7 @@ export function createFacilityOffice(
   scene: THREE.Scene,
   physics: OfficePhysics,
   loadChair = loadToolModel,
-  loadStudent = loadSubjectModel,
+  loadStudent = loadStudentModel,
 ) {
   const root = new THREE.Group();
   root.name = "FacilityGlassOffice";
@@ -286,7 +286,10 @@ export function createFacilityOffice(
   }> = [];
   let disposed = false;
   const ready = Promise.allSettled(
-    FACILITY_OFFICE_SEATS.flatMap(() => [loadStudent(), loadVergilsChair()]),
+    SUDOERS_5.flatMap((student) => [
+      loadStudent(student.name),
+      loadVergilsChair(),
+    ]),
   ).then((results) => {
     const assets = results.flatMap((result) =>
       result.status === "fulfilled" ? [result.value] : [],
@@ -319,7 +322,7 @@ export function createFacilityOffice(
         );
         if (!clip)
           throw new Error(
-            `Subject is missing a seated office animation for ${actor.name}`,
+            `${actor.name} is missing a seated office animation`,
           );
         const mixer = new THREE.AnimationMixer(asset.scene);
         mixer.clipAction(clip).play();

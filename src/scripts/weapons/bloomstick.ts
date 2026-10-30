@@ -3,6 +3,7 @@ import * as CANNON from "cannon-es";
 import {
   createBloomstick,
   disposeBloomstick,
+  setBloomstickColor,
   BLOOMSTICK_ATTACK_SPEED,
   BLOOMSTICK_SWING_DURATION,
 } from "../items/createBloomstick.js";
@@ -55,6 +56,7 @@ interface BloomstickContext {
   character: THREE.Object3D | null;
   thirdPerson: boolean;
   hasBloomstick: boolean;
+  bladeColor?: number;
   attackClips?: readonly THREE.AnimationClip[];
   targets: DamageTarget[];
   setCharacterEquipped: (equipped: boolean) => void;
@@ -296,6 +298,10 @@ export class BloomstickController {
     this.beamActive = active;
     this.root.visible = active && !thirdPerson && !firstPersonHands;
     const sourceWeapon = character?.getObjectByName("bloomstick");
+    const bladeColor = context.bladeColor ?? 0x00ff88;
+    setBloomstickColor(this.root, bladeColor);
+    if (sourceWeapon) setBloomstickColor(sourceWeapon, bladeColor);
+    firstPersonHands?.setBloomstickColor(bladeColor);
     if (firstPersonHands && active && !thirdPerson && player) {
       firstPersonHands.setWeapon("bloomstick");
       if (this.swingTime > 0 && camera && character && sourceWeapon) {

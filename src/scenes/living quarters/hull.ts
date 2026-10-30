@@ -48,13 +48,17 @@ export function createQuartersHull(
     mesh.name = name;
     mesh.position.set(...at);
     mesh.castShadow = mesh.receiveShadow = true;
+    mesh.userData.shipSurfaceContinuous = solid;
     parent.add(mesh);
     if (solid) physics.addBoxFromMesh(mesh);
     return mesh;
   }
   const half = QUARTERS.hallwayWidth / 2,
     roomHalf = QUARTERS.cabinWidth / 2,
-    depthHalf = QUARTERS.cabinDepth / 2;
+    depthHalf = QUARTERS.cabinDepth / 2,
+    wallThickness = QUARTERS.wallThickness,
+    wallHalf = wallThickness / 2,
+    hallEnd = QUARTERS.hallwayLength / 2;
   const roof = box(
     scene,
     "QuartersHallCeiling",
@@ -107,9 +111,10 @@ export function createQuartersHull(
         [side * half, 1.58, z],
         dark,
       );
-      box(scene, "HallStructuralRib", [4.64, 0.17, 0.24], [0, 3.02, z], trim);
     }
   }
+  for (const z of [-15.7, -7.6, 0, 7.6, 15.7])
+    box(scene, "HallStructuralRib", [4.64, 0.17, 0.24], [0, 3.02, z], trim);
   for (const z of QUARTERS.slots) {
     box(scene, "HallOverheadStrip", [2.4, 0.025, 0.12], [0, 3.08, z], cyan);
     const light = new THREE.PointLight(0xb6dfec, 9, 10, 1.7);
@@ -136,14 +141,14 @@ export function createQuartersHull(
         root,
         "BulkheadJamb",
         [0.16, height, 0.28],
-        [side * (width / 2 + 0.07), height / 2, 0],
+        [side * (width / 2 + 0.08), height / 2, 0],
         trim,
       );
     box(
       root,
       "BulkheadHeader",
-      [width + 0.3, 0.2, 0.3],
-      [0, height + 0.08, 0],
+      [width + 0.32, 0.2, 0.3],
+      [0, height + 0.1, 0],
       trim,
     );
     const leaves = [-1, 1].map((side) => {
@@ -251,7 +256,7 @@ export function createQuartersHull(
       box(
         shell,
         "CabinPartition",
-        [QUARTERS.cabinWidth, QUARTERS.height, 0.18],
+        [QUARTERS.cabinWidth - wallThickness, QUARTERS.height, wallThickness],
         [0, QUARTERS.height / 2, z],
         steel,
         true,
@@ -259,17 +264,17 @@ export function createQuartersHull(
     box(
       shell,
       "CabinOuterHull",
-      [0.18, QUARTERS.height, QUARTERS.cabinDepth],
+      [wallThickness, QUARTERS.height, QUARTERS.cabinDepth + wallThickness],
       [cabin.side * roomHalf, QUARTERS.height / 2, 0],
       steel,
       true,
     );
-    const span = (QUARTERS.cabinDepth - QUARTERS.doorWidth) / 2;
+    const span = (QUARTERS.cabinDepth + wallThickness - QUARTERS.doorWidth) / 2;
     for (const z of [-1, 1])
       box(
         shell,
         "CabinEntrancePartition",
-        [0.18, QUARTERS.height, span],
+        [wallThickness, QUARTERS.height, span],
         [
           -cabin.side * roomHalf,
           QUARTERS.height / 2,
@@ -281,7 +286,7 @@ export function createQuartersHull(
     box(
       shell,
       "CabinEntranceLintel",
-      [0.18, QUARTERS.height - QUARTERS.doorHeight, QUARTERS.doorWidth],
+      [wallThickness, QUARTERS.height - QUARTERS.doorHeight, QUARTERS.doorWidth],
       [-cabin.side * roomHalf, (QUARTERS.height + QUARTERS.doorHeight) / 2, 0],
       steel,
       true,
@@ -324,26 +329,36 @@ export function createQuartersHull(
       masks.push(mask);
     }
   }
+  // Fill only the gaps between cabin shells and the end bulkheads. The side
+  // walls own the cabin corners; transverse partitions butt against them.
   for (const side of [-1, 1]) {
-    for (const z of [-15.2, -7.6, 0, 7.6, 15.2]) {
-      const length = Math.abs(z) === 15.2 ? 1.6 : 0.8;
+    const cabins = CABINS.filter((cabin) => cabin.side === side)
+      .sort((a, b) => a.z - b.z);
+    let start = -hallEnd + wallHalf;
+    const gap = (end: number) => {
+      if (end - start <= 0.000001) return;
       box(
         scene,
         "HallPartitionJoin",
-        [0.18, QUARTERS.height, length],
-        [side * half, QUARTERS.height / 2, z],
+        [wallThickness, QUARTERS.height, end - start],
+        [side * half, QUARTERS.height / 2, (start + end) / 2],
         steel,
         true,
       );
+    };
+    for (const cabin of cabins) {
+      gap(cabin.z - depthHalf - wallHalf);
+      start = cabin.z + depthHalf + wallHalf;
     }
+    gap(hallEnd - wallHalf);
   }
   for (const side of [-1, 1])
     box(
       scene,
       "ForwardBulkheadWall",
-      [(QUARTERS.hallwayWidth - QUARTERS.doorWidth) / 2, QUARTERS.height, 0.18],
+      [(QUARTERS.hallwayWidth + wallThickness - QUARTERS.doorWidth) / 2, QUARTERS.height, wallThickness],
       [
-        (side * (QUARTERS.hallwayWidth + QUARTERS.doorWidth)) / 4,
+        (side * (QUARTERS.hallwayWidth + wallThickness + QUARTERS.doorWidth)) / 4,
         QUARTERS.height / 2,
         16,
       ],
@@ -371,19 +386,25 @@ export function createQuartersHull(
     0,
     false,
   );
+  const transferEndZ = hallEnd + 1.55,
+    transferCapThickness = 0.12,
+    transferStart = hallEnd + wallHalf,
+    transferBack = transferEndZ - transferCapThickness / 2,
+    transferLength = transferEndZ + transferCapThickness / 2 - hallEnd,
+    transferCenter = hallEnd + transferLength / 2;
   box(
     scene,
     "ForwardTransferDeck",
-    [QUARTERS.hallwayWidth, 0.2, 1.6],
-    [0, -0.1, 16.8],
+    [QUARTERS.hallwayWidth + wallThickness, 0.2, transferLength],
+    [0, -0.1, transferCenter],
     deck,
     true,
   );
   const transferRoof = box(
     scene,
     "ForwardTransferCeiling",
-    [QUARTERS.hallwayWidth, 0.18, 1.6],
-    [0, QUARTERS.height + 0.09, 16.8],
+    [QUARTERS.hallwayWidth + wallThickness, 0.18, transferLength],
+    [0, QUARTERS.height + 0.09, transferCenter],
     dark,
     true,
   );
@@ -392,16 +413,16 @@ export function createQuartersHull(
     box(
       scene,
       "ForwardTransferWall",
-      [0.18, QUARTERS.height, 1.6],
-      [side * half, QUARTERS.height / 2, 16.8],
+      [wallThickness, QUARTERS.height, transferBack - transferStart],
+      [side * half, QUARTERS.height / 2, (transferStart + transferBack) / 2],
       steel,
       true,
     );
   const transferEnd = box(
     scene,
     "ForwardTransferEndCap",
-    [QUARTERS.hallwayWidth, QUARTERS.height, 0.12],
-    [0, QUARTERS.height / 2, 17.55],
+    [QUARTERS.hallwayWidth + wallThickness, QUARTERS.height, transferCapThickness],
+    [0, QUARTERS.height / 2, transferEndZ],
     dark,
     true,
   );

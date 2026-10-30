@@ -11,6 +11,7 @@ import * as THREE from "three";
 import type { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import {
   loadPlayableCharacterModel,
+  characterDominantColor,
   setPlayerCellShadingEnabled,
   yieldToMainThread,
   type PlayableCharacter,
@@ -475,6 +476,7 @@ export async function loadCharacter(
   }
 
   const model = gltf.scene;
+  const arcadeBladeColor = characterDominantColor(model);
   model.scale.set(1, 1, 1);
   const modelOffsetY = -new THREE.Box3().setFromObject(model).min.y;
   const ventFeet = ["foot_l", "foot_r"]
@@ -2065,6 +2067,7 @@ export async function loadCharacter(
     model,
     mixer,
     animations: clips,
+    arcadeBladeColor,
     update,
     setFacing,
     setHologramTransition,

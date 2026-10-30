@@ -213,7 +213,7 @@ function bakeRetargetedClip(source, target, clip) {
 }
 
 const destination = path.join(project, "src", "assets", "animations");
-const rigNames = ["hero", "enemy", "brondon", "brendan", "branden"];
+const rigNames = ["hero", "enemy", "brondon", "brendan", "branden", "students"];
 const bindPose = (target, complete = false) =>
   (complete
     ? target.orderedJoints.map((index) => target.nodes[index].name)
@@ -240,6 +240,7 @@ if (sourceDirectory === "--arcade") {
   for (const [name, filename] of [
     ["brendan", "DonfromStreets.glb"],
     ["branden", "branden-the-dripless-export.glb"],
+    ["students", "Caleb.glb"],
   ]) {
     const target = await readRig(
       path.join(project, "src", "assets", "models", filename),
@@ -280,6 +281,7 @@ if (sourceDirectory === "--arcade") {
       "Don.glb",
       "DonfromStreets.glb",
       "branden-the-dripless-export.glb",
+      "Caleb.glb",
     ].map((name) =>
       readRig(path.join(project, "src", "assets", "models", name)),
     ),

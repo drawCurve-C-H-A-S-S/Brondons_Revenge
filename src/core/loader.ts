@@ -4,6 +4,11 @@ import { clone as cloneRig } from "three/addons/utils/SkeletonUtils.js";
 import playerModelUrl from "../assets/models/Don.glb";
 import mcModelUrl from "../assets/models/MC.glb";
 import subjectModelUrl from "../assets/models/Subject.glb";
+import calebModelUrl from "../assets/models/Caleb.glb";
+import husainModelUrl from "../assets/models/Husain.glb";
+import andreModelUrl from "../assets/models/Andre.glb";
+import sibusisoModelUrl from "../assets/models/Sibusiso.glb";
+import sohrabModelUrl from "../assets/models/Sohrab.glb";
 import finaleMechModelUrl from "../assets/models/mechs.glb";
 import brendanModelUrl from "../assets/models/DonfromStreets.glb";
 import brandenModelUrl from "../assets/models/branden-the-dripless-export.glb";
@@ -48,8 +53,26 @@ export const PLAYABLE_CHARACTER_NAMES = {
   brondon: "Brondon",
   brendan: "Brendan",
   branden: "Branden",
+  caleb: "Caleb",
+  husain: "Husain",
+  andre: "André",
+  sibusiso: "Sibusiso",
+  sohrab: "Sohrab",
 } as const;
 export type PlayableCharacter = keyof typeof PLAYABLE_CHARACTER_NAMES;
+export function isPlayableCharacter(value: unknown): value is PlayableCharacter {
+  return typeof value === "string" &&
+    Object.prototype.hasOwnProperty.call(PLAYABLE_CHARACTER_NAMES, value);
+}
+export const PLAYABLE_CHARACTERS =
+  Object.keys(PLAYABLE_CHARACTER_NAMES).filter(isPlayableCharacter);
+export const STUDENT_MODEL_URLS: ReadonlyMap<string, string> = new Map([
+  ["Caleb", calebModelUrl],
+  ["Husain", husainModelUrl],
+  ["André", andreModelUrl],
+  ["Sibusiso", sibusisoModelUrl],
+  ["Sohrab", sohrabModelUrl],
+]);
 
 export function yieldToMainThread(): Promise<void> {
   const scheduler = (
@@ -68,6 +91,8 @@ function modelTemplate(url: string) {
     pending = assetUrl(url)
       .then((source) => gltfLoader.loadAsync(source))
       .then((asset) => {
+        if ([...STUDENT_MODEL_URLS.values()].includes(url))
+          removeStudentHeadBlocks(asset.scene);
         if ([
           playerModelUrl, mcModelUrl, subjectModelUrl, brendanModelUrl, brandenModelUrl,
           dinoModelUrl, sharkModelUrl, bossModelUrl, mothershipModelUrl,
@@ -83,6 +108,38 @@ function modelTemplate(url: string) {
     modelTemplates.set(url, pending);
   }
   return pending;
+}
+
+function removeStudentHeadBlocks(scene: THREE.Object3D) {
+  const blocks: THREE.Mesh[] = [];
+  scene.traverse((node) => {
+    if (
+      node instanceof THREE.Mesh &&
+      !(node instanceof THREE.SkinnedMesh) &&
+      /^(Cube|Cube\.?001)$/.test(node.name)
+    )
+      blocks.push(node);
+  });
+  const geometries = new Set<THREE.BufferGeometry>(),
+    materials = new Set<THREE.Material>();
+  for (const block of blocks) {
+    block.removeFromParent();
+    geometries.add(block.geometry);
+    for (const material of Array.isArray(block.material)
+      ? block.material
+      : [block.material])
+      materials.add(material);
+  }
+  scene.traverse((node) => {
+    if (!(node instanceof THREE.Mesh)) return;
+    geometries.delete(node.geometry);
+    for (const material of Array.isArray(node.material)
+      ? node.material
+      : [node.material])
+      materials.delete(material);
+  });
+  geometries.forEach((geometry) => geometry.dispose());
+  materials.forEach((material) => material.dispose());
 }
 
 function cloneModel(template: GLTF): GLTF {
@@ -249,6 +306,14 @@ export async function loadBrandenModel() {
 export async function loadSubjectModel() {
   return cloneModel(await modelTemplate(subjectModelUrl));
 }
+export async function loadStudentModel(name: string) {
+  const url = STUDENT_MODEL_URLS.get(name);
+  if (!url) throw new Error(`No student character model for ${name}`);
+  const model = cloneModel(await modelTemplate(url));
+  model.scene.name = name;
+  applyPlayerCelShading(model.scene);
+  return model;
+}
 export async function loadGundamModel() {
   return cloneModel(await modelTemplate(gundamModelUrl));
 }
@@ -319,6 +384,52 @@ export function applyPlayerCelShading(
   });
 }
 
+/** Area-weighted palette of the same material colors used by character cel shading. */
+export function characterDominantColor(root: THREE.Object3D): number {
+  const bins = new Map<string, { area: number; color: THREE.Color }>();
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  root.updateWorldMatrix(true, true);
+  root.traverse((node) => {
+    if (!(node instanceof THREE.Mesh) || /ink|outline|weapon|bloomstick/i.test(node.name)) return;
+    for (let ancestor: THREE.Object3D | null = node; ancestor && ancestor !== root; ancestor = ancestor.parent)
+      if (!ancestor.visible) return;
+    const geometry = node.geometry, positions = geometry.getAttribute("position");
+    if (!positions) return;
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    const groups = geometry.groups.length ? geometry.groups : [{ start: 0, count: geometry.index?.count ?? positions.count, materialIndex: 0 }];
+    for (const group of groups) {
+      const material = materials[group.materialIndex ?? 0];
+      if (!(material instanceof THREE.MeshStandardMaterial || material instanceof THREE.MeshBasicMaterial) ||
+          !material.visible || material.opacity < 0.5 || /outline|linework/i.test(material.name)) continue;
+      const tint = material instanceof THREE.MeshStandardMaterial && material.emissive.getHex() !== 0
+        ? material.emissive : material.color;
+      const key = [tint.r, tint.g, tint.b].map((value) => Math.round(value * 12)).join(":");
+      let area = 0;
+      const stride = Math.max(1, Math.ceil(group.count / 3 / 1500)) * 3;
+      const end = Math.min(group.start + group.count, geometry.index?.count ?? positions.count);
+      for (let triangle = group.start; triangle + 2 < end; triangle += stride) {
+        const vertex = (offset: number) => geometry.index?.getX(triangle + offset) ?? triangle + offset;
+        a.fromBufferAttribute(positions, vertex(0)).applyMatrix4(node.matrixWorld);
+        b.fromBufferAttribute(positions, vertex(1)).applyMatrix4(node.matrixWorld).sub(a);
+        c.fromBufferAttribute(positions, vertex(2)).applyMatrix4(node.matrixWorld).sub(a);
+        area += b.cross(c).length() * stride / 6;
+      }
+      if (!Number.isFinite(area) || area <= 0) continue;
+      const bin = bins.get(key) ?? { area: 0, color: new THREE.Color(0, 0, 0) };
+      bin.area += area;
+      bin.color.add(tint.clone().multiplyScalar(area));
+      bins.set(key, bin);
+    }
+  });
+  const dominant = [...bins.values()].sort((a, b) => b.area - a.area)[0];
+  if (!dominant) return 0x00ff88;
+  const tint = dominant.color.multiplyScalar(1 / dominant.area);
+  const hsl = tint.getHSL({ h: 0, s: 0, l: 0 });
+  // Dark outfits retain their hue, with enough luminance to read as emitted light.
+  tint.setHSL(hsl.h, hsl.s, Math.max(0.38, hsl.l));
+  return tint.getHex();
+}
+
 function normalizePlayerModel(template: GLTF, name: string): GLTF {
   template.scene.updateMatrixWorld(true);
   template.scene.traverse((node) => {
@@ -334,6 +445,9 @@ function normalizePlayerModel(template: GLTF, name: string): GLTF {
   scene.name = `${name} Player`;
   scene.add(template.scene);
   scene.updateMatrixWorld(true);
+  scene.traverse((node) => {
+    if (node instanceof THREE.SkinnedMesh) node.skeleton.update();
+  });
   return { ...template, scene, scenes: [scene] };
 }
 
@@ -366,16 +480,25 @@ export async function loadPlayableCharacterModel(
   loader?: GLTFLoader,
 ) {
   if (character === "brondon") return loadPlayerModel(loader);
-  const url = character === "brendan" ? brendanModelUrl : brandenModelUrl;
+  const name = PLAYABLE_CHARACTER_NAMES[character];
+  const url = character === "brendan"
+    ? brendanModelUrl
+    : character === "branden"
+      ? brandenModelUrl
+      : STUDENT_MODEL_URLS.get(name);
+  if (!url) throw new Error(`Unknown playable character: ${character}`);
   const template = loader
     ? await loader.loadAsync(url)
     : await modelTemplate(url);
+  const asset = cloneModel(template);
+  if (STUDENT_MODEL_URLS.has(name)) removeStudentHeadBlocks(asset.scene);
   const model = normalizePlayerModel(
-    cloneModel(template),
-    PLAYABLE_CHARACTER_NAMES[character],
+    asset,
+    name,
   );
   applyPlayerCelShading(model.scene);
   addCharacterInk(model.scene);
+  model.scene.updateMatrixWorld(true);
   return model;
 }
 
@@ -404,6 +527,7 @@ export const MODEL_ASSET_URLS = [
   playerModelUrl,
   mcModelUrl,
   subjectModelUrl,
+  ...STUDENT_MODEL_URLS.values(),
   finaleMechModelUrl,
   brendanModelUrl,
   brandenModelUrl,
@@ -508,6 +632,7 @@ export function modelPreloadTasks(): PreloadTask[] {
     : [
         mcModelUrl,
         subjectModelUrl,
+        ...STUDENT_MODEL_URLS.values(),
         dinoModelUrl,
         sharkModelUrl,
         bossModelUrl,

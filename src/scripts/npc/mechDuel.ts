@@ -4,6 +4,8 @@ import {
   HERO_ULTIMATE,
   ENEMY_VERDICT,
   ENEMY_ORBITAL_CUT,
+  FINISHER_EXECUTION,
+  PLANET_RUPTURE,
   ENEMY_ATTACK_LEAPS,
   MELEE_STRIKES,
   cinematicProgress,
@@ -395,6 +397,373 @@ export function sampleBladeDamageTrace(
   return {
     from: [impact[0], impact[1] - 0.5, impact[2]],
     to: [impact[0], impact[1] + 0.5, impact[2]],
+  };
+}
+
+export const LOCAL_DUEL = Object.freeze({
+  health: 1000,
+  bombImpact: 1.6,
+  bombSeconds: 2.2,
+  spaceArena: 160,
+  spaceFloor: -55,
+  spaceCeiling: 95,
+  spaceSpeed: 18,
+  ultimateDamage: 300,
+  revengeDamage: 270,
+  finalVerdictDamage: 280,
+});
+export type LocalMechAction = MechAction | "ultimate";
+export const LOCAL_SPECIAL_NAMES = {
+  hero: ["BRANDEN'S TEARS", "BRENDAN'S WILL", "BRONDON'S REVENGE"],
+  enemy: ["REBEL", "ECLIPSE", "FINAL VERDICT"],
+} as const;
+
+/** Two human fighters share contact rules, but never run campaign AI or phase gates. */
+export function createLocalMechDuel(characters: readonly [MechSide, MechSide]) {
+  const fighters = [
+    Object.assign(fighter(-FINALE_START_X, LOCAL_DUEL.health, 1, DUEL.shieldMax),
+      { ultimateCharge: 0, ultimateActive: false, teleported: false }),
+    Object.assign(fighter(FINALE_START_X, LOCAL_DUEL.health, -1, DUEL.shieldMax),
+      { ultimateCharge: 0, ultimateActive: false, teleported: false }),
+  ] as const;
+  const inputs = [neutralInput(), neutralInput()];
+  const parry = [false, false], guardDown = [false, false], comboTimes = [0, 0];
+  const paths: Array<DuelBladePaths | undefined> = [];
+  const physical: Array<DuelPhysicalPaths | undefined> = [];
+  const dashHeights: Array<{ from: number; to: number } | null> = [null, null];
+  const missiles: Array<DuelMissile & { localAttack: MechMove; charged: boolean }> = [], events: DuelEvent[] = [];
+  let phase: "fight" | "bomb" | "won" = "fight";
+  let stage: "ground" | "space" = "ground";
+  let time = 0, bombTime = 0, bombX: number | null = null;
+  let winner: 0 | 1 | null = null, hitStop = 0, projectileId = 0, priority = 0;
+  const arenaSize = () => stage === "space" ? LOCAL_DUEL.spaceArena : DUEL.arena;
+  const owner = (index: number): MechSide => index === 0 ? "hero" : "enemy";
+  const emit = (kind: DuelEvent["kind"], index: number, target: Fighter, attack: MechMove | null,
+    damage = 0, trace: BladeDamageTrace | null = null) => {
+    events.push({ kind, owner: owner(index), x: target.x, y: target.y + 8,
+      move: fighters[index].move, attack, damage, trace });
+  };
+  function move(index: number, name: MechMove, duration: number) {
+    const f = fighters[index];
+    f.move = name;
+    f.time = 0;
+    f.duration = duration;
+    f.hit = false;
+    f.strikeHits = f.volley = 0;
+    f.dash = null;
+    dashHeights[index] = null;
+    f.ultimateActive = f.teleported = false;
+    f.aimLocked = false;
+  }
+  function clearInput() {
+    for (let i = 0; i < 2; i++) {
+      inputs[i] = neutralInput();
+      parry[i] = guardDown[i] = false;
+      fighters[i].guardTime = 10;
+    }
+  }
+  const guarding = (index: number) => inputs[index].guard &&
+    fighters[index].shield > 0 && fighters[index].shieldLock <= 0 &&
+    !busy(fighters[index]);
+  function outcome() {
+    const dead = fighters.findIndex((f) => f.health <= 0);
+    if (dead >= 0) {
+      winner = dead === 0 ? 1 : 0;
+      phase = "won";
+      move(dead, "defeat", 3);
+      move(winner, "idle", 3);
+      emit("finish", winner, fighters[dead], null);
+    } else if (bombX === null && fighters.some((f) => f.health <= LOCAL_DUEL.health / 2)) {
+      bombX = (fighters[0].x + fighters[1].x) / 2;
+      phase = "bomb";
+      bombTime = 0;
+      for (let i = 0; i < 2; i++) move(i, "idle", 0);
+      emit("rupture", 0, { ...fighters[0], x: bombX }, null);
+    }
+    if (phase !== "fight") {
+      missiles.length = 0;
+      for (const f of fighters) f.vx = f.vy = 0;
+      clearInput();
+    }
+  }
+  function hurt(index: number, damage: number, attack: MechMove, charged = false, trace: BladeDamageTrace | null = null) {
+    const targetIndex = 1 - index, f = fighters[index], target = fighters[targetIndex];
+    if (phase !== "fight" || target.invulnerable > 0) return;
+    if (guarding(targetIndex)) {
+      const perfect = parry[targetIndex] && target.guardTime <= DUEL.parryWindow && target.shield >= DUEL.parryCost;
+      parry[targetIndex] = false;
+      target.shield = Math.max(0, target.shield - (perfect ? DUEL.parryCost : damage * DUEL.shieldHitScale));
+      target.shieldCooldown = DUEL.shieldRegenDelay;
+      emit(perfect ? "parry" : "guard", index, target, attack);
+      if (isMeleeStrike(attack) || attack === "slide") {
+        move(index, "stagger", perfect ? 0.85 : 0.35);
+        f.vx = -f.facing * 6;
+      }
+      if (target.shield === 0) {
+        target.shieldLock = DUEL.shieldBreak;
+        move(targetIndex, "stagger", 0.7);
+        emit("guardBreak", index, target, attack);
+      }
+      hitStop = perfect ? 0.09 : 0.045;
+      return;
+    }
+    const dealt = Math.min(target.health, damage);
+    target.health -= dealt;
+    if (!charged)
+      f.ultimateCharge = Math.min(LOCAL_DUEL.ultimateDamage, f.ultimateCharge + dealt);
+    target.invulnerable = 0.18;
+    move(targetIndex, attack === "slide" ? "knockdown" : "stagger", attack === "slide" ? DUEL.slideKnockdown : 0.42);
+    target.vx = f.facing * 5;
+    emit("hit", index, target, attack, dealt, trace);
+    hitStop = 0.065;
+    outcome();
+  }
+  function act(index: 0 | 1, action: LocalMechAction) {
+    const f = fighters[index], target = fighters[1 - index];
+    if (phase !== "fight" || busy(f)) return false;
+    f.facing = Math.sign(target.x - f.x) || f.facing;
+    if (action === "slash") {
+      f.combo = comboTimes[index] > 0 ? (f.combo + 1) % 3 : 0;
+      const attack = directionalSwordAttack(inputs[index].move, inputs[index].lift, f.combo);
+      move(index, attack, MELEE_STRIKES[attack].duration);
+      comboTimes[index] = f.duration + 0.7;
+      emit("swing", index, f, attack);
+    } else if (action === "dash" || action === "slide") {
+      if (action === "slide" && stage === "space") return false;
+      if (f.energy < 14) return false;
+      f.energy -= 14;
+      const direction = Math.sign(inputs[index].move) || (action === "slide" ? f.facing : -f.facing);
+      const lift = stage === "space" ? inputs[index].lift : 0;
+      const dx = stage === "space" && Math.hypot(inputs[index].move, lift) > 0
+        ? inputs[index].move : direction;
+      const length = Math.max(1, Math.hypot(dx, lift));
+      const distance = MECH_DODGE.distance * (stage === "space" ? 1.5 : 1);
+      move(index, action, action === "slide" ? PHYSICAL_STRIKES.slide.duration : MECH_DODGE.duration);
+      f.dash = { from: f.x, to: clamp(f.x + dx / length * distance, -arenaSize(), arenaSize()),
+        crossing: false, evading: true, offset: { lane: 0, lift: 0, roll: 0 } };
+      if (stage === "space")
+        dashHeights[index] = { from: f.y, to: clamp(f.y + lift / length * distance, LOCAL_DUEL.spaceFloor, LOCAL_DUEL.spaceCeiling) };
+      f.invulnerable = action === "dash" ? f.duration : 0.3;
+      emit("dash", index, f, action);
+    } else if (action === "missiles") {
+      if (f.energy < 38) return false;
+      f.energy -= 38;
+      const attack = characters[index] === "hero" ? "missiles" : "verdict";
+      move(index, attack, attack === "missiles" ? RIFLE_SEQUENCE.swordReady : ENEMY_VERDICT.duration);
+      emit("special", index, f, attack);
+    } else if (action === "overdrive") {
+      if (f.ultimateCooldown > 0) return false;
+      f.ultimateCooldown = DUEL.ultimateCooldown;
+      const attack = characters[index] === "hero" ? "overdrive" : "orbitalCut";
+      move(index, attack, attack === "overdrive" ? HERO_ULTIMATE.duration : ENEMY_ORBITAL_CUT.duration);
+      if (attack === "orbitalCut") {
+        f.dash = { from: f.x, to: clamp(target.x + f.facing * 12, -arenaSize(), arenaSize()),
+          crossing: true, evading: false, offset: { lane: 0, lift: 0, roll: 0 } };
+        if (stage === "space") dashHeights[index] = { from: f.y, to: target.y };
+      }
+      emit("special", index, f, attack);
+    } else {
+      if (f.ultimateCharge < LOCAL_DUEL.ultimateDamage) return false;
+      const attack = characters[index] === "hero" ? "overdrive" : "orbitalCut";
+      move(index, attack, attack === "overdrive" ? FINISHER_EXECUTION.collapse : ENEMY_ORBITAL_CUT.duration);
+      f.ultimateCharge = 0;
+      f.ultimateActive = true;
+      f.invulnerable = 0.4;
+      emit("special", index, f, attack);
+    }
+    return true;
+  }
+  function launch(index: number, kind: DuelProjectileKind) {
+    const f = fighters[index], target = fighters[1 - index];
+    const x = f.x + f.facing * (kind === "round" ? 4.8 : kind === "bladeWave" ? 4.2 : 13.2);
+    const y = f.y + (kind === "bladeWave" ? 8.6 : 10.5);
+    const dx = (f.aimLocked ? f.aimX : target.x) - x;
+    const dy = (f.aimLocked ? f.aimY : target.y + 9) - y;
+    const length = Math.max(0.001, Math.hypot(dx, dy));
+    const speed = kind === "round" ? 55 : 43;
+    missiles.push({ id: projectileId++, owner: owner(index), x,
+      y, vx: dx / length * speed, vy: dy / length * speed,
+      life: Math.max(3, length / speed + 0.6), age: 0, kind,
+      localAttack: f.move, charged: f.ultimateActive,
+      damage: f.ultimateActive ? LOCAL_DUEL.finalVerdictDamage :
+        kind === "bladeWave" ? DUEL.overdriveDamage : kind === "round" ? DUEL.missileDamage : DUEL.missileDamage * 5 });
+    if (!f.aimLocked) {
+      f.aimX = target.x;
+      f.aimY = target.y + 9;
+    }
+    emit("launch", index, f, f.move);
+  }
+  function step(dt: number) {
+    time += dt;
+    if (phase === "won") {
+      for (const f of fighters) f.time += dt;
+      return;
+    }
+    if (phase === "bomb") {
+      bombTime += dt;
+      if (bombTime >= LOCAL_DUEL.bombSeconds) {
+        phase = "fight";
+        stage = "space";
+        clearInput();
+        const order = Math.sign(fighters[1].x - fighters[0].x) || 1;
+        for (const i of [0, 1]) {
+          const f = fighters[i];
+          f.x = (i === 0 ? -24 : 24) * order;
+          f.y = f.vx = f.vy = 0;
+          f.invulnerable = 0.5;
+        }
+      }
+      return;
+    }
+    if (hitStop > 0) { hitStop = Math.max(0, hitStop - dt); return; }
+    for (let i = 0; i < 2; i++) {
+      const f = fighters[i], target = fighters[1 - i];
+      if (inputs[i].guard && !guardDown[i]) { parry[i] = true; f.guardTime = 0; }
+      if (!inputs[i].guard) parry[i] = false;
+      guardDown[i] = inputs[i].guard;
+      f.ultimateCooldown = Math.max(0, f.ultimateCooldown - dt);
+      f.invulnerable = Math.max(0, f.invulnerable - dt);
+      f.shieldLock = Math.max(0, f.shieldLock - dt);
+      f.shieldCooldown = Math.max(0, f.shieldCooldown - dt);
+      comboTimes[i] = Math.max(0, comboTimes[i] - dt);
+      f.energy = clamp(f.energy + dt * 12, 0, 100);
+      if (guarding(i)) {
+        f.guardTime += dt;
+        f.shieldCooldown = DUEL.shieldRegenDelay;
+        f.shield = Math.max(0, f.shield - dt * DUEL.shieldDrain);
+        if (f.shield === 0) f.shieldLock = DUEL.shieldBreak;
+      } else if (!inputs[i].guard && f.shieldCooldown === 0 && f.shieldLock === 0)
+        f.shield = Math.min(DUEL.shieldMax, f.shield + dt * DUEL.shieldRegen);
+      if (!busy(f)) {
+        f.facing = Math.sign(target.x - f.x) || f.facing;
+        f.move = guarding(i) ? "guard" : inputs[i].move || (stage === "space" && inputs[i].lift) ? "walk" : "idle";
+        const speed = stage === "space" ? LOCAL_DUEL.spaceSpeed : DUEL.speed;
+        const length = stage === "space" ? Math.max(1, Math.hypot(inputs[i].move, inputs[i].lift)) : 1;
+        f.vx += ((guarding(i) ? 0 : inputs[i].move / length * speed) - f.vx) * (1 - Math.exp(-dt * 9));
+        f.vy += ((stage === "space" && !guarding(i) ? inputs[i].lift / length * speed : 0) - f.vy) * (1 - Math.exp(-dt * 9));
+      } else if (!f.dash) {
+        f.vx *= Math.exp(-dt * 14);
+        f.vy *= Math.exp(-dt * 14);
+      }
+      if (stage === "space" && !dashHeights[i])
+        f.y = clamp(f.y + f.vy * dt, LOCAL_DUEL.spaceFloor, LOCAL_DUEL.spaceCeiling);
+      if (f.ultimateActive && characters[i] === "hero" &&
+          !f.teleported && f.time + dt >= FINISHER_EXECUTION.appear) {
+        target.x = clamp(target.x, -arenaSize() + DUEL.separation + 1, arenaSize() - DUEL.separation - 1);
+        f.x = target.x - target.facing * (DUEL.separation + 1);
+        f.y = target.y;
+        f.facing = target.facing;
+        f.teleported = true;
+        emit("dash", i, f, "overdrive");
+      }
+      if (f.ultimateActive && characters[i] === "hero" &&
+          f.time >= FINISHER_EXECUTION.vanish && f.time < FINISHER_EXECUTION.materialized)
+        f.invulnerable = Math.max(f.invulnerable, dt * 2);
+      if (f.dash) {
+        const p = f.move === "orbitalCut"
+          ? cinematicProgress(f.time + dt, ENEMY_ORBITAL_CUT.release - 0.18, ENEMY_ORBITAL_CUT.cross)
+          : cinematicProgress(f.time + dt, 0, f.duration);
+        f.x = f.dash.from + (f.dash.to - f.dash.from) * p;
+        const height = dashHeights[i];
+        if (height) f.y = height.from + (height.to - height.from) * p;
+        if (f.move === "orbitalCut" && p >= 1) {
+          f.dash = null;
+          dashHeights[i] = null;
+        }
+      } else f.x = clamp(f.x + f.vx * dt, -arenaSize(), arenaSize());
+    }
+    const separation = 9;
+    if (!fighters.some((f) => f.move === "orbitalCut" && f.dash) &&
+        Math.abs(fighters[0].y - fighters[1].y) < 12 &&
+        Math.abs(fighters[1].x - fighters[0].x) < separation) {
+      const order = fighters[0].facing;
+      const center = clamp((fighters[0].x + fighters[1].x) / 2, -arenaSize() + separation / 2, arenaSize() - separation / 2);
+      fighters[0].x = center - order * separation / 2;
+      fighters[1].x = center + order * separation / 2;
+      for (const f of fighters) { f.vx = 0; if (f.dash) f.dash.to = f.x; }
+    }
+    // Simultaneous close sword attacks clash instead of giving one player update-order priority.
+    const [a, b] = fighters;
+    if (!a.ultimateActive && !b.ultimateActive &&
+        isMeleeStrike(a.move) && isMeleeStrike(b.move) &&
+        bladeContact(a.move, a.time, a.time + dt, a, b, paths[0]) &&
+        bladeContact(b.move, b.time, b.time + dt, b, a, paths[1])) {
+      emit("parry", 0, { ...a, x: (a.x + b.x) / 2 }, a.move);
+      move(0, "stagger", 0.32); move(1, "stagger", 0.32);
+      hitStop = 0.09;
+      return;
+    }
+    for (const i of (++priority % 2 ? [0, 1] : [1, 0])) {
+      if (phase !== "fight") break;
+      const f = fighters[i], target = fighters[1 - i], attack = f.move, before = f.time;
+      f.time += dt;
+      if (attack === "verdict" && !f.aimLocked && f.time >= ENEMY_VERDICT.cameraEnd) {
+        f.aimLocked = true;
+        f.aimX = target.x;
+        f.aimY = target.y + 9;
+      }
+      if (f.ultimateActive && characters[i] === "hero") {
+        const cuts = 6;
+        while (f.strikeHits < cuts && f.time >= FINISHER_EXECUTION.cuts +
+            f.strikeHits * (FINISHER_EXECUTION.lastCut - FINISHER_EXECUTION.cuts) / (cuts - 1)) {
+          f.strikeHits++;
+          if (Math.abs(f.x - target.x) <= DUEL.range && Math.abs(f.y - target.y) < 12)
+            hurt(i, LOCAL_DUEL.revengeDamage / cuts, attack, true);
+          if (phase !== "fight" || !f.ultimateActive) break;
+        }
+      } else if (attack === "missiles") {
+        while (f.volley < 5 && f.time >= RIFLE_SEQUENCE.fire + f.volley * 0.14) {
+          f.volley++; launch(i, "round");
+        }
+      } else if ((attack === "overdrive" || attack === "verdict" ||
+          (attack === "orbitalCut" && f.ultimateActive)) && !f.hit &&
+        f.time >= (attack === "overdrive" ? HERO_ULTIMATE.release :
+          attack === "orbitalCut" ? ENEMY_ORBITAL_CUT.release : ENEMY_VERDICT.release)) {
+        f.hit = true; launch(i, attack === "verdict" ? "verdictBeam" : "bladeWave");
+      } else if (attack === "slide" && !f.hit && physical[i] &&
+        physicalContact("slide", before, f.time, f, target, physical[i]!, guarding(1 - i))) {
+        f.hit = true; hurt(i, PHYSICAL_STRIKES.slide.damage, attack);
+      } else if (isMeleeStrike(attack)) {
+        for (const [hit, window] of swordHitWindows(attack).entries()) {
+          if ((f.strikeHits & (1 << hit)) || !bladeContact(attack, before, f.time, f, target, paths[i], guarding(1 - i), window)) continue;
+          f.strikeHits |= 1 << hit;
+          hurt(i, attack === "orbitalCut" ? DUEL.orbitalCutDamage :
+            attack === "heavyCombo" ? 64 : attack === "regularCombo" ? 42 :
+              attack === "cleave" || attack === "reap" ? DUEL.cleaveDamage :
+                attack === "thrust" ? 72 : DUEL.slashDamage,
+          attack, false, sampleBladeDamageTrace(attack, f, target, paths[i]));
+          if (phase !== "fight" || f.move !== attack) break;
+        }
+      }
+      if (phase === "fight" && busy(f) && f.time >= f.duration) move(i, "idle", 0);
+    }
+    for (let i = missiles.length - 1; i >= 0 && phase === "fight"; i--) {
+      const m = missiles[i], index = m.owner === "hero" ? 0 : 1;
+      const x = m.x, y = m.y;
+      m.x += m.vx * dt; m.y += m.vy * dt; m.life -= dt; m.age += dt;
+      const target = fighters[1 - index];
+      if (missileContact(x, y, m.x, m.y, target, m.kind === "bladeWave" ? 1.2 : 1, guarding(1 - index))) {
+        const trace: BladeDamageTrace | null = m.kind === "bladeWave"
+          ? { from: [target.x, target.y + 4, -2.7], to: [target.x, target.y + 13.5, 2.7] } : null;
+        hurt(index, m.damage, m.localAttack, m.charged, trace);
+        m.life = 0;
+      }
+      if (phase === "fight" && m.life <= 0) missiles.splice(i, 1);
+    }
+  }
+  return {
+    fighters, missiles, act, clearInput, guarding,
+    setPaths(index: 0 | 1, blade: DuelBladePaths, contacts: DuelPhysicalPaths) { paths[index] = blade; physical[index] = contacts; },
+    setInput(index: 0 | 1, value: DuelInput) {
+      inputs[index] = { move: clamp(Number.isFinite(value.move) ? value.move : 0, -1, 1),
+        lift: clamp(Number.isFinite(value.lift) ? value.lift : 0, -1, 1), guard: value.guard };
+    },
+    update(dt: number) {
+      let remaining = frameTime(dt);
+      while (remaining > 1e-9) { const delta = Math.min(DUEL.step, remaining); step(delta); remaining -= delta; }
+    },
+    drainEvents: () => events.splice(0),
+    getState: () => ({ phase, stage, time, bombTime, bombX, winner }),
   };
 }
 

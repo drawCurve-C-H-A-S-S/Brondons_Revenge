@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { loadPlayerModel, loadToolModel } from "../../core/loader.js";
 import { createCrowbar } from "../items/createCrowbar.js";
-import { createBloomstick } from "../items/createBloomstick.js";
+import { createBloomstick, setBloomstickColor } from "../items/createBloomstick.js";
 import { bakePosedLimb, disposeBakedLimb } from "./bakePosedLimb.js";
 
 export type FirstPersonWeapon = "unarmed" | "crowbar" | "pistol" | "bloomstick";
@@ -296,6 +296,7 @@ export async function createFirstPersonHands(loader?: GLTFLoader) {
     update,
     setWeapon,
     setBloomstickPose,
+    setBloomstickColor(color: number) { setBloomstickColor(bloomstick, color); },
     setRecoil(amount: number) {
       recoil = THREE.MathUtils.clamp(amount, 0, 1);
     },

@@ -25,6 +25,8 @@ import {
 import {
   createBladeTrail,
   createFinaleEffects,
+  BOARDING_BEAM_COLOR,
+  finaleExecutionSlash,
 } from "../../scripts/level-3/finaleEffects.js";
 import {
   createFinaleMech,
@@ -32,10 +34,10 @@ import {
 } from "../../scripts/level-3/finaleMechs.js";
 import { createFinalePresentation } from "../../scripts/level-3/finalePresentation.js";
 import { createFinaleRenderer } from "../../scripts/level-3/finaleRenderer.js";
+import { createFinaleProjectiles } from "../../scripts/level-3/finaleProjectiles.js";
 import { createFinaleShipTransformation } from "../../scripts/level-3/finaleShipTransformation.js";
 import { createHoldToSkip } from "../../scripts/global/holdToSkip.js";
 import {
-  createBeamMaterial,
   FRAME_COLORS,
   HERO_REVENGE_PALETTE,
 } from "../../scripts/level-3/finaleMaterials.js";
@@ -50,7 +52,7 @@ import {
   createFinaleWorld,
   finaleBattlePoint,
 } from "../../scripts/level-3/finaleWorld.js";
-import { loadSubjectModel } from "../../core/loader.js";
+import { loadStudentModel } from "../../core/loader.js";
 import {
   RESCUE_SITE,
   type RescueArrival,
@@ -132,7 +134,7 @@ interface FinaleOptions {
   onVictoryComplete?: () => void;
   onRetry: (checkpoint: FinaleCheckpoint) => void;
   mechFactories?: Partial<Record<"hero" | "enemy", MechFactory>>;
-  loadStudents?: typeof loadSubjectModel;
+  loadStudents?: typeof loadStudentModel;
 }
 interface FinaleFramingEntry {
   hero: THREE.Vector3;
@@ -423,7 +425,7 @@ export function createScene({
   onVictoryComplete,
   onRetry,
   mechFactories,
-  loadStudents = loadSubjectModel,
+  loadStudents = loadStudentModel,
 }: FinaleOptions) {
   const physics = createScenePhysics();
   const site = createFinaleSite();
@@ -577,136 +579,8 @@ export function createScene({
     );
   }
 
-  const missileGeometry = new THREE.CapsuleGeometry(0.14, 2.4, 4, 8);
-  const missileNoseGeometry = new THREE.ConeGeometry(0.2, 0.42, 8);
-  const tracerGeometry = new THREE.CylinderGeometry(0.32, 0.025, 5.4, 12);
-  const missileMaterials = {
-    hero: new THREE.MeshBasicMaterial({
-      color: new THREE.Color(0xdcfaff).multiplyScalar(6),
-      toneMapped: false,
-    }),
-    enemy: new THREE.MeshBasicMaterial({
-      color: new THREE.Color(0xffe6ec).multiplyScalar(6),
-      toneMapped: false,
-    }),
-  };
-  const tracerMaterials = {
-    hero: createBeamMaterial(FRAME_COLORS.hero),
-    enemy: createBeamMaterial(FRAME_COLORS.enemy),
-  };
-  const flameMaterials = {
-    hero: new THREE.MeshBasicMaterial({ color: 0x87eaff, toneMapped: false }),
-    enemy: new THREE.MeshBasicMaterial({ color: 0xcd7480, toneMapped: false }),
-  };
-  const waveShape = new THREE.Shape();
-  waveShape.moveTo(-6.2, -1.6);
-  waveShape.quadraticCurveTo(0, 5.8, 6.2, -1.6);
-  waveShape.quadraticCurveTo(0, 2.6, -6.2, -1.6);
-  const waveGeometry = new THREE.ExtrudeGeometry(waveShape, {
-    depth: 0.18,
-    bevelEnabled: true,
-    bevelSegments: 2,
-    bevelSize: 0.08,
-    bevelThickness: 0.08,
-    steps: 1,
-  });
-  waveGeometry.translate(0, 0, -0.09);
-  const waveGlowGeometry = new THREE.ShapeGeometry(waveShape, 32);
-  const verdictGeometry = new THREE.CylinderGeometry(0.24, 0.24, 10.5, 20);
-  const waveMaterial = new THREE.MeshBasicMaterial({
-    color: new THREE.Color(0xc6f3ff).multiplyScalar(2.4),
-    toneMapped: false,
-  });
-  const waveGlowMaterial = new THREE.MeshBasicMaterial({
-    color: new THREE.Color(FRAME_COLORS.hero).multiplyScalar(3),
-    transparent: true,
-    opacity: 0.38,
-    side: THREE.DoubleSide,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    toneMapped: false,
-  });
-  const waveWakeMaterial = waveGlowMaterial.clone();
-  waveWakeMaterial.opacity = 0.16;
-  const enemyWaveMaterial = createBeamMaterial(FRAME_COLORS.enemy);
-  enemyWaveMaterial.uniforms.uPower.value = 0.85;
-  const enemyWaveGlowMaterial = enemyWaveMaterial.clone();
-  enemyWaveGlowMaterial.uniforms.uPower.value = 0.28;
-  const enemyWaveWakeMaterial = enemyWaveMaterial.clone();
-  enemyWaveWakeMaterial.uniforms.uPower.value = 0.1;
-  const verdictMaterials = {
-    hero: new THREE.MeshBasicMaterial({
-      color: new THREE.Color(FRAME_COLORS.hero).multiplyScalar(2.2),
-      toneMapped: false,
-    }),
-    enemy: new THREE.MeshBasicMaterial({
-      color: new THREE.Color(FRAME_COLORS.enemy).multiplyScalar(1.1),
-      toneMapped: false,
-    }),
-  };
-  const verdictGlows = {
-    hero: createBeamMaterial(FRAME_COLORS.hero),
-    enemy: createBeamMaterial(FRAME_COLORS.enemy),
-  };
-  verdictGlows.enemy.uniforms.uPower.value = 0.3;
-  const missilePool = Array.from({ length: 32 }, () => {
-    const root = new THREE.Group();
-    const body = new THREE.Mesh(missileGeometry, missileMaterials.hero);
-    const nose = new THREE.Mesh(missileNoseGeometry, missileMaterials.hero);
-    const flame = new THREE.Mesh(missileNoseGeometry, flameMaterials.hero);
-    const tracer = new THREE.Mesh(tracerGeometry, tracerMaterials.hero);
-    tracer.name = "RifleIonTracer";
-    tracer.position.y = -2.4;
-    nose.position.y = 1.3;
-    flame.position.y = -1.3;
-    flame.rotation.z = Math.PI;
-    const wave = new THREE.Group();
-    wave.name = "FlyingBladeWave";
-    const edge = new THREE.Mesh<THREE.BufferGeometry, THREE.Material>(
-        waveGeometry,
-        waveMaterial,
-      ),
-      glow = new THREE.Mesh<THREE.BufferGeometry, THREE.Material>(
-        waveGlowGeometry,
-        waveGlowMaterial,
-      );
-    glow.scale.set(1.14, 1.2, 1);
-    const wake = new THREE.Mesh<THREE.BufferGeometry, THREE.Material>(
-      waveGlowGeometry,
-      waveWakeMaterial,
-    );
-    wake.position.y = -1.6;
-    wake.scale.set(0.86, 0.9, 1);
-    const tail = wake.clone();
-    tail.position.y = -3.2;
-    tail.scale.set(0.64, 0.72, 1);
-    edge.rotation.x = -0.12;
-    glow.rotation.x = -0.12;
-    wave.add(edge, glow, wake, tail);
-    const beam = new THREE.Mesh(verdictGeometry, verdictMaterials.enemy);
-    beam.name = "SwordTipBeam";
-    const beamGlow = new THREE.Mesh(verdictGeometry, verdictGlows.enemy);
-    beamGlow.scale.set(2.5, 1, 2.5);
-    beam.add(beamGlow);
-    wave.visible = beam.visible = false;
-    root.add(body, nose, flame, tracer, wave, beam);
-    root.visible = false;
-    scene.add(root);
-    return {
-      root,
-      body,
-      nose,
-      flame,
-      tracer,
-      wave,
-      edge,
-      glow,
-      wake,
-      tail,
-      beam,
-      beamGlow,
-    };
-  });
+  const projectileVisuals = createFinaleProjectiles(scene);
+  const missilePool = projectileVisuals.pool;
   const missileDirection = vector(0, 1, 0);
   const spaceReached =
     checkpoint?.stage === "space" ||
@@ -933,7 +807,7 @@ export function createScene({
       } else if (phase === "enemyTransform") {
         const boarding = sampleStudentBoarding(i, phaseTime);
         const start = vector(FACILITY.x + seat.x, lift.y, FACILITY.z + seat.z);
-        const chest = enemyMech.getChest();
+        const chest = enemyMech.getGem();
         const entry = chest.clone().add(vector(-3.2, -0.8, 3.3));
         student.root.position
           .lerpVectors(start, entry, boarding.ascent)
@@ -962,10 +836,10 @@ export function createScene({
         if (boarding.active) {
           effects.boardingBeam(
             i,
+            chest,
             student.root.position
               .clone()
               .add(vector(0, 0.9 * boarding.scale, 0)),
-            chest,
             boarding.beam,
             director.getState().time,
           );
@@ -974,21 +848,16 @@ export function createScene({
             lastBoardingCue < i
           ) {
             lastBoardingCue = i;
-            effects.burst(chest, 1.2, SUDOERS_5[i].color, 32);
-            effects.ring(chest, 1.2, SUDOERS_5[i].color, true, 0.6);
+            effects.burst(chest, 1.2, BOARDING_BEAM_COLOR, 32);
+            effects.ring(chest, 1.2, BOARDING_BEAM_COLOR, true, 0.6);
             presentation.sound("parry");
           }
         } else {
-          const charging =
-            phaseTime < FACILITY_ROOF_SEQUENCE.blastStart
-              ? smooth(phaseTime, 0.15, FACILITY_ROOF_SEQUENCE.blastStart) *
-                0.35
-              : 0;
           effects.boardingBeam(
             i,
-            start.clone().add(vector(0, 1.1, 0)),
-            officePoint(0, 1.15, FACILITY_OFFICE.tableZ),
-            charging,
+            chest,
+            chest,
+            0,
             director.getState().time,
           );
         }
@@ -1199,7 +1068,9 @@ export function createScene({
       } else if (event.kind === "parry") {
         effects.deflect(point, true, event.owner === "hero" ? "enemy" : "hero");
         emitComicEffect(scene, "clank", { position: point, size: 5.5 });
+        effects.swordClash(point, 0xffd99a);
         presentation.sound("parry", point);
+        postProcessing?.impact();
         cameraRig.impact(0.35);
       } else if (event.kind === "guard") {
         effects.deflect(
@@ -1442,8 +1313,9 @@ export function createScene({
       presentation.sound("launch");
     }
     if ((beat.shot === "parry" || beat.shot === "clash") && crossed(action)) {
-      effects.sparks(clashContact, 0xffdf9e, 28);
+      effects.swordClash(clashContact, 0xffdf9e);
       effects.ring(clashContact, 1.4, FRAME_COLORS.hero, true, 0.2);
+      postProcessing?.impact(beat.shot === "clash");
       presentation.sound("parry", clashContact);
       cameraRig.impact(0.26);
     } else if (beat.shot === "armCut" && crossed(action + 0.04)) {
@@ -1464,6 +1336,8 @@ export function createScene({
           i % 2 ? FRAME_COLORS.enemy : FRAME_COLORS.hero,
         );
         presentation.sound("parry", clashContact);
+        if (i % 3 === 0 || i === FINISHER_EXCHANGE.cuts.length - 1)
+          postProcessing?.impact(i === FINISHER_EXCHANGE.cuts.length - 1);
         cameraRig.impact(i === FINISHER_EXCHANGE.cuts.length - 1 ? 0.65 : 0.45);
       }
     }
@@ -1520,6 +1394,7 @@ export function createScene({
       if (crossed(timing.appear)) {
         effects.teleport(heroMech.root.position, true);
         presentation.sound("special");
+        postProcessing?.impact(true);
       }
       if (clock >= timing.cuts) {
         const count = Math.min(
@@ -1530,17 +1405,11 @@ export function createScene({
           ),
         );
         for (let i = lastExecutionCut + 1; i <= count; i++) {
-          const reverse = i % 3 === 0,
-            height = 4.5 + (i % 9);
-          const from = enemyMech.root.localToWorld(
-            vector(-3.3, reverse ? 14 : height, 2.1),
-          );
-          const to = enemyMech.root.localToWorld(
-            vector(3.3, reverse ? 4 + (i % 4) : 14 - (i % 8), 2.1),
-          );
+          const { from, to } = finaleExecutionSlash(enemyMech.root, i);
           enemyMech.markSlash(from, to);
           effects.slash(from, to);
           effects.sparks(from.clone().lerp(to, 0.5), 0xd5edf1, 7);
+          if (i % 9 === 0) postProcessing?.impact();
           if (i % 4 === 0) {
             presentation.sound("hit");
             presentation.flash(0.035);
@@ -1558,6 +1427,7 @@ export function createScene({
             0xe8fcff,
           );
         effects.ring(chest, 5, FRAME_COLORS.hero, true, 0.4);
+        postProcessing?.impact(true);
         presentation.flash(0.12);
         cameraRig.impact(0.32);
       }
@@ -1620,9 +1490,15 @@ export function createScene({
         PLANET_RUPTURE.returnToDuel,
         PLANET_RUPTURE.orbit,
       );
-      heroX = THREE.MathUtils.lerp(hero.x, -FINALE_START_X, settle);
+      // A dodge can leave Opus on the right. Preserve that ordering while both
+      // mechs are visible; reset sides only during the hidden cockpit cutaway.
+      const order = phaseTime >= PLANET_RUPTURE.cockpit
+        ? 1 : Math.sign(enemy.x - hero.x) || 1;
+      const gap = Math.max(11, Math.abs(enemy.x - hero.x) / 2);
+      const center = (hero.x + enemy.x) / 2;
+      heroX = THREE.MathUtils.lerp(center - order * gap, -FINALE_START_X, settle);
       enemyX = THREE.MathUtils.lerp(
-        enemy.x - enemy.facing * jump * 7.5,
+        center + order * (gap + jump * 7.5),
         FINALE_START_X,
         settle,
       );
@@ -1658,7 +1534,9 @@ export function createScene({
       [heroMech, hero, enemy, 1],
       [enemyMech, enemy, hero, -1],
     ] as const) {
-      let facing = combat ? fighter.facing : defaultFacing;
+      let facing = combat ? fighter.facing : phase === "rupture"
+        ? (Math.sign(enemyX - heroX) || 1) * defaultFacing
+        : defaultFacing;
       const dodge =
         combat && fighter.dash
           ? sampleDodgeArc(
@@ -2202,46 +2080,8 @@ export function createScene({
     if (choreography) updateFinisherEffects(choreography);
   }
 
-  function projectileStyle(
-    visual: (typeof missilePool)[number],
-    owner: "hero" | "enemy",
-    kind: DuelProjectileKind,
-  ) {
-    visual.body.material = missileMaterials[owner];
-    visual.nose.material = missileMaterials[owner];
-    visual.flame.material = flameMaterials[owner];
-    visual.tracer.material = tracerMaterials[owner];
-    visual.beam.material = verdictMaterials[owner];
-    visual.beamGlow.material = verdictGlows[owner];
-    visual.edge.material = owner === "enemy" ? enemyWaveMaterial : waveMaterial;
-    visual.glow.material =
-      owner === "enemy" ? enemyWaveGlowMaterial : waveGlowMaterial;
-    visual.wake.material =
-      owner === "enemy" ? enemyWaveWakeMaterial : waveWakeMaterial;
-    visual.tail.material = visual.wake.material;
-    visual.body.visible =
-      visual.nose.visible =
-      visual.flame.visible =
-      visual.tracer.visible =
-        kind === "round";
-    visual.wave.visible = kind === "bladeWave";
-    visual.beam.visible = kind === "verdictBeam";
-  }
-
   function updateMissiles(phase: FinalePhase) {
-    for (const material of [
-      enemyWaveMaterial,
-      enemyWaveGlowMaterial,
-      enemyWaveWakeMaterial,
-    ]) {
-      material.uniforms.uTime.value = director.getState().time;
-    }
-    Object.values(verdictGlows).forEach((material) => {
-      material.uniforms.uTime.value = director.getState().time;
-    });
-    Object.values(tracerMaterials).forEach((material) => {
-      material.uniforms.uTime.value = director.getState().time;
-    });
+    projectileVisuals.update(director.getState().time);
     if (phase === "finisher") {
       const { clock } = sampleFinisherSequence(director.getState().phaseTime);
       missilePool.forEach((visual, i) => {
@@ -2253,7 +2093,7 @@ export function createScene({
         const flight = (clock - projectile.delay) / projectile.duration;
         visual.root.visible = flight >= 0 && flight <= 1;
         if (!visual.root.visible) return;
-        projectileStyle(visual, projectile.owner, projectile.kind);
+        projectileVisuals.style(visual, projectile.owner, projectile.kind);
         visual.root.position.lerpVectors(
           projectile.start,
           projectile.end,
@@ -2287,7 +2127,7 @@ export function createScene({
         return;
       }
       const side = missile.owner;
-      projectileStyle(visual, side, missile.kind);
+      projectileVisuals.style(visual, side, missile.kind);
       visual.beam.scale.y = 1;
       visual.root.visible = true;
       const owner = side === "hero" ? heroMech : enemyMech;
@@ -2466,6 +2306,7 @@ export function createScene({
       return;
     animationDelta = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, 0.1));
     if (isControllerActive()) updateInput();
+    postProcessing?.update(animationDelta);
     skipHold.update(animationDelta);
     director.update(animationDelta);
     for (const phase of director.drainChanges()) {
@@ -2838,6 +2679,7 @@ export function createScene({
         director.getState().phaseTime < HERO_TRANSFORM.pilotMerge
       ),
     getCinematicState: () => player.getState(),
+    getPausePreviewModel: () => heroMech.root.visible ? heroMech.root : undefined,
     getCinematicPose: updateHumanPose,
     getCinematicDelta: () => animationDelta,
     updateCinematicCharacter(
@@ -2971,24 +2813,7 @@ export function createScene({
       students.dispose();
       heroMech.dispose();
       enemyMech.dispose();
-      missilePool.forEach((missile) => missile.root.removeFromParent());
-      missileGeometry.dispose();
-      missileNoseGeometry.dispose();
-      waveGeometry.dispose();
-      waveGlowGeometry.dispose();
-      verdictGeometry.dispose();
-      tracerGeometry.dispose();
-      Object.values(tracerMaterials).forEach((material) => material.dispose());
-      waveMaterial.dispose();
-      waveGlowMaterial.dispose();
-      waveWakeMaterial.dispose();
-      enemyWaveMaterial.dispose();
-      enemyWaveGlowMaterial.dispose();
-      enemyWaveWakeMaterial.dispose();
-      Object.values(verdictMaterials).forEach((material) => material.dispose());
-      Object.values(verdictGlows).forEach((material) => material.dispose());
-      Object.values(missileMaterials).forEach((material) => material.dispose());
-      Object.values(flameMaterials).forEach((material) => material.dispose());
+      projectileVisuals.dispose();
       player.dispose();
       site.dispose();
       physics.dispose();

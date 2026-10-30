@@ -9,6 +9,16 @@ import {
 import type { MechSide } from "../npc/mechDuel.js";
 import { SUDOERS_5 } from "./finaleActors.js";
 
+export const BOARDING_BEAM_COLOR = 0x45ff73;
+
+export function finaleExecutionSlash(target: THREE.Object3D, index: number) {
+  const reverse = index % 3 === 0;
+  return {
+    from: target.localToWorld(new THREE.Vector3(-3.3, reverse ? 14 : 4.5 + index % 9, 2.1)),
+    to: target.localToWorld(new THREE.Vector3(3.3, reverse ? 4 + index % 4 : 14 - index % 8, 2.1)),
+  };
+}
+
 export function createFinaleEffects(
   scene: THREE.Scene,
   reducedMotion: boolean,
@@ -145,11 +155,12 @@ export function createFinaleEffects(
     beam.visible = false;
     root.add(beam);
   });
-  const boardingBeams = SUDOERS_5.map((student) => {
+  const boardingBeams = SUDOERS_5.map(() => {
     const mesh = new THREE.Mesh(
       beamGeometry,
-      createEnergyMaterial(student.color),
+      createBeamMaterial(BOARDING_BEAM_COLOR),
     );
+    mesh.name = "SudoersGreenBoardingBeam";
     mesh.visible = false;
     root.add(mesh);
     return mesh;
@@ -273,6 +284,15 @@ export function createFinaleEffects(
   );
   bladeCorona.visible = false;
   root.add(bladeCorona);
+  const secondBladeCharge = bladeCharge.clone();
+  secondBladeCharge.material = bladeCharge.material.clone();
+  const secondBladeCorona = bladeCorona.clone();
+  secondBladeCorona.material = bladeCorona.material.clone();
+  root.add(secondBladeCharge, secondBladeCorona);
+  const bladeCharges = {
+    hero: { core: bladeCharge, corona: bladeCorona, lastSpark: -1 },
+    enemy: { core: secondBladeCharge, corona: secondBladeCorona, lastSpark: -1 },
+  };
   const slashPool = Array.from({ length: mobile ? 32 : 64 }, () => {
     const material = new THREE.MeshBasicMaterial({
       color: 0xe9fbff,
@@ -288,8 +308,7 @@ export function createFinaleEffects(
     return { mesh, life: 0 };
   });
   let slashCursor = 0;
-  let lastChargeSpark = -1,
-    lastSpeedFrame = -1,
+  let lastSpeedFrame = -1,
     lastRevengeSpark = -1;
   const projectileSparkFrames = new Array<number>(32).fill(-1);
   const up = new THREE.Vector3(0, 1, 0),
@@ -362,9 +381,21 @@ export function createFinaleEffects(
       clashLightLife = 0.14;
       clashLight.intensity = reducedMotion ? 25 : 120;
       ring(position, reducedMotion ? 0.5 : 0.9, tint, true, 0.16);
-      for (let i = 0; i < (reducedMotion ? 6 : mobile ? 10 : 16); i++) {
-        particle(position, i % 3 ? tint : 0xfff4da,
-          10 + random() * 14, 0.12 + random() * 0.14, 0.12 + random() * 0.09);
+      for (let i = 0; i < (reducedMotion ? 8 : mobile ? 24 : 44); i++) {
+        particle(position, i % 3 ? 0xffcd79 : 0xfff4da,
+          12 + random() * 28, 0.18 + random() * 0.3, 0.16 + random() * 0.14);
+      }
+      // Short hot metal streaks keep blade contact readable in wide shots.
+      for (let i = 0; i < (reducedMotion ? 2 : mobile ? 5 : 9); i++) {
+        const item = slashPool[slashCursor++ % slashPool.length];
+        direction.set(random() * 2 - 1, random() * 2 - 1, random() * 2 - 1).normalize();
+        const length = 0.7 + random() * 2.2;
+        item.mesh.position.copy(position).addScaledVector(direction, length * 0.6);
+        item.mesh.quaternion.setFromUnitVectors(up, direction);
+        item.mesh.scale.set(0.035, length, 0.035);
+        item.mesh.material.color.set(0xffdf9e).multiplyScalar(4);
+        item.life = 0.2;
+        item.mesh.visible = true;
       }
     },
     deflect(
@@ -440,7 +471,13 @@ export function createFinaleEffects(
       to: THREE.Vector3,
       power: number,
       time: number,
+      slot: MechSide = "hero",
+      tint: number = FRAME_COLORS.hero,
     ) {
+      const channel = bladeCharges[slot];
+      const bladeCharge = channel.core, bladeCorona = channel.corona;
+      bladeCharge.material.uniforms.uColor.value.set(tint);
+      bladeCorona.material.uniforms.uColor.value.set(tint);
       bladeCharge.visible = power > 0.01;
       direction.copy(to).sub(from);
       bladeCharge.position.copy(from).lerp(to, 0.5);
@@ -464,8 +501,8 @@ export function createFinaleEffects(
       bladeCorona.material.uniforms.uPower.value = power * 0.18;
       bladeCorona.material.uniforms.uTime.value = time;
       const frame = Math.floor(time * 12);
-      if (power > 0.25 && frame !== lastChargeSpark) {
-        lastChargeSpark = frame;
+      if (power > 0.25 && frame !== channel.lastSpark) {
+        channel.lastSpark = frame;
         const point = from.clone().lerp(to, random());
         particle(
           point,
@@ -669,6 +706,8 @@ export function createFinaleEffects(
       revengeMaterial.dispose();
       bladeCharge.material.dispose();
       bladeCorona.material.dispose();
+      secondBladeCharge.material.dispose();
+      secondBladeCorona.material.dispose();
       rings.forEach((item) => item.mesh.material.dispose());
       Object.values(beams).forEach((beam) => beam.material.dispose());
       boardingBeams.forEach((beam) => beam.material.dispose());

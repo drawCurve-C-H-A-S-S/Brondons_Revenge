@@ -2,6 +2,10 @@ import * as THREE from "three";
 import { clone } from "three/addons/utils/SkeletonUtils.js";
 import { FINALE_CREDITS } from "../global/finaleDirector.js";
 import { normalizeFinaleActor } from "./finaleActors.js";
+import {
+  applyPlayerCelShading,
+  STUDENT_MODEL_URLS,
+} from "../../core/loader.js";
 
 export interface FinaleCreditsSource {
   name: string;
@@ -21,7 +25,7 @@ export function createFinaleCredits(
   const camera = new THREE.OrthographicCamera(-8, 8, 5, -5, 0.1, 50);
   camera.position.z = 20;
   const size = new THREE.Vector2();
-  const materials = new Set<THREE.MeshBasicMaterial>();
+  const materials = new Set<THREE.Material>();
   const castSkeletons = new Set<THREE.Skeleton>();
   const actors: {
     root: THREE.Group;
@@ -88,7 +92,11 @@ export function createFinaleCredits(
         actions,
         mode: "",
       });
-      const converted = new Map<THREE.Material, THREE.MeshBasicMaterial>();
+      const celShaded = STUDENT_MODEL_URLS.has(source.name);
+      const converted = new Map<
+        THREE.Material,
+        THREE.MeshBasicMaterial | THREE.MeshStandardMaterial
+      >();
       const convert = (material: THREE.Material) => {
         const cached = converted.get(material);
         if (cached) return cached;
@@ -102,14 +110,19 @@ export function createFinaleCredits(
           material.emissive.getHex() !== 0
             ? material.emissive
             : material.color;
-        const copy = new THREE.MeshBasicMaterial({
-          color,
-          map: material.map,
-          alphaMap: material.alphaMap,
-          alphaTest: material.alphaTest,
-          side: material.side,
-          toneMapped: false,
-        });
+        const copy =
+          celShaded && material instanceof THREE.MeshStandardMaterial
+            ? material.clone()
+            : new THREE.MeshBasicMaterial({
+                color,
+                map: material.map,
+                alphaMap: material.alphaMap,
+                alphaTest: material.alphaTest,
+                side: material.side,
+              });
+        copy.toneMapped = false;
+        copy.opacity = 1;
+        copy.transparent = false;
         converted.set(material, copy);
         materials.add(copy);
         return copy;
@@ -121,6 +134,7 @@ export function createFinaleCredits(
           : convert(node.material);
         node.castShadow = node.receiveShadow = false;
       });
+      if (celShaded) applyPlayerCelShading(model);
       root.add(normalizeFinaleActor(model, 1.7));
       scene.add(root);
     });
@@ -149,7 +163,10 @@ export function createFinaleCredits(
       const posing = entranceTime >= FINALE_CREDITS.walkIn;
       const margin =
         (((width - Math.min(680, width * 0.62)) / width) * viewWidth) / 2;
-      const lineupScale = Math.min(1.25, viewWidth / (actors.length * 1.65 + 1.2));
+      const lineupScale = Math.min(
+        1.25,
+        viewWidth / (actors.length * 1.65 + 1.2),
+      );
       actors.forEach((actor, index) => {
         const side = ending
           ? index < actors.length / 2

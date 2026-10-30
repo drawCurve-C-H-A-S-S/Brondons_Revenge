@@ -235,7 +235,27 @@ export function prepareShipSurfaceMesh(mesh: THREE.Mesh) {
   const uv = geometry.getAttribute("uv");
   mesh.updateWorldMatrix(true, false);
   const scale = mesh.getWorldScale(new THREE.Vector3());
+  const continuous = mesh.userData.shipSurfaceContinuous === true;
+  const normalMatrix = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
+  const worldPoint = new THREE.Vector3();
+  const worldNormal = new THREE.Vector3();
   for (let i = 0; i < positions.count; i++) {
+    if (continuous) {
+      worldPoint.fromBufferAttribute(positions, i).applyMatrix4(mesh.matrixWorld);
+      worldNormal.fromBufferAttribute(normals, i).applyNormalMatrix(normalMatrix);
+      const horizontal = Math.abs(worldNormal.y) >= Math.max(
+        Math.abs(worldNormal.x), Math.abs(worldNormal.z),
+      );
+      // One field joins axis-aligned walls, corners and lintels without resetting
+      // at mesh origins or flipping phase with face normals. Bake once so maps
+      // stay fixed, including during camera movement and reflected rendering.
+      uv.setXY(
+        i,
+        (horizontal ? worldPoint.x : worldPoint.x + worldPoint.z) / tileSize,
+        (horizontal ? -worldPoint.z : worldPoint.y) / tileSize,
+      );
+      continue;
+    }
     const nx = normals.getX(i), ny = normals.getY(i), nz = normals.getZ(i);
     const x = positions.getX(i) * scale.x;
     const y = positions.getY(i) * scale.y;

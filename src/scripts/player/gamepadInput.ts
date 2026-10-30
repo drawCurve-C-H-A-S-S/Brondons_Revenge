@@ -89,6 +89,7 @@ interface GamepadInputOptions {
     menuOpen: boolean;
     wheelOpen: boolean;
     mapOpen?: boolean;
+    exclusive?: boolean;
   };
   onModeChange: (mode: InputMode) => void;
   onStatus: (status: ControllerStatus) => void;
@@ -120,6 +121,19 @@ export function isControllerEvent(event: Event) {
 }
 export function getControllerMovement(): Readonly<Stick> {
   return movement;
+}
+
+export interface LocalControllerInput {
+  index: number;
+  id: string;
+  type: ControllerType;
+  stick: Readonly<Stick>;
+  held: ReadonlySet<string>;
+}
+let localControllerReader: (() => LocalControllerInput[]) | null = null;
+/** Independent snapshots never synthesize keyboard events or change device ownership. */
+export function readLocalControllers(): LocalControllerInput[] {
+  return localControllerReader?.() ?? [];
 }
 export function resetControllerInput() {
   resetActiveInput?.();
@@ -1208,6 +1222,10 @@ export function createGamepadInput(options: GamepadInputOptions) {
     advanceSetup();
   }
   function update(delta: number) {
+    if (options.getContext().exclusive) {
+      reset();
+      return;
+    }
     poll();
     if (setup) {
       if (!document.hidden && !blurred) updateSetup(delta);
@@ -1437,7 +1455,7 @@ export function createGamepadInput(options: GamepadInputOptions) {
       cancelSetup();
       return;
     }
-    if (!isControllerActive() || isControllerEvent(event) || setup) return;
+    if (options.getContext().exclusive || !isControllerActive() || isControllerEvent(event) || setup) return;
     if (
       event instanceof KeyboardEvent &&
       (event.repeat || /^(Shift|Control|Alt|Meta)/.test(event.code))
@@ -1486,10 +1504,48 @@ export function createGamepadInput(options: GamepadInputOptions) {
       type,
       () => {
         failure = "";
-        poll();
+        if (!options.getContext().exclusive) poll();
       },
       { signal: listeners.signal },
     );
+  const readLocal = (): LocalControllerInput[] => {
+    if (disposed || typeof navigator.getGamepads !== "function") return [];
+    try {
+      return Array.from(navigator.getGamepads()).flatMap((device) => {
+        if (!device?.connected) return [];
+        const type = deviceTypes.get(deviceKey(device)) ?? detectedControllerType(device.id);
+        const base = baseLayout(device, type);
+        if (!base) return [];
+        const swapped = swappedButtons.get(layoutKey(device, type)!);
+        const bindings = swapped
+          ? { ...base.buttons, a: base.buttons.b, b: base.buttons.a }
+          : base.buttons;
+        const down = (button: ControllerButton) => buttonDown(device, bindings[button]);
+        const held = new Set<string>();
+        const actions = {
+          sword: "r", shoot: "x", dodge: "b", dodgeButton: "b", special: "a", slide: "y",
+          guard: "zl", start: "plus", back: "minus",
+          confirm: profiles[type].confirm, cancel: profiles[type].cancel,
+          up: "up", down: "down", left: "left", right: "right",
+        } as const;
+        for (const [action, button] of Object.entries(actions))
+          if (down(button)) held.add(action);
+        if (down("zr") && down("b")) {
+          held.add("ultimate");
+          held.delete("dodge");
+        }
+        const stick = readStick(device, base.leftX, base.leftY);
+        if (stick.x < -0.55) held.add("left");
+        if (stick.x > 0.55) held.add("right");
+        if (stick.y < -0.55) held.add("up");
+        if (stick.y > 0.55) held.add("down");
+        return [{ index: device.index, id: device.id, type, stick, held }];
+      });
+    } catch {
+      return [];
+    }
+  };
+  localControllerReader = readLocal;
   const resetFromScene = () => reset(options.getContext().wheelOpen);
   resetActiveInput = resetFromScene;
   poll();
@@ -1512,6 +1568,7 @@ export function createGamepadInput(options: GamepadInputOptions) {
       controllerType = null;
       controllerSwapAB = false;
       if (resetActiveInput === resetFromScene) resetActiveInput = null;
+      if (localControllerReader === readLocal) localControllerReader = null;
     },
   };
 }

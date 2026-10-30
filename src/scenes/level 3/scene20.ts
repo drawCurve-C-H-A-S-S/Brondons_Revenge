@@ -18,7 +18,7 @@ import {
 } from "../../scripts/global/shipRoom.js";
 import {
   loadToolModel,
-  loadSubjectModel,
+  loadStudentModel,
   loadTexture,
 } from "../../core/loader.js";
 import hideoutImageUrl from "../../assets/textures/sudoers-hideout.png?url";
@@ -88,7 +88,7 @@ export function createScene({
   onRespawn,
   onFinished,
   loadModel = loadToolModel,
-  loadStudents = loadSubjectModel,
+  loadStudents = loadStudentModel,
 }: {
   entryState?: RescueArrival;
   fromExterior?: boolean;
@@ -96,7 +96,7 @@ export function createScene({
   onRespawn?: () => void;
   onFinished: (state: RescueArrival) => void;
   loadModel?: typeof loadToolModel;
-  loadStudents?: typeof loadSubjectModel;
+  loadStudents?: typeof loadStudentModel;
 }) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xc3dce0);

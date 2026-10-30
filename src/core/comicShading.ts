@@ -76,6 +76,9 @@ export function addCabinInk(root: THREE.Object3D) {
     if (!(node instanceof THREE.Mesh) || node instanceof THREE.SkinnedMesh ||
         (node instanceof THREE.InstancedMesh && !node.name.includes("WindingStoneTrail")) ||
         preserveAppearance(node)) return;
+    // Construction-piece outlines would expose seams across continuous walls
+    // and flicker where adjacent lintel/corner edges share the same depth.
+    if (node.userData.shipSurfaceContinuous) return;
     const materials = Array.isArray(node.material) ? node.material : [node.material];
     if (!materials.some((material) =>
       material instanceof THREE.MeshStandardMaterial &&

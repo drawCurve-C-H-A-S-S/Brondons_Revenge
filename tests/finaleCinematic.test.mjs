@@ -19,6 +19,36 @@ let prepareSceneRendering,
   architecture,
   office,
   createFinaleStudents;
+const studentNames = ["Caleb", "Husain", "André", "Sibusiso", "Sohrab"];
+const studentFiles = ["Caleb", "Husain", "Andre", "Sibusiso", "Sohrab"];
+const requestedAssets = new Set();
+function assertStudentAppearance(model) {
+  let skinnedMeshes = 0;
+  model.traverse((node) => {
+    if (!node.isMesh) return;
+    if (node.name === "BrondonComicInk") return;
+    if (!node.isSkinnedMesh) {
+      assert.ok(
+        !/^(Cube|Cube\.?001)$/.test(node.name),
+        "Remove the stray head blocks",
+      );
+      return;
+    }
+    skinnedMeshes++;
+    const material = node.material;
+    assert.ok(material.isMeshStandardMaterial);
+    const shader = {
+      uniforms: {},
+      fragmentShader: THREE.ShaderLib.standard.fragmentShader,
+    };
+    material.onBeforeCompile(shader, {});
+    assert.ok(shader.uniforms.uBrondonColor);
+    assert.equal(shader.uniforms.uCellShadingEnabled.value, 1);
+    assert.ok(shader.fragmentShader.includes("brondonShade"));
+    assert.ok(shader.fragmentShader.includes("? 1.0 : 0.5"));
+  });
+  assert.ok(skinnedMeshes > 0, "Keep the skinned bodies");
+}
 const globals = new Map(
   [
     "self",
@@ -117,6 +147,7 @@ before(async () => {
     const url = new URL(source, document.baseURI);
     if (url.hostname !== "localhost" || !url.pathname.startsWith("/assets/"))
       throw new Error(`Unexpected test request: ${source}`);
+    requestedAssets.add(decodeURIComponent(url.pathname));
     const buffer = await readFile(
       new URL(`../src${url.pathname}`, import.meta.url),
     );
@@ -733,6 +764,366 @@ test("shared dome architecture has four supports, a real roof opening and a flus
   );
 });
 
+test("the five student GLBs are self-contained and use their named cached models", async (t) => {
+  const { loadStudentModel, MODEL_ASSET_URLS, STUDENT_MODEL_URLS } =
+    await server.ssrLoadModule("/core/loader.ts");
+  const hashes = new Set();
+  for (const [index, name] of studentNames.entries()) {
+    const bytes = await readFile(
+      new URL(
+        `../src/assets/models/${studentFiles[index]}.glb`,
+        import.meta.url,
+      ),
+    );
+    assert.equal(bytes.readUInt32LE(0), 0x46546c67);
+    assert.equal(bytes.readUInt32LE(8), bytes.length);
+    const json = JSON.parse(
+      bytes.toString("utf8", 20, 20 + bytes.readUInt32LE(12)),
+    );
+    assert.ok(json.buffers.every((buffer) => !buffer.uri));
+    assert.ok(
+      (json.images ?? []).every((image) => image.bufferView !== undefined),
+    );
+    hashes.add(
+      await crypto.subtle
+        .digest("SHA-256", bytes)
+        .then((hash) => Buffer.from(hash).toString("hex")),
+    );
+    const asset = await loadStudentModel(name);
+    const resources = (
+      await server.ssrLoadModule("/scripts/level-3/finaleActors.ts")
+    ).captureFinaleResources(asset.scene);
+    t.after(() => resources.dispose());
+    assert.equal(asset.scene.name, name);
+    assert.equal(asset.scene.userData.preserveComicAppearance, true);
+    assertStudentAppearance(asset.scene);
+    assert.ok(MODEL_ASSET_URLS.includes(STUDENT_MODEL_URLS.get(name)));
+    assert.ok(requestedAssets.has(`/assets/models/${studentFiles[index]}.glb`));
+    for (const clip of [
+      "Walk_Loop",
+      "Idle_Loop",
+      "Idle_Talking_Loop",
+      "Sitting_Idle_Loop",
+      "Sitting_Talking_Loop",
+      "Sitting_Exit",
+      "Dance_Loop",
+    ])
+      assert.ok(
+        asset.animations.some((animation) => animation.name === clip),
+        `${name}: ${clip}`,
+      );
+    let bodyVertices = 0;
+    asset.scene.traverse((node) => {
+      if (!node.isSkinnedMesh) return;
+      bodyVertices += node.geometry.attributes.position.count;
+      assert.equal(
+        node.geometry.attributes.position.count,
+        node.geometry.attributes.skinWeight.count,
+      );
+      assert.ok(node.skeleton.bones.some((bone) => bone.name === "pelvis"));
+    });
+    const expectedVertices = json.nodes
+      .filter((node) => node.skin !== undefined)
+      .flatMap((node) => json.meshes[node.mesh].primitives)
+      .reduce(
+        (sum, primitive) =>
+          sum + json.accessors[primitive.attributes.POSITION].count,
+        0,
+      );
+    assert.equal(
+      bodyVertices,
+      expectedVertices,
+      "Retain every authored body vertex",
+    );
+  }
+  assert.equal(hashes.size, 5, "Use five distinct supplied assets");
+  await assert.rejects(
+    loadStudentModel("Unknown"),
+    /No student character model/,
+  );
+});
+
+test("reloading a student returns independently disposable geometry, materials and bones", async (t) => {
+  const { loadStudentModel } = await server.ssrLoadModule("/core/loader.ts");
+  const { captureFinaleResources } = await server.ssrLoadModule(
+    "/scripts/level-3/finaleActors.ts",
+  );
+  const first = await loadStudentModel("Caleb"),
+    second = await loadStudentModel("Caleb");
+  t.after(() => {
+    captureFinaleResources(first.scene).dispose();
+    captureFinaleResources(second.scene).dispose();
+  });
+  const meshes = (root) => {
+    const result = [];
+    root.traverse((node) => {
+      if (node.isSkinnedMesh) result.push(node);
+    });
+    return result;
+  };
+  const a = meshes(first.scene),
+    b = meshes(second.scene);
+  assert.ok(a.length > 0);
+  for (let index = 0; index < a.length; index++) {
+    assert.notEqual(a[index].geometry, b[index].geometry);
+    assert.notEqual(a[index].material, b[index].material);
+    assert.notEqual(a[index].skeleton.bones[0], b[index].skeleton.bones[0]);
+  }
+});
+
+test("Arcade selection and playable models include all five students with compatible combat animations", async (t) => {
+  const {
+    loadPlayableCharacterModel,
+    PLAYABLE_CHARACTERS,
+    PLAYABLE_CHARACTER_NAMES,
+    isPlayableCharacter,
+  } = await server.ssrLoadModule("/core/loader.ts");
+  const { loadCombatAnimationsForRig } = await server.ssrLoadModule(
+    "/core/combatAnimations.ts",
+  );
+  const { captureFinaleResources } = await server.ssrLoadModule(
+    "/scripts/level-3/finaleActors.ts",
+  );
+  const html = await readFile(
+    new URL("../src/index.html", import.meta.url),
+    "utf8",
+  );
+  const cards = [
+    ...html.matchAll(/class="character-card"[^>]*data-character="([^"]+)"/g),
+  ].map((match) => match[1]);
+  const portraits = [
+    ...html.matchAll(/data-character-portrait="([^"]+)"/g),
+  ].map((match) => match[1]);
+  assert.equal(PLAYABLE_CHARACTERS.length, 8);
+  assert.deepEqual(new Set(cards), new Set(PLAYABLE_CHARACTERS));
+  assert.deepEqual(new Set(portraits), new Set(PLAYABLE_CHARACTERS));
+  assert.equal(isPlayableCharacter("missing"), false);
+  assert.equal(isPlayableCharacter(undefined), false);
+  assert.equal(isPlayableCharacter("toString"), false);
+  for (const [index, id] of [
+    "caleb",
+    "husain",
+    "andre",
+    "sibusiso",
+    "sohrab",
+  ].entries()) {
+    assert.equal(isPlayableCharacter(id), true);
+    assert.equal(PLAYABLE_CHARACTER_NAMES[id], studentNames[index]);
+    const asset = await loadPlayableCharacterModel(id);
+    t.after(() => captureFinaleResources(asset.scene).dispose());
+    assertStudentAppearance(asset.scene);
+    const size = new THREE.Box3()
+      .setFromObject(asset.scene)
+      .getSize(new THREE.Vector3());
+    assert.ok(
+      Math.abs(size.y - 1.83) < 0.001,
+      `${id} must retain the gameplay height; got ${size.y}`,
+    );
+    const clips = await loadCombatAnimationsForRig(asset.scene);
+    assert.ok(clips.length > 0, `${id} must match the baked combat rig`);
+    const mixer = new THREE.AnimationMixer(asset.scene);
+    t.after(() => {
+      mixer.stopAllAction();
+      mixer.uncacheRoot(asset.scene);
+    });
+    for (const name of [
+      "Sword_Attack",
+      "Sword_Block",
+      "Punch_Jab",
+      "Punch_Cross",
+      "Melee_Hook_WithRecovery",
+      "Slide_Tackle",
+    ]) {
+      const clip = clips.find((clip) => clip.name === name);
+      assert.ok(clip, `${id} requires ${name}`);
+      mixer.stopAllAction();
+      mixer.clipAction(clip).play();
+      mixer.setTime(clip.duration * 0.5);
+      asset.scene.updateMatrixWorld(true);
+      const bounds = new THREE.Box3().setFromObject(asset.scene);
+      assert.ok(
+        [...bounds.min.toArray(), ...bounds.max.toArray()].every(
+          Number.isFinite,
+        ),
+      );
+    }
+  }
+});
+
+test("the facility office seats all five named student models by default", async (t) => {
+  const { createScenePhysics } = await server.ssrLoadModule(
+    "/helpers/physics/scenePhysics.ts",
+  );
+  const scene = new THREE.Scene();
+  const room = office.createFacilityOffice(scene, createScenePhysics());
+  t.after(() => room.dispose());
+  await room.ready;
+  for (const [index, name] of studentNames.entries()) {
+    const actor = room.root.children.find((child) => child.name === name);
+    assert.ok(actor, `${name} must appear in the facility`);
+    const model = actor.children[0].children[0];
+    assert.equal(model.name, name);
+    assert.equal(actor.position.x, office.FACILITY_OFFICE_SEATS[index].x);
+    assert.equal(actor.position.z, office.FACILITY_OFFICE_SEATS[index].z);
+    const bones = [];
+    model.traverse((node) => {
+      if (node.isBone) bones.push(node);
+    });
+    const before = bones.map((bone) => bone.quaternion.clone());
+    room.update(0.5, false);
+    assert.ok(
+      bones.every((bone) => bone.quaternion.toArray().every(Number.isFinite)),
+    );
+    assert.ok(
+      bones.some(
+        (bone, boneIndex) =>
+          before[boneIndex].angleTo(bone.quaternion) > 0.00001,
+      ),
+      `${name} must remain animated`,
+    );
+  }
+});
+
+test("finale and credits retain each student's model and individual animation clips", async (t) => {
+  const actors = createFinaleStudents();
+  t.after(() => actors.dispose());
+  await actors.loaded;
+  const cast = actors.getCreditsCast();
+  assert.deepEqual(
+    cast.map((student) => student.name),
+    studentNames,
+  );
+  for (const [index, student] of actors.students.entries()) {
+    assert.equal(student.model.name, studentNames[index]);
+    assert.equal(cast[index].model, student.model);
+    assert.equal(cast[index].animations, student.animations);
+    if (index > 0) assert.notEqual(cast[index].animations, cast[0].animations);
+    for (const mode of [
+      "sit",
+      "stand",
+      "walk",
+      "idle",
+      "talk",
+      "pose",
+      "board",
+    ]) {
+      actors.animate(index, mode, 0.4);
+      student.model.updateMatrixWorld(true);
+      const bounds = new THREE.Box3().setFromObject(student.model);
+      assert.ok(
+        bounds.min.toArray().every(Number.isFinite),
+        `${studentNames[index]} ${mode}`,
+      );
+      assert.ok(
+        bounds.max.toArray().every(Number.isFinite),
+        `${studentNames[index]} ${mode}`,
+      );
+    }
+  }
+});
+
+test("student load failures release the other successfully loaded cast members", async () => {
+  const { loadStudentModel } = await server.ssrLoadModule("/core/loader.ts");
+  let geometryCount = 0,
+    disposedCount = 0;
+  const actors = createFinaleStudents(async (name) => {
+    if (name === "Husain") throw new Error("Husain test load failed");
+    const asset = await loadStudentModel(name);
+    const geometries = new Set();
+    asset.scene.traverse((node) => {
+      if (node.isMesh) geometries.add(node.geometry);
+    });
+    for (const geometry of geometries) {
+      geometryCount++;
+      geometry.addEventListener("dispose", () => disposedCount++);
+    }
+    return asset;
+  });
+  await assert.rejects(actors.loaded, /Husain test load failed/);
+  assert.ok(geometryCount > 0);
+  assert.equal(disposedCount, geometryCount);
+  actors.dispose();
+});
+
+test("credits and the final dance use the cleaned student models with Brondon's cel shadows", async (t) => {
+  const { loadPlayerModel, loadBrandenModel, loadBrendanModel } =
+    await server.ssrLoadModule("/core/loader.ts");
+  const { captureFinaleResources } = await server.ssrLoadModule(
+    "/scripts/level-3/finaleActors.ts",
+  );
+  const { createFinaleCredits } = await server.ssrLoadModule(
+    "/scripts/level-3/finaleCredits.ts",
+  );
+  const { FINALE_CREDITS } = await server.ssrLoadModule(
+    "/scripts/global/finaleDirector.ts",
+  );
+  const actors = createFinaleStudents();
+  t.after(() => actors.dispose());
+  const others = await Promise.all([
+    loadPlayerModel(),
+    loadBrandenModel(),
+    loadBrendanModel(),
+  ]);
+  for (const asset of others)
+    t.after(() => captureFinaleResources(asset.scene).dispose());
+  await actors.loaded;
+  const sources = [
+    ...others.map((asset, index) => ({
+      name: ["Brondon", "Branden", "Brendan"][index],
+      model: asset.scene,
+      animations: asset.animations,
+      outcome: "winner",
+    })),
+    ...actors.getCreditsCast().map((source) => ({
+      ...source,
+      outcome: "fall",
+    })),
+  ];
+  const credits = createFinaleCredits(sources, false);
+  t.after(() => credits.dispose());
+  let renderedScene;
+  const renderer = {
+    autoClear: false,
+    getSize: (target) => target.set(1280, 720),
+    getRenderTarget: () => null,
+    setRenderTarget() {},
+    render(scene) {
+      renderedScene = scene;
+    },
+  };
+  const poses = [];
+  for (const time of [
+    3,
+    FINALE_CREDITS.roll + FINALE_CREDITS.walkIn * 0.5,
+    FINALE_CREDITS.roll + FINALE_CREDITS.walkIn + 0.4,
+    FINALE_CREDITS.roll + FINALE_CREDITS.walkIn + 0.9,
+  ]) {
+    credits.render(renderer, time);
+    const frame = [];
+    for (const name of studentNames) {
+      const performer = renderedScene.getObjectByName(`Credits_${name}`);
+      assert.ok(
+        performer,
+        `${name} must appear throughout credits and the final dance`,
+      );
+      assertStudentAppearance(performer);
+      performer.traverse((node) => {
+        if (node.isSkinnedMesh) {
+          assert.equal(node.material.opacity, 1);
+          assert.equal(node.material.transparent, false);
+        }
+      });
+      frame.push(performer.getObjectByName("upperarm_l").quaternion.clone());
+    }
+    poses.push(frame);
+  }
+  for (const [index, name] of studentNames.entries())
+    assert.ok(
+      poses[2][index].angleTo(poses[3][index]) > 0.001,
+      `${name}'s final dance must animate the new model`,
+    );
+});
+
 test("finale students reuse the real office chairs, seated contact and authored stand-up clip", async (t) => {
   const actors = createFinaleStudents();
   t.after(() => actors.dispose());
@@ -749,17 +1140,43 @@ test("finale students reuse the real office chairs, seated contact and authored 
     assert.equal(student.root.rotation.y, seat.yaw);
     actors.animate(index, "sit", index * 0.2);
     actors.root.updateMatrixWorld(true);
-    const bounds = new THREE.Box3().setFromObject(chair),
-      origin = bounds.getCenter(new THREE.Vector3());
-    origin.y = bounds.max.y + 0.2;
-    const contact = new THREE.Raycaster(
-      origin,
-      new THREE.Vector3(0, -1, 0),
-    ).intersectObject(chair, true)[0];
     const pelvis = student.model
       .getObjectByName("pelvis")
       .getWorldPosition(new THREE.Vector3());
-    assert.ok(Math.abs(pelvis.y - contact.point.y - 0.09) < 0.02);
+    const contact = new THREE.Raycaster(
+      pelvis,
+      new THREE.Vector3(0, -1, 0),
+    ).intersectObject(chair, true)[0];
+    assert.ok(
+      contact,
+      `${studentNames[index]} must sit above the chair cushion`,
+    );
+    assert.ok(pelvis.y - contact.point.y < 0.3);
+    let footY = Infinity;
+    student.model.traverse((node) => {
+      if (!node.isSkinnedMesh) return;
+      node.skeleton.update();
+      const { position, skinIndex, skinWeight } = node.geometry.attributes;
+      for (let vertexIndex = 0; vertexIndex < position.count; vertexIndex++) {
+        let weight = 0;
+        for (let component = 0; component < 4; component++)
+          if (
+            /foot|ball|toe/i.test(
+              node.skeleton.bones[
+                skinIndex.getComponent(vertexIndex, component)
+              ].name,
+            )
+          )
+            weight += skinWeight.getComponent(vertexIndex, component);
+        if (weight < 0.6) continue;
+        const vertex = node.getVertexPosition(vertexIndex, new THREE.Vector3());
+        footY = Math.min(footY, node.localToWorld(vertex).y);
+      }
+    });
+    assert.ok(
+      Math.abs(footY - office.FACILITY_OFFICE.floor) < 0.015,
+      `${studentNames[index]}'s seated feet must rest on the floor`,
+    );
     const stand = student.actions.stand.getClip();
     assert.equal(stand.name, "Sitting_Exit");
     actors.animate(index, "stand", stand.duration);

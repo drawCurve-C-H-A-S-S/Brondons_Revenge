@@ -740,11 +740,11 @@ test("arrival has moving room/hallway shots, hold-Enter skip, no premature contr
   );
   assert.match(
     elements.get("quarters-subtitle-text").textContent,
-    /No patrols.*facility.*planet/,
+    /I don't have physical records of where the others are/,
   );
   assert.doesNotMatch(
     elements.get("quarters-subtitle-text").textContent,
-    /only area/,
+    /only area|facility|planet/,
   );
   step(data, 5);
   assert.match(

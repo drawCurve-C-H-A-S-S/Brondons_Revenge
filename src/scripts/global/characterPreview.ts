@@ -1,14 +1,23 @@
 import * as THREE from "three";
+import { clone as cloneRig } from "three/addons/utils/SkeletonUtils.js";
+import { disposeRoom } from "./shipRoom.js";
 import {
   loadBrendanModel,
   loadPlayerModel,
+  loadPlayableCharacterModel,
+  type PlayableCharacter,
   setPlayerCellShadingEnabled,
 } from "../../core/loader.js";
 import { createStarfield, type Starfield } from "./starfield.js";
 const starfieldVertShader = `
+  #include <common>
+  #include <skinning_pars_vertex>
   varying vec3 vWorldPosition;
   void main() {
-    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    #include <skinbase_vertex>
+    #include <begin_vertex>
+    #include <skinning_vertex>
+    vec4 worldPos = modelMatrix * vec4(transformed, 1.0);
     vWorldPosition = worldPos.xyz;
     gl_Position = projectionMatrix * viewMatrix * worldPos;
   }
@@ -149,6 +158,39 @@ let backdropScene: THREE.Scene | null = null;
 let backdropCamera: THREE.OrthographicCamera | null = null;
 let backdropMaterial: THREE.ShaderMaterial | null = null;
 let postRenderHook: (() => void) | null = null;
+let previewGeneration = 0;
+let releasePreviewModel: (() => void) | null = null;
+
+function clonePreviewModel(source: THREE.Object3D) {
+  const model = cloneRig(source);
+  const materials = new Map<THREE.Material, THREE.Material>();
+  const copy = (original: THREE.Material) => {
+    let material = materials.get(original);
+    if (!material) {
+      material = original.clone();
+      material.onBeforeCompile = original.onBeforeCompile;
+      material.customProgramCacheKey = original.customProgramCacheKey;
+      for (const [key, value] of Object.entries(original))
+        if (value instanceof THREE.Texture) Reflect.set(material, key, value.clone());
+      materials.set(original, material);
+    }
+    return material;
+  };
+  model.traverse((node) => {
+    if (node instanceof THREE.Mesh || node instanceof THREE.LineSegments) {
+      node.geometry = node.geometry.clone();
+      node.material = Array.isArray(node.material) ? node.material.map(copy) : copy(node.material);
+    }
+  });
+  return model;
+}
+function disposePreviewActor(model: THREE.Object3D) {
+  const skeletons = new Set<THREE.Skeleton>();
+  model.traverse((node) => { if (node instanceof THREE.SkinnedMesh) skeletons.add(node.skeleton); });
+  skeletons.forEach((skeleton) => skeleton.dispose());
+  disposeRoom(model);
+  model.removeFromParent();
+}
 
 function applyStarfieldBackdrop(scene: THREE.Object3D) {
   const materialMap = new Map<THREE.Material, THREE.Material>();
@@ -268,13 +310,19 @@ function restoreOriginalMaterials(
   });
 }
 
-export function startCharacterPreview(container: HTMLElement) {
+export function startCharacterPreview(
+  container: HTMLElement,
+  selected?: PlayableCharacter,
+  source?: THREE.Object3D,
+) {
   console.log("[CharacterPreview] Starting preview", {
     container,
     width: container.clientWidth,
     height: container.clientHeight,
   });
   stopCharacterPreview();
+  const generation = previewGeneration;
+  const arcadePreview = selected !== undefined;
   container.classList.add("active");
 
   const width = container.clientWidth || 140;
@@ -353,14 +401,16 @@ export function startCharacterPreview(container: HTMLElement) {
     0.05,
     0.18,
   );
-  let variant: "brondon" | "brendan" = "brondon",
+  let variant: PlayableCharacter = selected ?? "brondon",
     loadToken = 0;
 
-  async function loadVariant(next: "brondon" | "brendan") {
+  async function loadVariant(next: PlayableCharacter) {
     const token = ++loadToken;
     try {
       let model: THREE.Object3D;
-      if (next === "brondon") {
+      if (arcadePreview) {
+        model = source ? clonePreviewModel(source) : (await loadPlayableCharacterModel(next)).scene;
+      } else if (next === "brondon") {
         model = (await loadPlayerModel()).scene;
         setPlayerCellShadingEnabled(model, false);
       } else {
@@ -376,24 +426,71 @@ export function startCharacterPreview(container: HTMLElement) {
         model = new THREE.Group();
         model.add(source);
       }
-      if (token !== loadToken || !previewScene) return;
-      if (previewModel) previewScene.remove(previewModel);
-      previewModel = model;
+      if (token !== loadToken || generation !== previewGeneration || !previewScene) {
+        disposePreviewActor(model);
+        return;
+      }
+      releasePreviewModel?.();
+      let originals: ReturnType<typeof applyStarfieldBackdrop> | undefined;
+      if (arcadePreview) {
+        model.position.set(0, 0, 0);
+        model.rotation.set(0, 0, 0);
+        model.visible = true;
+        model.traverse((object) => {
+          if (object instanceof THREE.SkinnedMesh) object.pose();
+        });
+        model.updateMatrixWorld(true);
+        const bounds = new THREE.Box3();
+        const measureBody = () => {
+          model.updateMatrixWorld(true);
+          bounds.makeEmpty();
+          model.traverse((object) => {
+            if (!(object instanceof THREE.SkinnedMesh)) return;
+            object.computeBoundingBox();
+            if (object.boundingBox)
+              bounds.union(object.boundingBox.clone().applyMatrix4(object.matrixWorld));
+          });
+          if (bounds.isEmpty()) bounds.setFromObject(model, true);
+        };
+        measureBody();
+        const factor = 1.83 / Math.max(0.01, bounds.getSize(new THREE.Vector3()).y);
+        model.scale.multiplyScalar(factor);
+        measureBody();
+        const center = bounds.getCenter(new THREE.Vector3());
+        model.position.set(-center.x, -bounds.min.y, -center.z);
+        const wrapper = new THREE.Group();
+        wrapper.add(model);
+        model = wrapper;
+      }
       model.position.set(1.8, 0.045, -horizontalOffset);
       model.rotation.set(0, Math.PI, 0, "YXZ");
-      model.scale.x = -1;
-      applyStarfieldBackdrop(model);
+      model.scale.x = -Math.abs(model.scale.x);
+      originals = applyStarfieldBackdrop(model);
+      releasePreviewModel = () => {
+        if (originals) {
+          const generated = new Set<THREE.Material>();
+          for (const [mesh, original] of originals) {
+            const previous = Array.isArray(original) ? original : [original];
+            for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material])
+              if (!previous.includes(material)) generated.add(material);
+          }
+          generated.forEach((material) => material.dispose());
+          restoreOriginalMaterials(model, originals);
+        }
+        disposePreviewActor(model);
+      };
+      previewModel = model;
       previewScene.add(model);
     } catch (error) {
       console.error("[CharacterPreview] Failed to load model:", error);
     }
   }
   void loadVariant(variant);
-  swapPreview = () => {
+  swapPreview = arcadePreview ? null : () => {
     variant = variant === "brondon" ? "brendan" : "brondon";
     void loadVariant(variant);
   };
-  window.addEventListener("keydown", onPreviewKey, true);
+  if (!arcadePreview) window.addEventListener("keydown", onPreviewKey, true);
 
   const startTime = performance.now() * 0.001;
   const render = () => {
@@ -454,6 +551,9 @@ export function getCharacterPreviewRenderer() {
 }
 
 export function stopCharacterPreview() {
+  previewGeneration++;
+  releasePreviewModel?.();
+  releasePreviewModel = null;
   window.removeEventListener("keydown", onPreviewKey, true);
   swapPreview = null;
   if (previewRafId) {

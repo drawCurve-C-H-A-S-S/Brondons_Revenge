@@ -1033,7 +1033,7 @@ export function createScene({
         t < 5
           ? "The homing beacon brought you back to your cabin. That was its only charge."
           : t < 12
-            ? "No patrols in this wing. Donus still has the others at the facility on that planet."
+            ? "We're still aboard the Donus mothership. I don't have physical records of where the others are."
             : t < 19
               ? "The prison camera is looped. We need to reach our ship in Hangar 14 before Donus catches on."
               : "Look around the crew cabins for useful items before you leave. Then we get off this mothership and bring everyone home.",

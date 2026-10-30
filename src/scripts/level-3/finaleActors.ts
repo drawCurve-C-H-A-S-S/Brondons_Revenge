@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { clone } from "three/addons/utils/SkeletonUtils.js";
-import { loadSubjectModel, loadVergilsChair } from "../../core/loader.js";
+import { loadStudentModel, loadVergilsChair } from "../../core/loader.js";
 import { CABINS } from "../../scenes/living quarters/layout.js";
 import {
   createStudentBoardingClip,
@@ -82,7 +82,7 @@ export function captureFinaleResources(root: THREE.Object3D, shared = false) {
   };
 }
 
-export function createFinaleStudents(loadModel = loadSubjectModel) {
+export function createFinaleStudents(loadModel = loadStudentModel) {
   const root = new THREE.Group();
   root.name = "Sudoers5";
   const furniture = createFacilityOfficeTable().root;
@@ -91,6 +91,7 @@ export function createFinaleStudents(loadModel = loadSubjectModel) {
   type Student = {
     root: THREE.Group;
     model: THREE.Object3D;
+    animations: readonly THREE.AnimationClip[];
     wrapper: THREE.Group;
     standingY: number;
     seatedY: number;
@@ -102,40 +103,58 @@ export function createFinaleStudents(loadModel = loadSubjectModel) {
     mode: keyof Student["actions"] | "";
   };
   const students: Student[] = [];
-  let animations: readonly THREE.AnimationClip[] = [];
   let disposed = false,
-    sourceResources: ReturnType<typeof captureFinaleResources> | null = null,
     chairResources: ReturnType<typeof captureFinaleResources> | null = null;
+  let sourceResources: ReturnType<typeof captureFinaleResources>[] = [];
   const badgeGeometry = new THREE.OctahedronGeometry(0.055),
     badges: THREE.MeshBasicMaterial[] = [];
-  const loaded = Promise.all([loadModel(), loadVergilsChair()]).then(
-    ([asset, chairAsset]) => {
-      animations = asset.animations;
-      sourceResources = captureFinaleResources(asset.scene);
-      chairResources = captureFinaleResources(chairAsset.scene);
-      if (disposed) {
-        sourceResources.dispose();
-        chairResources.dispose();
-        return;
-      }
-      function required(name: string) {
-        const clip = asset.animations.find(
-          (animation) => animation.name === name,
-        );
-        if (!clip)
-          throw new Error(`Subject model is missing the ${name} animation`);
-        return clip;
-      }
-      const walk = required("Walk_Loop"),
-        idle = required("Idle_Loop"),
-        talk = required("Idle_Talking_Loop"),
-        seatedIdle = required("Sitting_Idle_Loop"),
-        seatedTalk = required("Sitting_Talking_Loop"),
-        stand = required("Sitting_Exit");
+  const loaded = Promise.allSettled([
+    ...SUDOERS_5.map((student) => loadModel(student.name)),
+    loadVergilsChair(),
+  ]).then((results) => {
+    const assets = results.flatMap((result) =>
+      result.status === "fulfilled" ? [result.value] : [],
+    );
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected") {
+      assets.forEach((asset) => captureFinaleResources(asset.scene).dispose());
+      dispose();
+      throw new Error(
+        `Finale student models failed to load: ${String(failure.reason)}`,
+      );
+    }
+    const chairAsset = assets[SUDOERS_5.length];
+    sourceResources = assets
+      .slice(0, SUDOERS_5.length)
+      .map((asset) => captureFinaleResources(asset.scene));
+    chairResources = captureFinaleResources(chairAsset.scene);
+    if (disposed) {
+      sourceResources.forEach((resources) => resources.dispose());
+      chairResources.dispose();
+      return;
+    }
+    try {
       SUDOERS_5.forEach((student, i) => {
+        const asset = assets[i];
+        function required(name: string) {
+          const clip = asset.animations.find(
+            (animation) => animation.name === name,
+          );
+          if (!clip)
+            throw new Error(
+              `${student.name} model is missing the ${name} animation`,
+            );
+          return clip;
+        }
+        const walk = required("Walk_Loop"),
+          idle = required("Idle_Loop"),
+          talk = required("Idle_Talking_Loop"),
+          seatedIdle = required("Sitting_Idle_Loop"),
+          seatedTalk = required("Sitting_Talking_Loop"),
+          stand = required("Sitting_Exit");
         const actor = new THREE.Group();
         actor.name = student.name;
-        const model = clone(asset.scene);
+        const model = asset.scene;
         const wrapper = normalizeFinaleActor(model, 1.83),
           standingY = wrapper.position.y,
           seat = FACILITY_OFFICE_SEATS[i];
@@ -178,6 +197,7 @@ export function createFinaleStudents(loadModel = loadSubjectModel) {
         students.push({
           root: actor,
           model,
+          animations: asset.animations,
           wrapper,
           standingY,
           seatedY,
@@ -186,8 +206,11 @@ export function createFinaleStudents(loadModel = loadSubjectModel) {
           mode: "",
         });
       });
-    },
-  );
+    } catch (error) {
+      dispose();
+      throw error;
+    }
+  });
   return {
     root,
     furniture,
@@ -197,11 +220,16 @@ export function createFinaleStudents(loadModel = loadSubjectModel) {
       return students.map((student, index) => ({
         name: SUDOERS_5[index].name,
         model: student.model,
-        animations,
+        animations: student.animations,
         pose: student.actions.pose.getClip(),
       }));
     },
-    animate(index: number, mode: keyof Student["actions"], time: number, dt = 0) {
+    animate(
+      index: number,
+      mode: keyof Student["actions"],
+      time: number,
+      dt = 0,
+    ) {
       const student = students[index];
       if (!student) return;
       if (student.mode !== mode) {
@@ -234,32 +262,31 @@ export function createFinaleStudents(loadModel = loadSubjectModel) {
               )
             : student.standingY;
     },
-    dispose() {
-      if (disposed) return;
-      disposed = true;
-      for (const student of students) {
-        student.mixer.stopAllAction();
-        student.mixer.uncacheRoot(student.model);
-        student.model.traverse((node) => {
-          if (node instanceof THREE.SkinnedMesh) node.skeleton.dispose();
-        });
-      }
-      root.removeFromParent();
-      furniture.traverse((node) => {
-        if (node instanceof THREE.SkinnedMesh) node.skeleton.dispose();
-      });
-      sourceResources?.dispose();
-      chairResources?.dispose();
-      for (const child of furniture.children)
-        if (child instanceof THREE.Mesh) {
-          child.geometry.dispose();
-          const materials = Array.isArray(child.material)
-            ? child.material
-            : [child.material];
-          materials.forEach((material) => material.dispose());
-        }
-      badgeGeometry.dispose();
-      badges.forEach((material) => material.dispose());
-    },
+    dispose,
   };
+
+  function dispose() {
+    if (disposed) return;
+    disposed = true;
+    for (const student of students) {
+      student.mixer.stopAllAction();
+      student.mixer.uncacheRoot(student.model);
+    }
+    root.removeFromParent();
+    furniture.traverse((node) => {
+      if (node instanceof THREE.SkinnedMesh) node.skeleton.dispose();
+    });
+    sourceResources.forEach((resources) => resources.dispose());
+    chairResources?.dispose();
+    for (const child of furniture.children)
+      if (child instanceof THREE.Mesh) {
+        child.geometry.dispose();
+        const materials = Array.isArray(child.material)
+          ? child.material
+          : [child.material];
+        materials.forEach((material) => material.dispose());
+      }
+    badgeGeometry.dispose();
+    badges.forEach((material) => material.dispose());
+  }
 }

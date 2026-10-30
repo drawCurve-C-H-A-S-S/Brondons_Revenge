@@ -135,6 +135,9 @@ Brendan and Branden have separately baked combat and slide tracks for their
 own bind poses. After replacing either Arcade model, or regenerating Brondon's
 combat tracks, run `node scripts/importQuaterniusAnimations.mjs --arcade`.
 This reuses the cached Brondon animations without needing the original packs.
+The current Branden export has its own regenerated bind-pose signature and
+combat/slide tracks; tracks from an older export cannot be reused, even when
+the bone names mostly match.
 
 ### Other character model
 
@@ -142,6 +145,23 @@ The other character uses the original, unsmoothed `src/assets/models/Subject.glb
 with its six authored mesh primitives and existing skeleton. Do not regenerate
 the smoothing shell; the optional local smoothing script is not part of the
 asset pipeline.
+
+The Sudoers 5 character models are by **Husain Battey**. They use their
+individual `Caleb.glb`, `Husain.glb`, `Andre.glb`,
+`Sibusiso.glb` and `Sohrab.glb` models from `src/assets/models/`, not copies of
+Subject. Each student's authored appearance and animation clips are used in
+the facility office, finale and credits. `loadStudentModel(name)` resolves the
+display name (including André's accent), caches the source asset and returns
+an independently disposable rig. The stray unskinned `Cube` and `Cube.001`
+head pieces are removed during loading, without changing the skinned bodies.
+The students use Brondon's two-tone cel-shadow shader, including their cloned
+credits models and final dance. All five GLBs are included in asset caching.
+All five are also selectable in **Arcade mode**, alongside Brondon, Brendan
+and Branden. The character picker renders their actual model headshots.
+Their identical skeletons share a separately retargeted combat/slide rig.
+After replacing a student's bind pose, regenerate Arcade tracks with
+`node scripts/importQuaterniusAnimations.mjs --arcade` and verify all five
+still share that bind pose.
 
 ### Development dependency cache
 
@@ -205,6 +225,32 @@ movement-instructions overlay.
 Museum pedestal plaques show challenge names and multiline descriptions rather
 than internal scene IDs. Text is fitted within padded, high-resolution plaques
 so longer captions remain inside the label.
+
+Arcade opens the Museum without preloading the entire campaign. Its starfield
+shares the game's renderer rather than creating another WebGL context.
+The Museum photo booth uses the menus' comic styling and solid background
+colours only; scene-image backdrops are not loaded.
+
+The finale's local **1v1** uses the Story fight's compact health cards in the
+top corners and circular charge/control indicators along the bottom edges.
+Shield charge sits inside its control ring, without an extra status panel.
+**X** uses **Branden's Tears** (Opus) or **Rebel** (Final Verdict); **A** uses
+**Brendan's Will** or **Eclipse**, with their Story combat animations.
+Dealing **300 actual health damage** charges **Brondon's Revenge** or **Final
+Verdict**, triggered with **ZR + B**. Blocked hits and ultimate damage do not
+charge another ultimate. Brondon's Revenge teleports behind the opponent for
+phantom slashes; Final Verdict uses Eclipse's wind-up to fire a flying slash.
+Slashes, fading armour cuts, rifle rounds, Rebel's beam and flying blade waves
+use the same effect and projectile factories as the Story finale.
+The first fighter reaching **50% health** triggers a short planet-breaker
+explosion inside the current arena, followed by a flash-cut directly to space;
+there is no planet-wide camera excursion. Health and ultimate charge carry over; a fresh ready
+countdown lets both players settle before combat resumes. In space the left
+stick controls horizontal movement and altitude, with directional boost dodges.
+The space arena spans **320 units horizontally** and **150 vertically**,
+with faster flight and a camera that frames both fighters as they spread out.
+Arcade pause previews use the selected character
+or pausing player's mech in the normal menu's close-up starfield presentation.
 
 Arcade rules are isolated from Story mode. Entering a museum screen opens a
 pre-start briefing; gameplay and the run timer remain paused until **Start**.
@@ -273,6 +319,18 @@ The telescope displays the animated `ROLL.gif` asset inside its circular
 eyepiece, replacing the former text. It loads only when looking through the
 telescope, reuses the cached asset URL when available, and releases the image
 on exit. Image-load failures show a retry message rather than a blank view.
+The telescope overlay and game credits identify **Rick Astley** and
+**Never Gonna Give You Up**.
+
+The Character Studio's inset preview keeps padding around its canvas,
+orbit instructions and model attribution. Its collection contains only
+**Husain Battey's** eight playable cast models and finale mech, plus a clearly
+labelled special reference:
+[RX-78-2 Gundam](https://sketchfab.com/3d-models/rx-78-2-gundam-8b1ec0f948984aa897e60b63a13b501c)
+by [みそ太郎](https://sketchfab.com/nama_140), under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+The Gundam is rescaled for display, not credited as a CHASS model; its
+attribution appears beside the studio preview and in the main credits.
 
 ### Menus and display
 
@@ -1392,6 +1450,9 @@ from its Scene 17 jungle parking spot to morph into **Opus**. Brondon answers,
 "I taught you everything you know. But not everything I know," before Prime
 calls the ship and deploys Opus. A comic VS
 screen introduces the fight; there are no generated platforms under the mechs.
+The table poses mirror Caleb/Sohrab and Husain/Sibusiso around Andre's symmetric
+centre pose. Green boarding beams originate at the central chest gem's surface,
+with their socket attached to the gem's spine bone so it follows the mech.
 After the transformations, dusk deepens into a moonlit, starry nighttime rooftop.
 Both combat frames use `mechs.glb` armour bound to independent copies of the
 Subject combat rig, with articulated hands and weapon grips. Only Final Verdict
@@ -1556,12 +1617,17 @@ Scene 1 has a small **View Credits** button in the bottom-right corner of its me
 credits sheet and the rolling credits use the game's comic typography, halftone
 paper panels, ink outlines, offset shadows and coloured caption badges.
 The credits sheet shares the end roll's attribution list: creation and story by
-**CHASS**; music by **Caleb**, produced in **GarageBand for iOS**; Brondon and
-DonfromStreets (Brendan) character models and the mech model by **Husain**;
+**CHASS**; music by **Caleb**, produced in **GarageBand for iOS**; the Brondon,
+Branden, Brendan, Caleb, Husain, André, Sibusiso and Sohrab character models
+and the mech model by **Husain Battey**;
 generic character models from **Quaternius's Universal Animation Library
 (UAL)**; and weapons (including the pistol and rifle) and enemy robots from
-**Quaternius's Sci-Fi Essentials Kit** (**CC0 1.0**). It also credits animation
-authors, engine/physics libraries and development tools. Unconfirmed asset
+**Quaternius's Sci-Fi Essentials Kit** (**CC0 1.0**). The **Voice-over & AI
+character voices** section credits **Kyutai Pocket TTS**, the free demo hosted
+by **D3vShoaib**, **Qwen3-TTS** for Prime's original voice, and the **CSTR VCTK**
+authors and enhanced reference sources, with their licenses and modifications.
+The performances are explicitly identified as AI-generated. It also credits
+animation authors, engine/physics libraries and development tools. Unconfirmed asset
 sources remain explicitly marked for verification rather than assigned to an
 author.
 

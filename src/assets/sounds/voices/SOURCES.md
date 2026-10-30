@@ -7,6 +7,15 @@ Voice acting defaults to Off and is only available after Developer mode is
 unlocked. A saved developer On preference cannot enable voices during normal
 startup.
 
+## In-game voice-over credit
+
+The **View Credits** panel and ending credit roll share a **Voice-over & AI
+character voices** section. It identifies the dialogue as AI-generated and
+credits Kyutai Pocket TTS, the free demo hosted by D3vShoaib, Qwen3-TTS for
+Prime's original voice, and the VCTK authors and enhanced reference sources
+listed below. The synthetic cast names are character roles, not human
+voice-actor credits.
+
 ## Recordings
 
 [manifest.json](./manifest.json) lists the downloaded clips, exact dialogue,
@@ -14,7 +23,7 @@ source locations, durations and voice references. Reused dialogue shares one
 recording. Dynamic counters are shown in subtitles but are not read aloud.
 Brondon's dialogue is voiced, as are the other nine characters.
 
-The performances are generated offline with
+The performances were generated in advance with
 [Kyutai Pocket TTS](https://github.com/kyutai-labs/pocket-tts), model `b6369a24`,
 using the free [Pocket TTS demo](https://huggingface.co/spaces/D3vShoaib/pocket-tts).
 The [model weights](https://huggingface.co/kyutai/pocket-tts) are licensed under

@@ -28,6 +28,7 @@ import {
 } from "./museumExhibits.js";
 import { createEscapeShip } from "../../scripts/items/createEscapeShip.js";
 import { cachedAssetUrl } from "../../core/assetCache.js";
+import { createMuseumPhotoStudio } from "./museumPhotoStudio.js";
 import {
   MUSEUM_EXHIBITS,
   MUSEUM_HALL,
@@ -42,6 +43,7 @@ import rollGifUrl from "../../assets/surveillance/ROLL.gif?url";
 
 export type MuseumCharacter = PlayableCharacter;
 interface MuseumOptions {
+  renderer: THREE.WebGLRenderer;
   character: MuseumCharacter;
   returnTo?: number;
   onEnterStage: (id: number) => Promise<unknown> | void;
@@ -215,13 +217,15 @@ function carpetTexture() {
   return texture;
 }
 export function createScene({
+  renderer,
+  character,
   returnTo,
   onEnterStage,
   onReturnToMainMenu,
 }: MuseumOptions) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x020510);
-  const starfield = createStarfield({ scene });
+  const starfield = createStarfield({ scene, renderer });
   const physics = createScenePhysics();
   const camera = new THREE.PerspectiveCamera(
     72,
@@ -932,7 +936,7 @@ export function createScene({
   scopeFrame.style.cssText =
     "position:relative;display:flex;align-items:center;justify-content:center;height:min(92vh,92vw);width:min(92vh,92vw);overflow:hidden;border-radius:50%;background:#000;box-shadow:0 0 0 10px #3a2a10,0 0 0 16px #b98a3a,0 0 60px #000 inset";
   const scopeImage = document.createElement("img");
-  scopeImage.alt = "ROLL animation through the museum telescope";
+  scopeImage.alt = "Rick Astley in Never Gonna Give You Up, seen through the museum telescope";
   scopeImage.decoding = "async";
   scopeImage.draggable = false;
   scopeImage.hidden = true;
@@ -943,9 +947,9 @@ export function createScene({
     "position:absolute;max-width:70%;margin:0;text-align:center;color:#f4dd9a;font:700 18px sans-serif";
   scopeFrame.append(scopeImage, scopeStatus);
   const scopeHint = document.createElement("div");
-  scopeHint.textContent = "Press E or Esc to stop looking";
+  scopeHint.innerHTML = "<div>Rick Astley — Never Gonna Give You Up (telescope GIF)</div><div>Press E or Esc to stop looking</div>";
   scopeHint.style.cssText =
-    "position:absolute;bottom:18px;left:0;right:0;text-align:center;color:#f4dd9a;font:700 14px sans-serif";
+    "position:absolute;bottom:18px;left:0;right:0;padding:0 12px;text-align:center;color:#f4dd9a;font:700 12px/1.8 sans-serif;text-shadow:0 1px 3px #000";
   scopeView.append(scopeFrame, scopeHint);
   document.body.append(scopeView);
   const onScopeLoad = () => {
@@ -1010,7 +1014,50 @@ export function createScene({
     focus: (typeof paintings)[number] | null = null;
   let nearScope = false,
     looking = false,
-    nearMainMenu = false;
+    nearMainMenu = false,
+    nearStudio = false;
+  const photoStudio = createMuseumPhotoStudio(character, () => {
+    if (disposed) return;
+    player.clearInput();
+    if (active && !paused && !entering) player.enable();
+  });
+  // Northwest corner: between Brondon's dais and the Level 1 gallery.
+  const studioPosition = new THREE.Vector3(-HX + 5.5, 0, -HZ + 5);
+  const station = new THREE.Group();
+  station.name = "MuseumCharacterPhotoStudio";
+  station.position.copy(studioPosition);
+  station.rotation.y = Math.PI / 4;
+  scene.add(station);
+  const stationBox = (size: [number, number, number], at: [number, number, number], material: THREE.Material) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), material);
+    mesh.position.set(...at);
+    mesh.castShadow = mesh.receiveShadow = true;
+    station.add(mesh);
+  };
+  stationBox([2.3, 0.25, 1.5], [0, 0.125, 0], marble);
+  stationBox([0.38, 1.25, 0.38], [0, 0.875, 0], gold);
+  stationBox([5.4, 3.2, 0.3], [0, 3.1, 0], darkStone);
+  const studioScreen = new THREE.Mesh(
+    new THREE.PlaneGeometry(5.15, 2.9),
+    new THREE.MeshBasicMaterial({ map: photoStudio.screenTexture, toneMapped: false }),
+  );
+  studioScreen.name = "CharacterStudioScreen";
+  studioScreen.position.set(0, 3.1, 0.17);
+  station.add(studioScreen);
+  const studioLabelMap = createComicLabel("CHARACTER STUDIO / PHOTO BOOTH");
+  disposables.push(() => studioLabelMap.dispose());
+  const studioLabel = new THREE.Mesh(new THREE.PlaneGeometry(4.5, 0.7),
+    new THREE.MeshBasicMaterial({ map: studioLabelMap, transparent: true, toneMapped: false }));
+  studioLabel.position.set(0, 5.15, 0.18);
+  station.add(studioLabel);
+  physics.addBox({ x: 4.2, y: 4.75, z: 4.2 }, studioPosition.clone().setY(2.375));
+  function openStudio() {
+    player.disable();
+    player.clearInput();
+    prompt?.classList.add("hidden");
+    if (document.pointerLockElement) document.exitPointerLock();
+    photoStudio.open();
+  }
   function setLooking(value: boolean) {
     if (looking === value) return;
     looking = value;
@@ -1051,6 +1098,7 @@ export function createScene({
       document.body.classList.contains("quick-menu-open")
     )
       return;
+    if (photoStudio.isOpen) return;
     const target = event.target;
     if (
       target instanceof HTMLElement &&
@@ -1062,6 +1110,11 @@ export function createScene({
         if (event.code === "KeyE") event.preventDefault();
         setLooking(false);
       }
+      return;
+    }
+    if (event.code === "KeyE" && !event.repeat && active && !paused && !entering && nearStudio) {
+      event.preventDefault();
+      openStudio();
       return;
     }
     if (
@@ -1118,9 +1171,16 @@ export function createScene({
     ),
     forceThirdPerson: true,
     getMusicTrack: () => "puzzle" as const,
-    controlsReady: () => active && !paused && !entering,
+    controlsReady: () => active && !paused && !entering && !photoStudio.isOpen,
+    getSceneMenuRoot: () => photoStudio.isOpen ? photoStudio.element : null,
+    closeSceneMenu() {
+      if (!photoStudio.isOpen) return false;
+      photoStudio.close();
+      return true;
+    },
     setMenuPaused(value: boolean) {
       paused = value;
+      photoStudio.setPaused(value);
       player.clearInput();
     },
     updateCharacterAppearance(model: { model: THREE.Object3D } | null) {
@@ -1132,7 +1192,7 @@ export function createScene({
       }
     },
     updatePhysics(dt: number, thirdPerson = false) {
-      if (disposed || !active || paused) return;
+      if (disposed || !active || paused || photoStudio.isOpen) return;
       const frame = Number.isFinite(dt)
         ? THREE.MathUtils.clamp(dt, 0, PHYSICS.maxFrameTime)
         : 0;
@@ -1186,8 +1246,12 @@ export function createScene({
         Math.abs(p.y - player.radius) < 1;
       nearScope =
         !focus && Math.hypot(p.x - SCOPE_POS.x, p.z - SCOPE_POS.z) < 3.2;
+      nearStudio = !focus && Math.hypot(p.x - studioPosition.x, p.z - studioPosition.z) < 5;
       if (prompt && !entering && !looking) {
-        if (nearMainMenu) {
+        if (nearStudio) {
+          prompt.textContent = inputHint("E / Open Character Studio: models, poses and photos");
+          prompt.classList.remove("hidden");
+        } else if (nearMainMenu) {
           prompt.textContent = inputHint("Press E to return to Main Menu");
           prompt.classList.remove("hidden");
         } else if (focus) {
@@ -1207,6 +1271,7 @@ export function createScene({
     dispose() {
       if (disposed) return;
       disposed = true;
+      photoStudio.dispose();
       window.removeEventListener("keydown", onKey, true);
       flash.remove();
       prompt?.classList.add("hidden");

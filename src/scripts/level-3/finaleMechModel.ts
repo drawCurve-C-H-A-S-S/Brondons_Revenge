@@ -196,6 +196,38 @@ export async function createFinaleMechModel(side: MechSide): Promise<MechAsset> 
     mesh.bind(skeleton, bindMatrix);
   }
   sourceSkeletons.forEach((skeleton) => skeleton.dispose());
+  const gemBone = bones.get("spine_02");
+  if (!gemBone) throw new Error("The finale mech is missing its chest gem bone");
+  rig.scene.updateMatrixWorld(true);
+  const gemBounds = new THREE.Box3();
+  const gemPoint = new THREE.Vector3();
+  for (const mesh of armourMeshes) {
+    mesh.skeleton.update();
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    const joints = mesh.geometry.getAttribute("skinIndex");
+    const weights = mesh.geometry.getAttribute("skinWeight");
+    for (const group of mesh.geometry.groups) {
+      if (!materials[group.materialIndex ?? 0].name.startsWith("gem")) continue;
+      for (let vertex = group.start; vertex < group.start + group.count; vertex++) {
+        let dominant = 0;
+        for (let component = 1; component < 4; component++)
+          if (weights.getComponent(vertex, component) > weights.getComponent(vertex, dominant))
+            dominant = component;
+        if (mesh.skeleton.bones[joints.getComponent(vertex, dominant)] !== gemBone) continue;
+        mesh.getVertexPosition(vertex, gemPoint);
+        mesh.localToWorld(gemPoint);
+        rig.scene.worldToLocal(gemPoint);
+        gemBounds.expandByPoint(gemPoint);
+      }
+    }
+  }
+  if (gemBounds.isEmpty()) throw new Error("The finale mech has no central chest gem geometry");
+  const gemSocket = new THREE.Object3D();
+  gemSocket.name = "FinaleChestGemSocket";
+  gemBounds.getCenter(gemSocket.position);
+  gemSocket.position.z = gemBounds.max.z;
+  rig.scene.add(gemSocket);
+  gemBone.attach(gemSocket);
   if (side === "enemy") {
     const wristGeometry = new THREE.CylinderGeometry(0.06, 0.075, 0.14, 8);
     for (const name of ["hand_l", "hand_r"]) {
@@ -213,5 +245,6 @@ export async function createFinaleMechModel(side: MechSide): Promise<MechAsset> 
     animations: rig.animations,
     ownership: "owned",
     authoredMaterials: true,
+    sockets: { gem: gemSocket.name },
   };
 }
